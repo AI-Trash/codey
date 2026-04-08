@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 import {
   waitForAuthorizationCode,
   type AuthorizationCallbackPayload,

@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 import { ACCOUNT_TYPES, normalizeAccountType, type AccountType } from '../common/account-types';
 import { clickAny, clickIfPresent, fillIfPresent } from '../common/form-actions';
 import { registrationDefaults, type RegistrationSelectors } from './defaults';

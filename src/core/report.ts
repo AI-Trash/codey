@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 import { getRuntimeConfig } from '../config';
 import { ensureDir } from '../utils/fs';
 

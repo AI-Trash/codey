@@ -14,7 +14,7 @@ export default defineConfig({
     },
     rollupOptions: {
       external: [...builtinModules,
-      ...builtinModules.map((m) => `node:${m}`), 'playwright']
+      ...builtinModules.map((m) => `node:${m}`), 'patchright']
     },
   },
 });

@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 import { firstVisible, toLocator } from '../../utils/selectors';
 import type { SelectorList, SelectorTarget } from '../../types';
 

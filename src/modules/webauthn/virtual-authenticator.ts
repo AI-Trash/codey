@@ -1,4 +1,4 @@
-import type { CDPSession, Page } from 'playwright';
+import type { CDPSession, Page } from 'patchright';
 
 export interface VirtualPasskeyCredential {
   credentialId: string;

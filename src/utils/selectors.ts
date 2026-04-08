@@ -1,4 +1,4 @@
-import type { Locator, Page } from 'playwright';
+import type { Locator, Page } from 'patchright';
 import type { SelectorList, SelectorTarget } from '../types';
 
 export function toLocator(page: Page, target: SelectorTarget): Locator {

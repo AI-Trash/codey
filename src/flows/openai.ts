@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Page } from 'patchright';
 import { getRuntimeConfig } from '../config';
 import { expectUrlIncludes, expectVisible } from '../core/assertions';
 import type { FlowResult } from '../types';

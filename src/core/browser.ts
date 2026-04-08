@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext } from 'playwright';
+import { chromium, type Browser, type BrowserContext } from 'patchright';
 import { getRuntimeConfig } from '../config';
 import { ensureDir } from '../utils/fs';
 import type { Session } from '../types';
@@ -8,6 +8,7 @@ export async function launchBrowser(): Promise<Browser> {
   ensureDir(config.artifactsDir);
 
   return chromium.launch({
+    channel: "chrome",
     headless: config.browser.headless,
     slowMo: config.browser.slowMo,
   });

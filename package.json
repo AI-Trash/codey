@@ -4,7 +4,8 @@
   "description": "Playwright library environment for validating OpenAI web flows with Chromium only",
   "main": "dist/index.js",
   "scripts": {
-    "build": "vite build"
+    "build": "vite build",
+    "chatgpt:open": "tsx src/cli.ts flow chatgpt-open"
   },
   "keywords": [],
   "author": "",
@@ -12,9 +13,8 @@
   "packageManager": "pnpm@10.28.0",
   "devDependencies": {
     "@microsoft/microsoft-graph-client": "^3.0.7",
-    "@playwright/browser-chromium": "^1.59.1",
     "@types/node": "^25.5.2",
-    "playwright": "^1.59.1",
+    "patchright": "^1.59.3",
     "tsx": "^4.20.6",
     "typescript": "^6.0.2",
     "vite": "^8.0.7"

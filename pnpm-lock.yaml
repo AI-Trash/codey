@@ -8,15 +8,15 @@ importers:
 
   .:
     devDependencies:
-      '@playwright/browser-chromium':
-        specifier: ^1.59.1
-        version: 1.59.1
+      '@microsoft/microsoft-graph-client':
+        specifier: ^3.0.7
+        version: 3.0.7
       '@types/node':
         specifier: ^25.5.2
         version: 25.5.2
-      playwright:
-        specifier: ^1.59.1
-        version: 1.59.1
+      patchright:
+        specifier: ^1.59.3
+        version: 1.59.3
       tsx:
         specifier: ^4.20.6
         version: 4.21.0
@@ -28,6 +28,10 @@ importers:
         version: 8.0.7(@types/node@25.5.2)(esbuild@0.27.7)(tsx@4.21.0)
 
 packages:
+
+  '@babel/runtime@7.29.2':
+    resolution: {integrity: sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g==}
+    engines: {node: '>=6.9.0'}
 
   '@emnapi/core@1.9.1':
     resolution: {integrity: sha512-mukuNALVsoix/w1BJwFzwXBN/dHeejQtuVzcDsfOEsdpCumXb/E9j8w11h5S54tT1xhifGfbbSm/ICrObRb3KA==}
@@ -194,6 +198,24 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@microsoft/microsoft-graph-client@3.0.7':
+    resolution: {integrity: sha512-/AazAV/F+HK4LIywF9C+NYHcJo038zEnWkteilcxC1FM/uK/4NVGDKGrxx7nNq1ybspAroRKT4I1FHfxQzxkUw==}
+    engines: {node: '>=12.0.0'}
+    peerDependencies:
+      '@azure/identity': '*'
+      '@azure/msal-browser': '*'
+      buffer: '*'
+      stream-browserify: '*'
+    peerDependenciesMeta:
+      '@azure/identity':
+        optional: true
+      '@azure/msal-browser':
+        optional: true
+      buffer:
+        optional: true
+      stream-browserify:
+        optional: true
+
   '@napi-rs/wasm-runtime@1.1.3':
     resolution: {integrity: sha512-xK9sGVbJWYb08+mTJt3/YV24WxvxpXcXtP6B172paPZ+Ts69Re9dAr7lKwJoeIx8OoeuimEiRZ7umkiUVClmmQ==}
     peerDependencies:
@@ -202,10 +224,6 @@ packages:
 
   '@oxc-project/types@0.123.0':
     resolution: {integrity: sha512-YtECP/y8Mj1lSHiUWGSRzy/C6teUKlS87dEfuVKT09LgQbUsBW1rNg+MiJ4buGu3yuADV60gbIvo9/HplA56Ew==}
-
-  '@playwright/browser-chromium@1.59.1':
-    resolution: {integrity: sha512-XDwr0qOrzLXAuBAzg4WO/xctVMb+ldJ54yz9KCpFu8G8MVJzUVFO6BvK1tBtBl4DIoFcoFRKHgUGZT+8wOC8BQ==}
-    engines: {node: '>=18'}
 
   '@rolldown/binding-android-arm64@1.0.0-rc.13':
     resolution: {integrity: sha512-5ZiiecKH2DXAVJTNN13gNMUcCDg4Jy8ZjbXEsPnqa248wgOVeYRX0iqXXD5Jz4bI9BFHgKsI2qmyJynstbmr+g==}
@@ -411,22 +429,22 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  patchright-core@1.59.3:
+    resolution: {integrity: sha512-EXq8a3nOoiubBtM77W9vYJDP/nFBuGaQK5CAzkaCr9/PTU5DPT1PDW0mDLdeX0P7bzSUgXEHiogHlC4zK2qSzw==}
+    engines: {node: '>=18'}
+    hasBin: true
+
+  patchright@1.59.3:
+    resolution: {integrity: sha512-0i/6bXgv0rGz5khInk8nHb2sX9RbAu/whRUJDL3zvP5j0ovX9ITHF+o/3XlBu0UJ092YvQjO+8pGPEOnzHeeBA==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
   picomatch@4.0.4:
     resolution: {integrity: sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==}
     engines: {node: '>=12'}
-
-  playwright-core@1.59.1:
-    resolution: {integrity: sha512-HBV/RJg81z5BiiZ9yPzIiClYV/QMsDCKUyogwH9p3MCP6IYjUFu/MActgYAvK0oWyV9NlwM3GLBjADyWgydVyg==}
-    engines: {node: '>=18'}
-    hasBin: true
-
-  playwright@1.59.1:
-    resolution: {integrity: sha512-C8oWjPR3F81yljW9o5OxcWzfh6avkVwDD2VYdwIGqTkl+OGFISgypqzfu7dOe4QNLL2aqcWBmI3PMtLIK233lw==}
-    engines: {node: '>=18'}
-    hasBin: true
 
   postcss@8.5.9:
     resolution: {integrity: sha512-7a70Nsot+EMX9fFU3064K/kdHWZqGVY+BADLyXc8Dfv+mTLLVl6JzJpPaCZ2kQL9gIJvKXSLMHhqdRRjwQeFtw==}
@@ -508,6 +526,8 @@ packages:
         optional: true
 
 snapshots:
+
+  '@babel/runtime@7.29.2': {}
 
   '@emnapi/core@1.9.1':
     dependencies:
@@ -603,6 +623,11 @@ snapshots:
   '@esbuild/win32-x64@0.27.7':
     optional: true
 
+  '@microsoft/microsoft-graph-client@3.0.7':
+    dependencies:
+      '@babel/runtime': 7.29.2
+      tslib: 2.8.1
+
   '@napi-rs/wasm-runtime@1.1.3(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)':
     dependencies:
       '@emnapi/core': 1.9.1
@@ -611,10 +636,6 @@ snapshots:
     optional: true
 
   '@oxc-project/types@0.123.0': {}
-
-  '@playwright/browser-chromium@1.59.1':
-    dependencies:
-      playwright-core: 1.59.1
 
   '@rolldown/binding-android-arm64@1.0.0-rc.13':
     optional: true
@@ -772,17 +793,17 @@ snapshots:
 
   nanoid@3.3.11: {}
 
+  patchright-core@1.59.3: {}
+
+  patchright@1.59.3:
+    dependencies:
+      patchright-core: 1.59.3
+    optionalDependencies:
+      fsevents: 2.3.2
+
   picocolors@1.1.1: {}
 
   picomatch@4.0.4: {}
-
-  playwright-core@1.59.1: {}
-
-  playwright@1.59.1:
-    dependencies:
-      playwright-core: 1.59.1
-    optionalDependencies:
-      fsevents: 2.3.2
 
   postcss@8.5.9:
     dependencies:
@@ -820,8 +841,7 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
 
-  tslib@2.8.1:
-    optional: true
+  tslib@2.8.1: {}
 
   tsx@4.21.0:
     dependencies:

@@ -52,6 +52,7 @@ function printHelp(): void {
 Usage:
   codey flow openai-home [--config path]
   codey flow chatgpt-entry [--config path]
+  codey flow chatgpt-open [--config path] [--waitMs 300000]
   codey exchange folders [--config path]
   codey exchange messages [--folderId id] [--maxItems 20] [--unreadOnly true]
 
@@ -102,6 +103,26 @@ async function runFlowCommand(args: ParsedArgs, config: CliRuntimeConfig): Promi
     if (args.subcommand === 'chatgpt-entry') {
       const result = await verifyChatGPTEntry(session.page);
       console.log(JSON.stringify({ command: 'flow:chatgpt-entry', config, result }, null, 2));
+      return;
+    }
+
+    if (args.subcommand === 'chatgpt-open') {
+      const waitMs = parseNumberFlag(args.flags.waitMs, 300000);
+      await session.page.goto(config.openai.chatgptUrl, { waitUntil: 'domcontentloaded' });
+      console.log(
+        JSON.stringify(
+          {
+            command: 'flow:chatgpt-open',
+            status: 'opened',
+            url: session.page.url(),
+            waitMs,
+            note: 'ChatGPT has been opened and no automated actions will be performed.',
+          },
+          null,
+          2,
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
       return;
     }
 

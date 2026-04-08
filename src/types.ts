@@ -1,4 +1,4 @@
-import type { Locator, Page } from 'playwright';
+import type { Locator, Page } from 'patchright';
 
 export type SelectorObject =
   | { css: string }
@@ -12,8 +12,8 @@ export type SelectorTarget = string | SelectorObject;
 export type SelectorList = SelectorTarget[];
 
 export interface Session {
-  browser: import('playwright').Browser;
-  context: import('playwright').BrowserContext;
+  browser: import('patchright').Browser;
+  context: import('patchright').BrowserContext;
   page: Page;
   close(): Promise<void>;
 }
