@@ -1,0 +1,21 @@
+{
+  "name": "codey",
+  "version": "1.0.0",
+  "description": "Playwright library environment for validating OpenAI web flows with Chromium only",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "vite build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.28.0",
+  "devDependencies": {
+    "@playwright/browser-chromium": "^1.59.1",
+    "@types/node": "^25.5.2",
+    "playwright": "^1.59.1",
+    "tsx": "^4.20.6",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.7"
+  }
+}
