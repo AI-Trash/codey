@@ -10,4 +10,5 @@ export {
 export { registerAccount, registerParentAccount, registerChildAccount } from './modules/registration';
 export { loginAccount, loginParentAccount, loginChildAccount } from './modules/login';
 export { ExchangeClient } from './modules/exchange';
+export * from './modules/webauthn';
 export type * from './types';

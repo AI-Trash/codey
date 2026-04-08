@@ -113,7 +113,7 @@ async function runFlowCommand(args: ParsedArgs, config: CliRuntimeConfig): Promi
 
 async function runExchangeCommand(args: ParsedArgs, config: CliRuntimeConfig): Promise<void> {
   if (!config.exchange) {
-    throw new Error('Exchange config is required. Provide it in env or JSON config.');
+    throw new Error('Exchange config is required. Provide Microsoft Graph client credentials in env or JSON config.');
   }
 
   const client = new ExchangeClient(config.exchange);

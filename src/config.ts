@@ -17,13 +17,13 @@ export interface OpenAIFlowConfig {
 }
 
 export interface ExchangeAuthConfig {
-  mode: 'basic';
-  username: string;
-  password: string;
+  mode: 'client_credentials';
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
 }
 
 export interface ExchangeConfig {
-  endpoint: string;
   auth: ExchangeAuthConfig;
   mailbox?: string;
 }
@@ -96,14 +96,16 @@ export const defaultConfig: AppConfig = {
     chatgptUrl: process.env.CHATGPT_URL || 'https://chatgpt.com',
   },
   exchange:
-    process.env.EXCHANGE_ENDPOINT && process.env.EXCHANGE_USERNAME && process.env.EXCHANGE_PASSWORD
+    process.env.EXCHANGE_TENANT_ID &&
+    process.env.EXCHANGE_CLIENT_ID &&
+    process.env.EXCHANGE_CLIENT_SECRET
       ? {
-        endpoint: process.env.EXCHANGE_ENDPOINT,
         mailbox: process.env.EXCHANGE_MAILBOX,
         auth: {
-          mode: 'basic',
-          username: process.env.EXCHANGE_USERNAME,
-          password: process.env.EXCHANGE_PASSWORD,
+          mode: 'client_credentials',
+          tenantId: process.env.EXCHANGE_TENANT_ID,
+          clientId: process.env.EXCHANGE_CLIENT_ID,
+          clientSecret: process.env.EXCHANGE_CLIENT_SECRET,
         },
       }
       : undefined,

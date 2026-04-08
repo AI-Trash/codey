@@ -1,131 +1,138 @@
+import { Client } from '@microsoft/microsoft-graph-client';
 import type { ExchangeConfig } from '../../config';
 import type { ExchangeFolder, ExchangeListMessagesOptions, ExchangeMessage } from './types';
 
-function xmlEscape(input: string): string {
-  return input
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;');
+interface GraphMailFolder {
+  id: string;
+  displayName: string;
+  childFolderCount?: number;
+  unreadItemCount?: number;
+  totalItemCount?: number;
 }
 
-function tagValue(xml: string, tag: string): string | undefined {
-  const match = xml.match(new RegExp(`<[^:>]*:?${tag}[^>]*>([\\s\\S]*?)</[^:>]*:?${tag}>`, 'i'));
-  return match?.[1]?.trim();
+interface GraphEmailAddress {
+  address?: string;
+  name?: string;
 }
 
-function extractItems(xml: string, itemTag: string): string[] {
-  const regex = new RegExp(`<[^:>]*:?${itemTag}\\b[^>]*>([\\s\\S]*?)</[^:>]*:?${itemTag}>`, 'gi');
-  const blocks: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(xml))) {
-    blocks.push(match[0]);
-  }
-  return blocks;
+interface GraphMessage {
+  id: string;
+  subject?: string;
+  isRead?: boolean;
+  receivedDateTime?: string;
+  from?: {
+    emailAddress?: GraphEmailAddress;
+  };
 }
 
 export class ExchangeClient {
+  private graphClient?: Client;
+  private accessToken?: string;
+  private accessTokenExpiresAt = 0;
+
   constructor(private readonly config: ExchangeConfig) {}
 
-  private async call(action: string, body: string): Promise<string> {
-    const auth = Buffer.from(
-      `${this.config.auth.username}:${this.config.auth.password}`,
-      'utf8',
-    ).toString('base64');
+  private async getAccessToken(): Promise<string> {
+    const now = Date.now();
+    if (this.accessToken && now < this.accessTokenExpiresAt - 60_000) {
+      return this.accessToken;
+    }
 
-    const envelope = `<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
-  xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
-  xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Header>
-    <t:RequestServerVersion Version="Exchange2016" />
-  </soap:Header>
-  <soap:Body>${body}</soap:Body>
-</soap:Envelope>`;
-
-    const response = await fetch(this.config.endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${auth}`,
-        'Content-Type': 'text/xml; charset=utf-8',
-        SOAPAction: action,
-      },
-      body: envelope,
+    const body = new URLSearchParams({
+      client_id: this.config.auth.clientId,
+      client_secret: this.config.auth.clientSecret,
+      scope: 'https://graph.microsoft.com/.default',
+      grant_type: 'client_credentials',
     });
 
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`Exchange request failed (${response.status}): ${text}`);
+    const tokenUrl = `https://login.microsoftonline.com/${this.config.auth.tenantId}/oauth2/v2.0/token`;
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    });
+
+    const json = (await response.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      error?: string;
+      error_description?: string;
+    };
+
+    if (!response.ok || !json.access_token) {
+      throw new Error(
+        `Failed to acquire Microsoft Graph token: ${json.error || response.status} ${json.error_description || ''}`.trim(),
+      );
     }
 
-    if (/<(?:\w+:)?ResponseCode>Error/i.test(text)) {
-      throw new Error(`Exchange SOAP error: ${text}`);
-    }
+    this.accessToken = json.access_token;
+    this.accessTokenExpiresAt = now + (json.expires_in || 3600) * 1000;
+    return this.accessToken;
+  }
 
-    return text;
+  private async getClient(): Promise<Client> {
+    if (this.graphClient) return this.graphClient;
+
+    this.graphClient = Client.init({
+      authProvider: {
+        getAccessToken: async () => this.getAccessToken(),
+      },
+    });
+
+    return this.graphClient;
+  }
+
+  private getMailboxPath(): string {
+    if (!this.config.mailbox) {
+      throw new Error('Exchange mailbox is required for Microsoft Graph application permissions.');
+    }
+    return `/users/${this.config.mailbox}`;
   }
 
   async listFolders(): Promise<ExchangeFolder[]> {
-    const xml = await this.call(
-      'FindFolder',
-      `<m:FindFolder Traversal="Shallow">
-        <m:FolderShape>
-          <t:BaseShape>Default</t:BaseShape>
-        </m:FolderShape>
-        <m:ParentFolderIds>
-          <t:DistinguishedFolderId Id="msgfolderroot" />
-        </m:ParentFolderIds>
-      </m:FindFolder>`,
-    );
+    const client = await this.getClient();
+    const mailboxPath = this.getMailboxPath();
+    const result = (await client
+      .api(`${mailboxPath}/mailFolders`)
+      .select(['id', 'displayName', 'childFolderCount', 'unreadItemCount', 'totalItemCount'])
+      .get()) as { value?: GraphMailFolder[] };
 
-    return extractItems(xml, 'Folder').map((block) => ({
-      id: block.match(/Id="([^"]+)"/i)?.[1] || '',
-      changeKey: block.match(/ChangeKey="([^"]+)"/i)?.[1],
-      displayName: tagValue(block, 'DisplayName') || '',
-      childFolderCount: Number(tagValue(block, 'ChildFolderCount') || 0),
-      unreadCount: Number(tagValue(block, 'UnreadCount') || 0),
-      totalCount: Number(tagValue(block, 'TotalCount') || 0),
+    return (result.value || []).map((folder) => ({
+      id: folder.id,
+      displayName: folder.displayName,
+      childFolderCount: folder.childFolderCount,
+      unreadCount: folder.unreadItemCount,
+      totalCount: folder.totalItemCount,
     }));
   }
 
   async listMessages(options: ExchangeListMessagesOptions = {}): Promise<ExchangeMessage[]> {
+    const client = await this.getClient();
+    const mailboxPath = this.getMailboxPath();
     const maxItems = options.maxItems ?? 20;
-    const folderTag = options.folderId
-      ? `<t:FolderId Id="${xmlEscape(options.folderId)}" />`
-      : `<t:DistinguishedFolderId Id="inbox" />`;
-    const restriction = options.unreadOnly
-      ? `<m:Restriction>
-          <t:IsEqualTo>
-            <t:FieldURI FieldURI="message:IsRead" />
-            <t:FieldURIOrConstant>
-              <t:Constant Value="false" />
-            </t:FieldURIOrConstant>
-          </t:IsEqualTo>
-        </m:Restriction>`
-      : '';
+    const folderPath = options.folderId
+      ? `${mailboxPath}/mailFolders/${options.folderId}/messages`
+      : `${mailboxPath}/mailFolders/inbox/messages`;
 
-    const xml = await this.call(
-      'FindItem',
-      `<m:FindItem Traversal="Shallow">
-        <m:ItemShape>
-          <t:BaseShape>Default</t:BaseShape>
-        </m:ItemShape>
-        <m:IndexedPageItemView MaxEntriesReturned="${maxItems}" Offset="0" BasePoint="Beginning" />
-        ${restriction}
-        <m:ParentFolderIds>${folderTag}</m:ParentFolderIds>
-      </m:FindItem>`,
-    );
+    let request = client
+      .api(folderPath)
+      .top(maxItems)
+      .select(['id', 'subject', 'isRead', 'receivedDateTime', 'from']);
 
-    return extractItems(xml, 'Message').map((block) => ({
-      id: block.match(/Id="([^"]+)"/i)?.[1] || '',
-      changeKey: block.match(/ChangeKey="([^"]+)"/i)?.[1],
-      subject: tagValue(block, 'Subject') || '',
-      from: tagValue(block, 'EmailAddress'),
-      isRead: (tagValue(block, 'IsRead') || '').toLowerCase() === 'true',
-      receivedAt: tagValue(block, 'DateTimeReceived'),
+    if (options.unreadOnly) {
+      request = request.filter('isRead eq false');
+    }
+
+    const result = (await request.get()) as { value?: GraphMessage[] };
+
+    return (result.value || []).map((message) => ({
+      id: message.id,
+      subject: message.subject || '',
+      from: message.from?.emailAddress?.address || message.from?.emailAddress?.name,
+      isRead: message.isRead,
+      receivedAt: message.receivedDateTime,
     }));
   }
 }

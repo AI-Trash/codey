@@ -3,6 +3,11 @@ import { ACCOUNT_TYPES, normalizeAccountType, type AccountType } from '../common
 import { checkIfPresent, clickAny, clickIfPresent, fillIfPresent } from '../common/form-actions';
 import { loginDefaults, type LoginSelectors } from './defaults';
 import type { SelectorList } from '../../types';
+import {
+  loadVirtualPasskeyStore,
+  type VirtualAuthenticatorOptions,
+  type VirtualPasskeyStore,
+} from '../webauthn';
 
 export interface LoginOptions {
   accountType?: string;
@@ -13,6 +18,8 @@ export interface LoginOptions {
   selectors?: Partial<LoginSelectors>;
   openLoginSelectors?: SelectorList;
   rememberMeSelectors?: SelectorList;
+  passkeyStore?: VirtualPasskeyStore;
+  virtualAuthenticator?: VirtualAuthenticatorOptions;
   onPasskeyPrompt?: (page: Page) => Promise<void>;
   afterSubmit?: (page: Page) => Promise<void>;
 }
@@ -70,6 +77,7 @@ export async function loginChildAccount(page: Page, options: LoginOptions = {}):
   let method: 'password' | 'passkey' = 'password';
 
   if (options.preferPasskey !== false && selectors.passkeyEntry) {
+    await loadVirtualPasskeyStore(page, options.passkeyStore, options.virtualAuthenticator);
     const triggered = await clickIfPresent(page, selectors.passkeyEntry);
     if (triggered) {
       method = 'passkey';

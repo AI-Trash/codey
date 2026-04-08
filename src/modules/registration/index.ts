@@ -3,6 +3,12 @@ import { ACCOUNT_TYPES, normalizeAccountType, type AccountType } from '../common
 import { clickAny, clickIfPresent, fillIfPresent } from '../common/form-actions';
 import { registrationDefaults, type RegistrationSelectors } from './defaults';
 import type { SelectorList } from '../../types';
+import {
+  captureVirtualPasskeyStore,
+  loadVirtualPasskeyStore,
+  type VirtualAuthenticatorOptions,
+  type VirtualPasskeyStore,
+} from '../webauthn';
 
 export interface RegistrationOptions {
   accountType?: string;
@@ -13,6 +19,8 @@ export interface RegistrationOptions {
   createPasskey?: boolean;
   selectors?: Partial<RegistrationSelectors>;
   openRegistrationSelectors?: SelectorList;
+  passkeyStore?: VirtualPasskeyStore;
+  virtualAuthenticator?: VirtualAuthenticatorOptions;
   onPasskeySetup?: (page: Page) => Promise<void>;
   afterSubmit?: (page: Page) => Promise<void>;
 }
@@ -23,6 +31,7 @@ export interface RegistrationResult {
   email: string | null;
   organizationName?: string | null;
   passkeyCreated: boolean;
+  passkeyStore?: VirtualPasskeyStore;
 }
 
 function mergeSelectors(base: RegistrationSelectors, overrides: Partial<RegistrationSelectors> = {}): RegistrationSelectors {
@@ -77,13 +86,23 @@ export async function registerChildAccount(page: Page, options: RegistrationOpti
   await clickAny(page, selectors.submit);
 
   let passkeyCreated = false;
+  let passkeyStore: VirtualPasskeyStore | undefined;
   if (options.createPasskey !== false && selectors.createPasskey) {
+    const virtualAuth = await loadVirtualPasskeyStore(
+      page,
+      options.passkeyStore,
+      options.virtualAuthenticator,
+    );
     passkeyCreated = await clickIfPresent(page, selectors.createPasskey);
     if (passkeyCreated) {
       await clickIfPresent(page, selectors.passkeyDialogConfirm || []);
       if (options.onPasskeySetup) {
         await options.onPasskeySetup(page);
       }
+      passkeyStore = await captureVirtualPasskeyStore(
+        virtualAuth.session,
+        virtualAuth.authenticatorId,
+      );
     }
   }
 
@@ -96,6 +115,7 @@ export async function registerChildAccount(page: Page, options: RegistrationOpti
     accountType: ACCOUNT_TYPES.CHILD,
     email: options.email || null,
     passkeyCreated,
+    passkeyStore,
   };
 }
 
