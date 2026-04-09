@@ -129,6 +129,19 @@ If your mailbox setup uses prefixed test addresses such as `codey*`, configure t
 - Prefix: `codey`
 - Test address pattern: `codey*@contoso.com`
 
+#### Important rule-setting note
+
+If you create a dedicated Exchange mail-flow rule for Codey addresses, make sure the rule is configured to **stop processing more rules** after it matches.
+
+This is important when your tenant also has a broader catch-all or forwarding rule. Without **Stop processing more rules**, the Codey message can match your Codey rule first and then continue into another broader rule, causing the message to be forwarded or redirected somewhere else instead of remaining in the Codey mailbox.
+
+Recommended behavior for the Codey-specific rule:
+
+- Match the Codey prefix, for example `codey*@contoso.com`
+- Deliver or redirect to the Codey mailbox you configured
+- Enable **Stop processing more rules**
+- Place the rule above broader catch-all rules when possible
+
 ### 5. Optional JSON config
 
 Instead of environment variables, you can provide a JSON file:
@@ -182,6 +195,12 @@ pnpm exec tsx src/cli.ts flow chatgpt-open --waitMs 300000
 
 ### Exchange commands
 
+Verify Exchange access:
+
+```bash
+pnpm exec tsx src/cli.ts exchange verify
+```
+
 List folders:
 
 ```bash
@@ -227,3 +246,4 @@ pnpm build
 - If Exchange commands fail with an authentication error, verify the tenant ID, client ID, and client secret.
 - If Exchange commands fail with authorization errors, confirm Microsoft Graph application permissions were added and admin consent was granted.
 - If mailbox queries fail, verify `EXCHANGE_MAILBOX` points to a mailbox your app is allowed to access.
+- If Exchange message tracing shows the message arrived but Codey cannot read it, check whether a broader mail-flow rule forwarded it after the Codey rule matched. In that case, enable **Stop processing more rules** on the Codey-specific rule.

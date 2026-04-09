@@ -1,5 +1,5 @@
 export { launchBrowser, newSession } from './core/browser';
-export { verifyOpenAIHome, verifyChatGPTEntry } from './flows/openai';
+export { verifyOpenAIHome, verifyChatGPTEntry, registerChatGPTWithExchange } from './flows/openai';
 export { resolveConfig, defaultConfig } from './config';
 export {
   createPkcePair,
@@ -12,3 +12,4 @@ export { loginAccount, loginParentAccount, loginChildAccount } from './modules/l
 export { ExchangeClient } from './modules/exchange';
 export * from './modules/webauthn';
 export type * from './types';
+export type * from './modules/exchange';

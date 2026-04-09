@@ -6,7 +6,7 @@ loadWorkspaceEnv();
 
 import { resolveConfig, setRuntimeConfig, type CliRuntimeConfig } from './config';
 import { newSession } from './core/browser';
-import { verifyChatGPTEntry, verifyOpenAIHome } from './flows/openai';
+import { registerChatGPTWithExchange, verifyChatGPTEntry, verifyOpenAIHome } from './flows/openai';
 import { ExchangeClient } from './modules/exchange';
 
 interface CommonOptions {
@@ -18,6 +18,10 @@ interface CommonOptions {
 
 interface FlowOptions extends CommonOptions {
   waitMs?: string | boolean;
+  verificationTimeoutMs?: string | boolean;
+  pollIntervalMs?: string | boolean;
+  password?: string;
+  createPasskey?: string | boolean;
 }
 
 interface ExchangeOptions extends CommonOptions {
@@ -93,6 +97,17 @@ async function runFlowCommand(
       return;
     }
 
+    if (subcommand === 'chatgpt-register-exchange') {
+      const result = await registerChatGPTWithExchange(session.page, {
+        password: options.password,
+        verificationTimeoutMs: parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000,
+        pollIntervalMs: parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000,
+        createPasskey: parseBooleanFlag(options.createPasskey, true) ?? true,
+      });
+      console.log(JSON.stringify({ command: 'flow:chatgpt-register-exchange', config, result }, null, 2));
+      return;
+    }
+
     throw new Error(`Unsupported flow command: ${subcommand || '(missing)'}`);
   } finally {
     await session.close();
@@ -109,6 +124,12 @@ async function runExchangeCommand(
   }
 
   const client = new ExchangeClient(config.exchange);
+
+  if (subcommand === 'verify') {
+    const result = await client.verifyAccess();
+    console.log(JSON.stringify({ command: 'exchange:verify', result }, null, 2));
+    return;
+  }
 
   if (subcommand === 'folders') {
     const result = await client.listFolders();
@@ -193,6 +214,36 @@ withCommonOptions(
 });
 
 withCommonOptions(
+  flowCli
+    .command('chatgpt-register-exchange', 'Register a ChatGPT account using the configured Exchange mailbox')
+    .option('--password <password>', 'Optional password override')
+    .option('--verificationTimeoutMs <ms>', 'How long to wait for the verification email')
+    .option('--pollIntervalMs <ms>', 'How often to poll Exchange for the verification email')
+    .option('--createPasskey <bool>', 'Whether to provision a passkey after registration')
+    .example('codey flow chatgpt-register-exchange --verificationTimeoutMs 180000 --createPasskey true'),
+).action((options: FlowOptions) => {
+  execute(
+    (async () => {
+      const config = buildRuntimeConfig('flow:chatgpt-register-exchange', options);
+      setRuntimeConfig(config);
+      await runFlowCommand('chatgpt-register-exchange', options, config);
+    })(),
+  );
+});
+
+withCommonOptions(
+  exchangeCli.command('verify', 'Verify Exchange token, mailbox folder access, and inbox message access').example('codey exchange verify'),
+).action((options: CommonOptions) => {
+  execute(
+    (async () => {
+      const config = buildRuntimeConfig('exchange:verify', options);
+      setRuntimeConfig(config);
+      await runExchangeCommand('verify', options, config);
+    })(),
+  );
+});
+
+withCommonOptions(
   exchangeCli.command('folders', 'List mailbox folders').example('codey exchange folders --config path/to/config.json'),
 ).action((options: CommonOptions) => {
   execute(
@@ -226,12 +277,14 @@ cli
   .example('codey flow openai-home --config path/to/config.json')
   .example('codey flow chatgpt-entry --headless true')
   .example('codey flow chatgpt-open --waitMs 300000')
+  .example('codey flow chatgpt-register-exchange --verificationTimeoutMs 180000 --createPasskey true')
   .action(() => {
     flowCli.outputHelp();
   });
 
 cli
   .command('exchange', 'Run Exchange commands')
+  .example('codey exchange verify')
   .example('codey exchange folders --config path/to/config.json')
   .example('codey exchange messages --folderId id --maxItems 20 --unreadOnly true')
   .action(() => {

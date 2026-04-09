@@ -86,47 +86,51 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
-const exchangeMailFlowCatchAll = process.env.EXCHANGE_CATCH_ALL_PREFIX
-  ? {
-      prefix: process.env.EXCHANGE_CATCH_ALL_PREFIX,
-    }
-  : undefined;
+function buildDefaultConfig(): AppConfig {
+  const exchangeMailFlowCatchAll = process.env.EXCHANGE_CATCH_ALL_PREFIX
+    ? {
+        prefix: process.env.EXCHANGE_CATCH_ALL_PREFIX,
+      }
+    : undefined;
 
-export const defaultConfig: AppConfig = {
-  rootDir,
-  artifactsDir: path.join(rootDir, 'artifacts'),
-  browser: {
-    headless: parseBoolean(process.env.HEADLESS, false),
-    slowMo: parseNumber(process.env.SLOW_MO, 0),
-    defaultTimeoutMs: parseNumber(process.env.DEFAULT_TIMEOUT_MS, 15000),
-    navigationTimeoutMs: parseNumber(process.env.NAVIGATION_TIMEOUT_MS, 30000),
-  },
-  openai: {
-    baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',
-    chatgptUrl: process.env.CHATGPT_URL || 'https://chatgpt.com',
-  },
-  exchange:
-    process.env.EXCHANGE_TENANT_ID &&
-    process.env.EXCHANGE_CLIENT_ID &&
-    process.env.EXCHANGE_CLIENT_SECRET
-      ? {
-          mailbox: process.env.EXCHANGE_MAILBOX,
-          auth: {
-            mode: 'client_credentials',
-            tenantId: process.env.EXCHANGE_TENANT_ID,
-            clientId: process.env.EXCHANGE_CLIENT_ID,
-            clientSecret: process.env.EXCHANGE_CLIENT_SECRET,
-          },
-          mailFlow: exchangeMailFlowCatchAll
-            ? {
-                catchAll: exchangeMailFlowCatchAll,
-              }
-            : undefined,
-        }
-      : undefined,
-};
+  return {
+    rootDir,
+    artifactsDir: path.join(rootDir, 'artifacts'),
+    browser: {
+      headless: parseBoolean(process.env.HEADLESS, false),
+      slowMo: parseNumber(process.env.SLOW_MO, 0),
+      defaultTimeoutMs: parseNumber(process.env.DEFAULT_TIMEOUT_MS, 15000),
+      navigationTimeoutMs: parseNumber(process.env.NAVIGATION_TIMEOUT_MS, 30000),
+    },
+    openai: {
+      baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',
+      chatgptUrl: process.env.CHATGPT_URL || 'https://chatgpt.com',
+    },
+    exchange:
+      process.env.EXCHANGE_TENANT_ID &&
+      process.env.EXCHANGE_CLIENT_ID &&
+      process.env.EXCHANGE_CLIENT_SECRET
+        ? {
+            mailbox: process.env.EXCHANGE_MAILBOX,
+            auth: {
+              mode: 'client_credentials',
+              tenantId: process.env.EXCHANGE_TENANT_ID,
+              clientId: process.env.EXCHANGE_CLIENT_ID,
+              clientSecret: process.env.EXCHANGE_CLIENT_SECRET,
+            },
+            mailFlow: exchangeMailFlowCatchAll
+              ? {
+                  catchAll: exchangeMailFlowCatchAll,
+                }
+              : undefined,
+          }
+        : undefined,
+  };
+}
 
-let runtimeConfig: AppConfig = defaultConfig;
+export const defaultConfig: AppConfig = buildDefaultConfig();
+
+let runtimeConfig: AppConfig = buildDefaultConfig();
 
 export function loadConfigFile(configFile?: string): PartialDeep<AppConfig> | undefined {
   if (!configFile) return undefined;
@@ -143,8 +147,9 @@ export function resolveConfig(options: {
   overrides?: PartialDeep<AppConfig>;
   command?: string;
 } = {}): CliRuntimeConfig {
+  const fromEnv = buildDefaultConfig();
   const fromFile = loadConfigFile(options.configFile);
-  const merged = mergeDeep(mergeDeep(defaultConfig, fromFile), options.overrides);
+  const merged = mergeDeep(mergeDeep(fromEnv, fromFile), options.overrides);
   return {
     ...merged,
     command: options.command,
