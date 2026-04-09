@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { cac } from 'cac';
+
 import { loadWorkspaceEnv } from './utils/env';
 loadWorkspaceEnv();
 
@@ -7,107 +9,72 @@ import { newSession } from './core/browser';
 import { verifyChatGPTEntry, verifyOpenAIHome } from './flows/openai';
 import { ExchangeClient } from './modules/exchange';
 
-interface ParsedArgs {
-  command: string;
-  subcommand?: string;
-  positionals: string[];
-  flags: Record<string, string | boolean>;
+interface CommonOptions {
+  config?: string;
+  profile?: string;
+  headless?: string | boolean;
+  slowMo?: string | boolean;
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
-  const positionals: string[] = [];
-  const flags: Record<string, string | boolean> = {};
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-    if (arg.startsWith('--')) {
-      const [key, inlineValue] = arg.slice(2).split('=');
-      if (inlineValue !== undefined) {
-        flags[key] = inlineValue;
-      } else {
-        const next = argv[i + 1];
-        if (next && !next.startsWith('-')) {
-          flags[key] = next;
-          i += 1;
-        } else {
-          flags[key] = true;
-        }
-      }
-    } else {
-      positionals.push(arg);
-    }
-  }
-
-  return {
-    command: positionals[0] || 'help',
-    subcommand: positionals[1],
-    positionals,
-    flags,
-  };
+interface FlowOptions extends CommonOptions {
+  waitMs?: string | boolean;
 }
 
-function printHelp(): void {
-  console.log(`codey CLI
-
-Usage:
-  codey flow openai-home [--config path]
-  codey flow chatgpt-entry [--config path]
-  codey flow chatgpt-open [--config path] [--waitMs 300000]
-  codey exchange folders [--config path]
-  codey exchange messages [--folderId id] [--maxItems 20] [--unreadOnly true]
-
-Config:
-  --config <file>     JSON config file
-  --profile <name>    Reserved for future profile selection
-  --headless <bool>   Override browser headless
-`);
+interface ExchangeOptions extends CommonOptions {
+  folderId?: string;
+  maxItems?: string | boolean;
+  unreadOnly?: string | boolean;
 }
 
-function parseBooleanFlag(value: string | boolean | undefined, fallback: boolean): boolean {
+function parseBooleanFlag(value: string | boolean | undefined, fallback?: boolean): boolean | undefined {
   if (typeof value === 'boolean') return value;
   if (typeof value !== 'string') return fallback;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
-function parseNumberFlag(value: string | boolean | undefined, fallback: number): number {
+function parseNumberFlag(value: string | boolean | undefined, fallback?: number): number | undefined {
   if (typeof value !== 'string') return fallback;
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 }
 
-function buildRuntimeConfig(args: ParsedArgs): CliRuntimeConfig {
+function buildRuntimeConfig(command: string, options: CommonOptions): CliRuntimeConfig {
   return resolveConfig({
-    command: [args.command, args.subcommand].filter(Boolean).join(':'),
-    configFile: typeof args.flags.config === 'string' ? args.flags.config : undefined,
-    profile: typeof args.flags.profile === 'string' ? args.flags.profile : undefined,
+    command,
+    configFile: options.config,
+    profile: options.profile,
     overrides: {
       browser: {
-        headless: parseBooleanFlag(args.flags.headless, undefined as unknown as boolean),
-        slowMo: parseNumberFlag(args.flags.slowMo, undefined as unknown as number),
+        headless: parseBooleanFlag(options.headless),
+        slowMo: parseNumberFlag(options.slowMo),
       },
     },
   });
 }
 
-async function runFlowCommand(args: ParsedArgs, config: CliRuntimeConfig): Promise<void> {
+async function runFlowCommand(
+  subcommand: string,
+  options: FlowOptions,
+  config: CliRuntimeConfig,
+): Promise<void> {
   const session = await newSession({
     context: {},
   });
   try {
-    if (args.subcommand === 'openai-home') {
+    if (subcommand === 'openai-home') {
       const result = await verifyOpenAIHome(session.page);
       console.log(JSON.stringify({ command: 'flow:openai-home', config, result }, null, 2));
       return;
     }
 
-    if (args.subcommand === 'chatgpt-entry') {
+    if (subcommand === 'chatgpt-entry') {
       const result = await verifyChatGPTEntry(session.page);
       console.log(JSON.stringify({ command: 'flow:chatgpt-entry', config, result }, null, 2));
       return;
     }
 
-    if (args.subcommand === 'chatgpt-open') {
-      const waitMs = parseNumberFlag(args.flags.waitMs, 300000);
+    if (subcommand === 'chatgpt-open') {
+      const waitMs = parseNumberFlag(options.waitMs, 300000) ?? 300000;
       await session.page.goto(config.openai.chatgptUrl, { waitUntil: 'domcontentloaded' });
       console.log(
         JSON.stringify(
@@ -126,64 +93,163 @@ async function runFlowCommand(args: ParsedArgs, config: CliRuntimeConfig): Promi
       return;
     }
 
-    throw new Error(`Unsupported flow command: ${args.subcommand || '(missing)'}`);
+    throw new Error(`Unsupported flow command: ${subcommand || '(missing)'}`);
   } finally {
     await session.close();
   }
 }
 
-async function runExchangeCommand(args: ParsedArgs, config: CliRuntimeConfig): Promise<void> {
+async function runExchangeCommand(
+  subcommand: string,
+  options: ExchangeOptions,
+  config: CliRuntimeConfig,
+): Promise<void> {
   if (!config.exchange) {
     throw new Error('Exchange config is required. Provide Microsoft Graph client credentials in env or JSON config.');
   }
 
   const client = new ExchangeClient(config.exchange);
 
-  if (args.subcommand === 'folders') {
+  if (subcommand === 'folders') {
     const result = await client.listFolders();
     console.log(JSON.stringify({ command: 'exchange:folders', result }, null, 2));
     return;
   }
 
-  if (args.subcommand === 'messages') {
+  if (subcommand === 'messages') {
     const result = await client.listMessages({
-      folderId: typeof args.flags.folderId === 'string' ? args.flags.folderId : undefined,
-      maxItems: parseNumberFlag(args.flags.maxItems, 20),
-      unreadOnly: parseBooleanFlag(args.flags.unreadOnly, false),
+      folderId: options.folderId,
+      maxItems: parseNumberFlag(options.maxItems, 20) ?? 20,
+      unreadOnly: parseBooleanFlag(options.unreadOnly, false) ?? false,
     });
     console.log(JSON.stringify({ command: 'exchange:messages', result }, null, 2));
     return;
   }
 
-  throw new Error(`Unsupported exchange command: ${args.subcommand || '(missing)'}`);
+  throw new Error(`Unsupported exchange command: ${subcommand || '(missing)'}`);
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-
-  if (args.command === 'help' || args.flags.help) {
-    printHelp();
-    return;
-  }
-
-  const config = buildRuntimeConfig(args);
-  setRuntimeConfig(config);
-
-  if (args.command === 'flow') {
-    await runFlowCommand(args, config);
-    return;
-  }
-
-  if (args.command === 'exchange') {
-    await runExchangeCommand(args, config);
-    return;
-  }
-
-  printHelp();
-  process.exitCode = 1;
-}
-
-void main().catch((error: Error) => {
-  console.error(JSON.stringify({ status: 'failed', error: error.message }, null, 2));
+function reportError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(JSON.stringify({ status: 'failed', error: message }, null, 2));
   process.exit(1);
+}
+
+function execute(task: Promise<void>): void {
+  task.catch(reportError);
+}
+
+const cli = cac('codey');
+const flowCli = cac('codey flow');
+const exchangeCli = cac('codey exchange');
+
+function withCommonOptions<TCommand extends { option(name: string, description?: string, config?: never): TCommand }>(
+  command: TCommand,
+): TCommand {
+  return command
+    .option('--config <file>', 'JSON config file')
+    .option('--profile <name>', 'Reserved for future profile selection')
+    .option('--headless <bool>', 'Override browser headless')
+    .option('--slowMo <ms>', 'Override browser slow motion delay');
+}
+
+withCommonOptions(
+  flowCli.command('openai-home', 'Validate the OpenAI home page').example('codey flow openai-home --config path/to/config.json'),
+).action((options: CommonOptions) => {
+  execute(
+    (async () => {
+      const config = buildRuntimeConfig('flow:openai-home', options);
+      setRuntimeConfig(config);
+      await runFlowCommand('openai-home', options, config);
+    })(),
+  );
 });
+
+withCommonOptions(
+  flowCli.command('chatgpt-entry', 'Validate the ChatGPT entry page').example('codey flow chatgpt-entry --headless true'),
+).action((options: CommonOptions) => {
+  execute(
+    (async () => {
+      const config = buildRuntimeConfig('flow:chatgpt-entry', options);
+      setRuntimeConfig(config);
+      await runFlowCommand('chatgpt-entry', options, config);
+    })(),
+  );
+});
+
+withCommonOptions(
+  flowCli
+    .command('chatgpt-open', 'Open ChatGPT and keep the page open')
+  .option('--waitMs <ms>', 'How long to keep ChatGPT open for chatgpt-open')
+  .example('codey flow chatgpt-open --waitMs 300000'),
+).action((options: FlowOptions) => {
+  execute(
+    (async () => {
+      const config = buildRuntimeConfig('flow:chatgpt-open', options);
+      setRuntimeConfig(config);
+      await runFlowCommand('chatgpt-open', options, config);
+    })(),
+  );
+});
+
+withCommonOptions(
+  exchangeCli.command('folders', 'List mailbox folders').example('codey exchange folders --config path/to/config.json'),
+).action((options: CommonOptions) => {
+  execute(
+    (async () => {
+      const config = buildRuntimeConfig('exchange:folders', options);
+      setRuntimeConfig(config);
+      await runExchangeCommand('folders', options, config);
+    })(),
+  );
+});
+
+withCommonOptions(
+  exchangeCli
+    .command('messages', 'List mailbox messages')
+  .option('--folderId <id>', 'Mailbox folder id')
+  .option('--maxItems <count>', 'Maximum number of messages to return')
+  .option('--unreadOnly <bool>', 'Only return unread messages')
+  .example('codey exchange messages --folderId id --maxItems 20 --unreadOnly true'),
+).action((options: ExchangeOptions) => {
+  execute(
+    (async () => {
+      const config = buildRuntimeConfig('exchange:messages', options);
+      setRuntimeConfig(config);
+      await runExchangeCommand('messages', options, config);
+    })(),
+  );
+});
+
+cli
+  .command('flow', 'Run OpenAI flow commands')
+  .example('codey flow openai-home --config path/to/config.json')
+  .example('codey flow chatgpt-entry --headless true')
+  .example('codey flow chatgpt-open --waitMs 300000')
+  .action(() => {
+    flowCli.outputHelp();
+  });
+
+cli
+  .command('exchange', 'Run Exchange commands')
+  .example('codey exchange folders --config path/to/config.json')
+  .example('codey exchange messages --folderId id --maxItems 20 --unreadOnly true')
+  .action(() => {
+    exchangeCli.outputHelp();
+  });
+
+cli.help();
+flowCli.help();
+exchangeCli.help();
+
+const argv = process.argv.slice(2);
+
+if (argv.length === 0) {
+  cli.outputHelp();
+} else if (argv[0] === 'flow') {
+  flowCli.parse(['codey', 'flow', ...argv.slice(1)]);
+} else if (argv[0] === 'exchange') {
+  exchangeCli.parse(['codey', 'exchange', ...argv.slice(1)]);
+} else {
+  cli.parse();
+}
