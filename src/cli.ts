@@ -180,8 +180,8 @@ withCommonOptions(
 withCommonOptions(
   flowCli
     .command('chatgpt-open', 'Open ChatGPT and keep the page open')
-  .option('--waitMs <ms>', 'How long to keep ChatGPT open for chatgpt-open')
-  .example('codey flow chatgpt-open --waitMs 300000'),
+    .option('--waitMs <ms>', 'How long to keep ChatGPT open for chatgpt-open')
+    .example('codey flow chatgpt-open --waitMs 300000'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -207,10 +207,10 @@ withCommonOptions(
 withCommonOptions(
   exchangeCli
     .command('messages', 'List mailbox messages')
-  .option('--folderId <id>', 'Mailbox folder id')
-  .option('--maxItems <count>', 'Maximum number of messages to return')
-  .option('--unreadOnly <bool>', 'Only return unread messages')
-  .example('codey exchange messages --folderId id --maxItems 20 --unreadOnly true'),
+    .option('--folderId <id>', 'Mailbox folder id')
+    .option('--maxItems <count>', 'Maximum number of messages to return')
+    .option('--unreadOnly <bool>', 'Only return unread messages')
+    .example('codey exchange messages --folderId id --maxItems 20 --unreadOnly true'),
 ).action((options: ExchangeOptions) => {
   execute(
     (async () => {

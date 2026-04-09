@@ -8,7 +8,6 @@ export interface BrowserCliConfig {
   slowMo: number;
   defaultTimeoutMs: number;
   navigationTimeoutMs: number;
-  browsersPath: string;
 }
 
 export interface OpenAIFlowConfig {
@@ -23,9 +22,16 @@ export interface ExchangeAuthConfig {
   clientSecret: string;
 }
 
+export interface ExchangeMailFlowCatchAllConfig {
+  prefix?: string;
+}
+
 export interface ExchangeConfig {
   auth: ExchangeAuthConfig;
   mailbox?: string;
+  mailFlow?: {
+    catchAll?: ExchangeMailFlowCatchAllConfig;
+  };
 }
 
 export interface AppConfig {
@@ -80,6 +86,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 
+const exchangeMailFlowCatchAll = process.env.EXCHANGE_CATCH_ALL_PREFIX
+  ? {
+      prefix: process.env.EXCHANGE_CATCH_ALL_PREFIX,
+    }
+  : undefined;
+
 export const defaultConfig: AppConfig = {
   rootDir,
   artifactsDir: path.join(rootDir, 'artifacts'),
@@ -88,8 +100,6 @@ export const defaultConfig: AppConfig = {
     slowMo: parseNumber(process.env.SLOW_MO, 0),
     defaultTimeoutMs: parseNumber(process.env.DEFAULT_TIMEOUT_MS, 15000),
     navigationTimeoutMs: parseNumber(process.env.NAVIGATION_TIMEOUT_MS, 30000),
-    browsersPath:
-      process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(rootDir, '.playwright-browsers'),
   },
   openai: {
     baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',
@@ -100,14 +110,19 @@ export const defaultConfig: AppConfig = {
     process.env.EXCHANGE_CLIENT_ID &&
     process.env.EXCHANGE_CLIENT_SECRET
       ? {
-        mailbox: process.env.EXCHANGE_MAILBOX,
-        auth: {
-          mode: 'client_credentials',
-          tenantId: process.env.EXCHANGE_TENANT_ID,
-          clientId: process.env.EXCHANGE_CLIENT_ID,
-          clientSecret: process.env.EXCHANGE_CLIENT_SECRET,
-        },
-      }
+          mailbox: process.env.EXCHANGE_MAILBOX,
+          auth: {
+            mode: 'client_credentials',
+            tenantId: process.env.EXCHANGE_TENANT_ID,
+            clientId: process.env.EXCHANGE_CLIENT_ID,
+            clientSecret: process.env.EXCHANGE_CLIENT_SECRET,
+          },
+          mailFlow: exchangeMailFlowCatchAll
+            ? {
+                catchAll: exchangeMailFlowCatchAll,
+              }
+            : undefined,
+        }
       : undefined,
 };
 

@@ -1,0 +1,229 @@
+# Codey
+
+Codey is a TypeScript CLI and helper library for validating OpenAI web flows and reading Exchange mailbox data through Microsoft Graph.
+
+## Features
+
+- Validate OpenAI and ChatGPT page flows with Patchright Chrome sessions
+- Read Exchange mailbox folders and messages through Microsoft Graph application permissions
+- Support a configurable catch-all email prefix convention such as `codey*`
+- Configure settings with environment variables or a JSON config file
+
+## Requirements
+
+- Node.js 20+
+- pnpm 10+
+- Exchange Online / Microsoft 365
+- A Microsoft Entra ID app registration if you want to use the Exchange commands
+- Patchright Chrome installed with `pnpx patchright install chrome`
+
+## Installation
+
+```bash
+pnpm install
+pnpx patchright install chrome
+```
+
+## Configuration
+
+Codey loads environment variables from a local `.env` file automatically. You can also pass a JSON config file with `--config`.
+
+### 1. Create your environment file
+
+Copy `C:\Users\Summp\Desktop\codey\.env.example` to `.env` and update the values you need.
+
+Example:
+
+```env
+HEADLESS=false
+SLOW_MO=0
+OPENAI_BASE_URL=https://openai.com
+CHATGPT_URL=https://chatgpt.com
+DEFAULT_TIMEOUT_MS=15000
+NAVIGATION_TIMEOUT_MS=30000
+
+EXCHANGE_TENANT_ID=your-tenant-id
+EXCHANGE_CLIENT_ID=your-app-client-id
+EXCHANGE_CLIENT_SECRET=your-app-client-secret
+EXCHANGE_MAILBOX=codey-shared@contoso.com
+EXCHANGE_CATCH_ALL_PREFIX=codey
+```
+
+### 2. Configure Exchange access
+
+To use the `exchange` commands, create a Microsoft Entra ID application with Microsoft Graph application permissions.
+
+#### Required values
+
+- `EXCHANGE_TENANT_ID`: Your Microsoft Entra tenant ID
+- `EXCHANGE_CLIENT_ID`: The application (client) ID of your app registration
+- `EXCHANGE_CLIENT_SECRET`: A client secret created for that app
+- `EXCHANGE_MAILBOX`: The mailbox address to query, for example `codey-shared@contoso.com`
+
+#### Recommended setup steps
+
+1. Open the Azure portal and go to **Microsoft Entra ID** -> **App registrations**.
+2. Create or select an app registration.
+3. Under **Certificates & secrets**, create a new client secret and save it securely.
+4. Under **API permissions**, add **Microsoft Graph** -> **Application permissions**.
+5. Grant the mail permissions required by your use case, such as:
+   - `Mail.Read`
+   - `Mail.ReadBasic.All` (optional if basic metadata is enough)
+6. Click **Grant admin consent** for the tenant.
+7. Put the tenant ID, client ID, client secret, and mailbox address in your `.env` file or JSON config.
+
+> Note: This project uses the OAuth 2.0 client credentials flow.
+
+### 3. Optional but recommended: configure a shared mailbox for Codey
+
+If you do not want to use a dedicated user mailbox for automation, configure an Exchange shared mailbox specifically for Codey.
+
+#### Why use a shared mailbox
+
+- Keeps Codey traffic isolated from personal inboxes
+- Avoids creating a separate end-user login just for test mail
+- Gives admins a single mailbox to inspect for automation issues
+
+#### How to configure the shared mailbox in Microsoft 365 admin
+
+1. Open the **Microsoft 365 admin center**.
+2. Go to **Teams & groups** -> **Shared mailboxes**.
+3. Click **Add a shared mailbox**.
+4. Enter a name such as `Codey Shared Mailbox`.
+5. Enter an email such as `codey-shared@contoso.com`.
+6. Create the mailbox.
+7. Wait until the mailbox appears in Exchange Online.
+
+#### Exchange-side recommendations
+
+After the shared mailbox exists, ask your Microsoft 365 / Exchange admin to:
+
+1. Confirm the shared mailbox can receive mail from the scenarios you want to test.
+2. Create any mail-flow or routing rules needed for prefixed addresses such as `codey*@contoso.com`.
+3. If required by your tenant policy, scope your app registration so it can read this shared mailbox.
+4. Verify the mailbox has an Inbox and that test messages arrive there.
+
+#### What to put in Codey config
+
+Use the shared mailbox SMTP address as `EXCHANGE_MAILBOX`.
+
+Example:
+
+```env
+EXCHANGE_MAILBOX=codey-shared@contoso.com
+```
+
+This is optional. A normal mailbox also works if that better matches your environment.
+
+### 4. Catch-all prefix convention
+
+If your mailbox setup uses prefixed test addresses such as `codey*`, configure the prefix in Codey so your application and test flows can use a consistent address pattern.
+
+#### Supported configuration
+
+- `EXCHANGE_CATCH_ALL_PREFIX`: The reserved address prefix, for example `codey`
+
+#### Example convention
+
+- Shared mailbox: `codey-shared@contoso.com`
+- Prefix: `codey`
+- Test address pattern: `codey*@contoso.com`
+
+### 5. Optional JSON config
+
+Instead of environment variables, you can provide a JSON file:
+
+```json
+{
+  "browser": {
+    "headless": false,
+    "slowMo": 0,
+    "defaultTimeoutMs": 15000,
+    "navigationTimeoutMs": 30000
+  },
+  "openai": {
+    "baseUrl": "https://openai.com",
+    "chatgptUrl": "https://chatgpt.com"
+  },
+  "exchange": {
+    "mailbox": "codey-shared@contoso.com",
+    "auth": {
+      "mode": "client_credentials",
+      "tenantId": "your-tenant-id",
+      "clientId": "your-app-client-id",
+      "clientSecret": "your-app-client-secret"
+    },
+    "mailFlow": {
+      "catchAll": {
+        "prefix": "codey"
+      }
+    }
+  }
+}
+```
+
+## Browser support
+
+Codey supports only Patchright Chrome.
+
+- Install it with `pnpx patchright install chrome`
+- Codey launches Patchright with `channel: "chrome"`
+- No custom browser path configuration is required
+
+## Usage
+
+### OpenAI flow commands
+
+```bash
+pnpm exec tsx src/cli.ts flow openai-home
+pnpm exec tsx src/cli.ts flow chatgpt-entry
+pnpm exec tsx src/cli.ts flow chatgpt-open --waitMs 300000
+```
+
+### Exchange commands
+
+List folders:
+
+```bash
+pnpm exec tsx src/cli.ts exchange folders
+```
+
+List messages from Inbox:
+
+```bash
+pnpm exec tsx src/cli.ts exchange messages --maxItems 20
+```
+
+List unread messages from a specific folder:
+
+```bash
+pnpm exec tsx src/cli.ts exchange messages --folderId <folder-id> --unreadOnly true
+```
+
+## Available CLI options
+
+Common options for `flow` and `exchange` commands:
+
+- `--config <file>`: Load configuration from a JSON file
+- `--profile <name>`: Reserved for future profile support
+- `--headless <bool>`: Override browser headless mode
+- `--slowMo <ms>`: Override browser slow motion delay
+
+Exchange-specific options:
+
+- `--folderId <id>`: Mail folder ID
+- `--maxItems <count>`: Maximum number of messages to return
+- `--unreadOnly <bool>`: Return unread messages only
+
+## Build
+
+```bash
+pnpm build
+```
+
+## Troubleshooting
+
+- If Chrome cannot be launched, run `pnpx patchright install chrome` again.
+- If Exchange commands fail with an authentication error, verify the tenant ID, client ID, and client secret.
+- If Exchange commands fail with authorization errors, confirm Microsoft Graph application permissions were added and admin consent was granted.
+- If mailbox queries fail, verify `EXCHANGE_MAILBOX` points to a mailbox your app is allowed to access.
