@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { Locator, Page } from 'patchright';
+import type { CDPSession, Locator, Page } from 'patchright';
 import type { RegistrationResult } from '../modules/registration';
 import { ExchangeClient } from '../modules/exchange';
 import { getRuntimeConfig } from '../config';
@@ -9,12 +9,18 @@ import {
   type ResolvedChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
 } from '../modules/credentials';
-import { clickAny, clickIfPresent, fillIfPresent } from '../modules/common/form-actions';
+import { clickAny, clickIfPresent, typeIfPresent } from '../modules/common/form-actions';
 import { captureVirtualPasskeyStore, loadVirtualPasskeyStore, type VirtualAuthenticatorOptions, type VirtualPasskeyStore } from '../modules/webauthn/virtual-authenticator';
 import { toLocator } from '../utils/selectors';
 import type { SelectorTarget } from '../types';
 import { sleep } from '../utils/wait';
 import type { FlowResult } from '../types';
+import {
+  createChatGPTLoginPasskeyMachine,
+  createChatGPTRegistrationMachine,
+  type ChatGPTAuthFlowMachine,
+  type ChatGPTAuthFlowSnapshot,
+} from './chatgpt-auth-machine';
 
 const CHATGPT_HOME_URL = 'https://chatgpt.com/';
 const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login';
@@ -80,6 +86,45 @@ function logStep(step: string, details?: Record<string, unknown>): void {
   console.log(JSON.stringify({ scope: 'chatgpt-register', step, ...(details || {}) }));
 }
 
+function transitionChatGPTMachine<Result>(
+  machine: ChatGPTAuthFlowMachine<Result> | undefined,
+  state: 'idle' | 'opening-entry' | 'email-step' | 'password-step' | 'verification-polling' | 'verification-code-entry' | 'age-gate' | 'post-signup-home' | 'security-settings' | 'passkey-provisioning' | 'persisting-identity' | 'same-session-passkey-check' | 'login-surface' | 'passkey-login' | 'authenticated' | 'completed' | 'failed',
+  options: {
+    event:
+      | 'machine.started'
+      | 'chatgpt.entry.opened'
+      | 'chatgpt.email.started'
+      | 'chatgpt.email.submitted'
+      | 'chatgpt.password.started'
+      | 'chatgpt.password.submitted'
+      | 'chatgpt.verification.polling'
+      | 'chatgpt.verification.code-found'
+      | 'chatgpt.verification.submitted'
+      | 'chatgpt.age-gate.started'
+      | 'chatgpt.age-gate.completed'
+      | 'chatgpt.home.waiting'
+      | 'chatgpt.security.started'
+      | 'chatgpt.passkey.provisioning'
+      | 'chatgpt.identity.persisting'
+      | 'chatgpt.same-session-passkey-check.started'
+      | 'chatgpt.same-session-passkey-check.completed'
+      | 'chatgpt.login.surface.ready'
+      | 'chatgpt.passkey.login.started'
+      | 'chatgpt.authenticated'
+      | 'chatgpt.completed'
+      | 'chatgpt.failed'
+      | 'context.updated'
+      | 'action.started'
+      | 'action.finished';
+    patch?: Record<string, unknown>;
+  },
+): void {
+  (machine as ChatGPTAuthFlowMachine<Record<string, unknown>> | undefined)?.transition(state, {
+    event: options.event,
+    patch: options.patch as never,
+  });
+}
+
 function isChatGPTHomeUrl(url: string): boolean {
   return /^https:\/\/chatgpt\.com\/?(#.*)?$/i.test(url) || url.startsWith('https://chatgpt.com/');
 }
@@ -123,27 +168,6 @@ async function fillFirstAvailable(page: Page, selectors: SelectorTarget[], value
     const visible = await locator.isVisible().catch(() => false);
     if (!visible) continue;
     await locator.fill(value);
-    await locator.blur().catch(() => undefined);
-    return true;
-  }
-  return false;
-}
-
-async function typeFirstAvailable(page: Page, selectors: SelectorTarget[], value: string): Promise<boolean> {
-  for (const selector of selectors) {
-    const locator = toLocator(page, selector).first();
-    const visible = await locator.isVisible().catch(() => false);
-    if (!visible) continue;
-    if (!(await isLocatorEnabled(locator))) continue;
-    const editable = await locator.evaluate((element) => {
-      const candidate = element as HTMLInputElement | HTMLTextAreaElement;
-      return !candidate.readOnly;
-    }).catch(() => false);
-    if (!editable) continue;
-    await locator.click({ delay: 100 }).catch(() => undefined);
-    await locator.fill('');
-    await sleep(250);
-    await locator.pressSequentially(value, { delay: 90 });
     await locator.blur().catch(() => undefined);
     return true;
   }
@@ -543,6 +567,7 @@ export interface ChatGPTRegistrationFlowOptions {
   sameSessionPasskeyCheck?: boolean;
   virtualAuthenticator?: VirtualAuthenticatorOptions;
   passkeyStore?: VirtualPasskeyStore;
+  machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>;
 }
 
 export interface SameSessionPasskeyCheckResult {
@@ -565,12 +590,14 @@ export interface ChatGPTRegistrationFlowResult {
   passkeyStore?: VirtualPasskeyStore;
   storedIdentity?: StoredChatGPTIdentitySummary;
   sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult;
+  machine: ChatGPTAuthFlowSnapshot<ChatGPTRegistrationFlowResult>;
 }
 
 export interface ChatGPTLoginPasskeyFlowOptions {
   identityId?: string;
   email?: string;
   virtualAuthenticator?: VirtualAuthenticatorOptions;
+  machine?: ChatGPTAuthFlowMachine<ChatGPTLoginPasskeyFlowResult>;
 }
 
 export interface ChatGPTLoginPasskeyFlowResult {
@@ -581,6 +608,12 @@ export interface ChatGPTLoginPasskeyFlowResult {
   method: 'passkey' | 'password';
   authenticated: boolean;
   storedIdentity: StoredChatGPTIdentitySummary;
+  machine: ChatGPTAuthFlowSnapshot<ChatGPTLoginPasskeyFlowResult>;
+}
+
+interface PasskeyAssertionTracker {
+  waitForAssertion(timeoutMs?: number): Promise<boolean>;
+  dispose(): void;
 }
 
 function randomString(length = 8): string {
@@ -602,8 +635,57 @@ function buildPassword(): string {
   return `Codey!${randomString(10)}A1`;
 }
 
-async function openSignup(page: Page): Promise<void> {
+function createPasskeyAssertionTracker(
+  session: CDPSession,
+  authenticatorId: string,
+  baselineStore?: VirtualPasskeyStore,
+): PasskeyAssertionTracker {
+  let asserted = false;
+  const baselineCounts = new Map((baselineStore?.credentials || []).map((credential) => [credential.credentialId, credential.signCount]));
+  const handler = () => {
+    asserted = true;
+  };
+
+  session.on('WebAuthn.credentialAsserted', handler);
+
+  return {
+    async waitForAssertion(timeoutMs = 10000): Promise<boolean> {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (asserted) return true;
+        const currentStore = await captureVirtualPasskeyStore(session, authenticatorId);
+        for (const credential of currentStore.credentials) {
+          const previousSignCount = baselineCounts.get(credential.credentialId) ?? -1;
+          if (credential.signCount > previousSignCount) {
+            asserted = true;
+            baselineCounts.set(credential.credentialId, credential.signCount);
+            return true;
+          }
+        }
+        await sleep(250);
+      }
+      return asserted;
+    },
+    dispose(): void {
+      const eventEmitter = session as unknown as {
+        off?: (event: string, listener: () => void) => void;
+        removeListener?: (event: string, listener: () => void) => void;
+      };
+      eventEmitter.off?.('WebAuthn.credentialAsserted', handler);
+      eventEmitter.removeListener?.('WebAuthn.credentialAsserted', handler);
+    },
+  };
+}
+
+async function openSignup(page: Page, machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>): Promise<void> {
   logStep('open_signup_start', { url: CHATGPT_HOME_URL });
+  transitionChatGPTMachine(machine, 'opening-entry', {
+    event: 'chatgpt.entry.opened',
+    patch: {
+      url: CHATGPT_HOME_URL,
+      lastMessage: 'Opening ChatGPT sign-up entry',
+    },
+  });
   await page.goto(CHATGPT_HOME_URL, { waitUntil: 'domcontentloaded' });
   await page.locator('body').waitFor({ state: 'visible' });
   await page.waitForLoadState('networkidle').catch(() => undefined);
@@ -616,32 +698,71 @@ async function openSignup(page: Page): Promise<void> {
   const emailReady = await waitForAnySelectorState(page, ['input#email', 'input[name="email"]'], 'visible', 10000);
   if (emailReady) {
     logStep('signup_popover_ready');
+    transitionChatGPTMachine(machine, 'email-step', {
+      event: 'chatgpt.email.started',
+      patch: {
+        url: page.url(),
+        lastMessage: 'Sign-up email step ready',
+      },
+    });
     return;
   }
   throw new Error('Sign-up popover did not render the email input.');
 }
 
-async function openLogin(page: Page): Promise<void> {
+async function openLogin<Result>(
+  page: Page,
+  machine?: ChatGPTAuthFlowMachine<Result>,
+): Promise<void> {
   logStep('login_open_start', { url: CHATGPT_ENTRY_LOGIN_URL });
+  transitionChatGPTMachine(machine, 'opening-entry', {
+    event: 'chatgpt.entry.opened',
+    patch: {
+      url: CHATGPT_ENTRY_LOGIN_URL,
+      lastMessage: 'Opening ChatGPT login entry',
+    },
+  });
   await page.goto(CHATGPT_ENTRY_LOGIN_URL, { waitUntil: 'domcontentloaded' });
   await page.locator('body').waitFor({ state: 'visible' });
   await page.waitForLoadState('networkidle').catch(() => undefined);
+
+  if (await waitForAuthenticatedSession(page, 5000)) {
+    logStep('login_surface_ready', { surface: 'authenticated', url: page.url() });
+    transitionChatGPTMachine(machine, 'authenticated', {
+      event: 'chatgpt.authenticated',
+      patch: {
+        url: page.url(),
+        lastMessage: 'Already authenticated',
+      },
+    });
+    return;
+  }
 
   const clicked = await clickEnabledIfPresent(page, [
     '[data-testid="login-button"]',
     { role: 'button', options: { name: /^登录$|^log in$|^login$/i } },
     { text: /^登录$|^log in$|^login$/i },
   ]);
-  if (!clicked) {
-    throw new Error('ChatGPT login entry page did not expose a clickable login button.');
+  if (clicked) {
+    logStep('login_button_clicked');
   }
 
-  await Promise.any([
-    page.waitForURL((url) => String(url).startsWith(CHATGPT_LOGIN_URL), { timeout: 15000 }),
-    waitForAnySelectorState(page, LOGIN_EMAIL_SELECTORS, 'visible', 15000).then((ready) => {
-      if (!ready) throw new Error('login email form not ready');
-    }),
-  ]).catch(() => undefined);
+  const surface = await waitForLoginSurface(page, 15000);
+  if (surface !== 'unknown') {
+    logStep('login_surface_ready', { surface, url: page.url() });
+    transitionChatGPTMachine(machine, 'login-surface', {
+      event: 'chatgpt.login.surface.ready',
+      patch: {
+        url: page.url(),
+        lastMessage: `Login surface ready: ${surface}`,
+      },
+    });
+    return;
+  }
+
+  if (!clicked) {
+    throw new Error('ChatGPT login entry page did not expose a clickable login button or alternate login surface.');
+  }
 }
 
 async function waitForPasswordSubmissionOutcome(page: Page, timeoutMs = 15000): Promise<'verification' | 'timeout' | 'unknown'> {
@@ -677,16 +798,54 @@ async function waitForLoginEmailSubmissionOutcome(
   return 'unknown';
 }
 
-async function submitEmailStep(page: Page, email: string): Promise<void> {
+async function submitEmailStep(
+  page: Page,
+  email: string,
+  machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>,
+): Promise<void> {
   logStep('email_step_start', { email });
-  await fillIfPresent(page, ['input#email', 'input[name="email"]'], email);
+  transitionChatGPTMachine(machine, 'email-step', {
+    event: 'chatgpt.email.started',
+    patch: {
+      email,
+      url: page.url(),
+      lastMessage: 'Typing registration email',
+    },
+  });
+  const typed = await typeIfPresent(page, ['input#email', 'input[name="email"]'], email);
+  if (!typed) {
+    throw new Error('ChatGPT sign-up email field was visible but could not be typed into.');
+  }
+  await waitForEnabledSelector(page, ['button[type="submit"]', { role: 'button', options: { name: /继续|continue/i } }, { text: /继续|continue/i }], 5000);
+  await sleep(200);
   await clickAny(page, ['button[type="submit"]', { role: 'button', options: { name: /继续|continue/i } }, { text: /继续|continue/i }]);
   logStep('email_step_submitted');
+  transitionChatGPTMachine(machine, 'password-step', {
+    event: 'chatgpt.email.submitted',
+    patch: {
+      email,
+      url: page.url(),
+      lastMessage: 'Registration email submitted',
+    },
+  });
 }
 
-async function submitPasswordStep(page: Page, password: string): Promise<void> {
+async function submitPasswordStep(
+  page: Page,
+  password: string,
+  initialSurface: 'password' | 'verification' | 'age_gate' | 'authenticated' | 'unknown' = 'unknown',
+  machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>,
+): Promise<void> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     logStep('password_step_waiting', { attempt });
+    transitionChatGPTMachine(machine, 'password-step', {
+      event: 'chatgpt.password.started',
+      patch: {
+        lastAttempt: attempt,
+        url: page.url(),
+        lastMessage: 'Waiting for password step',
+      },
+    });
     const passwordReady = await waitForAnySelectorState(
       page,
       PASSWORD_INPUT_SELECTORS,
@@ -696,13 +855,34 @@ async function submitPasswordStep(page: Page, password: string): Promise<void> {
     if (passwordReady) {
       logStep('password_step_ready', { attempt });
     }
-    await fillIfPresent(page, PASSWORD_INPUT_SELECTORS, password);
+    const typed = await typeIfPresent(page, PASSWORD_INPUT_SELECTORS, password);
+    if (!typed) {
+      throw new Error('ChatGPT password field was visible but could not be typed into.');
+    }
+    await waitForEnabledSelector(page, PASSWORD_SUBMIT_SELECTORS, 5000);
+    await sleep(200);
     await clickAny(page, PASSWORD_SUBMIT_SELECTORS);
     logStep('password_step_submitted', { attempt });
+    transitionChatGPTMachine(machine, 'password-step', {
+      event: 'chatgpt.password.submitted',
+      patch: {
+        lastAttempt: attempt,
+        url: page.url(),
+        lastMessage: 'Registration password submitted',
+      },
+    });
 
     const outcome = await waitForPasswordSubmissionOutcome(page);
     if (outcome === 'verification' || outcome === 'unknown') {
       if (outcome === 'verification') logStep('password_step_verification_ready', { attempt });
+      transitionChatGPTMachine(machine, 'verification-polling', {
+        event: 'chatgpt.verification.polling',
+        patch: {
+          lastAttempt: attempt,
+          url: page.url(),
+          lastMessage: 'Waiting for verification email',
+        },
+      });
       return;
     }
 
@@ -726,13 +906,34 @@ function extractVerificationCode(body: string): string | null {
   return null;
 }
 
-async function waitForVerificationCode(params: { exchangeClient: ExchangeClient; email: string; startedAt: string; timeoutMs: number; pollIntervalMs: number; }): Promise<string> {
+async function waitForVerificationCode(params: {
+  exchangeClient: ExchangeClient;
+  email: string;
+  startedAt: string;
+  timeoutMs: number;
+  pollIntervalMs: number;
+  machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>;
+}): Promise<string> {
   const deadline = Date.now() + params.timeoutMs;
   let attempt = 0;
   logStep('verification_poll_start', { email: params.email, timeoutMs: params.timeoutMs, pollIntervalMs: params.pollIntervalMs, startedAt: params.startedAt });
+  transitionChatGPTMachine(params.machine, 'verification-polling', {
+    event: 'chatgpt.verification.polling',
+    patch: {
+      email: params.email,
+      lastMessage: 'Polling Exchange for verification email',
+    },
+  });
   while (Date.now() < deadline) {
     attempt += 1;
     logStep('verification_poll_attempt', { attempt });
+    transitionChatGPTMachine(params.machine, 'verification-polling', {
+      event: 'context.updated',
+      patch: {
+        lastAttempt: attempt,
+        lastMessage: 'Polling Exchange for verification email',
+      },
+    });
     const messages = await params.exchangeClient.findMessages({ maxItems: 50, unreadOnly: false, receivedAfter: params.startedAt, subjectIncludes: 'chatgpt' });
     const targetedMessages = messages.filter((message) => {
       const subject = (message.subject || '').toLowerCase();
@@ -747,6 +948,14 @@ async function waitForVerificationCode(params: { exchangeClient: ExchangeClient;
       logStep('verification_message_checked', { attempt, messageId: message.id, subject: detail.subject, to: detail.to, receivedAt: detail.receivedAt, foundCode: Boolean(code) });
       if (code) {
         logStep('verification_code_found', { attempt, code, subject: detail.subject, to: detail.to });
+        transitionChatGPTMachine(params.machine, 'verification-code-entry', {
+          event: 'chatgpt.verification.code-found',
+          patch: {
+            verificationCode: code,
+            lastAttempt: attempt,
+            lastMessage: 'Verification code received',
+          },
+        });
         return code;
       }
     }
@@ -755,8 +964,20 @@ async function waitForVerificationCode(params: { exchangeClient: ExchangeClient;
   throw new Error(`Timed out waiting for a verification code sent to ${params.email}.`);
 }
 
-async function submitVerificationCode(page: Page, code: string): Promise<void> {
+async function submitVerificationCode(
+  page: Page,
+  code: string,
+  machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>,
+): Promise<void> {
   logStep('verification_code_submit_start', { code });
+  transitionChatGPTMachine(machine, 'verification-code-entry', {
+    event: 'chatgpt.verification.code-found',
+    patch: {
+      verificationCode: code,
+      url: page.url(),
+      lastMessage: 'Submitting verification code',
+    },
+  });
   const codeReady = await waitForAnySelectorState(
     page,
     VERIFICATION_CODE_INPUT_SELECTORS,
@@ -770,10 +991,28 @@ async function submitVerificationCode(page: Page, code: string): Promise<void> {
   await input.fill(code);
   const submitted = await clickIfPresent(page, [{ role: 'button', options: { name: /继续|continue|verify|验证/i } }, { text: /继续|continue|verify|验证/i }, 'button[type="submit"]']);
   logStep('verification_code_submitted', { submitted });
+  transitionChatGPTMachine(machine, 'age-gate', {
+    event: 'chatgpt.verification.submitted',
+    patch: {
+      verificationCode: code,
+      url: page.url(),
+      lastMessage: 'Verification code submitted',
+    },
+  });
 }
 
-async function completeAgeGate(page: Page): Promise<void> {
+async function completeAgeGate(
+  page: Page,
+  machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>,
+): Promise<void> {
   logStep('age_gate_waiting');
+  transitionChatGPTMachine(machine, 'age-gate', {
+    event: 'chatgpt.age-gate.started',
+    patch: {
+      url: page.url(),
+      lastMessage: 'Completing age gate',
+    },
+  });
   const ageGateReady = await waitForAnySelectorState(
     page,
     ['input[name="name"]', 'input#_r_h_-name', 'input[name="age"]', 'input#_r_h_-age', 'input[id*="age"]'],
@@ -812,6 +1051,13 @@ async function completeAgeGate(page: Page): Promise<void> {
   ], 5000);
   const completed = await clickCompleteAccountCreation(page);
   logStep('age_gate_submitted', { completed, ageFilled });
+  transitionChatGPTMachine(machine, 'post-signup-home', {
+    event: 'chatgpt.age-gate.completed',
+    patch: {
+      url: page.url(),
+      lastMessage: 'Age gate completed',
+    },
+  });
 }
 
 async function waitForPasskeyCreation(
@@ -908,6 +1154,25 @@ async function waitForLoginEmailFormReady(page: Page, timeoutMs = 15000): Promis
   return false;
 }
 
+async function waitForLoginSurface(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<'authenticated' | 'email' | 'passkey' | 'unknown'> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await waitForAuthenticatedSession(page, 500)) return 'authenticated';
+    if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) return 'passkey';
+    if (await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS)) return 'email';
+    if (page.url().startsWith(CHATGPT_LOGIN_URL)) {
+      if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) return 'passkey';
+      if (await isAnySelectorVisible(page, LOGIN_EMAIL_SELECTORS)) return 'email';
+    }
+    await sleep(250);
+  }
+
+  return 'unknown';
+}
+
 async function submitEmailForLogin(page: Page, email: string): Promise<void> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     logStep('login_email_step_start', { email, attempt });
@@ -916,7 +1181,7 @@ async function submitEmailForLogin(page: Page, email: string): Promise<void> {
       throw new Error('ChatGPT login page did not finish rendering a stable email form.');
     }
 
-    const filled = await typeFirstAvailable(page, LOGIN_EMAIL_SELECTORS, email);
+    const filled = await typeIfPresent(page, LOGIN_EMAIL_SELECTORS, email);
     if (!filled) {
       throw new Error('ChatGPT login email field was visible but could not be filled.');
     }
@@ -953,13 +1218,52 @@ async function waitForPasskeyEntryReady(page: Page, timeoutMs = 20000): Promise<
 async function triggerPasskeyEntry(page: Page, timeoutMs = 20000): Promise<void> {
   const passkeyReady = await waitForPasskeyEntryReady(page, timeoutMs);
   if (!passkeyReady) {
-    throw new Error('Passkey entry button did not appear after submitting the email address.');
+    throw new Error('Passkey entry button did not appear on the login surface.');
   }
 
   const triggered = await clickEnabledIfPresent(page, PASSKEY_ENTRY_SELECTORS);
   if (!triggered) {
     throw new Error('Passkey entry button became visible but could not be clicked.');
   }
+}
+
+async function loginWithResidentPasskeyFirst(
+  page: Page,
+  email: string,
+  tracker?: PasskeyAssertionTracker,
+): Promise<{ usedEmailFallback: boolean; assertionObserved: boolean }> {
+  if (await waitForAuthenticatedSession(page, 5000)) {
+    logStep('login_passkey_authenticated', { email, stage: 'already-authenticated', url: page.url() });
+    return { usedEmailFallback: false, assertionObserved: false };
+  }
+
+  if (await waitForPasskeyEntryReady(page, 5000)) {
+    await triggerPasskeyEntry(page, 5000);
+    const assertionObserved = tracker ? await tracker.waitForAssertion(10000) : false;
+    logStep('login_passkey_triggered', { email, stage: 'resident', assertionObserved });
+    return { usedEmailFallback: false, assertionObserved };
+  }
+
+  logStep('login_email_fallback_start', { email });
+  await submitEmailForLogin(page, email);
+
+  if (tracker) {
+    const assertionObserved = await tracker.waitForAssertion(10000);
+    if (assertionObserved) {
+      logStep('login_passkey_assertion_detected', { email, stage: 'after-email-submit', url: page.url() });
+      return { usedEmailFallback: true, assertionObserved };
+    }
+  }
+
+  if (await waitForAuthenticatedSession(page, 5000)) {
+    logStep('login_passkey_authenticated', { email, stage: 'after-email-submit', url: page.url() });
+    return { usedEmailFallback: true, assertionObserved: false };
+  }
+
+  await triggerPasskeyEntry(page, 20000);
+  const assertionObserved = tracker ? await tracker.waitForAssertion(10000) : false;
+  logStep('login_passkey_triggered', { email, stage: 'email-fallback', assertionObserved });
+  return { usedEmailFallback: true, assertionObserved };
 }
 
 function summarizePasskeyCredentials(store?: VirtualPasskeyStore): Array<Record<string, unknown>> {
@@ -982,6 +1286,16 @@ async function tryPasskeyLogin(page: Page, stored: ResolvedChatGPTIdentity, opti
   if (!hasPasskey) {
     throw new Error(`Stored identity ${stored.identity.email} does not contain a passkey credential.`);
   }
+
+  transitionChatGPTMachine(options.machine, 'passkey-login', {
+    event: 'chatgpt.passkey.login.started',
+    patch: {
+      email: stored.identity.email,
+      storedIdentity: stored.summary,
+      url: page.url(),
+      lastMessage: 'Starting passkey login',
+    },
+  });
 
   logStep('login_passkey_store_before_import', {
     email: stored.identity.email,
@@ -1011,12 +1325,29 @@ async function tryPasskeyLogin(page: Page, stored: ResolvedChatGPTIdentity, opti
     credentials: summarizePasskeyCredentials(importedStore),
   });
 
-  await triggerPasskeyEntry(page, 20000);
-  logStep('login_passkey_triggered');
+  const tracker = createPasskeyAssertionTracker(
+    virtualAuth.session,
+    virtualAuth.authenticatorId,
+    importedStore,
+  );
+  const { usedEmailFallback, assertionObserved } = await loginWithResidentPasskeyFirst(page, stored.identity.email, tracker);
+  tracker.dispose();
   const postTriggerStore = await captureVirtualPasskeyStore(virtualAuth.session, virtualAuth.authenticatorId);
   logStep('login_passkey_store_after_trigger', {
     email: stored.identity.email,
     credentials: summarizePasskeyCredentials(postTriggerStore),
+  });
+  transitionChatGPTMachine(options.machine, 'passkey-login', {
+    event: 'context.updated',
+    patch: {
+      email: stored.identity.email,
+      method: 'passkey',
+      usedEmailFallback,
+      assertionObserved,
+      passkeyStore: postTriggerStore,
+      url: page.url(),
+      lastMessage: 'Passkey login triggered',
+    },
   });
   return 'passkey';
 }
@@ -1024,15 +1355,23 @@ async function tryPasskeyLogin(page: Page, stored: ResolvedChatGPTIdentity, opti
 async function runSameSessionPasskeyCheck(
   page: Page,
   email: string,
+  machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>,
 ): Promise<SameSessionPasskeyCheckResult> {
   logStep('same_session_passkey_check_start', { email });
+  transitionChatGPTMachine(machine, 'same-session-passkey-check', {
+    event: 'chatgpt.same-session-passkey-check.started',
+    patch: {
+      email,
+      url: page.url(),
+      lastMessage: 'Running same-session passkey check',
+    },
+  });
 
   try {
     await clearAuthenticatedSessionState(page);
-    await openLogin(page);
-    await submitEmailForLogin(page, email);
-    await triggerPasskeyEntry(page, 20000);
-    logStep('same_session_passkey_check_triggered', { email });
+    await openLogin(page, machine);
+    const { usedEmailFallback } = await loginWithResidentPasskeyFirst(page, email);
+    logStep('same_session_passkey_check_triggered', { email, usedEmailFallback });
 
     const authenticated = await waitForAuthenticatedSession(page, 30000);
     if (!authenticated) {
@@ -1042,8 +1381,23 @@ async function runSameSessionPasskeyCheck(
     logStep('same_session_passkey_check_complete', {
       email,
       authenticated: true,
+      usedEmailFallback,
       url: page.url(),
       title: await page.title(),
+    });
+    transitionChatGPTMachine(machine, 'same-session-passkey-check', {
+      event: 'chatgpt.same-session-passkey-check.completed',
+      patch: {
+        email,
+        url: page.url(),
+        usedEmailFallback,
+        sameSessionPasskeyCheck: {
+          attempted: true,
+          authenticated: true,
+          method: 'passkey',
+        },
+        lastMessage: 'Same-session passkey check completed',
+      },
     });
 
     return {
@@ -1054,6 +1408,20 @@ async function runSameSessionPasskeyCheck(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logStep('same_session_passkey_check_failed', { email, error: message, url: page.url() });
+    transitionChatGPTMachine(machine, 'same-session-passkey-check', {
+      event: 'chatgpt.same-session-passkey-check.completed',
+      patch: {
+        email,
+        url: page.url(),
+        sameSessionPasskeyCheck: {
+          attempted: true,
+          authenticated: false,
+          method: 'passkey',
+          error: message,
+        },
+        lastMessage: 'Same-session passkey check failed',
+      },
+    });
     return {
       attempted: true,
       authenticated: false,
@@ -1063,14 +1431,43 @@ async function runSameSessionPasskeyCheck(
   }
 }
 
-async function provisionPasskey(page: Page, options: { passkeyStore?: VirtualPasskeyStore; virtualAuthenticator?: VirtualAuthenticatorOptions } = {}): Promise<{ passkeyCreated: boolean; passkeyStore?: VirtualPasskeyStore }> {
+async function provisionPasskey(
+  page: Page,
+  options: {
+    passkeyStore?: VirtualPasskeyStore;
+    virtualAuthenticator?: VirtualAuthenticatorOptions;
+    machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>;
+  } = {},
+): Promise<{ passkeyCreated: boolean; passkeyStore?: VirtualPasskeyStore }> {
   logStep('passkey_provision_start');
+  transitionChatGPTMachine(options.machine, 'passkey-provisioning', {
+    event: 'chatgpt.passkey.provisioning',
+    patch: {
+      url: page.url(),
+      lastMessage: 'Starting passkey provisioning',
+    },
+  });
   const virtualAuth = await loadVirtualPasskeyStore(page, options.passkeyStore, options.virtualAuthenticator);
   const homeReady = await waitUntilChatGPTHomeReady(page, 20);
   logStep('chatgpt_home_ready_result', { homeReady, url: page.url(), minOnboardingClicks: MIN_ONBOARDING_CLICKS });
+  transitionChatGPTMachine(options.machine, 'post-signup-home', {
+    event: 'chatgpt.home.waiting',
+    patch: {
+      url: page.url(),
+      lastMessage: homeReady ? 'ChatGPT home ready' : 'ChatGPT home not ready yet',
+    },
+  });
   if (!homeReady) return { passkeyCreated: false };
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
+    transitionChatGPTMachine(options.machine, 'security-settings', {
+      event: 'chatgpt.security.started',
+      patch: {
+        lastAttempt: attempt + 1,
+        url: page.url(),
+        lastMessage: 'Opening security settings',
+      },
+    });
     const securityNavReady = await navigateToSecuritySettings(page);
     logStep('security_navigation_result', { attempt: attempt + 1, securityNavReady, url: page.url() });
     if (!securityNavReady) {
@@ -1110,6 +1507,16 @@ async function provisionPasskey(page: Page, options: { passkeyStore?: VirtualPas
     const passkeyStore = await waitForPasskeyCreation(page, virtualAuth.session, virtualAuth.authenticatorId);
     const passkeyCreated = passkeyStore.credentials.length > 0;
     logStep('passkey_provision_result', { passkeyCreated, credentialCount: passkeyStore.credentials.length });
+    transitionChatGPTMachine(options.machine, 'passkey-provisioning', {
+      event: 'chatgpt.passkey.provisioning',
+      patch: {
+        passkeyCreated,
+        passkeyStore: passkeyCreated ? passkeyStore : undefined,
+        lastAttempt: attempt + 1,
+        url: page.url(),
+        lastMessage: passkeyCreated ? 'Passkey provisioned' : 'Passkey not created yet',
+      },
+    });
     await clickIfPresent(page, [{ role: 'button', options: { name: /完成|done|close|关闭/i } }, { text: /完成|done|close|关闭/i }]);
     return { passkeyCreated, passkeyStore: passkeyCreated ? passkeyStore : undefined };
   }
@@ -1124,81 +1531,203 @@ export async function registerChatGPTWithExchange(page: Page, options: ChatGPTRe
   const { email, prefix } = buildExchangeEmail();
   const password = options.password || buildPassword();
   const startedAt = new Date().toISOString();
-  logStep('registration_start', { email, prefix, mailbox: config.exchange.mailbox });
-  await exchangeClient.primeMessageDelta();
-  logStep('verification_delta_primed');
-  await openSignup(page);
-  await submitEmailStep(page, email);
-  await submitPasswordStep(page, password);
-  const registration: RegistrationResult = { module: 'registration', accountType: 'parent', email, organizationName: null, passkeyCreated: false };
-  const verificationCode = await waitForVerificationCode({ exchangeClient, email, startedAt, timeoutMs: options.verificationTimeoutMs ?? 180000, pollIntervalMs: options.pollIntervalMs ?? 5000 });
-  await submitVerificationCode(page, verificationCode);
-  await page.waitForLoadState('domcontentloaded').catch(() => undefined);
-  await completeAgeGate(page);
-  const passkey = options.createPasskey === false ? { passkeyCreated: false as const, passkeyStore: undefined } : await provisionPasskey(page, { passkeyStore: options.passkeyStore, virtualAuthenticator: options.virtualAuthenticator });
-  const sameSessionPasskeyCheck =
-    options.sameSessionPasskeyCheck && passkey.passkeyCreated
-      ? await runSameSessionPasskeyCheck(page, email)
-      : undefined;
-  const storedIdentity = persistChatGPTIdentity({
+  const machine = options.machine ?? createChatGPTRegistrationMachine();
+  machine.start({
     email,
-    password,
     prefix,
     mailbox: config.exchange.mailbox,
-    passkeyCreated: passkey.passkeyCreated,
-    passkeyStore: passkey.passkeyStore,
-  }).summary;
-  logStep('registration_complete', { email, finalUrl: page.url(), title: await page.title(), passkeyCreated: passkey.passkeyCreated });
-  return {
-    pageName: 'chatgpt-register',
-    url: page.url(),
-    title: await page.title(),
-    email,
-    prefix,
-    verificationCode,
-    verified: true,
-    registration: { ...registration, passkeyCreated: passkey.passkeyCreated, passkeyStore: passkey.passkeyStore },
-    passkeyCreated: passkey.passkeyCreated,
-    passkeyStore: passkey.passkeyStore,
-    storedIdentity,
-    sameSessionPasskeyCheck,
-  };
+    createPasskey: options.createPasskey ?? true,
+    passkeyCreated: false,
+    url: CHATGPT_HOME_URL,
+  }, {
+    source: 'registerChatGPTWithExchange',
+  });
+  logStep('registration_start', { email, prefix, mailbox: config.exchange.mailbox });
+  try {
+    await exchangeClient.primeMessageDelta();
+    logStep('verification_delta_primed');
+    await openSignup(page, machine);
+    await submitEmailStep(page, email, machine);
+    await submitPasswordStep(page, password, 'unknown', machine);
+    const registration: RegistrationResult = { module: 'registration', accountType: 'parent', email, organizationName: null, passkeyCreated: false };
+    const verificationCode = await waitForVerificationCode({
+      exchangeClient,
+      email,
+      startedAt,
+      timeoutMs: options.verificationTimeoutMs ?? 180000,
+      pollIntervalMs: options.pollIntervalMs ?? 5000,
+      machine,
+    });
+    await submitVerificationCode(page, verificationCode, machine);
+    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+    await completeAgeGate(page, machine);
+    const passkey = options.createPasskey === false
+      ? { passkeyCreated: false as const, passkeyStore: undefined }
+      : await provisionPasskey(page, {
+          passkeyStore: options.passkeyStore,
+          virtualAuthenticator: options.virtualAuthenticator,
+          machine,
+        });
+    const sameSessionPasskeyCheck =
+      options.sameSessionPasskeyCheck && passkey.passkeyCreated
+        ? await runSameSessionPasskeyCheck(page, email, machine)
+        : undefined;
+    transitionChatGPTMachine(machine, 'persisting-identity', {
+      event: 'chatgpt.identity.persisting',
+      patch: {
+        passkeyCreated: passkey.passkeyCreated,
+        passkeyStore: passkey.passkeyStore,
+        sameSessionPasskeyCheck,
+        url: page.url(),
+        lastMessage: 'Persisting ChatGPT identity',
+      },
+    });
+    const storedIdentity = persistChatGPTIdentity({
+      email,
+      password,
+      prefix,
+      mailbox: config.exchange.mailbox,
+      passkeyCreated: passkey.passkeyCreated,
+      passkeyStore: passkey.passkeyStore,
+    }).summary;
+    const title = await page.title();
+    logStep('registration_complete', { email, finalUrl: page.url(), title, passkeyCreated: passkey.passkeyCreated });
+    const result = {
+      pageName: 'chatgpt-register' as const,
+      url: page.url(),
+      title,
+      email,
+      prefix,
+      verificationCode,
+      verified: true,
+      registration: { ...registration, passkeyCreated: passkey.passkeyCreated, passkeyStore: passkey.passkeyStore },
+      passkeyCreated: passkey.passkeyCreated,
+      passkeyStore: passkey.passkeyStore,
+      storedIdentity,
+      sameSessionPasskeyCheck,
+      machine: undefined as unknown as ChatGPTAuthFlowSnapshot<ChatGPTRegistrationFlowResult>,
+    };
+    const snapshot = machine.succeed('completed', {
+      event: 'chatgpt.completed',
+      patch: {
+        email,
+        prefix,
+        verificationCode,
+        passkeyCreated: passkey.passkeyCreated,
+        passkeyStore: passkey.passkeyStore,
+        storedIdentity,
+        registration: result.registration,
+        sameSessionPasskeyCheck,
+        url: result.url,
+        title: result.title,
+        lastMessage: 'ChatGPT registration completed',
+      },
+    });
+    result.machine = snapshot;
+    return result;
+  } catch (error) {
+    machine.fail(error, 'failed', {
+      event: 'chatgpt.failed',
+      patch: {
+        email,
+        prefix,
+        url: page.url(),
+        lastMessage: 'ChatGPT registration failed',
+      },
+    });
+    throw error;
+  }
 }
 
 export async function loginChatGPTWithStoredPasskey(
   page: Page,
   options: ChatGPTLoginPasskeyFlowOptions = {},
 ): Promise<ChatGPTLoginPasskeyFlowResult> {
+  const machine = options.machine ?? createChatGPTLoginPasskeyMachine();
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
   });
-
-  await openLogin(page);
-  await submitEmailForLogin(page, stored.identity.email);
-
-  const method = await tryPasskeyLogin(page, stored, options);
-
-  const authenticated = await waitForAuthenticatedSession(page, 30000);
-  if (!authenticated) {
-    throw new Error(`ChatGPT login did not reach an authenticated session for ${stored.identity.email}.`);
-  }
-
-  logStep('login_complete', {
+  machine.start({
     email: stored.identity.email,
-    method,
-    url: page.url(),
-    title: await page.title(),
+    storedIdentity: stored.summary,
+    method: 'passkey',
+    passkeyCreated: Boolean(stored.identity.passkeyStore?.credentials.length),
+    passkeyStore: stored.identity.passkeyStore,
+    url: CHATGPT_ENTRY_LOGIN_URL,
+  }, {
+    source: 'loginChatGPTWithStoredPasskey',
   });
 
-  return {
-    pageName: 'chatgpt-login-passkey',
-    url: page.url(),
-    title: await page.title(),
-    email: stored.identity.email,
-    method,
-    authenticated: true,
-    storedIdentity: stored.summary,
-  };
+  try {
+    await openLogin(page, machine);
+    transitionChatGPTMachine(machine, 'email-step', {
+      event: 'chatgpt.email.started',
+      patch: {
+        email: stored.identity.email,
+        url: page.url(),
+        lastMessage: 'Submitting login email',
+      },
+    });
+    await submitEmailForLogin(page, stored.identity.email);
+    transitionChatGPTMachine(machine, 'passkey-login', {
+      event: 'chatgpt.email.submitted',
+      patch: {
+        email: stored.identity.email,
+        url: page.url(),
+        lastMessage: 'Login email submitted',
+      },
+    });
+
+    const method = await tryPasskeyLogin(page, stored, { ...options, machine });
+
+    const authenticated = await waitForAuthenticatedSession(page, 30000);
+    if (!authenticated) {
+      throw new Error(`ChatGPT login did not reach an authenticated session for ${stored.identity.email}.`);
+    }
+
+    const title = await page.title();
+    logStep('login_complete', {
+      email: stored.identity.email,
+      method,
+      url: page.url(),
+      title,
+    });
+
+    const result = {
+      pageName: 'chatgpt-login-passkey' as const,
+      url: page.url(),
+      title,
+      email: stored.identity.email,
+      method,
+      authenticated: true,
+      storedIdentity: stored.summary,
+      machine: undefined as unknown as ChatGPTAuthFlowSnapshot<ChatGPTLoginPasskeyFlowResult>,
+    };
+    const snapshot = machine.succeed('completed', {
+      event: 'chatgpt.completed',
+      patch: {
+        email: stored.identity.email,
+        method,
+        storedIdentity: stored.summary,
+        url: result.url,
+        title: result.title,
+        lastMessage: 'ChatGPT passkey login completed',
+      },
+    });
+    result.machine = snapshot;
+    return result;
+  } catch (error) {
+    machine.fail(error, 'failed', {
+      event: 'chatgpt.failed',
+      patch: {
+        email: stored.identity.email,
+        storedIdentity: stored.summary,
+        url: page.url(),
+        lastMessage: 'ChatGPT passkey login failed',
+      },
+    });
+    throw error;
+  }
 }
 

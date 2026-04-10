@@ -6,6 +6,7 @@ export {
   loginChatGPTWithStoredPasskey,
 } from './flows/openai';
 export { resolveConfig, defaultConfig } from './config';
+export * from './state-machine';
 export {
   createPkcePair,
   buildAuthorizationUrl,
@@ -14,8 +15,10 @@ export {
 } from './modules/authorization/codex-authorization';
 export { registerAccount, registerParentAccount, registerChildAccount } from './modules/registration';
 export { loginAccount, loginParentAccount, loginChildAccount } from './modules/login';
+export * from './modules/auth-machine';
 export { ExchangeClient } from './modules/exchange';
 export { persistChatGPTIdentity, resolveStoredChatGPTIdentity } from './modules/credentials';
 export * from './modules/webauthn';
+export * from './flows/chatgpt-auth-machine';
 export type * from './types';
 export type * from './modules/exchange';

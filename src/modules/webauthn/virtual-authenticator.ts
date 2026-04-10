@@ -184,24 +184,30 @@ async function installAttestationAaguidOverride(page: Page, aaguid: string): Pro
         throw new Error(`Unsupported CBOR value type: ${String(value)}`);
       };
 
-      const patchAttestationObject = (buffer: ArrayBuffer): ArrayBuffer => {
+      const toArrayBuffer = (buffer: ArrayBuffer | SharedArrayBuffer): ArrayBuffer => {
+        if (buffer instanceof ArrayBuffer) return buffer;
+        const view = new Uint8Array(buffer);
+        return view.slice().buffer;
+      };
+
+      const patchAttestationObject = (buffer: ArrayBuffer | SharedArrayBuffer): ArrayBuffer => {
         const decoded = decodeItem(new Uint8Array(buffer));
-        if (!(decoded.value instanceof Map)) return buffer;
+        if (!(decoded.value instanceof Map)) return toArrayBuffer(buffer);
 
         const attestation = decoded.value;
         const authData = attestation.get('authData');
-        if (!(authData instanceof Uint8Array)) return buffer;
-        if (authData.length < 53) return buffer;
+        if (!(authData instanceof Uint8Array)) return toArrayBuffer(buffer);
+        if (authData.length < 53) return toArrayBuffer(buffer);
 
         const flags = authData[32];
-        if ((flags & 0x40) === 0) return buffer;
+        if ((flags & 0x40) === 0) return toArrayBuffer(buffer);
 
         const nextAuthData = new Uint8Array(authData);
         nextAuthData.set(uuidToBytes(injectedAaguid), 37);
         attestation.set('authData', nextAuthData);
 
         const encoded = encodeItem(attestation);
-        return encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
+        return encoded.slice().buffer;
       };
 
       const originalCreate = navigator.credentials.create.bind(navigator.credentials);
@@ -211,11 +217,14 @@ async function installAttestationAaguidOverride(page: Page, aaguid: string): Pro
         const response = credential.response;
         if (!(response instanceof AuthenticatorAttestationResponse)) return credential;
 
-        const originalGetAttestationObject = response.getAttestationObject.bind(response);
-        const patchedGetAttestationObject = () => patchAttestationObject(originalGetAttestationObject());
+        const readAttestationObject = () => patchAttestationObject(response.attestationObject);
         Object.defineProperty(response, 'getAttestationObject', {
           configurable: true,
-          value: patchedGetAttestationObject,
+          value: readAttestationObject,
+        });
+        Object.defineProperty(response, 'attestationObject', {
+          configurable: true,
+          get: readAttestationObject,
         });
         return credential;
       };
