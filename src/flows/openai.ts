@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type { Page } from 'patchright';
+import type { Locator, Page } from 'patchright';
 import type { RegistrationResult } from '../modules/registration';
 import { ExchangeClient } from '../modules/exchange';
 import { getRuntimeConfig } from '../config';
@@ -13,7 +13,6 @@ import type { FlowResult } from '../types';
 const CHATGPT_HOME_URL = 'https://chatgpt.com/';
 const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security';
 const ADULT_AGE = '25';
-const ADULT_BIRTHDAY = '1995-01-01';
 const PROFILE_NAME = 'Codey Test';
 const MIN_ONBOARDING_CLICKS = 3;
 
@@ -27,41 +26,54 @@ async function fillFirstAvailable(page: Page, selectors: SelectorTarget[], value
     const visible = await locator.isVisible().catch(() => false);
     if (!visible) continue;
     await locator.fill(value);
+    await locator.blur().catch(() => undefined);
     return true;
   }
   return false;
 }
 
-async function setBirthdayViaJs(page: Page, birthday: string): Promise<boolean> {
-  return page.evaluate((value) => {
-    const hidden = document.querySelector('input[name="birthday"]') as HTMLInputElement | null;
-    if (!hidden) return false;
-    hidden.value = value;
-    hidden.setAttribute('value', value);
-    hidden.dispatchEvent(new Event('input', { bubbles: true }));
-    hidden.dispatchEvent(new Event('change', { bubbles: true }));
-    const [year, month, day] = value.split('-');
-    const container = hidden.closest('div')?.querySelector('[role="group"]') || document.querySelector('[role="group"]');
-    if (container) {
-      const segments = Array.from(container.querySelectorAll('[data-type]')) as HTMLElement[];
-      for (const segment of segments) {
-        const type = segment.getAttribute('data-type');
-        if (type === 'year') { segment.textContent = year; segment.setAttribute('aria-valuetext', year); segment.setAttribute('aria-valuenow', String(Number(year))); }
-        if (type === 'month') { segment.textContent = month; segment.setAttribute('aria-valuetext', month); segment.setAttribute('aria-valuenow', String(Number(month))); }
-        if (type === 'day') { segment.textContent = day; segment.setAttribute('aria-valuetext', day); segment.setAttribute('aria-valuenow', String(Number(day))); }
-        segment.dispatchEvent(new Event('input', { bubbles: true }));
-        segment.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }
+async function isLocatorEnabled(locator: Locator): Promise<boolean> {
+  return locator.evaluate((element) => {
+    const candidate = element as HTMLElement & { disabled?: boolean };
+    return !candidate.disabled && candidate.getAttribute('aria-disabled') !== 'true';
+  }).catch(async () => locator.isEnabled().catch(() => false));
+}
+
+async function hasEnabledSelector(page: Page, selectors: SelectorTarget[]): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = toLocator(page, selector).first();
+    const visible = await locator.isVisible().catch(() => false);
+    if (!visible) continue;
+    if (await isLocatorEnabled(locator)) return true;
+  }
+  return false;
+}
+
+async function clickEnabledIfPresent(page: Page, selectors: SelectorTarget[]): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = toLocator(page, selector).first();
+    const visible = await locator.isVisible().catch(() => false);
+    if (!visible) continue;
+    if (!(await isLocatorEnabled(locator))) continue;
+    await locator.click();
     return true;
-  }, birthday);
+  }
+  return false;
+}
+
+async function waitForEnabledSelector(page: Page, selectors: SelectorTarget[], timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await hasEnabledSelector(page, selectors)) return true;
+    await sleep(250);
+  }
+  return hasEnabledSelector(page, selectors);
 }
 
 async function confirmAgeDialogIfPresent(page: Page): Promise<boolean> {
-  const confirmed = await clickIfPresent(page, [
+  const confirmed = await clickEnabledIfPresent(page, [
     { role: 'button', options: { name: /确定|confirm|ok/i } },
     { text: /确定|confirm|ok/i },
-    'form[action="/about-you"] button[type="submit"]',
   ]);
   if (confirmed) {
     logStep('age_gate_confirmed');
@@ -71,11 +83,14 @@ async function confirmAgeDialogIfPresent(page: Page): Promise<boolean> {
 }
 
 async function clickCompleteAccountCreation(page: Page): Promise<boolean> {
-  const clicked = await clickIfPresent(page, [
+  const selectors: SelectorTarget[] = [
     { role: 'button', options: { name: /完成帐户创建|完成账户创建|complete account creation|continue/i } },
     { text: /完成帐户创建|完成账户创建|complete account creation|continue/i },
+    'form[action="/about-you"] button[type="submit"]',
     'button[type="submit"]',
-  ]);
+  ];
+  await waitForEnabledSelector(page, selectors, 5000);
+  const clicked = await clickEnabledIfPresent(page, selectors);
   if (clicked) {
     await sleep(500);
     await confirmAgeDialogIfPresent(page);
@@ -382,10 +397,8 @@ async function completeAgeGate(page: Page): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const nameVisible = await page.locator('input[name="name"], input#_r_h_-name').first().isVisible().catch(() => false);
     const ageVisible = await page.locator('input[name="age"], input#_r_h_-age, input[id*="age"]').first().isVisible().catch(() => false);
-    const birthdayVisible = await page.locator('input[name="birthday"], input[id*="birthday"], input[type="date"], [role="group"] [data-type="year"]').first().isVisible().catch(() => false);
-    const hiddenBirthday = await page.locator('input[type="hidden"][name="birthday"]').count().catch(() => 0);
-    if (nameVisible || ageVisible || birthdayVisible || hiddenBirthday > 0) {
-      logStep('age_gate_ready', { attempt: attempt + 1, nameVisible, ageVisible, birthdayVisible, hiddenBirthday });
+    if (nameVisible || ageVisible) {
+      logStep('age_gate_ready', { attempt: attempt + 1, nameVisible, ageVisible });
       break;
     }
     await sleep(500);
@@ -394,7 +407,6 @@ async function completeAgeGate(page: Page): Promise<void> {
   if (nameFilled) logStep('age_gate_name_filled', { name: PROFILE_NAME });
   let ageFilled = await fillFirstAvailable(page, ['input[name="age"]', 'input#_r_h_-age', 'input[id*="age"]'], ADULT_AGE);
   if (ageFilled) logStep('age_gate_age_filled', { age: ADULT_AGE, mode: 'direct' });
-  let birthdayFilled = false;
   if (!ageFilled) {
     for (let i = 0; i < 3; i += 1) {
       const completed = await clickCompleteAccountCreation(page);
@@ -407,20 +419,14 @@ async function completeAgeGate(page: Page): Promise<void> {
       }
     }
   }
-  if (!ageFilled) {
-    const birthdayFilledVisible = await fillFirstAvailable(page, ['input[name="birthday"]', 'input[id*="birthday"]', 'input[type="date"]'], ADULT_BIRTHDAY);
-    if (birthdayFilledVisible) {
-      birthdayFilled = true;
-      logStep('age_gate_birthday_filled_visible', { birthday: ADULT_BIRTHDAY });
-    }
-    const birthdayFilledJs = await setBirthdayViaJs(page, ADULT_BIRTHDAY).catch(() => false);
-    if (birthdayFilledJs) {
-      birthdayFilled = true;
-      logStep('age_gate_birthday_filled_js', { birthday: ADULT_BIRTHDAY });
-    }
-  }
+  await waitForEnabledSelector(page, [
+    { role: 'button', options: { name: /完成帐户创建|完成账户创建|complete account creation|continue/i } },
+    { text: /完成帐户创建|完成账户创建|complete account creation|continue/i },
+    'form[action="/about-you"] button[type="submit"]',
+    'button[type="submit"]',
+  ], 5000);
   const completed = await clickCompleteAccountCreation(page);
-  logStep('age_gate_submitted', { completed, ageFilled, birthdayFilled });
+  logStep('age_gate_submitted', { completed, ageFilled });
 }
 
 async function provisionPasskey(page: Page, options: { passkeyStore?: VirtualPasskeyStore; virtualAuthenticator?: VirtualAuthenticatorOptions } = {}): Promise<{ passkeyCreated: boolean; passkeyStore?: VirtualPasskeyStore }> {
