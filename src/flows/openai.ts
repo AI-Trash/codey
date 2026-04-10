@@ -473,6 +473,8 @@ export async function registerChatGPTWithExchange(page: Page, options: ChatGPTRe
   const password = options.password || buildPassword();
   const startedAt = new Date().toISOString();
   logStep('registration_start', { email, prefix, mailbox: config.exchange.mailbox });
+  await exchangeClient.primeMessageDelta();
+  logStep('verification_delta_primed');
   await openSignup(page);
   await submitEmailStep(page, email);
   await submitPasswordStep(page, password);

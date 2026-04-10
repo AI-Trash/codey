@@ -15,9 +15,9 @@
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@types/node": "^25.5.2",
     "cac": "^7.0.0",
-    "patchright": "^1.59.3",
-    "tsx": "^4.20.6",
+    "patchright": "^1.59.4",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
-    "vite": "^8.0.7"
+    "vite": "^8.0.8"
   }
 }

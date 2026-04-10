@@ -41,6 +41,15 @@ interface GraphMessage {
   };
   toRecipients?: GraphRecipient[];
   body?: GraphItemBody;
+  '@removed'?: {
+    reason?: string;
+  };
+}
+
+interface GraphMessageDeltaResponse {
+  value?: GraphMessage[];
+  '@odata.nextLink'?: string;
+  '@odata.deltaLink'?: string;
 }
 
 function normalizeAddressList(recipients?: GraphRecipient[]): string[] | undefined {
@@ -80,6 +89,7 @@ function uniqueMessages(messages: ExchangeMessage[]): ExchangeMessage[] {
 export class ExchangeClient {
   private accessToken?: string;
   private accessTokenExpiresAt = 0;
+  private readonly messageDeltaLinks = new Map<string, string>();
 
   constructor(private readonly config: ExchangeConfig) {}
 
@@ -130,15 +140,8 @@ export class ExchangeClient {
     return `/users/${this.config.mailbox}`;
   }
 
-  private async graphGet<T>(path: string, query?: Record<string, string | number | boolean | undefined>): Promise<T> {
+  private async graphGetUrl<T>(url: string | URL): Promise<T> {
     const token = await this.getAccessToken();
-    const url = new URL(`https://graph.microsoft.com/v1.0${path}`);
-    for (const [key, value] of Object.entries(query || {})) {
-      if (value !== undefined) {
-        url.searchParams.set(key, String(value));
-      }
-    }
-
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -153,6 +156,16 @@ export class ExchangeClient {
     return json as T;
   }
 
+  private async graphGet<T>(path: string, query?: Record<string, string | number | boolean | undefined>): Promise<T> {
+    const url = new URL(`https://graph.microsoft.com/v1.0${path}`);
+    for (const [key, value] of Object.entries(query || {})) {
+      if (value !== undefined) {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    return this.graphGetUrl<T>(url);
+  }
+
   private async listMessagesAtPath(path: string, options: ExchangeListMessagesOptions = {}): Promise<ExchangeMessage[]> {
     const maxItems = options.maxItems ?? 20;
     const filter = options.unreadOnly ? 'isRead eq false' : undefined;
@@ -163,7 +176,82 @@ export class ExchangeClient {
       '$filter': filter,
     });
 
-    return (result.value || []).map(mapMessage);
+    return (result.value || []).filter((message) => !message['@removed']).map(mapMessage);
+  }
+
+  private getMessageCollectionPath(folderId?: string): string {
+    const mailboxPath = this.getMailboxPath();
+    return folderId ? `${mailboxPath}/mailFolders/${folderId}/messages` : `${mailboxPath}/mailFolders/inbox/messages`;
+  }
+
+  private getMessageDeltaKey(folderId?: string): string {
+    return folderId || 'inbox';
+  }
+
+  private async listMessageDeltaChanges(options: ExchangeListMessagesOptions = {}): Promise<ExchangeMessage[]> {
+    const deltaKey = this.getMessageDeltaKey(options.folderId);
+    let nextUrl = this.messageDeltaLinks.get(deltaKey);
+
+    if (!nextUrl) {
+      const deltaUrl = new URL(`https://graph.microsoft.com/v1.0${this.getMessageCollectionPath(options.folderId)}/delta`);
+      deltaUrl.searchParams.set('$select', 'id,subject,bodyPreview,isRead,receivedDateTime,from,toRecipients');
+      nextUrl = deltaUrl.toString();
+    }
+
+    const messages: ExchangeMessage[] = [];
+    let latestDeltaLink = this.messageDeltaLinks.get(deltaKey);
+
+    while (nextUrl) {
+      const page = await this.graphGetUrl<GraphMessageDeltaResponse>(nextUrl);
+      messages.push(...(page.value || []).filter((message) => !message['@removed']).map(mapMessage));
+      nextUrl = page['@odata.nextLink'];
+      if (page['@odata.deltaLink']) {
+        latestDeltaLink = page['@odata.deltaLink'];
+      }
+    }
+
+    if (latestDeltaLink) {
+      this.messageDeltaLinks.set(deltaKey, latestDeltaLink);
+    }
+
+    return uniqueMessages(messages);
+  }
+
+  private filterMessages(messages: ExchangeMessage[], options: ExchangeFindMessagesOptions): ExchangeMessage[] {
+    const filtered = messages.filter((message) => {
+      if (options.unreadOnly && message.isRead) {
+        return false;
+      }
+      if (options.fromIncludes && !(message.from || '').toLowerCase().includes(options.fromIncludes.toLowerCase())) {
+        return false;
+      }
+      if (
+        options.toIncludes &&
+        !(message.to || []).some((entry) => entry.toLowerCase().includes(options.toIncludes.toLowerCase()))
+      ) {
+        return false;
+      }
+      if (
+        options.subjectIncludes &&
+        !(message.subject || '').toLowerCase().includes(options.subjectIncludes.toLowerCase())
+      ) {
+        return false;
+      }
+      if (
+        options.receivedAfter &&
+        message.receivedAt &&
+        new Date(message.receivedAt).getTime() < new Date(options.receivedAfter).getTime()
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    return filtered.slice(0, options.maxItems ?? filtered.length);
+  }
+
+  async primeMessageDelta(options: ExchangeListMessagesOptions = {}): Promise<void> {
+    await this.listMessageDeltaChanges(options);
   }
 
   async verifyAccess(): Promise<ExchangeVerificationResult> {
@@ -230,12 +318,7 @@ export class ExchangeClient {
   }
 
   async listMessages(options: ExchangeListMessagesOptions = {}): Promise<ExchangeMessage[]> {
-    const mailboxPath = this.getMailboxPath();
-    const folderPath = options.folderId
-      ? `${mailboxPath}/mailFolders/${options.folderId}/messages`
-      : `${mailboxPath}/mailFolders/inbox/messages`;
-
-    return this.listMessagesAtPath(folderPath, options);
+    return this.listMessagesAtPath(this.getMessageCollectionPath(options.folderId), options);
   }
 
   async listMailboxMessages(options: ExchangeListMessagesOptions = {}): Promise<ExchangeMessage[]> {
@@ -258,37 +341,13 @@ export class ExchangeClient {
   }
 
   async findMessages(options: ExchangeFindMessagesOptions = {}): Promise<ExchangeMessage[]> {
-    const inboxMessages = await this.listMessages(options);
-    const mailboxMessages = await this.listMailboxMessages({
-      maxItems: Math.max(options.maxItems ?? 20, 50),
-      unreadOnly: options.unreadOnly,
-    });
-
-    const messages = uniqueMessages([...inboxMessages, ...mailboxMessages]);
-    return messages.filter((message) => {
-      if (options.fromIncludes && !(message.from || '').toLowerCase().includes(options.fromIncludes.toLowerCase())) {
-        return false;
-      }
-      if (
-        options.toIncludes &&
-        !(message.to || []).some((entry) => entry.toLowerCase().includes(options.toIncludes!.toLowerCase()))
-      ) {
-        return false;
-      }
-      if (
-        options.subjectIncludes &&
-        !(message.subject || '').toLowerCase().includes(options.subjectIncludes.toLowerCase())
-      ) {
-        return false;
-      }
-      if (
-        options.receivedAfter &&
-        message.receivedAt &&
-        new Date(message.receivedAt).getTime() < new Date(options.receivedAfter).getTime()
-      ) {
-        return false;
-      }
-      return true;
-    });
+    try {
+      const deltaMessages = await this.listMessageDeltaChanges(options);
+      return this.filterMessages(deltaMessages, options);
+    } catch {
+      const inboxMessages = await this.listMessages(options);
+      return this.filterMessages(inboxMessages, options);
+    }
   }
 }
+
