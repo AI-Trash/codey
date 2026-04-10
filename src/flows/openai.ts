@@ -15,9 +15,47 @@ const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security';
 const ADULT_AGE = '25';
 const PROFILE_NAME = 'Codey Test';
 const MIN_ONBOARDING_CLICKS = 3;
+const DEFAULT_EVENT_TIMEOUT_MS = 5000;
 
 function logStep(step: string, details?: Record<string, unknown>): void {
   console.log(JSON.stringify({ scope: 'chatgpt-register', step, ...(details || {}) }));
+}
+
+function isChatGPTHomeUrl(url: string): boolean {
+  return /^https:\/\/chatgpt\.com\/?(#.*)?$/i.test(url) || url.startsWith('https://chatgpt.com/');
+}
+
+async function waitForAnySelectorState(
+  page: Page,
+  selectors: SelectorTarget[],
+  state: 'visible' | 'hidden' | 'attached' | 'detached',
+  timeoutMs = DEFAULT_EVENT_TIMEOUT_MS,
+): Promise<boolean> {
+  if (!selectors.length) return false;
+  try {
+    await Promise.any(
+      selectors.map((selector) =>
+        toLocator(page, selector).first().waitFor({ state, timeout: timeoutMs }),
+      ),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForUrlMatch(
+  page: Page,
+  predicate: (url: string) => boolean,
+  timeoutMs = DEFAULT_EVENT_TIMEOUT_MS,
+): Promise<boolean> {
+  if (predicate(page.url())) return true;
+  try {
+    await page.waitForURL((url) => predicate(String(url)), { timeout: timeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function fillFirstAvailable(page: Page, selectors: SelectorTarget[], value: string): Promise<boolean> {
@@ -64,20 +102,72 @@ async function clickEnabledIfPresent(page: Page, selectors: SelectorTarget[]): P
 async function waitForEnabledSelector(page: Page, selectors: SelectorTarget[], timeoutMs = 5000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await hasEnabledSelector(page, selectors)) return true;
-    await sleep(250);
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const visible = await waitForAnySelectorState(page, selectors, 'visible', remainingMs);
+    if (!visible) break;
+
+    for (const selector of selectors) {
+      const locator = toLocator(page, selector).first();
+      const isVisible = await locator.isVisible().catch(() => false);
+      if (!isVisible) continue;
+      const handle = await locator.elementHandle().catch(() => null);
+      if (!handle) continue;
+      try {
+        const perSelectorTimeoutMs = Math.min(1000, Math.max(1, deadline - Date.now()));
+        await page.waitForFunction(
+          (element) => {
+            const candidate = element as HTMLElement & { disabled?: boolean };
+            const style = window.getComputedStyle(candidate);
+            const rect = candidate.getBoundingClientRect();
+            return (
+              candidate.isConnected &&
+              style.display !== 'none' &&
+              style.visibility !== 'hidden' &&
+              Number(style.opacity || '1') > 0 &&
+              rect.width > 0 &&
+              rect.height > 0 &&
+              !candidate.disabled &&
+              candidate.getAttribute('aria-disabled') !== 'true'
+            );
+          },
+          handle,
+          { timeout: perSelectorTimeoutMs },
+        );
+        return true;
+      } catch {
+        // Try another matching selector if this node vanished or never became enabled.
+      } finally {
+        await handle.dispose().catch(() => undefined);
+      }
+    }
   }
   return hasEnabledSelector(page, selectors);
 }
 
 async function confirmAgeDialogIfPresent(page: Page): Promise<boolean> {
-  const confirmed = await clickEnabledIfPresent(page, [
+  const confirmSelectors: SelectorTarget[] = [
     { role: 'button', options: { name: /确定|confirm|ok/i } },
     { text: /确定|confirm|ok/i },
+  ];
+  const confirmed = await clickEnabledIfPresent(page, [
+    ...confirmSelectors,
   ]);
   if (confirmed) {
     logStep('age_gate_confirmed');
-    await sleep(1000);
+    await Promise.any([
+      page.waitForLoadState('domcontentloaded', { timeout: DEFAULT_EVENT_TIMEOUT_MS }),
+      waitForAnySelectorState(page, confirmSelectors, 'hidden', DEFAULT_EVENT_TIMEOUT_MS).then((ready) => {
+        if (!ready) throw new Error('confirm dialog still visible');
+      }),
+      waitForAnySelectorState(
+        page,
+        ['input[name="name"]', 'input#_r_h_-name', 'input[name="age"]', 'input#_r_h_-age', 'input[id*="age"]'],
+        'visible',
+        DEFAULT_EVENT_TIMEOUT_MS,
+      ).then((ready) => {
+        if (!ready) throw new Error('age gate inputs not ready');
+      }),
+    ]).catch(() => undefined);
   }
   return confirmed;
 }
@@ -89,10 +179,29 @@ async function clickCompleteAccountCreation(page: Page): Promise<boolean> {
     'form[action="/about-you"] button[type="submit"]',
     'button[type="submit"]',
   ];
-  await waitForEnabledSelector(page, selectors, 5000);
+  await waitForEnabledSelector(page, selectors, DEFAULT_EVENT_TIMEOUT_MS);
   const clicked = await clickEnabledIfPresent(page, selectors);
   if (clicked) {
-    await sleep(500);
+    await Promise.any([
+      page.waitForLoadState('domcontentloaded', { timeout: DEFAULT_EVENT_TIMEOUT_MS }),
+      waitForAnySelectorState(page, selectors, 'hidden', DEFAULT_EVENT_TIMEOUT_MS).then((ready) => {
+        if (!ready) throw new Error('submit button still visible');
+      }),
+      waitForAnySelectorState(
+        page,
+        [
+          { role: 'button', options: { name: /确定|confirm|ok/i } },
+          { text: /确定|confirm|ok/i },
+          'input[name="age"]',
+          'input#_r_h_-age',
+          'input[id*="age"]',
+        ],
+        'visible',
+        DEFAULT_EVENT_TIMEOUT_MS,
+      ).then((ready) => {
+        if (!ready) throw new Error('post submit state not ready');
+      }),
+    ]).catch(() => undefined);
     await confirmAgeDialogIfPresent(page);
   }
   return clicked;
@@ -111,6 +220,32 @@ async function isProfileReady(page: Page): Promise<boolean> {
     const rect = el.getBoundingClientRect();
     return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0;
   }).catch(() => false);
+}
+
+async function waitForProfileReady(page: Page, timeoutMs = DEFAULT_EVENT_TIMEOUT_MS): Promise<boolean> {
+  if (await isProfileReady(page)) return true;
+  try {
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-testid="accounts-profile-button"]') as HTMLElement | null;
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          Number(style.opacity || '1') > 0 &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      },
+      undefined,
+      { timeout: timeoutMs },
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function clickOnboardingAction(page: Page): Promise<string | null> {
@@ -146,19 +281,64 @@ async function clickOnboardingAction(page: Page): Promise<string | null> {
   return null;
 }
 
+async function waitForHomeInteractionSignal(page: Page, timeoutMs = 10000): Promise<boolean> {
+  const waiters: Array<Promise<void>> = [];
+
+  if (!isChatGPTHomeUrl(page.url())) {
+    waiters.push(
+      waitForUrlMatch(page, isChatGPTHomeUrl, timeoutMs).then((ready) => {
+        if (!ready) throw new Error('chatgpt home url not ready');
+      }),
+    );
+  }
+
+  if (!(await isProfileReady(page))) {
+    waiters.push(
+      waitForProfileReady(page, timeoutMs).then((ready) => {
+        if (!ready) throw new Error('profile not ready');
+      }),
+    );
+  }
+
+  waiters.push(
+    waitForAnySelectorState(
+      page,
+      [
+        '[data-testid="getting-started-button"]',
+        { role: 'button', options: { name: /^好的，开始吧$|^开始吧$|^get started$/i } },
+        { text: /^好的，开始吧$|^开始吧$|^get started$/i },
+        { role: 'button', options: { name: /^继续$|^continue$/i } },
+        { text: /^继续$|^continue$/i },
+        { role: 'button', options: { name: /^跳过$|^skip$|^not now$|^以后再说$|^稍后$/i } },
+        { text: /^跳过$|^skip$|^not now$|^以后再说$|^稍后$/i },
+      ],
+      'visible',
+      timeoutMs,
+    ).then((ready) => {
+      if (!ready) throw new Error('onboarding action not ready');
+    }),
+  );
+
+  if (!waiters.length) {
+    await sleep(Math.min(timeoutMs, 250));
+    return true;
+  }
+
+  return Promise.any(waiters).then(() => true).catch(() => false);
+}
+
 async function waitUntilChatGPTHomeReady(page: Page, rounds = 20): Promise<boolean> {
   let onboardingClicks = 0;
   let idleAfterMinimum = 0;
   for (let round = 0; round < rounds; round += 1) {
     const url = page.url();
-    const onChatGPT = /^https:\/\/chatgpt\.com\/?(#.*)?$/i.test(url) || url.startsWith('https://chatgpt.com/');
+    const onChatGPT = isChatGPTHomeUrl(url);
     const profileReady = await isProfileReady(page);
 
     if (!onChatGPT) {
       idleAfterMinimum = 0;
       logStep('chatgpt_home_not_ready', { round: round + 1, url, onboardingClicks });
-      await sleep(1000);
-      await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+      await waitForHomeInteractionSignal(page, 10000);
       continue;
     }
 
@@ -167,8 +347,7 @@ async function waitUntilChatGPTHomeReady(page: Page, rounds = 20): Promise<boole
       onboardingClicks += 1;
       idleAfterMinimum = 0;
       logStep('post_signup_prompt_clicked', { round: round + 1, url, action, onboardingClicks });
-      await sleep(800);
-      await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS);
       continue;
     }
 
@@ -185,13 +364,12 @@ async function waitUntilChatGPTHomeReady(page: Page, rounds = 20): Promise<boole
         logStep('chatgpt_home_ready', { round: round + 1, url, profileReady: true, onboardingClicks });
         return true;
       }
-      await sleep(1000);
+      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS);
       continue;
     }
 
     logStep('chatgpt_home_wait', { round: round + 1, url, profileReady, onboardingClicks, minOnboardingClicks: MIN_ONBOARDING_CLICKS });
-    await sleep(1000);
-    await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+    await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS);
   }
   return false;
 }
@@ -205,7 +383,7 @@ async function navigateToSecuritySettings(page: Page): Promise<boolean> {
     const action = await clickOnboardingAction(page);
     if (action) {
       logStep('security_navigation_onboarding_click', { attempt: attempt + 1, action, url: page.url() });
-      await sleep(1000);
+      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS);
       continue;
     }
 
@@ -220,7 +398,23 @@ async function navigateToSecuritySettings(page: Page): Promise<boolean> {
     });
 
     if (addVisible || securityTabCount > 0) return true;
-    await sleep(1000);
+    await Promise.any([
+      waitForAnySelectorState(
+        page,
+        [
+          '[data-testid="security-tab"]',
+          { role: 'button', options: { name: /安全密钥和通行密钥|security keys and passkeys/i } },
+          { text: /安全密钥和通行密钥|security keys and passkeys/i },
+        ],
+        'visible',
+        DEFAULT_EVENT_TIMEOUT_MS,
+      ).then((ready) => {
+        if (!ready) throw new Error('security controls not ready');
+      }),
+      waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS).then((ready) => {
+        if (!ready) throw new Error('home interaction not ready');
+      }),
+    ]).catch(() => undefined);
   }
   return false;
 }
@@ -305,13 +499,10 @@ async function openSignup(page: Page): Promise<void> {
     { text: /免费注册|sign up|create account/i },
   ]);
   logStep('signup_button_clicked');
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const emailVisible = await page.locator('input#email, input[name="email"]').first().isVisible().catch(() => false);
-    if (emailVisible) {
-      logStep('signup_popover_ready', { attempt: attempt + 1 });
-      return;
-    }
-    await sleep(500);
+  const emailReady = await waitForAnySelectorState(page, ['input#email', 'input[name="email"]'], 'visible', 10000);
+  if (emailReady) {
+    logStep('signup_popover_ready');
+    return;
   }
   throw new Error('Sign-up popover did not render the email input.');
 }
@@ -325,13 +516,14 @@ async function submitEmailStep(page: Page, email: string): Promise<void> {
 
 async function submitPasswordStep(page: Page, password: string): Promise<void> {
   logStep('password_step_waiting');
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const passwordVisible = await page.locator('input[type="password"], input[name="password"]').first().isVisible().catch(() => false);
-    if (passwordVisible) {
-      logStep('password_step_ready', { attempt: attempt + 1 });
-      break;
-    }
-    await sleep(500);
+  const passwordReady = await waitForAnySelectorState(
+    page,
+    ['input[type="password"]', 'input[name="password"]'],
+    'visible',
+    10000,
+  );
+  if (passwordReady) {
+    logStep('password_step_ready');
   }
   await fillIfPresent(page, ['input[type="password"]', 'input[name="password"]'], password);
   await clickAny(page, ['button[type="submit"]', { role: 'button', options: { name: /继续|continue|注册|create/i } }, { text: /继续|continue|注册|create/i }]);
@@ -378,13 +570,14 @@ async function waitForVerificationCode(params: { exchangeClient: ExchangeClient;
 
 async function submitVerificationCode(page: Page, code: string): Promise<void> {
   logStep('verification_code_submit_start', { code });
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const visible = await page.locator('input#_r_5_-code, input[autocomplete="one-time-code"], input[name="code"], input[name*="code"], input[id*="code"]').first().isVisible().catch(() => false);
-    if (visible) {
-      logStep('verification_code_input_ready', { attempt: attempt + 1 });
-      break;
-    }
-    await sleep(500);
+  const codeReady = await waitForAnySelectorState(
+    page,
+    ['input#_r_5_-code', 'input[autocomplete="one-time-code"]', 'input[name="code"]', 'input[name*="code"]', 'input[id*="code"]'],
+    'visible',
+    10000,
+  );
+  if (codeReady) {
+    logStep('verification_code_input_ready');
   }
   const input = page.locator('input#_r_5_-code, input[autocomplete="one-time-code"], input[name="code"], input[name*="code"], input[id*="code"]').first();
   await input.fill(code);
@@ -394,14 +587,14 @@ async function submitVerificationCode(page: Page, code: string): Promise<void> {
 
 async function completeAgeGate(page: Page): Promise<void> {
   logStep('age_gate_waiting');
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const nameVisible = await page.locator('input[name="name"], input#_r_h_-name').first().isVisible().catch(() => false);
-    const ageVisible = await page.locator('input[name="age"], input#_r_h_-age, input[id*="age"]').first().isVisible().catch(() => false);
-    if (nameVisible || ageVisible) {
-      logStep('age_gate_ready', { attempt: attempt + 1, nameVisible, ageVisible });
-      break;
-    }
-    await sleep(500);
+  const ageGateReady = await waitForAnySelectorState(
+    page,
+    ['input[name="name"]', 'input#_r_h_-name', 'input[name="age"]', 'input#_r_h_-age', 'input[id*="age"]'],
+    'visible',
+    20000,
+  );
+  if (ageGateReady) {
+    logStep('age_gate_ready');
   }
   const nameFilled = await fillFirstAvailable(page, ['input[name="name"]', 'input#_r_h_-name'], PROFILE_NAME);
   if (nameFilled) logStep('age_gate_name_filled', { name: PROFILE_NAME });
@@ -411,7 +604,12 @@ async function completeAgeGate(page: Page): Promise<void> {
     for (let i = 0; i < 3; i += 1) {
       const completed = await clickCompleteAccountCreation(page);
       logStep('age_gate_submit_without_birthday', { attempt: i + 1, completed });
-      await sleep(1000);
+      await waitForAnySelectorState(
+        page,
+        ['input[name="age"]', 'input#_r_h_-age', 'input[id*="age"]'],
+        'visible',
+        DEFAULT_EVENT_TIMEOUT_MS,
+      );
       ageFilled = await fillFirstAvailable(page, ['input[name="age"]', 'input#_r_h_-age', 'input[id*="age"]'], ADULT_AGE);
       if (ageFilled) {
         logStep('age_gate_age_filled', { age: ADULT_AGE, mode: 'after_submit_prompt' });
@@ -429,6 +627,26 @@ async function completeAgeGate(page: Page): Promise<void> {
   logStep('age_gate_submitted', { completed, ageFilled });
 }
 
+async function waitForPasskeyCreation(
+  page: Page,
+  session: Awaited<ReturnType<typeof loadVirtualPasskeyStore>>['session'],
+  authenticatorId: string,
+  timeoutMs = 20000,
+): Promise<VirtualPasskeyStore> {
+  const deadline = Date.now() + timeoutMs;
+  let pauseMs = 100;
+  while (Date.now() < deadline) {
+    const store = await captureVirtualPasskeyStore(session as never, authenticatorId);
+    if (store.credentials.length > 0) return store;
+    await Promise.any([
+      page.waitForLoadState('domcontentloaded', { timeout: Math.min(pauseMs, Math.max(1, deadline - Date.now())) }),
+      sleep(Math.min(pauseMs, Math.max(1, deadline - Date.now()))),
+    ]).catch(() => undefined);
+    pauseMs = Math.min(pauseMs * 2, 1000);
+  }
+  return captureVirtualPasskeyStore(session as never, authenticatorId);
+}
+
 async function provisionPasskey(page: Page, options: { passkeyStore?: VirtualPasskeyStore; virtualAuthenticator?: VirtualAuthenticatorOptions } = {}): Promise<{ passkeyCreated: boolean; passkeyStore?: VirtualPasskeyStore }> {
   logStep('passkey_provision_start');
   const virtualAuth = await loadVirtualPasskeyStore(page, options.passkeyStore, options.virtualAuthenticator);
@@ -440,15 +658,29 @@ async function provisionPasskey(page: Page, options: { passkeyStore?: VirtualPas
     const securityNavReady = await navigateToSecuritySettings(page);
     logStep('security_navigation_result', { attempt: attempt + 1, securityNavReady, url: page.url() });
     if (!securityNavReady) {
-      await sleep(2000);
       continue;
     }
     for (let wait = 0; wait < 45; wait += 1) {
       const addVisible = await page.locator('button').filter({ hasText: /安全密钥和通行密钥|security keys and passkeys/i }).first().isVisible().catch(() => false);
       if (addVisible) break;
-      await sleep(1000);
       const action = await clickOnboardingAction(page);
       if (action) logStep('passkey_onboarding_click', { attempt: attempt + 1, wait: wait + 1, action, url: page.url() });
+      await Promise.any([
+        waitForAnySelectorState(
+          page,
+          [
+            { role: 'button', options: { name: /安全密钥和通行密钥|security keys and passkeys/i } },
+            { text: /安全密钥和通行密钥|security keys and passkeys/i },
+          ],
+          'visible',
+          DEFAULT_EVENT_TIMEOUT_MS,
+        ).then((ready) => {
+          if (!ready) throw new Error('passkey entry button not ready');
+        }),
+        waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS).then((ready) => {
+          if (!ready) throw new Error('home interaction not ready');
+        }),
+      ]).catch(() => undefined);
     }
     const addClicked = await clickIfPresent(page, [
       'button:has(div:has-text("添加"))',
@@ -456,12 +688,10 @@ async function provisionPasskey(page: Page, options: { passkeyStore?: VirtualPas
     ]);
     if (!addClicked) {
       logStep('passkey_add_not_ready', { attempt: attempt + 1 });
-      await sleep(2000);
       continue;
     }
     logStep('passkey_add_clicked', { attempt: attempt + 1 });
-    await sleep(4000);
-    const passkeyStore = await captureVirtualPasskeyStore(virtualAuth.session as never, virtualAuth.authenticatorId);
+    const passkeyStore = await waitForPasskeyCreation(page, virtualAuth.session, virtualAuth.authenticatorId);
     const passkeyCreated = passkeyStore.credentials.length > 0;
     logStep('passkey_provision_result', { passkeyCreated, credentialCount: passkeyStore.credentials.length });
     await clickIfPresent(page, [{ role: 'button', options: { name: /完成|done|close|关闭/i } }, { text: /完成|done|close|关闭/i }]);
