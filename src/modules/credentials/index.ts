@@ -3,12 +3,13 @@ import fs from 'fs';
 import path from 'path';
 
 import { getRuntimeConfig } from '../../config';
-import { ensureDir } from '../../utils/fs';
+import { ensureDir, writeFileAtomic } from '../../utils/fs';
 import type { VirtualPasskeyStore } from '../webauthn';
 
 const STORE_VERSION = 1;
 const STORE_DIR = '.codey/credentials';
-const STORE_FILE_NAME = 'chatgpt-identities.json';
+const STORE_INDEX_FILE_NAME = 'chatgpt-identities.json';
+const STORE_ACCOUNTS_DIR_NAME = 'chatgpt-identities';
 const MASTER_KEY_ENV_NAME = 'CODEY_CREDENTIALS_MASTER_KEY';
 
 export interface StoredChatGPTIdentity {
@@ -73,9 +74,31 @@ export interface ResolvedChatGPTIdentity {
   summary: StoredChatGPTIdentitySummary;
 }
 
-function getStorePath(): string {
+function getStoreRootPath(): string {
   const config = getRuntimeConfig();
-  return path.join(config.rootDir, STORE_DIR, STORE_FILE_NAME);
+  return path.join(config.rootDir, STORE_DIR);
+}
+
+function getLegacyStorePath(): string {
+  return path.join(getStoreRootPath(), STORE_INDEX_FILE_NAME);
+}
+
+function getAccountsDirectoryPath(): string {
+  return path.join(getStoreRootPath(), STORE_ACCOUNTS_DIR_NAME);
+}
+
+function createIdentityFileName(identity: Pick<StoredChatGPTIdentity, 'email'>): string {
+  const normalizedEmail = identity.email.trim().toLowerCase();
+  const emailDigest = crypto.createHash('sha1').update(normalizedEmail).digest('hex').slice(0, 12);
+  const safeEmail = normalizedEmail
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'account';
+  return `${safeEmail}--${emailDigest}.json`;
+}
+
+function getIdentityStorePath(identity: Pick<StoredChatGPTIdentity, 'email'>): string {
+  return path.join(getAccountsDirectoryPath(), createIdentityFileName(identity));
 }
 
 function createDefaultStore(): ChatGPTIdentityStore {
@@ -171,7 +194,7 @@ function writeStoreEnvelope(storePath: string, store: ChatGPTIdentityStore): { e
         encrypted: false,
         payload,
       };
-  fs.writeFileSync(storePath, `${JSON.stringify(envelope, null, 2)}\n`, 'utf8');
+  writeFileAtomic(storePath, `${JSON.stringify(envelope, null, 2)}\n`);
   return { encrypted: envelope.encrypted };
 }
 
@@ -188,9 +211,42 @@ function summarize(identity: StoredChatGPTIdentity, storePath: string, encrypted
   };
 }
 
-export function persistChatGPTIdentity(input: PersistChatGPTIdentityInput): ResolvedChatGPTIdentity {
-  const storePath = getStorePath();
+function readIdentityStoreFile(storePath: string): ResolvedChatGPTIdentity | undefined {
   const loaded = readStoreEnvelope(storePath);
+  const [identity] = loaded.store.identities;
+  if (!identity) return undefined;
+  return {
+    identity,
+    summary: summarize(identity, storePath, loaded.encrypted),
+  };
+}
+
+function readAllStoredChatGPTIdentities(): ResolvedChatGPTIdentity[] {
+  const results = new Map<string, ResolvedChatGPTIdentity>();
+  const accountDir = getAccountsDirectoryPath();
+
+  if (fs.existsSync(accountDir)) {
+    for (const entry of fs.readdirSync(accountDir, { withFileTypes: true })) {
+      if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== '.json') continue;
+      const resolved = readIdentityStoreFile(path.join(accountDir, entry.name));
+      if (resolved) results.set(resolved.identity.id, resolved);
+    }
+  }
+
+  const legacyStorePath = getLegacyStorePath();
+  const legacy = readStoreEnvelope(legacyStorePath);
+  for (const identity of legacy.store.identities) {
+    if (results.has(identity.id)) continue;
+    results.set(identity.id, {
+      identity,
+      summary: summarize(identity, legacyStorePath, legacy.encrypted),
+    });
+  }
+
+  return [...results.values()];
+}
+
+export function persistChatGPTIdentity(input: PersistChatGPTIdentityInput): ResolvedChatGPTIdentity {
   const now = new Date().toISOString();
   const identity: StoredChatGPTIdentity = {
     id: crypto.randomUUID(),
@@ -208,9 +264,11 @@ export function persistChatGPTIdentity(input: PersistChatGPTIdentityInput): Reso
       chatgptUrl: getRuntimeConfig().openai.chatgptUrl,
     },
   };
-
-  loaded.store.identities = [...loaded.store.identities, identity];
-  const persisted = writeStoreEnvelope(storePath, loaded.store);
+  const storePath = getIdentityStorePath(identity);
+  const persisted = writeStoreEnvelope(storePath, {
+    version: STORE_VERSION,
+    identities: [identity],
+  });
 
   return {
     identity,
@@ -221,25 +279,20 @@ export function persistChatGPTIdentity(input: PersistChatGPTIdentityInput): Reso
 export function resolveStoredChatGPTIdentity(
   options: ResolveChatGPTIdentityOptions = {},
 ): ResolvedChatGPTIdentity {
-  const storePath = getStorePath();
-  const loaded = readStoreEnvelope(storePath);
-  const candidates = [...loaded.store.identities].sort((left, right) =>
-    right.updatedAt.localeCompare(left.updatedAt),
+  const candidates = readAllStoredChatGPTIdentities().sort((left, right) =>
+    right.identity.updatedAt.localeCompare(left.identity.updatedAt),
   );
 
-  const identity = candidates.find((entry) => {
-    if (options.id && entry.id !== options.id) return false;
-    if (options.email && entry.email.toLowerCase() !== options.email.toLowerCase()) return false;
+  const match = candidates.find((entry) => {
+    if (options.id && entry.identity.id !== options.id) return false;
+    if (options.email && entry.identity.email.toLowerCase() !== options.email.toLowerCase()) return false;
     return true;
   });
 
-  if (!identity) {
+  if (!match) {
     const requested = options.id ? `id=${options.id}` : options.email ? `email=${options.email}` : 'latest record';
     throw new Error(`No persisted ChatGPT identity found for ${requested}.`);
   }
 
-  return {
-    identity,
-    summary: summarize(identity, storePath, loaded.encrypted),
-  };
+  return match;
 }
