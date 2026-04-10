@@ -1,5 +1,8 @@
 import type { CDPSession, Page } from 'patchright';
 
+const DEFAULT_BITWARDEN_AAGUID = 'd548826e-79b4-db40-a3d8-11116f7e8349';
+const AAGUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface VirtualPasskeyCredential {
   credentialId: string;
   rpId: string;
@@ -21,6 +24,7 @@ export interface VirtualAuthenticatorOptions {
   hasUserVerification?: boolean;
   isUserVerified?: boolean;
   automaticPresenceSimulation?: boolean;
+  aaguid?: string;
 }
 
 export interface VirtualPasskeyStore {
@@ -28,7 +32,7 @@ export interface VirtualPasskeyStore {
   credentials: VirtualPasskeyCredential[];
 }
 
-const DEFAULT_AUTHENTICATOR: Required<VirtualAuthenticatorOptions> = {
+const DEFAULT_AUTHENTICATOR: Required<Omit<VirtualAuthenticatorOptions, 'aaguid'>> = {
   protocol: 'ctap2',
   transport: 'internal',
   hasResidentKey: true,
@@ -36,6 +40,27 @@ const DEFAULT_AUTHENTICATOR: Required<VirtualAuthenticatorOptions> = {
   isUserVerified: true,
   automaticPresenceSimulation: true,
 };
+
+function resolveDefaultAaguid(): string {
+  const value = process.env.VIRTUAL_AUTHENTICATOR_AAGUID?.trim() || DEFAULT_BITWARDEN_AAGUID;
+  if (!AAGUID_PATTERN.test(value)) {
+    throw new Error(`Invalid virtual authenticator AAGUID: ${value}`);
+  }
+  return value.toLowerCase();
+}
+
+function buildVirtualAuthenticatorOptions(options: VirtualAuthenticatorOptions): Record<string, unknown> {
+  const aaguid = (options.aaguid?.trim() || resolveDefaultAaguid()).toLowerCase();
+  if (!AAGUID_PATTERN.test(aaguid)) {
+    throw new Error(`Invalid virtual authenticator AAGUID: ${options.aaguid}`);
+  }
+
+  return {
+    ...DEFAULT_AUTHENTICATOR,
+    ...options,
+    aaguid,
+  };
+}
 
 async function createSession(page: Page): Promise<CDPSession> {
   return page.context().newCDPSession(page);
@@ -49,10 +74,7 @@ export async function ensureVirtualAuthenticator(
   await session.send('WebAuthn.enable');
 
   const authenticator = await session.send('WebAuthn.addVirtualAuthenticator', {
-    options: {
-      ...DEFAULT_AUTHENTICATOR,
-      ...options,
-    },
+    options: buildVirtualAuthenticatorOptions(options),
   });
 
   return {

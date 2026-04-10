@@ -53,6 +53,8 @@ CODEY_CREDENTIALS_MASTER_KEY=replace-this-with-a-long-random-secret
 
 `CODEY_CREDENTIALS_MASTER_KEY` is optional but strongly recommended. When it is set, Codey encrypts persisted ChatGPT identities with AES-256-GCM before writing them to disk.
 
+`VIRTUAL_AUTHENTICATOR_AAGUID` is optional. When omitted, Codey uses Bitwarden's AAGUID (`d548826e-79b4-db40-a3d8-11116f7e8349`) for the virtual authenticator so attestation requests receive a stable default authenticator identity.
+
 ### 2. Configure Exchange access
 
 To use the `exchange` commands, create a Microsoft Entra ID application with Microsoft Graph application permissions.
