@@ -25,5 +25,5 @@ export interface FlowResult {
   matchedSignals: string[];
 }
 
-export type FlowHandler<T = Record<string, unknown>> = (page: Page) => Promise<T>;
+export type FlowHandler<T extends object = object> = (page: Page) => Promise<T>;
 export type LocatorLike = Locator;

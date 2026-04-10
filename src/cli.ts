@@ -6,7 +6,12 @@ loadWorkspaceEnv();
 
 import { resolveConfig, setRuntimeConfig, type CliRuntimeConfig } from './config';
 import { newSession } from './core/browser';
-import { registerChatGPTWithExchange, verifyChatGPTEntry, verifyOpenAIHome } from './flows/openai';
+import {
+  loginChatGPTWithStoredPasskey,
+  registerChatGPTWithExchange,
+  verifyChatGPTEntry,
+  verifyOpenAIHome,
+} from './flows/openai';
 import { ExchangeClient } from './modules/exchange';
 
 interface CommonOptions {
@@ -22,12 +27,24 @@ interface FlowOptions extends CommonOptions {
   pollIntervalMs?: string | boolean;
   password?: string;
   createPasskey?: string | boolean;
+  sameSessionPasskeyCheck?: string | boolean;
+  identityId?: string;
+  email?: string;
 }
 
 interface ExchangeOptions extends CommonOptions {
   folderId?: string;
   maxItems?: string | boolean;
   unreadOnly?: string | boolean;
+}
+
+function redactForOutput<T>(value: T): T {
+  return JSON.parse(
+    JSON.stringify(value, (key, current) => {
+      if (typeof current === 'string' && /secret|password/i.test(key)) return '***redacted***';
+      return current;
+    }),
+  ) as T;
 }
 
 function parseBooleanFlag(value: string | boolean | undefined, fallback?: boolean): boolean | undefined {
@@ -67,13 +84,13 @@ async function runFlowCommand(
   try {
     if (subcommand === 'openai-home') {
       const result = await verifyOpenAIHome(session.page);
-      console.log(JSON.stringify({ command: 'flow:openai-home', config, result }, null, 2));
+      console.log(JSON.stringify({ command: 'flow:openai-home', config: redactForOutput(config), result }, null, 2));
       return;
     }
 
     if (subcommand === 'chatgpt-entry') {
       const result = await verifyChatGPTEntry(session.page);
-      console.log(JSON.stringify({ command: 'flow:chatgpt-entry', config, result }, null, 2));
+      console.log(JSON.stringify({ command: 'flow:chatgpt-entry', config: redactForOutput(config), result }, null, 2));
       return;
     }
 
@@ -87,6 +104,7 @@ async function runFlowCommand(
             status: 'opened',
             url: session.page.url(),
             waitMs,
+            config: redactForOutput(config),
             note: 'ChatGPT has been opened and no automated actions will be performed.',
           },
           null,
@@ -103,8 +121,18 @@ async function runFlowCommand(
         verificationTimeoutMs: parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000,
         pollIntervalMs: parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000,
         createPasskey: parseBooleanFlag(options.createPasskey, true) ?? true,
+        sameSessionPasskeyCheck: parseBooleanFlag(options.sameSessionPasskeyCheck, false) ?? false,
       });
-      console.log(JSON.stringify({ command: 'flow:chatgpt-register-exchange', config, result }, null, 2));
+      console.log(JSON.stringify({ command: 'flow:chatgpt-register-exchange', config: redactForOutput(config), result }, null, 2));
+      return;
+    }
+
+    if (subcommand === 'chatgpt-login-passkey') {
+      const result = await loginChatGPTWithStoredPasskey(session.page, {
+        identityId: options.identityId,
+        email: options.email,
+      });
+      console.log(JSON.stringify({ command: 'flow:chatgpt-login-passkey', config: redactForOutput(config), result }, null, 2));
       return;
     }
 
@@ -127,13 +155,13 @@ async function runExchangeCommand(
 
   if (subcommand === 'verify') {
     const result = await client.verifyAccess();
-    console.log(JSON.stringify({ command: 'exchange:verify', result }, null, 2));
+    console.log(JSON.stringify({ command: 'exchange:verify', config: redactForOutput(config), result }, null, 2));
     return;
   }
 
   if (subcommand === 'folders') {
     const result = await client.listFolders();
-    console.log(JSON.stringify({ command: 'exchange:folders', result }, null, 2));
+    console.log(JSON.stringify({ command: 'exchange:folders', config: redactForOutput(config), result }, null, 2));
     return;
   }
 
@@ -143,7 +171,7 @@ async function runExchangeCommand(
       maxItems: parseNumberFlag(options.maxItems, 20) ?? 20,
       unreadOnly: parseBooleanFlag(options.unreadOnly, false) ?? false,
     });
-    console.log(JSON.stringify({ command: 'exchange:messages', result }, null, 2));
+    console.log(JSON.stringify({ command: 'exchange:messages', config: redactForOutput(config), result }, null, 2));
     return;
   }
 
@@ -220,6 +248,7 @@ withCommonOptions(
     .option('--verificationTimeoutMs <ms>', 'How long to wait for the verification email')
     .option('--pollIntervalMs <ms>', 'How often to poll Exchange for the verification email')
     .option('--createPasskey <bool>', 'Whether to provision a passkey after registration')
+    .option('--sameSessionPasskeyCheck <bool>', 'Whether to run a same-session passkey re-login diagnostic after registration')
     .example('codey flow chatgpt-register-exchange --verificationTimeoutMs 180000 --createPasskey true'),
 ).action((options: FlowOptions) => {
   execute(
@@ -227,6 +256,23 @@ withCommonOptions(
       const config = buildRuntimeConfig('flow:chatgpt-register-exchange', options);
       setRuntimeConfig(config);
       await runFlowCommand('chatgpt-register-exchange', options, config);
+    })(),
+  );
+});
+
+withCommonOptions(
+  flowCli
+    .command('chatgpt-login-passkey', 'Try to sign in to ChatGPT with a previously stored passkey identity')
+    .option('--identityId <id>', 'Stored identity id from a previous chatgpt-register-exchange run')
+    .option('--email <email>', 'Stored identity email; defaults to the latest saved identity')
+    .example('codey flow chatgpt-login-passkey')
+    .example('codey flow chatgpt-login-passkey --email someone@example.com'),
+).action((options: FlowOptions) => {
+  execute(
+    (async () => {
+      const config = buildRuntimeConfig('flow:chatgpt-login-passkey', options);
+      setRuntimeConfig(config);
+      await runFlowCommand('chatgpt-login-passkey', options, config);
     })(),
   );
 });
@@ -278,6 +324,7 @@ cli
   .example('codey flow chatgpt-entry --headless true')
   .example('codey flow chatgpt-open --waitMs 300000')
   .example('codey flow chatgpt-register-exchange --verificationTimeoutMs 180000 --createPasskey true')
+  .example('codey flow chatgpt-login-passkey --email someone@example.com')
   .action(() => {
     flowCli.outputHelp();
   });

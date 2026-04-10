@@ -7,6 +7,11 @@ export interface VirtualPasskeyCredential {
   privateKey: string;
   signCount: number;
   isResidentCredential: boolean;
+  largeBlob?: string;
+  backupEligibility?: boolean;
+  backupState?: boolean;
+  userName?: string;
+  userDisplayName?: string;
 }
 
 export interface VirtualAuthenticatorOptions {
@@ -39,7 +44,7 @@ async function createSession(page: Page): Promise<CDPSession> {
 export async function ensureVirtualAuthenticator(
   page: Page,
   options: VirtualAuthenticatorOptions = {},
-): Promise<{ session: CdpSession; authenticatorId: string }> {
+): Promise<{ session: CDPSession; authenticatorId: string }> {
   const session = await createSession(page);
   await session.send('WebAuthn.enable');
 
@@ -57,7 +62,7 @@ export async function ensureVirtualAuthenticator(
 }
 
 export async function getVirtualAuthenticatorCredentials(
-  session: CdpSession,
+  session: CDPSession,
   authenticatorId: string,
 ): Promise<VirtualPasskeyCredential[]> {
   const result = await session.send('WebAuthn.getCredentials', { authenticatorId });
@@ -65,7 +70,7 @@ export async function getVirtualAuthenticatorCredentials(
 }
 
 export async function addVirtualAuthenticatorCredential(
-  session: CdpSession,
+  session: CDPSession,
   authenticatorId: string,
   credential: VirtualPasskeyCredential,
 ): Promise<void> {
@@ -79,7 +84,7 @@ export async function loadVirtualPasskeyStore(
   page: Page,
   store?: VirtualPasskeyStore,
   options: VirtualAuthenticatorOptions = {},
-): Promise<{ session: CdpSession; authenticatorId: string }> {
+): Promise<{ session: CDPSession; authenticatorId: string }> {
   const { session, authenticatorId } = await ensureVirtualAuthenticator(page, options);
 
   for (const credential of store?.credentials || []) {
@@ -90,7 +95,7 @@ export async function loadVirtualPasskeyStore(
 }
 
 export async function captureVirtualPasskeyStore(
-  session: CdpSession,
+  session: CDPSession,
   authenticatorId: string,
 ): Promise<VirtualPasskeyStore> {
   const credentials = await getVirtualAuthenticatorCredentials(session, authenticatorId);

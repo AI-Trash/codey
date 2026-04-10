@@ -13,8 +13,11 @@ export const loginDefaults: {
 } = {
   common: {
     email: [
+      'input[id$="-email"]',
       { label: 'Email' },
       { label: '邮箱' },
+      { label: '电子邮件地址' },
+      { placeholder: '电子邮件地址' },
       'input[type="email"]',
       'input[name="email"]',
     ],

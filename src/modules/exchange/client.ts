@@ -202,11 +202,11 @@ export class ExchangeClient {
     let latestDeltaLink = this.messageDeltaLinks.get(deltaKey);
 
     while (nextUrl) {
-      const page = await this.graphGetUrl<GraphMessageDeltaResponse>(nextUrl);
-      messages.push(...(page.value || []).filter((message) => !message['@removed']).map(mapMessage));
-      nextUrl = page['@odata.nextLink'];
-      if (page['@odata.deltaLink']) {
-        latestDeltaLink = page['@odata.deltaLink'];
+      const deltaPage: GraphMessageDeltaResponse = await this.graphGetUrl<GraphMessageDeltaResponse>(nextUrl);
+      messages.push(...(deltaPage.value || []).filter((message: GraphMessage) => !message['@removed']).map(mapMessage));
+      nextUrl = deltaPage['@odata.nextLink'];
+      if (deltaPage['@odata.deltaLink']) {
+        latestDeltaLink = deltaPage['@odata.deltaLink'];
       }
     }
 
@@ -218,6 +218,7 @@ export class ExchangeClient {
   }
 
   private filterMessages(messages: ExchangeMessage[], options: ExchangeFindMessagesOptions): ExchangeMessage[] {
+    const normalizedToIncludes = options.toIncludes?.toLowerCase();
     const filtered = messages.filter((message) => {
       if (options.unreadOnly && message.isRead) {
         return false;
@@ -226,8 +227,8 @@ export class ExchangeClient {
         return false;
       }
       if (
-        options.toIncludes &&
-        !(message.to || []).some((entry) => entry.toLowerCase().includes(options.toIncludes.toLowerCase()))
+        normalizedToIncludes &&
+        !(message.to || []).some((entry) => entry.toLowerCase().includes(normalizedToIncludes))
       ) {
         return false;
       }

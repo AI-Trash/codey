@@ -8,6 +8,7 @@ Codey is a TypeScript CLI and helper library for validating OpenAI web flows and
 - Read Exchange mailbox folders and messages through Microsoft Graph application permissions
 - Support a configurable catch-all email prefix convention such as `codey*`
 - Configure settings with environment variables or a JSON config file
+- Persist ChatGPT registration identities locally for later login attempts, including password and virtual passkey data
 
 ## Requirements
 
@@ -47,7 +48,10 @@ EXCHANGE_CLIENT_ID=your-app-client-id
 EXCHANGE_CLIENT_SECRET=your-app-client-secret
 EXCHANGE_MAILBOX=codey-shared@contoso.com
 EXCHANGE_CATCH_ALL_PREFIX=codey
+CODEY_CREDENTIALS_MASTER_KEY=replace-this-with-a-long-random-secret
 ```
+
+`CODEY_CREDENTIALS_MASTER_KEY` is optional but strongly recommended. When it is set, Codey encrypts persisted ChatGPT identities with AES-256-GCM before writing them to disk.
 
 ### 2. Configure Exchange access
 
@@ -191,7 +195,35 @@ Codey supports only Patchright Chrome.
 pnpm exec tsx src/cli.ts flow openai-home
 pnpm exec tsx src/cli.ts flow chatgpt-entry
 pnpm exec tsx src/cli.ts flow chatgpt-open --waitMs 300000
+pnpm exec tsx src/cli.ts flow chatgpt-register-exchange --verificationTimeoutMs 180000 --createPasskey true
+pnpm exec tsx src/cli.ts flow chatgpt-register-exchange --createPasskey true --sameSessionPasskeyCheck true
+pnpm exec tsx src/cli.ts flow chatgpt-login-passkey
 ```
+
+### Persisted ChatGPT identities
+
+`chatgpt-register-exchange` now saves the generated ChatGPT identity to:
+
+```text
+C:\Users\Summp\Documents\GitHub\codey\.codey\credentials\chatgpt-identities.json
+```
+
+The saved record includes:
+
+- ChatGPT email
+- Account password
+- Registration metadata such as prefix and mailbox
+- Virtual WebAuthn passkey credentials when passkey provisioning succeeds
+
+You can later try signing in with the stored identity:
+
+```bash
+pnpm exec tsx src/cli.ts flow chatgpt-login-passkey
+pnpm exec tsx src/cli.ts flow chatgpt-login-passkey --email stored-address@example.com
+pnpm exec tsx src/cli.ts flow chatgpt-login-passkey --identityId <saved-identity-id>
+```
+
+The login flow prefers the saved passkey when present. If the passkey prompt is unavailable, it falls back to the saved password so the flow can still attempt to complete sign-in.
 
 ### Exchange commands
 
@@ -227,6 +259,16 @@ Common options for `flow` and `exchange` commands:
 - `--profile <name>`: Reserved for future profile support
 - `--headless <bool>`: Override browser headless mode
 - `--slowMo <ms>`: Override browser slow motion delay
+
+Flow-specific options:
+
+- `--verificationTimeoutMs <ms>`: How long `chatgpt-register-exchange` waits for the email verification code
+- `--pollIntervalMs <ms>`: How often `chatgpt-register-exchange` polls Exchange for the verification code
+- `--password <password>`: Override the generated password for `chatgpt-register-exchange`
+- `--createPasskey <bool>`: Whether `chatgpt-register-exchange` should provision a passkey
+- `--sameSessionPasskeyCheck <bool>`: After registration, try a same-session passkey re-login diagnostic in the same browser/authenticator context
+- `--email <email>`: Select a stored identity for `chatgpt-login-passkey`
+- `--identityId <id>`: Select a stored identity by saved id for `chatgpt-login-passkey`
 
 Exchange-specific options:
 

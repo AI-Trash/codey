@@ -3,6 +3,12 @@ import type { Locator, Page } from 'patchright';
 import type { RegistrationResult } from '../modules/registration';
 import { ExchangeClient } from '../modules/exchange';
 import { getRuntimeConfig } from '../config';
+import {
+  persistChatGPTIdentity,
+  resolveStoredChatGPTIdentity,
+  type ResolvedChatGPTIdentity,
+  type StoredChatGPTIdentitySummary,
+} from '../modules/credentials';
 import { clickAny, clickIfPresent, fillIfPresent } from '../modules/common/form-actions';
 import { captureVirtualPasskeyStore, loadVirtualPasskeyStore, type VirtualAuthenticatorOptions, type VirtualPasskeyStore } from '../modules/webauthn/virtual-authenticator';
 import { toLocator } from '../utils/selectors';
@@ -11,6 +17,8 @@ import { sleep } from '../utils/wait';
 import type { FlowResult } from '../types';
 
 const CHATGPT_HOME_URL = 'https://chatgpt.com/';
+const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login';
+const CHATGPT_LOGIN_URL = 'https://auth.openai.com/log-in-or-create-account';
 const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security';
 const ADULT_AGE = '25';
 const PROFILE_NAME = 'Codey Test';
@@ -38,6 +46,34 @@ const PASSWORD_TIMEOUT_RETRY_SELECTORS: SelectorTarget[] = [
   { role: 'button', options: { name: /重试|try again/i } },
   { text: /重试|try again/i },
   'button[data-dd-action-name="Try again"]',
+];
+const LOGIN_EMAIL_SELECTORS: SelectorTarget[] = [
+  'input[id$="-email"]',
+  'input#email',
+  'input[name="email"]',
+  'input[type="email"]',
+  { label: /电子邮件地址|email address|email/i },
+  { placeholder: /电子邮件地址|email address|email/i },
+];
+const LOGIN_CONTINUE_SELECTORS: SelectorTarget[] = [
+  'form[action="/log-in-or-create-account"] button[type="submit"]',
+  'button[type="submit"]',
+  { role: 'button', options: { name: /继续|continue|next|login|log in|sign in/i } },
+  { text: /继续|continue|next|login|log in|sign in/i },
+];
+const PASSKEY_ENTRY_SELECTORS: SelectorTarget[] = [
+  { role: 'button', options: { name: /passkey|sign in with passkey|use a passkey|使用 passkey|使用通行密钥|通行密钥|密钥/i } },
+  { text: /passkey|使用 passkey|使用通行密钥|通行密钥|密钥/i },
+];
+const CHATGPT_AUTHENTICATED_SELECTORS: SelectorTarget[] = [
+  '[data-testid="accounts-profile-button"]',
+  '[data-testid="composer-root"]',
+  'textarea',
+  '[data-testid="conversation-turn-0"]',
+];
+const LOGIN_NEXT_STEP_SELECTORS: SelectorTarget[] = [
+  ...PASSKEY_ENTRY_SELECTORS,
+  ...CHATGPT_AUTHENTICATED_SELECTORS,
 ];
 
 function logStep(step: string, details?: Record<string, unknown>): void {
@@ -87,6 +123,27 @@ async function fillFirstAvailable(page: Page, selectors: SelectorTarget[], value
     const visible = await locator.isVisible().catch(() => false);
     if (!visible) continue;
     await locator.fill(value);
+    await locator.blur().catch(() => undefined);
+    return true;
+  }
+  return false;
+}
+
+async function typeFirstAvailable(page: Page, selectors: SelectorTarget[], value: string): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = toLocator(page, selector).first();
+    const visible = await locator.isVisible().catch(() => false);
+    if (!visible) continue;
+    if (!(await isLocatorEnabled(locator))) continue;
+    const editable = await locator.evaluate((element) => {
+      const candidate = element as HTMLInputElement | HTMLTextAreaElement;
+      return !candidate.readOnly;
+    }).catch(() => false);
+    if (!editable) continue;
+    await locator.click({ delay: 100 }).catch(() => undefined);
+    await locator.fill('');
+    await sleep(250);
+    await locator.pressSequentially(value, { delay: 90 });
     await locator.blur().catch(() => undefined);
     return true;
   }
@@ -483,8 +540,16 @@ export interface ChatGPTRegistrationFlowOptions {
   verificationTimeoutMs?: number;
   pollIntervalMs?: number;
   createPasskey?: boolean;
+  sameSessionPasskeyCheck?: boolean;
   virtualAuthenticator?: VirtualAuthenticatorOptions;
   passkeyStore?: VirtualPasskeyStore;
+}
+
+export interface SameSessionPasskeyCheckResult {
+  attempted: boolean;
+  authenticated: boolean;
+  method?: 'passkey';
+  error?: string;
 }
 
 export interface ChatGPTRegistrationFlowResult {
@@ -498,6 +563,24 @@ export interface ChatGPTRegistrationFlowResult {
   registration: RegistrationResult;
   passkeyCreated: boolean;
   passkeyStore?: VirtualPasskeyStore;
+  storedIdentity?: StoredChatGPTIdentitySummary;
+  sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult;
+}
+
+export interface ChatGPTLoginPasskeyFlowOptions {
+  identityId?: string;
+  email?: string;
+  virtualAuthenticator?: VirtualAuthenticatorOptions;
+}
+
+export interface ChatGPTLoginPasskeyFlowResult {
+  pageName: 'chatgpt-login-passkey';
+  url: string;
+  title: string;
+  email: string;
+  method: 'passkey' | 'password';
+  authenticated: boolean;
+  storedIdentity: StoredChatGPTIdentitySummary;
 }
 
 function randomString(length = 8): string {
@@ -538,10 +621,51 @@ async function openSignup(page: Page): Promise<void> {
   throw new Error('Sign-up popover did not render the email input.');
 }
 
+async function openLogin(page: Page): Promise<void> {
+  logStep('login_open_start', { url: CHATGPT_ENTRY_LOGIN_URL });
+  await page.goto(CHATGPT_ENTRY_LOGIN_URL, { waitUntil: 'domcontentloaded' });
+  await page.locator('body').waitFor({ state: 'visible' });
+  await page.waitForLoadState('networkidle').catch(() => undefined);
+
+  const clicked = await clickEnabledIfPresent(page, [
+    '[data-testid="login-button"]',
+    { role: 'button', options: { name: /^登录$|^log in$|^login$/i } },
+    { text: /^登录$|^log in$|^login$/i },
+  ]);
+  if (!clicked) {
+    throw new Error('ChatGPT login entry page did not expose a clickable login button.');
+  }
+
+  await Promise.any([
+    page.waitForURL((url) => String(url).startsWith(CHATGPT_LOGIN_URL), { timeout: 15000 }),
+    waitForAnySelectorState(page, LOGIN_EMAIL_SELECTORS, 'visible', 15000).then((ready) => {
+      if (!ready) throw new Error('login email form not ready');
+    }),
+  ]).catch(() => undefined);
+}
+
 async function waitForPasswordSubmissionOutcome(page: Page, timeoutMs = 15000): Promise<'verification' | 'timeout' | 'unknown'> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS)) return 'verification';
+    if (
+      (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_ERROR_SELECTORS)) &&
+      (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_RETRY_SELECTORS))
+    ) {
+      return 'timeout';
+    }
+    await sleep(500);
+  }
+  return 'unknown';
+}
+
+async function waitForLoginEmailSubmissionOutcome(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<'next' | 'timeout' | 'unknown'> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isAnySelectorVisible(page, LOGIN_NEXT_STEP_SELECTORS)) return 'next';
     if (
       (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_ERROR_SELECTORS)) &&
       (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_RETRY_SELECTORS))
@@ -710,6 +834,235 @@ async function waitForPasskeyCreation(
   return captureVirtualPasskeyStore(session as never, authenticatorId);
 }
 
+async function waitForAuthenticatedSession(page: Page, timeoutMs = 30000): Promise<boolean> {
+  const ready = await waitForAnySelectorState(page, CHATGPT_AUTHENTICATED_SELECTORS, 'visible', timeoutMs);
+  if (ready) return true;
+  return isChatGPTHomeUrl(page.url()) && (await isProfileReady(page));
+}
+
+async function clearOriginStorage(page: Page, originUrl: string): Promise<void> {
+  await page.goto(originUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+  await page.evaluate(async () => {
+    try {
+      window.localStorage.clear();
+    } catch {}
+    try {
+      window.sessionStorage.clear();
+    } catch {}
+    try {
+      const cacheKeys = await caches.keys();
+      await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+    } catch {}
+    try {
+      const dbs = await indexedDB.databases?.();
+      if (dbs?.length) {
+        await Promise.all(
+          dbs
+            .map((db) => db.name)
+            .filter((name): name is string => Boolean(name))
+            .map(
+              (name) =>
+                new Promise<void>((resolve) => {
+                  const request = indexedDB.deleteDatabase(name);
+                  request.onsuccess = () => resolve();
+                  request.onerror = () => resolve();
+                  request.onblocked = () => resolve();
+                }),
+            ),
+        );
+      }
+    } catch {}
+  }).catch(() => undefined);
+}
+
+async function clearAuthenticatedSessionState(page: Page): Promise<void> {
+  logStep('same_session_state_clear_start', { url: page.url() });
+  await page.context().clearCookies().catch(() => undefined);
+  await clearOriginStorage(page, CHATGPT_HOME_URL);
+  await clearOriginStorage(page, CHATGPT_LOGIN_URL);
+  await clearOriginStorage(page, CHATGPT_ENTRY_LOGIN_URL);
+  logStep('same_session_state_clear_complete', { url: page.url() });
+}
+
+async function waitForLoginEmailFormReady(page: Page, timeoutMs = 15000): Promise<boolean> {
+  const formSelectors: SelectorTarget[] = [
+    'form[action="/log-in-or-create-account"]',
+    ...LOGIN_EMAIL_SELECTORS,
+    ...LOGIN_CONTINUE_SELECTORS,
+  ];
+  const visible = await waitForAnySelectorState(page, formSelectors, 'visible', timeoutMs);
+  if (!visible) return false;
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const onExpectedUrl = page.url().startsWith(CHATGPT_LOGIN_URL);
+    const emailReady = await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS);
+    const continueReady = await hasEnabledSelector(page, LOGIN_CONTINUE_SELECTORS);
+    if (onExpectedUrl && emailReady && continueReady) {
+      await sleep(500);
+      return true;
+    }
+    await sleep(200);
+  }
+
+  return false;
+}
+
+async function submitEmailForLogin(page: Page, email: string): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    logStep('login_email_step_start', { email, attempt });
+    const formReady = await waitForLoginEmailFormReady(page, 15000);
+    if (!formReady) {
+      throw new Error('ChatGPT login page did not finish rendering a stable email form.');
+    }
+
+    const filled = await typeFirstAvailable(page, LOGIN_EMAIL_SELECTORS, email);
+    if (!filled) {
+      throw new Error('ChatGPT login email field was visible but could not be filled.');
+    }
+
+    const submitted = await clickEnabledIfPresent(page, LOGIN_CONTINUE_SELECTORS);
+    if (!submitted) {
+      throw new Error('ChatGPT login page did not expose a clickable continue button.');
+    }
+    logStep('login_email_step_submitted', { attempt });
+
+    const outcome = await waitForLoginEmailSubmissionOutcome(page);
+    if (outcome === 'next' || outcome === 'unknown') {
+      if (outcome === 'next') logStep('login_email_step_next_ready', { attempt });
+      return;
+    }
+
+    logStep('login_email_step_timeout', { attempt });
+    const retried = await clickEnabledIfPresent(page, PASSWORD_TIMEOUT_RETRY_SELECTORS);
+    if (!retried) {
+      throw new Error('Login email submission timed out and retry button was not clickable.');
+    }
+    logStep('login_email_step_retry_clicked', { attempt });
+  }
+
+  throw new Error('Login email submission timed out repeatedly.');
+}
+
+async function waitForPasskeyEntryReady(page: Page, timeoutMs = 20000): Promise<boolean> {
+  const ready = await waitForAnySelectorState(page, PASSKEY_ENTRY_SELECTORS, 'visible', timeoutMs);
+  if (!ready) return false;
+  return waitForEnabledSelector(page, PASSKEY_ENTRY_SELECTORS, timeoutMs);
+}
+
+async function triggerPasskeyEntry(page: Page, timeoutMs = 20000): Promise<void> {
+  const passkeyReady = await waitForPasskeyEntryReady(page, timeoutMs);
+  if (!passkeyReady) {
+    throw new Error('Passkey entry button did not appear after submitting the email address.');
+  }
+
+  const triggered = await clickEnabledIfPresent(page, PASSKEY_ENTRY_SELECTORS);
+  if (!triggered) {
+    throw new Error('Passkey entry button became visible but could not be clicked.');
+  }
+}
+
+function summarizePasskeyCredentials(store?: VirtualPasskeyStore): Array<Record<string, unknown>> {
+  return (store?.credentials || []).map((credential) => ({
+    credentialId: credential.credentialId,
+    rpId: credential.rpId,
+    userHandle: credential.userHandle,
+    signCount: credential.signCount,
+    isResidentCredential: credential.isResidentCredential,
+    backupEligibility: credential.backupEligibility,
+    backupState: credential.backupState,
+    userName: credential.userName,
+    userDisplayName: credential.userDisplayName,
+    hasLargeBlob: Boolean(credential.largeBlob),
+  }));
+}
+
+async function tryPasskeyLogin(page: Page, stored: ResolvedChatGPTIdentity, options: ChatGPTLoginPasskeyFlowOptions): Promise<'passkey'> {
+  const hasPasskey = Boolean(stored.identity.passkeyStore?.credentials.length);
+  if (!hasPasskey) {
+    throw new Error(`Stored identity ${stored.identity.email} does not contain a passkey credential.`);
+  }
+
+  logStep('login_passkey_store_before_import', {
+    email: stored.identity.email,
+    credentials: summarizePasskeyCredentials(stored.identity.passkeyStore),
+  });
+
+  const virtualAuth = await loadVirtualPasskeyStore(page, stored.identity.passkeyStore, options.virtualAuthenticator);
+  virtualAuth.session.on('WebAuthn.credentialAsserted', (event) => {
+    logStep('login_passkey_credential_asserted', {
+      email: stored.identity.email,
+      credential: {
+        credentialId: event.credential.credentialId,
+        rpId: event.credential.rpId,
+        userHandle: event.credential.userHandle,
+        signCount: event.credential.signCount,
+        isResidentCredential: event.credential.isResidentCredential,
+        backupEligibility: event.credential.backupEligibility,
+        backupState: event.credential.backupState,
+        userName: event.credential.userName,
+        userDisplayName: event.credential.userDisplayName,
+      },
+    });
+  });
+  const importedStore = await captureVirtualPasskeyStore(virtualAuth.session, virtualAuth.authenticatorId);
+  logStep('login_passkey_store_after_import', {
+    email: stored.identity.email,
+    credentials: summarizePasskeyCredentials(importedStore),
+  });
+
+  await triggerPasskeyEntry(page, 20000);
+  logStep('login_passkey_triggered');
+  const postTriggerStore = await captureVirtualPasskeyStore(virtualAuth.session, virtualAuth.authenticatorId);
+  logStep('login_passkey_store_after_trigger', {
+    email: stored.identity.email,
+    credentials: summarizePasskeyCredentials(postTriggerStore),
+  });
+  return 'passkey';
+}
+
+async function runSameSessionPasskeyCheck(
+  page: Page,
+  email: string,
+): Promise<SameSessionPasskeyCheckResult> {
+  logStep('same_session_passkey_check_start', { email });
+
+  try {
+    await clearAuthenticatedSessionState(page);
+    await openLogin(page);
+    await submitEmailForLogin(page, email);
+    await triggerPasskeyEntry(page, 20000);
+    logStep('same_session_passkey_check_triggered', { email });
+
+    const authenticated = await waitForAuthenticatedSession(page, 30000);
+    if (!authenticated) {
+      throw new Error(`Same-session passkey check did not reach an authenticated session for ${email}.`);
+    }
+
+    logStep('same_session_passkey_check_complete', {
+      email,
+      authenticated: true,
+      url: page.url(),
+      title: await page.title(),
+    });
+
+    return {
+      attempted: true,
+      authenticated: true,
+      method: 'passkey',
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logStep('same_session_passkey_check_failed', { email, error: message, url: page.url() });
+    return {
+      attempted: true,
+      authenticated: false,
+      method: 'passkey',
+      error: message,
+    };
+  }
+}
+
 async function provisionPasskey(page: Page, options: { passkeyStore?: VirtualPasskeyStore; virtualAuthenticator?: VirtualAuthenticatorOptions } = {}): Promise<{ passkeyCreated: boolean; passkeyStore?: VirtualPasskeyStore }> {
   logStep('passkey_provision_start');
   const virtualAuth = await loadVirtualPasskeyStore(page, options.passkeyStore, options.virtualAuthenticator);
@@ -783,6 +1136,18 @@ export async function registerChatGPTWithExchange(page: Page, options: ChatGPTRe
   await page.waitForLoadState('domcontentloaded').catch(() => undefined);
   await completeAgeGate(page);
   const passkey = options.createPasskey === false ? { passkeyCreated: false as const, passkeyStore: undefined } : await provisionPasskey(page, { passkeyStore: options.passkeyStore, virtualAuthenticator: options.virtualAuthenticator });
+  const sameSessionPasskeyCheck =
+    options.sameSessionPasskeyCheck && passkey.passkeyCreated
+      ? await runSameSessionPasskeyCheck(page, email)
+      : undefined;
+  const storedIdentity = persistChatGPTIdentity({
+    email,
+    password,
+    prefix,
+    mailbox: config.exchange.mailbox,
+    passkeyCreated: passkey.passkeyCreated,
+    passkeyStore: passkey.passkeyStore,
+  }).summary;
   logStep('registration_complete', { email, finalUrl: page.url(), title: await page.title(), passkeyCreated: passkey.passkeyCreated });
   return {
     pageName: 'chatgpt-register',
@@ -795,6 +1160,45 @@ export async function registerChatGPTWithExchange(page: Page, options: ChatGPTRe
     registration: { ...registration, passkeyCreated: passkey.passkeyCreated, passkeyStore: passkey.passkeyStore },
     passkeyCreated: passkey.passkeyCreated,
     passkeyStore: passkey.passkeyStore,
+    storedIdentity,
+    sameSessionPasskeyCheck,
+  };
+}
+
+export async function loginChatGPTWithStoredPasskey(
+  page: Page,
+  options: ChatGPTLoginPasskeyFlowOptions = {},
+): Promise<ChatGPTLoginPasskeyFlowResult> {
+  const stored = resolveStoredChatGPTIdentity({
+    id: options.identityId,
+    email: options.email,
+  });
+
+  await openLogin(page);
+  await submitEmailForLogin(page, stored.identity.email);
+
+  const method = await tryPasskeyLogin(page, stored, options);
+
+  const authenticated = await waitForAuthenticatedSession(page, 30000);
+  if (!authenticated) {
+    throw new Error(`ChatGPT login did not reach an authenticated session for ${stored.identity.email}.`);
+  }
+
+  logStep('login_complete', {
+    email: stored.identity.email,
+    method,
+    url: page.url(),
+    title: await page.title(),
+  });
+
+  return {
+    pageName: 'chatgpt-login-passkey',
+    url: page.url(),
+    title: await page.title(),
+    email: stored.identity.email,
+    method,
+    authenticated: true,
+    storedIdentity: stored.summary,
   };
 }
 

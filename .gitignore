@@ -5,3 +5,4 @@ artifacts/
 .env
 npm-debug.log*
 dist
+.codey/
