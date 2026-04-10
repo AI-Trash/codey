@@ -16,6 +16,29 @@ const ADULT_AGE = '25';
 const PROFILE_NAME = 'Codey Test';
 const MIN_ONBOARDING_CLICKS = 3;
 const DEFAULT_EVENT_TIMEOUT_MS = 5000;
+const PASSWORD_INPUT_SELECTORS: SelectorTarget[] = ['input[type="password"]', 'input[name="password"]'];
+const PASSWORD_SUBMIT_SELECTORS: SelectorTarget[] = [
+  'button[type="submit"]',
+  { role: 'button', options: { name: /继续|continue|注册|create/i } },
+  { text: /继续|continue|注册|create/i },
+];
+const VERIFICATION_CODE_INPUT_SELECTORS: SelectorTarget[] = [
+  'input#_r_5_-code',
+  'input[autocomplete="one-time-code"]',
+  'input[name="code"]',
+  'input[name*="code"]',
+  'input[id*="code"]',
+];
+const PASSWORD_TIMEOUT_ERROR_SELECTORS: SelectorTarget[] = [
+  { text: /糟糕，出错了！|oops[,，]?\s*an error occurred/i },
+  { text: /operation timed out/i },
+  'div:has-text("Operation timed out")',
+];
+const PASSWORD_TIMEOUT_RETRY_SELECTORS: SelectorTarget[] = [
+  { role: 'button', options: { name: /重试|try again/i } },
+  { text: /重试|try again/i },
+  'button[data-dd-action-name="Try again"]',
+];
 
 function logStep(step: string, details?: Record<string, unknown>): void {
   console.log(JSON.stringify({ scope: 'chatgpt-register', step, ...(details || {}) }));
@@ -83,6 +106,14 @@ async function hasEnabledSelector(page: Page, selectors: SelectorTarget[]): Prom
     const visible = await locator.isVisible().catch(() => false);
     if (!visible) continue;
     if (await isLocatorEnabled(locator)) return true;
+  }
+  return false;
+}
+
+async function isAnySelectorVisible(page: Page, selectors: SelectorTarget[]): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = toLocator(page, selector).first();
+    if (await locator.isVisible().catch(() => false)) return true;
   }
   return false;
 }
@@ -507,6 +538,21 @@ async function openSignup(page: Page): Promise<void> {
   throw new Error('Sign-up popover did not render the email input.');
 }
 
+async function waitForPasswordSubmissionOutcome(page: Page, timeoutMs = 15000): Promise<'verification' | 'timeout' | 'unknown'> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS)) return 'verification';
+    if (
+      (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_ERROR_SELECTORS)) &&
+      (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_RETRY_SELECTORS))
+    ) {
+      return 'timeout';
+    }
+    await sleep(500);
+  }
+  return 'unknown';
+}
+
 async function submitEmailStep(page: Page, email: string): Promise<void> {
   logStep('email_step_start', { email });
   await fillIfPresent(page, ['input#email', 'input[name="email"]'], email);
@@ -515,19 +561,36 @@ async function submitEmailStep(page: Page, email: string): Promise<void> {
 }
 
 async function submitPasswordStep(page: Page, password: string): Promise<void> {
-  logStep('password_step_waiting');
-  const passwordReady = await waitForAnySelectorState(
-    page,
-    ['input[type="password"]', 'input[name="password"]'],
-    'visible',
-    10000,
-  );
-  if (passwordReady) {
-    logStep('password_step_ready');
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    logStep('password_step_waiting', { attempt });
+    const passwordReady = await waitForAnySelectorState(
+      page,
+      PASSWORD_INPUT_SELECTORS,
+      'visible',
+      10000,
+    );
+    if (passwordReady) {
+      logStep('password_step_ready', { attempt });
+    }
+    await fillIfPresent(page, PASSWORD_INPUT_SELECTORS, password);
+    await clickAny(page, PASSWORD_SUBMIT_SELECTORS);
+    logStep('password_step_submitted', { attempt });
+
+    const outcome = await waitForPasswordSubmissionOutcome(page);
+    if (outcome === 'verification' || outcome === 'unknown') {
+      if (outcome === 'verification') logStep('password_step_verification_ready', { attempt });
+      return;
+    }
+
+    logStep('password_step_timeout', { attempt });
+    const retried = await clickEnabledIfPresent(page, PASSWORD_TIMEOUT_RETRY_SELECTORS);
+    if (!retried) {
+      throw new Error('Password submission timed out and retry button was not clickable.');
+    }
+    logStep('password_step_retry_clicked', { attempt });
   }
-  await fillIfPresent(page, ['input[type="password"]', 'input[name="password"]'], password);
-  await clickAny(page, ['button[type="submit"]', { role: 'button', options: { name: /继续|continue|注册|create/i } }, { text: /继续|continue|注册|create/i }]);
-  logStep('password_step_submitted');
+
+  throw new Error('Password submission timed out repeatedly.');
 }
 
 function extractVerificationCode(body: string): string | null {
@@ -572,7 +635,7 @@ async function submitVerificationCode(page: Page, code: string): Promise<void> {
   logStep('verification_code_submit_start', { code });
   const codeReady = await waitForAnySelectorState(
     page,
-    ['input#_r_5_-code', 'input[autocomplete="one-time-code"]', 'input[name="code"]', 'input[name*="code"]', 'input[id*="code"]'],
+    VERIFICATION_CODE_INPUT_SELECTORS,
     'visible',
     10000,
   );
