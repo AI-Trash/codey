@@ -10,18 +10,17 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.28.0",
+  "packageManager": "pnpm@10.33.0",
   "devDependencies": {
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@types/node": "^25.5.2",
     "cac": "^7.0.0",
+    "jiti": "^2.6.1",
     "patchright": "^1.59.4",
-    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"
   },
   "dependencies": {
-    "jiti": "^2.6.1",
     "zustand": "^5.0.12"
   }
 }
