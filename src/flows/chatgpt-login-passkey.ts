@@ -6,11 +6,23 @@ import type { VirtualAuthenticatorOptions, VirtualPasskeyStore } from '../module
 import type { StateMachineController, StateMachineSnapshot } from '../state-machine';
 import {
   CHATGPT_ENTRY_LOGIN_URL,
-  openLogin,
-  submitEmailForLogin,
-  tryPasskeyLogin,
+  createPasskeyAssertionTracker,
+  logStep,
+  summarizePasskeyCredentials,
   waitForAuthenticatedSession,
+  waitForLoginEmailFormReady,
+  waitForLoginEmailSubmissionOutcome,
+  waitForLoginSurface,
+  waitForPasskeyEntryReady,
+  clickLoginContinue,
+  clickLoginEntryIfPresent,
+  clickPasswordTimeoutRetry,
+  clickPasskeyEntry,
+  gotoLoginEntry,
+  typeLoginEmail,
 } from '../modules/chatgpt/shared';
+import { captureVirtualPasskeyStore, loadVirtualPasskeyStore } from '../modules/webauthn/virtual-authenticator';
+import type { ResolvedChatGPTIdentity } from '../modules/credentials';
 import type { FlowOptions } from '../modules/flow-cli/helpers';
 import { runSingleFileFlowFromCli, type SingleFileFlowDefinition } from '../modules/flow-cli/single-file';
 import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv';
@@ -132,6 +144,153 @@ function transitionLoginMachine(
   });
 }
 
+async function openChatGPTLogin(page: Page): Promise<'authenticated' | 'email' | 'passkey'> {
+  await gotoLoginEntry(page);
+  if (await waitForAuthenticatedSession(page, 5000)) {
+    return 'authenticated';
+  }
+
+  await clickLoginEntryIfPresent(page);
+  const surface = await waitForLoginSurface(page, 15000);
+  if (surface === 'unknown') {
+    throw new Error('ChatGPT login entry page did not reach a supported login surface.');
+  }
+  return surface;
+}
+
+async function submitLoginEmail(page: Page, email: string): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const formReady = await waitForLoginEmailFormReady(page, 15000);
+    if (!formReady) {
+      throw new Error('ChatGPT login page did not finish rendering a stable email form.');
+    }
+
+    const filled = await typeLoginEmail(page, email);
+    if (!filled) {
+      throw new Error('ChatGPT login email field was visible but could not be filled.');
+    }
+
+    const submitted = await clickLoginContinue(page);
+    if (!submitted) {
+      throw new Error('ChatGPT login page did not expose a clickable continue button.');
+    }
+
+    const outcome = await waitForLoginEmailSubmissionOutcome(page);
+    if (outcome === 'next' || outcome === 'unknown') return;
+
+    const retried = await clickPasswordTimeoutRetry(page);
+    if (!retried) {
+      throw new Error('Login email submission timed out and retry button was not clickable.');
+    }
+  }
+
+  throw new Error('Login email submission timed out repeatedly.');
+}
+
+async function triggerStoredPasskeyLogin(
+  page: Page,
+  stored: ResolvedChatGPTIdentity,
+  options: {
+    virtualAuthenticator?: VirtualAuthenticatorOptions;
+  } = {},
+): Promise<{
+  method: 'passkey';
+  usedEmailFallback: boolean;
+  assertionObserved: boolean;
+  passkeyStore: VirtualPasskeyStore;
+}> {
+  const hasPasskey = Boolean(stored.identity.passkeyStore?.credentials.length);
+  if (!hasPasskey) {
+    throw new Error(`Stored identity ${stored.identity.email} does not contain a passkey credential.`);
+  }
+
+  logStep('login_passkey_store_before_import', {
+    email: stored.identity.email,
+    credentials: summarizePasskeyCredentials(stored.identity.passkeyStore),
+  });
+
+  const virtualAuth = await loadVirtualPasskeyStore(page, stored.identity.passkeyStore, options.virtualAuthenticator);
+  virtualAuth.session.on('WebAuthn.credentialAsserted', (event) => {
+    logStep('login_passkey_credential_asserted', {
+      email: stored.identity.email,
+      credential: {
+        credentialId: event.credential.credentialId,
+        rpId: event.credential.rpId,
+        userHandle: event.credential.userHandle,
+        signCount: event.credential.signCount,
+        isResidentCredential: event.credential.isResidentCredential,
+        backupEligibility: event.credential.backupEligibility,
+        backupState: event.credential.backupState,
+        userName: event.credential.userName,
+        userDisplayName: event.credential.userDisplayName,
+      },
+    });
+  });
+
+  const importedStore = await captureVirtualPasskeyStore(virtualAuth.session, virtualAuth.authenticatorId);
+  const tracker = createPasskeyAssertionTracker(virtualAuth.session, virtualAuth.authenticatorId, importedStore);
+
+  let usedEmailFallback = false;
+  let assertionObserved = false;
+
+  if (await waitForAuthenticatedSession(page, 5000)) {
+    tracker.dispose();
+    return {
+      method: 'passkey',
+      usedEmailFallback: false,
+      assertionObserved: false,
+      passkeyStore: importedStore,
+    };
+  }
+
+  if (await waitForPasskeyEntryReady(page, 5000)) {
+    const triggered = await clickPasskeyEntry(page);
+    if (!triggered) throw new Error('Passkey entry button became visible but could not be clicked.');
+    assertionObserved = await tracker.waitForAssertion(10000);
+  } else {
+    usedEmailFallback = true;
+    await submitLoginEmail(page, stored.identity.email);
+    assertionObserved = await tracker.waitForAssertion(10000);
+    if (!(await waitForAuthenticatedSession(page, 5000))) {
+      const passkeyReady = await waitForPasskeyEntryReady(page, 20000);
+      if (!passkeyReady) throw new Error('Passkey entry button did not appear on the login surface.');
+      const triggered = await clickPasskeyEntry(page);
+      if (!triggered) throw new Error('Passkey entry button became visible but could not be clicked.');
+      assertionObserved = (await tracker.waitForAssertion(10000)) || assertionObserved;
+    }
+  }
+
+  tracker.dispose();
+  const passkeyStore = await captureVirtualPasskeyStore(virtualAuth.session, virtualAuth.authenticatorId);
+  return {
+    method: 'passkey',
+    usedEmailFallback,
+    assertionObserved,
+    passkeyStore,
+  };
+}
+
+export async function performStoredPasskeyLogin(
+  page: Page,
+  stored: ResolvedChatGPTIdentity,
+  options: {
+    virtualAuthenticator?: VirtualAuthenticatorOptions;
+  } = {},
+): Promise<{
+  surface: 'authenticated' | 'email' | 'passkey';
+  method: 'passkey';
+  usedEmailFallback: boolean;
+  assertionObserved: boolean;
+  passkeyStore: VirtualPasskeyStore;
+}> {
+  const surface = await openChatGPTLogin(page);
+  const passkey = await triggerStoredPasskeyLogin(page, stored, options);
+  return {
+    surface,
+    ...passkey,
+  };
+}
+
 export async function loginChatGPTWithStoredPasskey(
   page: Page,
   options: FlowOptions = {},
@@ -159,7 +318,8 @@ export async function loginChatGPTWithStoredPasskey(
       url: CHATGPT_ENTRY_LOGIN_URL,
       lastMessage: 'Opening ChatGPT login entry',
     });
-    const surface = await openLogin(page);
+    const passkey = await performStoredPasskeyLogin(page, stored, {});
+    const surface = passkey.surface;
 
     if (surface === 'authenticated') {
       transitionLoginMachine(machine, 'authenticated', 'chatgpt.authenticated', {
@@ -175,26 +335,25 @@ export async function loginChatGPTWithStoredPasskey(
       });
     }
 
-    transitionLoginMachine(machine, 'email-step', 'chatgpt.email.started', {
-      email: stored.identity.email,
-      url: page.url(),
-      lastMessage: 'Submitting login email',
-    });
-    await submitEmailForLogin(page, stored.identity.email);
-
-    transitionLoginMachine(machine, 'passkey-login', 'chatgpt.email.submitted', {
-      email: stored.identity.email,
-      url: page.url(),
-      lastMessage: 'Login email submitted',
-    });
-
     transitionLoginMachine(machine, 'passkey-login', 'chatgpt.passkey.login.started', {
       email: stored.identity.email,
       storedIdentity: stored.summary,
       url: page.url(),
       lastMessage: 'Starting passkey login',
     });
-    const passkey = await tryPasskeyLogin(page, stored, {});
+
+    if (passkey.usedEmailFallback) {
+      transitionLoginMachine(machine, 'email-step', 'chatgpt.email.started', {
+        email: stored.identity.email,
+        url: page.url(),
+        lastMessage: 'Submitting login email',
+      });
+      transitionLoginMachine(machine, 'passkey-login', 'chatgpt.email.submitted', {
+        email: stored.identity.email,
+        url: page.url(),
+        lastMessage: 'Login email submitted',
+      });
+    }
 
     transitionLoginMachine(machine, 'passkey-login', 'context.updated', {
       email: stored.identity.email,

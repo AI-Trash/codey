@@ -6,19 +6,54 @@ import type { VirtualAuthenticatorOptions, VirtualPasskeyStore } from '../module
 import { persistChatGPTIdentity, type StoredChatGPTIdentitySummary } from '../modules/credentials';
 import type { StateMachineController, StateMachineSnapshot } from '../state-machine';
 import { ExchangeClient } from '../modules/exchange';
+import { loadVirtualPasskeyStore } from '../modules/webauthn/virtual-authenticator';
 import { getRuntimeConfig } from '../config';
 import {
+  clickAddPasskey,
+  clickCompleteAccountCreation,
+  clickOnboardingAction,
+  clickPasskeyDoneIfPresent,
+  clearAuthenticatedSessionState,
+  clickLoginContinue,
+  clickLoginEntryIfPresent,
+  clickPasswordSubmit,
+  clickPasswordTimeoutRetry,
+  clickPasskeyEntry,
+  clickSignupEntry,
+  clickRegistrationContinue,
+  clickVerificationContinue,
   buildExchangeEmail,
   buildPassword,
   CHATGPT_HOME_URL,
-  completeAgeGate,
-  openSignup,
-  provisionPasskey,
-  runSameSessionPasskeyCheck,
-  submitPasswordStep,
-  submitRegistrationEmailStep,
-  submitVerificationCode,
+  confirmAgeDialogIfPresent,
+  fillAgeGateAge,
+  fillAgeGateName,
+  gotoSecuritySettings,
+  gotoSignupEntry,
+  typePassword,
+  typeLoginEmail,
+  typeRegistrationEmail,
+  typeVerificationCode,
+  gotoLoginEntry,
+  waitForAnySelectorState,
+  waitForAuthenticatedSession,
+  waitForEnabledSelector,
+  waitForLoginEmailFormReady,
+  waitForLoginEmailSubmissionOutcome,
+  waitForLoginSurface,
+  waitForPasskeyEntryReady,
+  waitForPasswordInputReady,
+  waitForPasswordSubmissionOutcome,
+  waitForPasskeyCreation,
+  waitUntilChatGPTHomeReady,
+  waitForVerificationCodeInputReady,
   waitForVerificationCode,
+  isSecuritySettingsReady,
+  DEFAULT_EVENT_TIMEOUT_MS,
+  COMPLETE_ACCOUNT_SELECTORS,
+  AGE_GATE_INPUT_SELECTORS,
+  AGE_GATE_AGE_SELECTORS,
+  SECURITY_READY_SELECTORS,
 } from '../modules/chatgpt/shared';
 import {
   parseBooleanFlag,
@@ -167,9 +202,137 @@ function transitionRegistrationMachine(
   });
 }
 
+async function completeRegistrationAgeGate(page: Page): Promise<void> {
+  const ageGateReady = await waitForAnySelectorState(page, AGE_GATE_INPUT_SELECTORS, 'visible', 20000);
+  if (!ageGateReady) {
+    throw new Error('Age gate did not become ready.');
+  }
+
+  await fillAgeGateName(page);
+  let ageFilled = await fillAgeGateAge(page);
+  if (!ageFilled) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await clickCompleteAccountCreation(page);
+      await waitForAnySelectorState(page, AGE_GATE_AGE_SELECTORS, 'visible', DEFAULT_EVENT_TIMEOUT_MS);
+      ageFilled = await fillAgeGateAge(page);
+      if (ageFilled) break;
+    }
+  }
+
+  await waitForEnabledSelector(page, COMPLETE_ACCOUNT_SELECTORS, 5000);
+  await clickCompleteAccountCreation(page);
+  await confirmAgeDialogIfPresent(page);
+}
+
+async function provisionRegistrationPasskey(
+  page: Page,
+  options: {
+    passkeyStore?: VirtualPasskeyStore;
+    virtualAuthenticator?: VirtualAuthenticatorOptions;
+  } = {},
+): Promise<{
+  passkeyCreated: boolean;
+  passkeyStore?: VirtualPasskeyStore;
+  homeReady: boolean;
+  securityAttemptCount: number;
+}> {
+  const virtualAuth = await loadVirtualPasskeyStore(page, options.passkeyStore, options.virtualAuthenticator);
+  const homeReady = await waitUntilChatGPTHomeReady(page, clickOnboardingAction, 20);
+  if (!homeReady) return { passkeyCreated: false, homeReady, securityAttemptCount: 0 };
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await gotoSecuritySettings(page);
+    if (!(await isSecuritySettingsReady(page))) {
+      const action = await clickOnboardingAction(page);
+      if (action) continue;
+    }
+
+    for (let wait = 0; wait < 45; wait += 1) {
+      const ready = await isSecuritySettingsReady(page);
+      if (ready) break;
+      await clickOnboardingAction(page);
+      await waitForAnySelectorState(page, SECURITY_READY_SELECTORS, 'visible', DEFAULT_EVENT_TIMEOUT_MS).catch(() => false);
+    }
+
+    const addClicked = await clickAddPasskey(page);
+    if (!addClicked) continue;
+
+    const passkeyStore = await waitForPasskeyCreation(page, virtualAuth.session, virtualAuth.authenticatorId);
+    const passkeyCreated = passkeyStore.credentials.length > 0;
+    await clickPasskeyDoneIfPresent(page);
+    return {
+      passkeyCreated,
+      passkeyStore: passkeyCreated ? passkeyStore : undefined,
+      homeReady,
+      securityAttemptCount: attempt + 1,
+    };
+  }
+
+  return { passkeyCreated: false, homeReady, securityAttemptCount: 10 };
+}
+
+async function runSameSessionPasskeyCheck(
+  page: Page,
+  email: string,
+  passkeyStore?: VirtualPasskeyStore,
+  virtualAuthenticator?: VirtualAuthenticatorOptions,
+): Promise<SameSessionPasskeyCheckResult> {
+  try {
+    await clearAuthenticatedSessionState(page);
+    await gotoLoginEntry(page);
+
+    if (await waitForAuthenticatedSession(page, 5000)) {
+      return { attempted: true, authenticated: true, method: 'passkey' };
+    }
+
+    await clickLoginEntryIfPresent(page);
+    const surface = await waitForLoginSurface(page, 15000);
+    if (surface === 'unknown') {
+      throw new Error('ChatGPT login entry page did not reach a supported login surface.');
+    }
+
+    await loadVirtualPasskeyStore(page, passkeyStore, virtualAuthenticator);
+
+    if (!(await waitForPasskeyEntryReady(page, 5000))) {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const formReady = await waitForLoginEmailFormReady(page, 15000);
+        if (!formReady) throw new Error('ChatGPT login page did not finish rendering a stable email form.');
+        const filled = await typeLoginEmail(page, email);
+        if (!filled) throw new Error('ChatGPT login email field was visible but could not be filled.');
+        const submitted = await clickLoginContinue(page);
+        if (!submitted) throw new Error('ChatGPT login page did not expose a clickable continue button.');
+        const outcome = await waitForLoginEmailSubmissionOutcome(page);
+        if (outcome === 'next' || outcome === 'unknown') break;
+        const retried = await clickPasswordTimeoutRetry(page);
+        if (!retried) throw new Error('Login email submission timed out and retry button was not clickable.');
+      }
+    }
+
+    const passkeyReady = await waitForPasskeyEntryReady(page, 20000);
+    if (!passkeyReady) throw new Error('Passkey entry button did not appear on the login surface.');
+    const triggered = await clickPasskeyEntry(page);
+    if (!triggered) throw new Error('Passkey entry button became visible but could not be clicked.');
+
+    const authenticated = await waitForAuthenticatedSession(page, 30000);
+    return {
+      attempted: true,
+      authenticated,
+      method: 'passkey',
+      ...(authenticated ? {} : { error: 'Passkey login did not authenticate.' }),
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      authenticated: false,
+      method: 'passkey',
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function registerChatGPTWithExchange(
   page: Page,
-  options: FlowOptions = {},
+  options: FlowOptions & Pick<Partial<ChatGPTRegistrationFlowOptions>, 'passkeyStore' | 'virtualAuthenticator'> = {},
 ): Promise<ChatGPTRegistrationFlowResult> {
   const config = getRuntimeConfig();
   if (!config.exchange) throw new Error('Exchange config is required for ChatGPT registration flow.');
@@ -202,14 +365,24 @@ export async function registerChatGPTWithExchange(
       url: CHATGPT_HOME_URL,
       lastMessage: 'Opening ChatGPT sign-up entry',
     });
-    await openSignup(page);
+    await gotoSignupEntry(page);
+    await clickSignupEntry(page);
 
     transitionRegistrationMachine(machine, 'email-step', 'chatgpt.email.started', {
       email,
       url: page.url(),
       lastMessage: 'Typing registration email',
     });
-    await submitRegistrationEmailStep(page, email);
+    const emailTyped = await typeRegistrationEmail(page, email);
+    if (!emailTyped) {
+      throw new Error('ChatGPT sign-up email field was visible but could not be typed into.');
+    }
+    await waitForEnabledSelector(page, [
+      'button[type="submit"]',
+      { role: 'button', options: { name: /继续|continue/i } },
+      { text: /继续|continue/i },
+    ], 5000);
+    await clickRegistrationContinue(page);
 
     transitionRegistrationMachine(machine, 'password-step', 'chatgpt.email.submitted', {
       email,
@@ -220,7 +393,25 @@ export async function registerChatGPTWithExchange(
       url: page.url(),
       lastMessage: 'Waiting for password step',
     });
-    await submitPasswordStep(page, password, 'unknown');
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await waitForPasswordInputReady(page, 10000);
+      const passwordTyped = await typePassword(page, password);
+      if (!passwordTyped) {
+        throw new Error('ChatGPT password field was visible but could not be typed into.');
+      }
+      await waitForEnabledSelector(page, [
+        'button[type="submit"]',
+        { role: 'button', options: { name: /继续|continue|注册|create/i } },
+        { text: /继续|continue|注册|create/i },
+      ], 5000);
+      await clickPasswordSubmit(page);
+      const outcome = await waitForPasswordSubmissionOutcome(page);
+      if (outcome === 'verification' || outcome === 'unknown') break;
+      const retried = await clickPasswordTimeoutRetry(page);
+      if (!retried) {
+        throw new Error('Password submission timed out and retry button was not clickable.');
+      }
+    }
 
     transitionRegistrationMachine(machine, 'verification-polling', 'chatgpt.password.submitted', {
       url: page.url(),
@@ -255,7 +446,9 @@ export async function registerChatGPTWithExchange(
       url: page.url(),
       lastMessage: 'Submitting verification code',
     });
-    await submitVerificationCode(page, verificationCode);
+    await waitForVerificationCodeInputReady(page, 10000);
+    await typeVerificationCode(page, verificationCode);
+    await clickVerificationContinue(page);
 
     transitionRegistrationMachine(machine, 'age-gate', 'chatgpt.verification.submitted', {
       verificationCode,
@@ -263,7 +456,7 @@ export async function registerChatGPTWithExchange(
       lastMessage: 'Verification code submitted',
     });
     await page.waitForLoadState('domcontentloaded').catch(() => undefined);
-    await completeAgeGate(page);
+    await completeRegistrationAgeGate(page);
 
     transitionRegistrationMachine(machine, 'post-signup-home', 'chatgpt.age-gate.completed', {
       url: page.url(),
@@ -277,9 +470,9 @@ export async function registerChatGPTWithExchange(
             url: page.url(),
             lastMessage: 'Starting passkey provisioning',
           });
-          return provisionPasskey(page, {
-            passkeyStore: undefined,
-            virtualAuthenticator: undefined,
+          return provisionRegistrationPasskey(page, {
+            passkeyStore: options.passkeyStore,
+            virtualAuthenticator: options.virtualAuthenticator,
           });
         })();
     const resolvedPasskey = await passkeyPromise;
@@ -313,7 +506,7 @@ export async function registerChatGPTWithExchange(
               url: page.url(),
               lastMessage: 'Running same-session passkey check',
             });
-            return runSameSessionPasskeyCheck(page, email);
+            return runSameSessionPasskeyCheck(page, email, resolvedPasskey.passkeyStore, options.virtualAuthenticator);
           })()
         : undefined;
     const resolvedSameSessionPasskeyCheck = await sameSessionPasskeyCheck;
