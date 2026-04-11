@@ -4,84 +4,32 @@ import { cac } from 'cac';
 import { loadWorkspaceEnv } from './utils/env';
 loadWorkspaceEnv();
 
-import { resolveConfig, setRuntimeConfig, type CliRuntimeConfig } from './config';
-import { newSession } from './core/browser';
 import {
+  chatgptOpenFlow,
   loginChatGPTWithStoredPasskey,
   registerChatGPTWithExchange,
   verifyChatGPTEntry,
   verifyOpenAIHome,
-} from './flows/openai';
+} from './flows';
 import { ExchangeClient } from './modules/exchange';
-
-interface CommonOptions {
-  config?: string;
-  profile?: string;
-  headless?: string | boolean;
-  slowMo?: string | boolean;
-}
-
-interface FlowOptions extends CommonOptions {
-  waitMs?: string | boolean;
-  verificationTimeoutMs?: string | boolean;
-  pollIntervalMs?: string | boolean;
-  password?: string;
-  createPasskey?: string | boolean;
-  sameSessionPasskeyCheck?: string | boolean;
-  identityId?: string;
-  email?: string;
-}
-
-interface ExchangeOptions extends CommonOptions {
-  folderId?: string;
-  maxItems?: string | boolean;
-  unreadOnly?: string | boolean;
-}
-
-function redactForOutput<T>(value: T): T {
-  return JSON.parse(
-    JSON.stringify(value, (key, current) => {
-      if (typeof current === 'string' && /secret|password/i.test(key)) return '***redacted***';
-      return current;
-    }),
-  ) as T;
-}
-
-function parseBooleanFlag(value: string | boolean | undefined, fallback?: boolean): boolean | undefined {
-  if (typeof value === 'boolean') return value;
-  if (typeof value !== 'string') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
-}
-
-function parseNumberFlag(value: string | boolean | undefined, fallback?: number): number | undefined {
-  if (typeof value !== 'string') return fallback;
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
-}
-
-function buildRuntimeConfig(command: string, options: CommonOptions): CliRuntimeConfig {
-  return resolveConfig({
-    command,
-    configFile: options.config,
-    profile: options.profile,
-    overrides: {
-      browser: {
-        headless: parseBooleanFlag(options.headless),
-        slowMo: parseNumberFlag(options.slowMo),
-      },
-    },
-  });
-}
+import {
+  execute,
+  parseBooleanFlag,
+  parseNumberFlag,
+  prepareRuntimeConfig,
+  redactForOutput,
+  type CommonOptions,
+  type ExchangeOptions,
+  type FlowOptions,
+} from './modules/flow-cli/helpers';
+import { runWithSession } from './modules/flow-cli/run-with-session';
 
 async function runFlowCommand(
   subcommand: string,
   options: FlowOptions,
-  config: CliRuntimeConfig,
+  config: ReturnType<typeof prepareRuntimeConfig>,
 ): Promise<void> {
-  const session = await newSession({
-    context: {},
-  });
-  try {
+  await runWithSession({ context: {} }, async (session) => {
     if (subcommand === 'openai-home') {
       const result = await verifyOpenAIHome(session.page);
       console.log(JSON.stringify({ command: 'flow:openai-home', config: redactForOutput(config), result }, null, 2));
@@ -95,57 +43,31 @@ async function runFlowCommand(
     }
 
     if (subcommand === 'chatgpt-open') {
-      const waitMs = parseNumberFlag(options.waitMs, 300000) ?? 300000;
-      await session.page.goto(config.openai.chatgptUrl, { waitUntil: 'domcontentloaded' });
-      console.log(
-        JSON.stringify(
-          {
-            command: 'flow:chatgpt-open',
-            status: 'opened',
-            url: session.page.url(),
-            waitMs,
-            config: redactForOutput(config),
-            note: 'ChatGPT has been opened and no automated actions will be performed.',
-          },
-          null,
-          2,
-        ),
-      );
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      const result = await chatgptOpenFlow.run(session.page, options);
+      console.log(JSON.stringify({ command: 'flow:chatgpt-open', config: redactForOutput(config), result }, null, 2));
       return;
     }
 
     if (subcommand === 'chatgpt-register-exchange') {
-      const result = await registerChatGPTWithExchange(session.page, {
-        password: options.password,
-        verificationTimeoutMs: parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000,
-        pollIntervalMs: parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000,
-        createPasskey: parseBooleanFlag(options.createPasskey, true) ?? true,
-        sameSessionPasskeyCheck: parseBooleanFlag(options.sameSessionPasskeyCheck, false) ?? false,
-      });
+      const result = await registerChatGPTWithExchange(session.page, options);
       console.log(JSON.stringify({ command: 'flow:chatgpt-register-exchange', config: redactForOutput(config), result }, null, 2));
       return;
     }
 
     if (subcommand === 'chatgpt-login-passkey') {
-      const result = await loginChatGPTWithStoredPasskey(session.page, {
-        identityId: options.identityId,
-        email: options.email,
-      });
+      const result = await loginChatGPTWithStoredPasskey(session.page, options);
       console.log(JSON.stringify({ command: 'flow:chatgpt-login-passkey', config: redactForOutput(config), result }, null, 2));
       return;
     }
 
     throw new Error(`Unsupported flow command: ${subcommand || '(missing)'}`);
-  } finally {
-    await session.close();
-  }
+  });
 }
 
 async function runExchangeCommand(
   subcommand: string,
   options: ExchangeOptions,
-  config: CliRuntimeConfig,
+  config: ReturnType<typeof prepareRuntimeConfig>,
 ): Promise<void> {
   if (!config.exchange) {
     throw new Error('Exchange config is required. Provide Microsoft Graph client credentials in env or JSON config.');
@@ -178,16 +100,6 @@ async function runExchangeCommand(
   throw new Error(`Unsupported exchange command: ${subcommand || '(missing)'}`);
 }
 
-function reportError(error: unknown): never {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(JSON.stringify({ status: 'failed', error: message }, null, 2));
-  process.exit(1);
-}
-
-function execute(task: Promise<void>): void {
-  task.catch(reportError);
-}
-
 const cli = cac('codey');
 const flowCli = cac('codey flow');
 const exchangeCli = cac('codey exchange');
@@ -207,8 +119,7 @@ withCommonOptions(
 ).action((options: CommonOptions) => {
   execute(
     (async () => {
-      const config = buildRuntimeConfig('flow:openai-home', options);
-      setRuntimeConfig(config);
+      const config = prepareRuntimeConfig('flow:openai-home', options);
       await runFlowCommand('openai-home', options, config);
     })(),
   );
@@ -219,8 +130,7 @@ withCommonOptions(
 ).action((options: CommonOptions) => {
   execute(
     (async () => {
-      const config = buildRuntimeConfig('flow:chatgpt-entry', options);
-      setRuntimeConfig(config);
+      const config = prepareRuntimeConfig('flow:chatgpt-entry', options);
       await runFlowCommand('chatgpt-entry', options, config);
     })(),
   );
@@ -234,8 +144,7 @@ withCommonOptions(
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const config = buildRuntimeConfig('flow:chatgpt-open', options);
-      setRuntimeConfig(config);
+      const config = prepareRuntimeConfig('flow:chatgpt-open', options);
       await runFlowCommand('chatgpt-open', options, config);
     })(),
   );
@@ -253,8 +162,7 @@ withCommonOptions(
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const config = buildRuntimeConfig('flow:chatgpt-register-exchange', options);
-      setRuntimeConfig(config);
+      const config = prepareRuntimeConfig('flow:chatgpt-register-exchange', options);
       await runFlowCommand('chatgpt-register-exchange', options, config);
     })(),
   );
@@ -270,8 +178,7 @@ withCommonOptions(
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const config = buildRuntimeConfig('flow:chatgpt-login-passkey', options);
-      setRuntimeConfig(config);
+      const config = prepareRuntimeConfig('flow:chatgpt-login-passkey', options);
       await runFlowCommand('chatgpt-login-passkey', options, config);
     })(),
   );
@@ -282,8 +189,7 @@ withCommonOptions(
 ).action((options: CommonOptions) => {
   execute(
     (async () => {
-      const config = buildRuntimeConfig('exchange:verify', options);
-      setRuntimeConfig(config);
+      const config = prepareRuntimeConfig('exchange:verify', options);
       await runExchangeCommand('verify', options, config);
     })(),
   );
@@ -294,8 +200,7 @@ withCommonOptions(
 ).action((options: CommonOptions) => {
   execute(
     (async () => {
-      const config = buildRuntimeConfig('exchange:folders', options);
-      setRuntimeConfig(config);
+      const config = prepareRuntimeConfig('exchange:folders', options);
       await runExchangeCommand('folders', options, config);
     })(),
   );
@@ -311,8 +216,7 @@ withCommonOptions(
 ).action((options: ExchangeOptions) => {
   execute(
     (async () => {
-      const config = buildRuntimeConfig('exchange:messages', options);
-      setRuntimeConfig(config);
+      const config = prepareRuntimeConfig('exchange:messages', options);
       await runExchangeCommand('messages', options, config);
     })(),
   );

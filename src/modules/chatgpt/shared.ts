@@ -1,26 +1,20 @@
 import crypto from 'crypto';
 import type { CDPSession, Locator, Page } from 'patchright';
-import type { RegistrationResult } from '../modules/registration';
-import { ExchangeClient } from '../modules/exchange';
-import { getRuntimeConfig } from '../config';
+import type { RegistrationResult } from '../registration';
+import { ExchangeClient } from '../exchange';
+import { getRuntimeConfig } from '../../config';
 import {
   persistChatGPTIdentity,
   resolveStoredChatGPTIdentity,
   type ResolvedChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
-} from '../modules/credentials';
-import { clickAny, clickIfPresent, typeIfPresent } from '../modules/common/form-actions';
-import { captureVirtualPasskeyStore, loadVirtualPasskeyStore, type VirtualAuthenticatorOptions, type VirtualPasskeyStore } from '../modules/webauthn/virtual-authenticator';
-import { toLocator } from '../utils/selectors';
-import type { SelectorTarget } from '../types';
-import { sleep } from '../utils/wait';
-import type { FlowResult } from '../types';
-import {
-  createChatGPTLoginPasskeyMachine,
-  createChatGPTRegistrationMachine,
-  type ChatGPTAuthFlowMachine,
-  type ChatGPTAuthFlowSnapshot,
-} from './chatgpt-auth-machine';
+} from '../credentials';
+import { clickAny, clickIfPresent, typeIfPresent } from '../common/form-actions';
+import { captureVirtualPasskeyStore, loadVirtualPasskeyStore, type VirtualAuthenticatorOptions, type VirtualPasskeyStore } from '../webauthn/virtual-authenticator';
+import { toLocator } from '../../utils/selectors';
+import type { SelectorTarget } from '../../types';
+import { sleep } from '../../utils/wait';
+import type { StateMachineController, StateMachineSnapshot } from '../../state-machine';
 
 const CHATGPT_HOME_URL = 'https://chatgpt.com/';
 const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login';
@@ -81,6 +75,88 @@ const LOGIN_NEXT_STEP_SELECTORS: SelectorTarget[] = [
   ...PASSKEY_ENTRY_SELECTORS,
   ...CHATGPT_AUTHENTICATED_SELECTORS,
 ];
+
+export type ChatGPTAuthFlowKind = 'chatgpt-registration' | 'chatgpt-login-passkey';
+
+export type ChatGPTAuthFlowState =
+  | 'idle'
+  | 'opening-entry'
+  | 'email-step'
+  | 'password-step'
+  | 'verification-polling'
+  | 'verification-code-entry'
+  | 'age-gate'
+  | 'post-signup-home'
+  | 'security-settings'
+  | 'passkey-provisioning'
+  | 'persisting-identity'
+  | 'same-session-passkey-check'
+  | 'login-surface'
+  | 'passkey-login'
+  | 'authenticated'
+  | 'completed'
+  | 'failed';
+
+export type ChatGPTAuthFlowEvent =
+  | 'machine.started'
+  | 'chatgpt.entry.opened'
+  | 'chatgpt.email.started'
+  | 'chatgpt.email.submitted'
+  | 'chatgpt.password.started'
+  | 'chatgpt.password.submitted'
+  | 'chatgpt.verification.polling'
+  | 'chatgpt.verification.code-found'
+  | 'chatgpt.verification.submitted'
+  | 'chatgpt.age-gate.started'
+  | 'chatgpt.age-gate.completed'
+  | 'chatgpt.home.waiting'
+  | 'chatgpt.security.started'
+  | 'chatgpt.passkey.provisioning'
+  | 'chatgpt.identity.persisting'
+  | 'chatgpt.same-session-passkey-check.started'
+  | 'chatgpt.same-session-passkey-check.completed'
+  | 'chatgpt.login.surface.ready'
+  | 'chatgpt.passkey.login.started'
+  | 'chatgpt.authenticated'
+  | 'chatgpt.completed'
+  | 'chatgpt.failed'
+  | 'context.updated'
+  | 'action.started'
+  | 'action.finished';
+
+export interface ChatGPTAuthFlowContext<Result = unknown> {
+  kind: ChatGPTAuthFlowKind;
+  url?: string;
+  title?: string;
+  email?: string;
+  prefix?: string;
+  verificationCode?: string;
+  method?: 'password' | 'passkey';
+  createPasskey?: boolean;
+  passkeyCreated?: boolean;
+  passkeyStore?: VirtualPasskeyStore;
+  usedEmailFallback?: boolean;
+  assertionObserved?: boolean;
+  storedIdentity?: StoredChatGPTIdentitySummary;
+  registration?: RegistrationResult;
+  sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult;
+  mailbox?: string;
+  lastMessage?: string;
+  lastAttempt?: number;
+  result?: Result;
+}
+
+export type ChatGPTAuthFlowMachine<Result = unknown> = StateMachineController<
+  ChatGPTAuthFlowState,
+  ChatGPTAuthFlowContext<Result>,
+  ChatGPTAuthFlowEvent
+>;
+
+export type ChatGPTAuthFlowSnapshot<Result = unknown> = StateMachineSnapshot<
+  ChatGPTAuthFlowState,
+  ChatGPTAuthFlowContext<Result>,
+  ChatGPTAuthFlowEvent
+>;
 
 function logStep(step: string, details?: Record<string, unknown>): void {
   console.log(JSON.stringify({ scope: 'chatgpt-register', step, ...(details || {}) }));
@@ -529,34 +605,6 @@ async function navigateToSecuritySettings(page: Page): Promise<boolean> {
     ]).catch(() => undefined);
   }
   return false;
-}
-
-export async function verifyOpenAIHome(page: Page): Promise<FlowResult> {
-  const config = getRuntimeConfig();
-  await page.goto(config.openai.baseUrl, { waitUntil: 'domcontentloaded' });
-  const body = page.locator('body');
-  await body.waitFor({ state: 'visible' });
-  const title = await page.title();
-  const text = await body.innerText();
-  const normalized = `${title}\n${text}`.toLowerCase();
-  const signals = ['openai', 'chatgpt', 'api', 'research', 'developers', 'sora'];
-  const matchedSignals = signals.filter((item) => normalized.includes(item));
-  if (!matchedSignals.length) throw new Error('OpenAI homepage did not expose expected business keywords');
-  return { pageName: 'openai-home', url: page.url(), title, matchedSignals };
-}
-
-export async function verifyChatGPTEntry(page: Page): Promise<FlowResult> {
-  const config = getRuntimeConfig();
-  await page.goto(config.openai.chatgptUrl, { waitUntil: 'domcontentloaded' });
-  const body = page.locator('body');
-  await body.waitFor({ state: 'visible' });
-  const title = await page.title();
-  const text = await body.innerText();
-  const normalized = `${title}\n${text}`.toLowerCase();
-  const signals = ['chatgpt', 'log in', 'sign up', 'openai', 'try'];
-  const matchedSignals = signals.filter((item) => normalized.includes(item));
-  if (!matchedSignals.length) throw new Error('ChatGPT entry page did not expose expected entry keywords');
-  return { pageName: 'chatgpt-entry', url: page.url(), title, matchedSignals };
 }
 
 export interface ChatGPTRegistrationFlowOptions {
@@ -1531,7 +1579,8 @@ export async function registerChatGPTWithExchange(page: Page, options: ChatGPTRe
   const { email, prefix } = buildExchangeEmail();
   const password = options.password || buildPassword();
   const startedAt = new Date().toISOString();
-  const machine = options.machine ?? createChatGPTRegistrationMachine();
+  const machine = options.machine;
+  if (!machine) throw new Error('ChatGPT registration flow requires a machine instance.');
   machine.start({
     email,
     prefix,
@@ -1643,7 +1692,8 @@ export async function loginChatGPTWithStoredPasskey(
   page: Page,
   options: ChatGPTLoginPasskeyFlowOptions = {},
 ): Promise<ChatGPTLoginPasskeyFlowResult> {
-  const machine = options.machine ?? createChatGPTLoginPasskeyMachine();
+  const machine = options.machine;
+  if (!machine) throw new Error('ChatGPT passkey login flow requires a machine instance.');
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
@@ -1730,4 +1780,5 @@ export async function loginChatGPTWithStoredPasskey(
     throw error;
   }
 }
+
 

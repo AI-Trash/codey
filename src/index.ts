@@ -4,7 +4,8 @@ export {
   verifyChatGPTEntry,
   registerChatGPTWithExchange,
   loginChatGPTWithStoredPasskey,
-} from './flows/openai';
+  openChatGPT,
+} from './flows';
 export { resolveConfig, defaultConfig } from './config';
 export * from './state-machine';
 export {
@@ -19,6 +20,6 @@ export * from './modules/auth-machine';
 export { ExchangeClient } from './modules/exchange';
 export { persistChatGPTIdentity, resolveStoredChatGPTIdentity } from './modules/credentials';
 export * from './modules/webauthn';
-export * from './flows/chatgpt-auth-machine';
+export type * from './modules/chatgpt/shared';
 export type * from './types';
 export type * from './modules/exchange';
