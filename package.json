@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "vite build",
-    "chatgpt:open": "tsx src/cli.ts flow chatgpt-open"
+    "flow": "jiti"
   },
   "keywords": [],
   "author": "",

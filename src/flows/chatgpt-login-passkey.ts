@@ -1,11 +1,15 @@
 import type { Page } from 'patchright';
 import { pathToFileURL } from 'url';
 import { createStateMachine } from '../state-machine';
-import type { StoredChatGPTIdentitySummary } from '../modules/credentials';
+import { resolveStoredChatGPTIdentity, type StoredChatGPTIdentitySummary } from '../modules/credentials';
 import type { VirtualAuthenticatorOptions, VirtualPasskeyStore } from '../modules/webauthn';
 import type { StateMachineController, StateMachineSnapshot } from '../state-machine';
 import {
-  loginChatGPTWithStoredPasskey as loginChatGPTWithStoredPasskeyShared,
+  CHATGPT_ENTRY_LOGIN_URL,
+  openLogin,
+  submitEmailForLogin,
+  tryPasskeyLogin,
+  waitForAuthenticatedSession,
 } from '../modules/chatgpt/shared';
 import type { FlowOptions } from '../modules/flow-cli/helpers';
 import { runSingleFileFlowFromCli, type SingleFileFlowDefinition } from '../modules/flow-cli/single-file';
@@ -116,15 +120,134 @@ export function createChatGPTLoginPasskeyMachine(): ChatGPTLoginPasskeyFlowMachi
   });
 }
 
+function transitionLoginMachine(
+  machine: ChatGPTLoginPasskeyFlowMachine<ChatGPTLoginPasskeyFlowResult>,
+  state: ChatGPTLoginPasskeyFlowState,
+  event: ChatGPTLoginPasskeyFlowEvent,
+  patch?: Partial<ChatGPTLoginPasskeyFlowContext<ChatGPTLoginPasskeyFlowResult>>,
+): void {
+  machine.transition(state, {
+    event,
+    patch,
+  });
+}
+
 export async function loginChatGPTWithStoredPasskey(
   page: Page,
   options: FlowOptions = {},
 ): Promise<ChatGPTLoginPasskeyFlowResult> {
-  return loginChatGPTWithStoredPasskeyShared(page, {
-    identityId: options.identityId,
+  const machine = createChatGPTLoginPasskeyMachine();
+  const stored = resolveStoredChatGPTIdentity({
+    id: options.identityId,
     email: options.email,
-    machine: createChatGPTLoginPasskeyMachine(),
   });
+
+  machine.start({
+    email: stored.identity.email,
+    storedIdentity: stored.summary,
+    method: 'passkey',
+    passkeyCreated: Boolean(stored.identity.passkeyStore?.credentials.length),
+    passkeyStore: stored.identity.passkeyStore,
+    url: CHATGPT_ENTRY_LOGIN_URL,
+  }, {
+    source: 'loginChatGPTWithStoredPasskey',
+  });
+
+  try {
+    transitionLoginMachine(machine, 'opening-entry', 'chatgpt.entry.opened', {
+      email: stored.identity.email,
+      url: CHATGPT_ENTRY_LOGIN_URL,
+      lastMessage: 'Opening ChatGPT login entry',
+    });
+    const surface = await openLogin(page);
+
+    if (surface === 'authenticated') {
+      transitionLoginMachine(machine, 'authenticated', 'chatgpt.authenticated', {
+        email: stored.identity.email,
+        url: page.url(),
+        lastMessage: 'Already authenticated',
+      });
+    } else {
+      transitionLoginMachine(machine, 'login-surface', 'chatgpt.login.surface.ready', {
+        email: stored.identity.email,
+        url: page.url(),
+        lastMessage: `Login surface ready: ${surface}`,
+      });
+    }
+
+    transitionLoginMachine(machine, 'email-step', 'chatgpt.email.started', {
+      email: stored.identity.email,
+      url: page.url(),
+      lastMessage: 'Submitting login email',
+    });
+    await submitEmailForLogin(page, stored.identity.email);
+
+    transitionLoginMachine(machine, 'passkey-login', 'chatgpt.email.submitted', {
+      email: stored.identity.email,
+      url: page.url(),
+      lastMessage: 'Login email submitted',
+    });
+
+    transitionLoginMachine(machine, 'passkey-login', 'chatgpt.passkey.login.started', {
+      email: stored.identity.email,
+      storedIdentity: stored.summary,
+      url: page.url(),
+      lastMessage: 'Starting passkey login',
+    });
+    const passkey = await tryPasskeyLogin(page, stored, {});
+
+    transitionLoginMachine(machine, 'passkey-login', 'context.updated', {
+      email: stored.identity.email,
+      method: passkey.method,
+      usedEmailFallback: passkey.usedEmailFallback,
+      assertionObserved: passkey.assertionObserved,
+      passkeyStore: passkey.passkeyStore,
+      storedIdentity: stored.summary,
+      url: page.url(),
+      lastMessage: 'Passkey login triggered',
+    });
+
+    const authenticated = await waitForAuthenticatedSession(page, 30000);
+    if (!authenticated) {
+      throw new Error(`ChatGPT login did not reach an authenticated session for ${stored.identity.email}.`);
+    }
+
+    const title = await page.title();
+    const result = {
+      pageName: 'chatgpt-login-passkey' as const,
+      url: page.url(),
+      title,
+      email: stored.identity.email,
+      method: passkey.method,
+      authenticated: true,
+      storedIdentity: stored.summary,
+      machine: undefined as unknown as ChatGPTLoginPasskeyFlowSnapshot<ChatGPTLoginPasskeyFlowResult>,
+    };
+    const snapshot = machine.succeed('completed', {
+      event: 'chatgpt.completed',
+      patch: {
+        email: stored.identity.email,
+        method: passkey.method,
+        storedIdentity: stored.summary,
+        url: result.url,
+        title: result.title,
+        lastMessage: 'ChatGPT passkey login completed',
+      },
+    });
+    result.machine = snapshot;
+    return result;
+  } catch (error) {
+    machine.fail(error, 'failed', {
+      event: 'chatgpt.failed',
+      patch: {
+        email: stored.identity.email,
+        storedIdentity: stored.summary,
+        url: page.url(),
+        lastMessage: 'ChatGPT passkey login failed',
+      },
+    });
+    throw error;
+  }
 }
 
 export const chatgptLoginPasskeyFlow: SingleFileFlowDefinition<FlowOptions, ChatGPTLoginPasskeyFlowResult> = {
