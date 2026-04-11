@@ -1,13 +1,12 @@
 import type { Page } from 'patchright';
 import { pathToFileURL } from 'url';
 import { createStateMachine } from '../state-machine';
+import type { RegistrationResult } from '../modules/registration';
+import type { VirtualAuthenticatorOptions, VirtualPasskeyStore } from '../modules/webauthn';
+import type { StoredChatGPTIdentitySummary } from '../modules/credentials';
+import type { StateMachineController, StateMachineSnapshot } from '../state-machine';
 import {
-  type ChatGPTAuthFlowContext,
-  type ChatGPTAuthFlowEvent,
   registerChatGPTWithExchange as registerChatGPTWithExchangeShared,
-  type ChatGPTAuthFlowMachine,
-  type ChatGPTAuthFlowState,
-  type ChatGPTRegistrationFlowResult,
 } from '../modules/chatgpt/shared';
 import {
   parseBooleanFlag,
@@ -17,8 +16,124 @@ import {
 import { runSingleFileFlowFromCli, type SingleFileFlowDefinition } from '../modules/flow-cli/single-file';
 import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv';
 
-export function createChatGPTRegistrationMachine(): ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult> {
-  return createStateMachine<ChatGPTAuthFlowState, ChatGPTAuthFlowContext<ChatGPTRegistrationFlowResult>, ChatGPTAuthFlowEvent>({
+export type ChatGPTRegistrationFlowKind = 'chatgpt-registration';
+
+export type ChatGPTRegistrationFlowState =
+  | 'idle'
+  | 'opening-entry'
+  | 'email-step'
+  | 'password-step'
+  | 'verification-polling'
+  | 'verification-code-entry'
+  | 'age-gate'
+  | 'post-signup-home'
+  | 'security-settings'
+  | 'passkey-provisioning'
+  | 'persisting-identity'
+  | 'same-session-passkey-check'
+  | 'login-surface'
+  | 'passkey-login'
+  | 'authenticated'
+  | 'completed'
+  | 'failed';
+
+export type ChatGPTRegistrationFlowEvent =
+  | 'machine.started'
+  | 'chatgpt.entry.opened'
+  | 'chatgpt.email.started'
+  | 'chatgpt.email.submitted'
+  | 'chatgpt.password.started'
+  | 'chatgpt.password.submitted'
+  | 'chatgpt.verification.polling'
+  | 'chatgpt.verification.code-found'
+  | 'chatgpt.verification.submitted'
+  | 'chatgpt.age-gate.started'
+  | 'chatgpt.age-gate.completed'
+  | 'chatgpt.home.waiting'
+  | 'chatgpt.security.started'
+  | 'chatgpt.passkey.provisioning'
+  | 'chatgpt.identity.persisting'
+  | 'chatgpt.same-session-passkey-check.started'
+  | 'chatgpt.same-session-passkey-check.completed'
+  | 'chatgpt.login.surface.ready'
+  | 'chatgpt.passkey.login.started'
+  | 'chatgpt.authenticated'
+  | 'chatgpt.completed'
+  | 'chatgpt.failed'
+  | 'context.updated'
+  | 'action.started'
+  | 'action.finished';
+
+export interface SameSessionPasskeyCheckResult {
+  attempted: boolean;
+  authenticated: boolean;
+  method?: 'passkey';
+  error?: string;
+}
+
+export interface ChatGPTRegistrationFlowContext<Result = unknown> {
+  kind: ChatGPTRegistrationFlowKind;
+  url?: string;
+  title?: string;
+  email?: string;
+  prefix?: string;
+  verificationCode?: string;
+  method?: 'password' | 'passkey';
+  createPasskey?: boolean;
+  passkeyCreated?: boolean;
+  passkeyStore?: VirtualPasskeyStore;
+  usedEmailFallback?: boolean;
+  assertionObserved?: boolean;
+  storedIdentity?: StoredChatGPTIdentitySummary;
+  registration?: RegistrationResult;
+  sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult;
+  mailbox?: string;
+  lastMessage?: string;
+  lastAttempt?: number;
+  result?: Result;
+}
+
+export type ChatGPTRegistrationFlowMachine<Result = unknown> = StateMachineController<
+  ChatGPTRegistrationFlowState,
+  ChatGPTRegistrationFlowContext<Result>,
+  ChatGPTRegistrationFlowEvent
+>;
+
+export type ChatGPTRegistrationFlowSnapshot<Result = unknown> = StateMachineSnapshot<
+  ChatGPTRegistrationFlowState,
+  ChatGPTRegistrationFlowContext<Result>,
+  ChatGPTRegistrationFlowEvent
+>;
+
+export interface ChatGPTRegistrationFlowOptions {
+  password?: string;
+  verificationTimeoutMs?: number;
+  pollIntervalMs?: number;
+  createPasskey?: boolean;
+  sameSessionPasskeyCheck?: boolean;
+  virtualAuthenticator?: VirtualAuthenticatorOptions;
+  passkeyStore?: VirtualPasskeyStore;
+  machine?: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>;
+}
+
+export interface ChatGPTRegistrationFlowResult {
+  pageName: 'chatgpt-register';
+  url: string;
+  title: string;
+  email: string;
+  prefix?: string;
+  verificationCode: string;
+  verified: boolean;
+  registration: RegistrationResult;
+  passkeyCreated: boolean;
+  passkeyStore?: VirtualPasskeyStore;
+  storedIdentity?: StoredChatGPTIdentitySummary;
+  sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult;
+  machine: ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>;
+}
+
+export function createChatGPTRegistrationMachine(): ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult> {
+  return createStateMachine<ChatGPTRegistrationFlowState, ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>, ChatGPTRegistrationFlowEvent>({
     id: 'flow.chatgpt.registration',
     initialState: 'idle',
     initialContext: {

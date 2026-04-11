@@ -11,3 +11,5 @@ export {
   chatgptLoginPasskeyFlow,
   createChatGPTLoginPasskeyMachine,
 } from './flows/chatgpt-login-passkey';
+export type * from './flows/chatgpt-register-exchange';
+export type * from './flows/chatgpt-login-passkey';

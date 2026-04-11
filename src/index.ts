@@ -20,6 +20,7 @@ export * from './modules/auth-machine';
 export { ExchangeClient } from './modules/exchange';
 export { persistChatGPTIdentity, resolveStoredChatGPTIdentity } from './modules/credentials';
 export * from './modules/webauthn';
-export type * from './modules/chatgpt/shared';
+export type * from './flows/chatgpt-register-exchange';
+export type * from './flows/chatgpt-login-passkey';
 export type * from './types';
 export type * from './modules/exchange';

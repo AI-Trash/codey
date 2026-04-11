@@ -14,7 +14,23 @@ import { captureVirtualPasskeyStore, loadVirtualPasskeyStore, type VirtualAuthen
 import { toLocator } from '../../utils/selectors';
 import type { SelectorTarget } from '../../types';
 import { sleep } from '../../utils/wait';
-import type { StateMachineController, StateMachineSnapshot } from '../../state-machine';
+import type {
+  ChatGPTRegistrationFlowEvent,
+  ChatGPTRegistrationFlowMachine,
+  ChatGPTRegistrationFlowOptions,
+  ChatGPTRegistrationFlowResult,
+  ChatGPTRegistrationFlowState,
+  ChatGPTRegistrationFlowSnapshot,
+  SameSessionPasskeyCheckResult,
+} from '../../flows/chatgpt-register-exchange';
+import type {
+  ChatGPTLoginPasskeyFlowEvent,
+  ChatGPTLoginPasskeyFlowMachine,
+  ChatGPTLoginPasskeyFlowOptions,
+  ChatGPTLoginPasskeyFlowResult,
+  ChatGPTLoginPasskeyFlowState,
+  ChatGPTLoginPasskeyFlowSnapshot,
+} from '../../flows/chatgpt-login-passkey';
 
 const CHATGPT_HOME_URL = 'https://chatgpt.com/';
 const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login';
@@ -76,87 +92,17 @@ const LOGIN_NEXT_STEP_SELECTORS: SelectorTarget[] = [
   ...CHATGPT_AUTHENTICATED_SELECTORS,
 ];
 
-export type ChatGPTAuthFlowKind = 'chatgpt-registration' | 'chatgpt-login-passkey';
+type ChatGPTAuthFlowState =
+  | ChatGPTRegistrationFlowState
+  | ChatGPTLoginPasskeyFlowState;
 
-export type ChatGPTAuthFlowState =
-  | 'idle'
-  | 'opening-entry'
-  | 'email-step'
-  | 'password-step'
-  | 'verification-polling'
-  | 'verification-code-entry'
-  | 'age-gate'
-  | 'post-signup-home'
-  | 'security-settings'
-  | 'passkey-provisioning'
-  | 'persisting-identity'
-  | 'same-session-passkey-check'
-  | 'login-surface'
-  | 'passkey-login'
-  | 'authenticated'
-  | 'completed'
-  | 'failed';
+type ChatGPTAuthFlowEvent =
+  | ChatGPTRegistrationFlowEvent
+  | ChatGPTLoginPasskeyFlowEvent;
 
-export type ChatGPTAuthFlowEvent =
-  | 'machine.started'
-  | 'chatgpt.entry.opened'
-  | 'chatgpt.email.started'
-  | 'chatgpt.email.submitted'
-  | 'chatgpt.password.started'
-  | 'chatgpt.password.submitted'
-  | 'chatgpt.verification.polling'
-  | 'chatgpt.verification.code-found'
-  | 'chatgpt.verification.submitted'
-  | 'chatgpt.age-gate.started'
-  | 'chatgpt.age-gate.completed'
-  | 'chatgpt.home.waiting'
-  | 'chatgpt.security.started'
-  | 'chatgpt.passkey.provisioning'
-  | 'chatgpt.identity.persisting'
-  | 'chatgpt.same-session-passkey-check.started'
-  | 'chatgpt.same-session-passkey-check.completed'
-  | 'chatgpt.login.surface.ready'
-  | 'chatgpt.passkey.login.started'
-  | 'chatgpt.authenticated'
-  | 'chatgpt.completed'
-  | 'chatgpt.failed'
-  | 'context.updated'
-  | 'action.started'
-  | 'action.finished';
-
-export interface ChatGPTAuthFlowContext<Result = unknown> {
-  kind: ChatGPTAuthFlowKind;
-  url?: string;
-  title?: string;
-  email?: string;
-  prefix?: string;
-  verificationCode?: string;
-  method?: 'password' | 'passkey';
-  createPasskey?: boolean;
-  passkeyCreated?: boolean;
-  passkeyStore?: VirtualPasskeyStore;
-  usedEmailFallback?: boolean;
-  assertionObserved?: boolean;
-  storedIdentity?: StoredChatGPTIdentitySummary;
-  registration?: RegistrationResult;
-  sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult;
-  mailbox?: string;
-  lastMessage?: string;
-  lastAttempt?: number;
-  result?: Result;
-}
-
-export type ChatGPTAuthFlowMachine<Result = unknown> = StateMachineController<
-  ChatGPTAuthFlowState,
-  ChatGPTAuthFlowContext<Result>,
-  ChatGPTAuthFlowEvent
->;
-
-export type ChatGPTAuthFlowSnapshot<Result = unknown> = StateMachineSnapshot<
-  ChatGPTAuthFlowState,
-  ChatGPTAuthFlowContext<Result>,
-  ChatGPTAuthFlowEvent
->;
+type ChatGPTAuthFlowMachine<Result = unknown> =
+  | ChatGPTRegistrationFlowMachine<Result>
+  | ChatGPTLoginPasskeyFlowMachine<Result>;
 
 function logStep(step: string, details?: Record<string, unknown>): void {
   console.log(JSON.stringify({ scope: 'chatgpt-register', step, ...(details || {}) }));
@@ -605,58 +551,6 @@ async function navigateToSecuritySettings(page: Page): Promise<boolean> {
     ]).catch(() => undefined);
   }
   return false;
-}
-
-export interface ChatGPTRegistrationFlowOptions {
-  password?: string;
-  verificationTimeoutMs?: number;
-  pollIntervalMs?: number;
-  createPasskey?: boolean;
-  sameSessionPasskeyCheck?: boolean;
-  virtualAuthenticator?: VirtualAuthenticatorOptions;
-  passkeyStore?: VirtualPasskeyStore;
-  machine?: ChatGPTAuthFlowMachine<ChatGPTRegistrationFlowResult>;
-}
-
-export interface SameSessionPasskeyCheckResult {
-  attempted: boolean;
-  authenticated: boolean;
-  method?: 'passkey';
-  error?: string;
-}
-
-export interface ChatGPTRegistrationFlowResult {
-  pageName: 'chatgpt-register';
-  url: string;
-  title: string;
-  email: string;
-  prefix?: string;
-  verificationCode: string;
-  verified: boolean;
-  registration: RegistrationResult;
-  passkeyCreated: boolean;
-  passkeyStore?: VirtualPasskeyStore;
-  storedIdentity?: StoredChatGPTIdentitySummary;
-  sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult;
-  machine: ChatGPTAuthFlowSnapshot<ChatGPTRegistrationFlowResult>;
-}
-
-export interface ChatGPTLoginPasskeyFlowOptions {
-  identityId?: string;
-  email?: string;
-  virtualAuthenticator?: VirtualAuthenticatorOptions;
-  machine?: ChatGPTAuthFlowMachine<ChatGPTLoginPasskeyFlowResult>;
-}
-
-export interface ChatGPTLoginPasskeyFlowResult {
-  pageName: 'chatgpt-login-passkey';
-  url: string;
-  title: string;
-  email: string;
-  method: 'passkey' | 'password';
-  authenticated: boolean;
-  storedIdentity: StoredChatGPTIdentitySummary;
-  machine: ChatGPTAuthFlowSnapshot<ChatGPTLoginPasskeyFlowResult>;
 }
 
 interface PasskeyAssertionTracker {
@@ -1654,7 +1548,7 @@ export async function registerChatGPTWithExchange(page: Page, options: ChatGPTRe
       passkeyStore: passkey.passkeyStore,
       storedIdentity,
       sameSessionPasskeyCheck,
-      machine: undefined as unknown as ChatGPTAuthFlowSnapshot<ChatGPTRegistrationFlowResult>,
+      machine: undefined as unknown as ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>,
     };
     const snapshot = machine.succeed('completed', {
       event: 'chatgpt.completed',
@@ -1752,7 +1646,7 @@ export async function loginChatGPTWithStoredPasskey(
       method,
       authenticated: true,
       storedIdentity: stored.summary,
-      machine: undefined as unknown as ChatGPTAuthFlowSnapshot<ChatGPTLoginPasskeyFlowResult>,
+      machine: undefined as unknown as ChatGPTLoginPasskeyFlowSnapshot<ChatGPTLoginPasskeyFlowResult>,
     };
     const snapshot = machine.succeed('completed', {
       event: 'chatgpt.completed',
