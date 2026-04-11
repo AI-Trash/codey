@@ -8,12 +8,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "types": [
-      "node"
-    ]
+    "types": ["node"]
   },
-  "include": [
-    "src/**/*.ts",
-    "vite.config.ts"
-  ]
+  "include": ["src/**/*.ts", "vite.config.ts"]
 }

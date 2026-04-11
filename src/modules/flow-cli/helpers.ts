@@ -1,4 +1,4 @@
-import { resolveConfig, setRuntimeConfig, type CliRuntimeConfig } from '../../config';
+import { resolveConfig, setRuntimeConfig, type CliRuntimeConfig } from "../../config";
 
 export interface CommonOptions {
   config?: string;
@@ -27,20 +27,26 @@ export interface ExchangeOptions extends CommonOptions {
 export function redactForOutput<T>(value: T): T {
   return JSON.parse(
     JSON.stringify(value, (key, current) => {
-      if (typeof current === 'string' && /secret|password/i.test(key)) return '***redacted***';
+      if (typeof current === "string" && /secret|password/i.test(key)) return "***redacted***";
       return current;
     }),
   ) as T;
 }
 
-export function parseBooleanFlag(value: string | boolean | undefined, fallback?: boolean): boolean | undefined {
-  if (typeof value === 'boolean') return value;
-  if (typeof value !== 'string') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+export function parseBooleanFlag(
+  value: string | boolean | undefined,
+  fallback?: boolean,
+): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return fallback;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
 }
 
-export function parseNumberFlag(value: string | boolean | undefined, fallback?: number): number | undefined {
-  if (typeof value !== 'string') return fallback;
+export function parseNumberFlag(
+  value: string | boolean | undefined,
+  fallback?: number,
+): number | undefined {
+  if (typeof value !== "string") return fallback;
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 }
@@ -67,7 +73,7 @@ export function prepareRuntimeConfig(command: string, options: CommonOptions): C
 
 export function reportError(error: unknown): never {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(JSON.stringify({ status: 'failed', error: message }, null, 2));
+  console.error(JSON.stringify({ status: "failed", error: message }, null, 2));
   process.exit(1);
 }
 

@@ -1,5 +1,5 @@
-import http, { type IncomingMessage, type ServerResponse } from 'http';
-import { URL } from 'url';
+import http, { type IncomingMessage, type ServerResponse } from "http";
+import { URL } from "url";
 
 export interface CallbackServerOptions {
   host?: string;
@@ -21,9 +21,9 @@ export function waitForAuthorizationCode(
   options: CallbackServerOptions = {},
 ): Promise<AuthorizationCallbackPayload> {
   const {
-    host = '127.0.0.1',
+    host = "127.0.0.1",
     port = 3000,
-    path = '/callback',
+    path = "/callback",
     timeoutMs = 180000,
     successHtml,
   } = options;
@@ -39,26 +39,26 @@ export function waitForAuthorizationCode(
     };
 
     const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
-      const url = new URL(req.url || '/', `http://${host}:${port}`);
+      const url = new URL(req.url || "/", `http://${host}:${port}`);
       if (url.pathname !== path) {
         res.statusCode = 404;
-        res.end('Not Found');
+        res.end("Not Found");
         return;
       }
 
       const payload: AuthorizationCallbackPayload = {
-        code: url.searchParams.get('code'),
-        state: url.searchParams.get('state'),
-        scope: url.searchParams.get('scope'),
-        rawQuery: req.url || '',
+        code: url.searchParams.get("code"),
+        state: url.searchParams.get("state"),
+        scope: url.searchParams.get("scope"),
+        rawQuery: req.url || "",
         callbackUrl: url.toString(),
       };
 
       res.statusCode = 200;
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.end(
         successHtml ||
-          '<html><body><h1>Authorization received</h1><p>You can close this window now.</p></body></html>',
+          "<html><body><h1>Authorization received</h1><p>You can close this window now.</p></body></html>",
       );
 
       if (!settled) {
@@ -76,7 +76,7 @@ export function waitForAuthorizationCode(
       }
     }, timeoutMs);
 
-    server.on('error', (error) => {
+    server.on("error", (error) => {
       if (!settled) {
         settled = true;
         cleanup(server, timer);

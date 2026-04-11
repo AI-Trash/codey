@@ -1,6 +1,6 @@
-import { createStore, type StoreApi } from 'zustand/vanilla';
+import { createStore, type StoreApi } from "zustand/vanilla";
 
-export type MachineStatus = 'idle' | 'running' | 'succeeded' | 'failed';
+export type MachineStatus = "idle" | "running" | "succeeded" | "failed";
 
 export interface StateMachineError {
   name: string;
@@ -44,7 +44,10 @@ export interface StateMachineConfig<State extends string, Context extends object
   historyLimit?: number;
 }
 
-export interface StateMachineTransitionOptions<Context extends object, Event extends string = string> {
+export interface StateMachineTransitionOptions<
+  Context extends object,
+  Event extends string = string,
+> {
   event?: Event;
   status?: MachineStatus;
   patch?: Partial<Context> | ((context: Context) => Partial<Context> | Context);
@@ -56,8 +59,13 @@ export interface StateMachineTransitionOptions<Context extends object, Event ext
   preserveCurrentAction?: boolean;
 }
 
-export interface StateMachineCompletionOptions<Context extends object, Event extends string = string>
-  extends Omit<StateMachineTransitionOptions<Context, Event>, 'status' | 'startedAt' | 'finishedAt'> {}
+export interface StateMachineCompletionOptions<
+  Context extends object,
+  Event extends string = string,
+> extends Omit<
+  StateMachineTransitionOptions<Context, Event>,
+  "status" | "startedAt" | "finishedAt"
+> {}
 
 export interface StateMachineController<
   State extends string,
@@ -69,20 +77,25 @@ export interface StateMachineController<
   getSnapshot(): StateMachineSnapshot<State, Context, Event>;
   subscribe(listener: (snapshot: StateMachineSnapshot<State, Context, Event>) => void): () => void;
   reset(context?: Partial<Context>): StateMachineSnapshot<State, Context, Event>;
-  start(context?: Partial<Context>, meta?: Record<string, unknown>): StateMachineSnapshot<State, Context, Event>;
+  start(
+    context?: Partial<Context>,
+    meta?: Record<string, unknown>,
+  ): StateMachineSnapshot<State, Context, Event>;
   transition(
     nextState: State,
     options?: StateMachineTransitionOptions<Context, Event>,
   ): StateMachineSnapshot<State, Context, Event>;
   patchContext(
     patch: Partial<Context> | ((context: Context) => Partial<Context> | Context),
-    options?: Omit<StateMachineTransitionOptions<Context, Event>, 'patch'>,
+    options?: Omit<StateMachineTransitionOptions<Context, Event>, "patch">,
   ): StateMachineSnapshot<State, Context, Event>;
   beginAction(
     action: string,
-    options?: Omit<StateMachineTransitionOptions<Context, Event>, 'action'>,
+    options?: Omit<StateMachineTransitionOptions<Context, Event>, "action">,
   ): StateMachineSnapshot<State, Context, Event>;
-  endAction(options?: Omit<StateMachineTransitionOptions<Context, Event>, 'action'>): StateMachineSnapshot<State, Context, Event>;
+  endAction(
+    options?: Omit<StateMachineTransitionOptions<Context, Event>, "action">,
+  ): StateMachineSnapshot<State, Context, Event>;
   succeed(
     nextState: State,
     options?: StateMachineCompletionOptions<Context, Event>,
@@ -104,13 +117,13 @@ function serializeError(error: unknown): StateMachineError {
       name: error.name,
       message: error.message,
       stack: error.stack,
-      cause: 'cause' in error ? (error as Error & { cause?: unknown }).cause : undefined,
+      cause: "cause" in error ? (error as Error & { cause?: unknown }).cause : undefined,
     };
   }
 
   return {
-    name: 'Error',
-    message: typeof error === 'string' ? error : JSON.stringify(error),
+    name: "Error",
+    message: typeof error === "string" ? error : JSON.stringify(error),
   };
 }
 
@@ -119,26 +132,30 @@ function resolveContextPatch<Context extends object>(
   patch?: Partial<Context> | ((context: Context) => Partial<Context> | Context),
 ): Context {
   if (!patch) return current;
-  const nextPatch = typeof patch === 'function' ? patch(current) : patch;
+  const nextPatch = typeof patch === "function" ? patch(current) : patch;
   return { ...current, ...nextPatch } as Context;
 }
 
-export function createStateMachine<State extends string, Context extends object, Event extends string = string>(
-  config: StateMachineConfig<State, Context>,
-): StateMachineController<State, Context, Event> {
+export function createStateMachine<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+>(config: StateMachineConfig<State, Context>): StateMachineController<State, Context, Event> {
   const historyLimit = Math.max(1, config.historyLimit ?? 100);
   const initialContext = { ...config.initialContext };
 
   const createInitialSnapshot = (): StateMachineSnapshot<State, Context, Event> => ({
     id: config.id,
-    status: 'idle',
+    status: "idle",
     state: config.initialState,
     context: { ...initialContext } as Context,
     updatedAt: now(),
     history: [],
   });
 
-  const store = createStore<StateMachineSnapshot<State, Context, Event>>(() => createInitialSnapshot());
+  const store = createStore<StateMachineSnapshot<State, Context, Event>>(() =>
+    createInitialSnapshot(),
+  );
 
   function commit(
     nextState: State,
@@ -148,17 +165,18 @@ export function createStateMachine<State extends string, Context extends object,
     const timestamp = now();
     const nextContext = resolveContextPatch(previous.context, options.patch);
     const nextStatus = options.status ?? previous.status;
-    const nextAction = options.preserveCurrentAction === false
-      ? undefined
-      : options.action !== undefined
-        ? options.action
-        : previous.currentAction;
+    const nextAction =
+      options.preserveCurrentAction === false
+        ? undefined
+        : options.action !== undefined
+          ? options.action
+          : previous.currentAction;
     const nextHistoryEntry: StateMachineHistoryEntry<State, Event> = {
       index: previous.history.length + 1,
       at: timestamp,
       from: previous.state,
       to: nextState,
-      event: (options.event ?? 'transition') as Event,
+      event: (options.event ?? "transition") as Event,
       status: nextStatus,
       meta: options.meta,
     };
@@ -203,7 +221,7 @@ export function createStateMachine<State extends string, Context extends object,
       const timestamp = now();
       const snapshot: StateMachineSnapshot<State, Context, Event> = {
         id: config.id,
-        status: 'running',
+        status: "running",
         state: config.initialState,
         context: { ...initialContext, ...context } as Context,
         updatedAt: timestamp,
@@ -214,12 +232,12 @@ export function createStateMachine<State extends string, Context extends object,
             at: timestamp,
             from: config.initialState,
             to: config.initialState,
-            event: 'machine.started' as Event,
-            status: 'running',
+            event: "machine.started" as Event,
+            status: "running",
             meta,
           },
         ],
-        lastEvent: 'machine.started' as Event,
+        lastEvent: "machine.started" as Event,
       };
       store.setState(snapshot);
       return snapshot;
@@ -227,7 +245,7 @@ export function createStateMachine<State extends string, Context extends object,
     transition(nextState, options) {
       return commit(nextState, {
         ...options,
-        status: options?.status ?? 'running',
+        status: options?.status ?? "running",
       });
     },
     patchContext(patch, options) {
@@ -241,22 +259,22 @@ export function createStateMachine<State extends string, Context extends object,
       return commit(store.getState().state, {
         ...options,
         action,
-        event: options?.event ?? ('action.started' as Event),
-        status: options?.status ?? 'running',
+        event: options?.event ?? ("action.started" as Event),
+        status: options?.status ?? "running",
       });
     },
     endAction(options) {
       return commit(store.getState().state, {
         ...options,
         preserveCurrentAction: false,
-        event: options?.event ?? ('action.finished' as Event),
+        event: options?.event ?? ("action.finished" as Event),
         status: options?.status ?? store.getState().status,
       });
     },
     succeed(nextState, options) {
       return commit(nextState, {
         ...options,
-        status: 'succeeded',
+        status: "succeeded",
         finishedAt: now(),
         clearError: true,
       });
@@ -264,7 +282,7 @@ export function createStateMachine<State extends string, Context extends object,
     fail(error, nextState, options) {
       const snapshot = commit(nextState, {
         ...options,
-        status: 'failed',
+        status: "failed",
         finishedAt: now(),
         clearError: false,
       });

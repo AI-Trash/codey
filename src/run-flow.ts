@@ -1,9 +1,9 @@
-import { loadWorkspaceEnv } from './utils/env';
+import { loadWorkspaceEnv } from "./utils/env";
 loadWorkspaceEnv();
 
-import { newSession } from './core/browser';
-import { saveScreenshot, writeJson } from './core/report';
-import type { FlowHandler } from './types';
+import { newSession } from "./core/browser";
+import { saveScreenshot, writeJson } from "./core/report";
+import type { FlowHandler } from "./types";
 
 export async function runFlow(name: string, flow: FlowHandler): Promise<void> {
   const session = await newSession();
@@ -12,13 +12,15 @@ export async function runFlow(name: string, flow: FlowHandler): Promise<void> {
     const result = await flow(session.page);
     const screenshotPath = await saveScreenshot(session.page, name);
     const reportPath = writeJson(name, {
-      status: 'passed',
+      status: "passed",
       ...result,
       screenshotPath,
       capturedAt: new Date().toISOString(),
     });
 
-    console.log(JSON.stringify({ status: 'passed', name, screenshotPath, reportPath, result }, null, 2));
+    console.log(
+      JSON.stringify({ status: "passed", name, screenshotPath, reportPath, result }, null, 2),
+    );
   } catch (error) {
     const err = error as Error;
     let screenshotPath: string | null = null;
@@ -27,13 +29,19 @@ export async function runFlow(name: string, flow: FlowHandler): Promise<void> {
     } catch {}
 
     const reportPath = writeJson(name, {
-      status: 'failed',
+      status: "failed",
       error: err.message,
       screenshotPath,
       capturedAt: new Date().toISOString(),
     });
 
-    console.error(JSON.stringify({ status: 'failed', name, error: err.message, screenshotPath, reportPath }, null, 2));
+    console.error(
+      JSON.stringify(
+        { status: "failed", name, error: err.message, screenshotPath, reportPath },
+        null,
+        2,
+      ),
+    );
     process.exitCode = 1;
   } finally {
     await session.close();

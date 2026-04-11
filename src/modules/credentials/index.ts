@@ -1,20 +1,20 @@
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
-import { getRuntimeConfig } from '../../config';
-import { ensureDir, writeFileAtomic } from '../../utils/fs';
-import type { VirtualPasskeyStore } from '../webauthn';
+import { getRuntimeConfig } from "../../config";
+import { ensureDir, writeFileAtomic } from "../../utils/fs";
+import type { VirtualPasskeyStore } from "../webauthn";
 
 const STORE_VERSION = 1;
-const STORE_DIR = '.codey/credentials';
-const STORE_INDEX_FILE_NAME = 'chatgpt-identities.json';
-const STORE_ACCOUNTS_DIR_NAME = 'chatgpt-identities';
-const MASTER_KEY_ENV_NAME = 'CODEY_CREDENTIALS_MASTER_KEY';
+const STORE_DIR = ".codey/credentials";
+const STORE_INDEX_FILE_NAME = "chatgpt-identities.json";
+const STORE_ACCOUNTS_DIR_NAME = "chatgpt-identities";
+const MASTER_KEY_ENV_NAME = "CODEY_CREDENTIALS_MASTER_KEY";
 
 export interface StoredChatGPTIdentity {
   id: string;
-  provider: 'chatgpt';
+  provider: "chatgpt";
   createdAt: string;
   updatedAt: string;
   email: string;
@@ -23,7 +23,7 @@ export interface StoredChatGPTIdentity {
   metadata: {
     prefix?: string;
     mailbox?: string;
-    source: 'chatgpt-register-exchange';
+    source: "chatgpt-register-exchange";
     passkeyCreated: boolean;
     chatgptUrl?: string;
   };
@@ -39,7 +39,7 @@ interface PersistedChatGPTIdentityStore {
   encrypted: boolean;
   payload: string;
   updatedAt: string;
-  algorithm?: 'aes-256-gcm';
+  algorithm?: "aes-256-gcm";
   iv?: string;
   authTag?: string;
 }
@@ -87,17 +87,18 @@ function getAccountsDirectoryPath(): string {
   return path.join(getStoreRootPath(), STORE_ACCOUNTS_DIR_NAME);
 }
 
-function createIdentityFileName(identity: Pick<StoredChatGPTIdentity, 'email'>): string {
+function createIdentityFileName(identity: Pick<StoredChatGPTIdentity, "email">): string {
   const normalizedEmail = identity.email.trim().toLowerCase();
-  const emailDigest = crypto.createHash('sha1').update(normalizedEmail).digest('hex').slice(0, 12);
-  const safeEmail = normalizedEmail
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48) || 'account';
+  const emailDigest = crypto.createHash("sha1").update(normalizedEmail).digest("hex").slice(0, 12);
+  const safeEmail =
+    normalizedEmail
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "account";
   return `${safeEmail}--${emailDigest}.json`;
 }
 
-function getIdentityStorePath(identity: Pick<StoredChatGPTIdentity, 'email'>): string {
+function getIdentityStorePath(identity: Pick<StoredChatGPTIdentity, "email">): string {
   return path.join(getAccountsDirectoryPath(), createIdentityFileName(identity));
 }
 
@@ -111,35 +112,38 @@ function createDefaultStore(): ChatGPTIdentityStore {
 function getMasterKey(): Buffer | undefined {
   const raw = process.env[MASTER_KEY_ENV_NAME]?.trim();
   if (!raw) return undefined;
-  return crypto.createHash('sha256').update(raw).digest();
+  return crypto.createHash("sha256").update(raw).digest();
 }
 
-function encryptStorePayload(payload: string, key: Buffer): Omit<PersistedChatGPTIdentityStore, 'version' | 'updatedAt'> {
+function encryptStorePayload(
+  payload: string,
+  key: Buffer,
+): Omit<PersistedChatGPTIdentityStore, "version" | "updatedAt"> {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(payload, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return {
     encrypted: true,
-    algorithm: 'aes-256-gcm',
-    iv: iv.toString('base64'),
-    authTag: authTag.toString('base64'),
-    payload: encrypted.toString('base64'),
+    algorithm: "aes-256-gcm",
+    iv: iv.toString("base64"),
+    authTag: authTag.toString("base64"),
+    payload: encrypted.toString("base64"),
   };
 }
 
 function decryptStorePayload(payload: PersistedChatGPTIdentityStore, key: Buffer): string {
   if (!payload.iv || !payload.authTag) {
-    throw new Error('Credential store is missing IV or auth tag.');
+    throw new Error("Credential store is missing IV or auth tag.");
   }
 
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(payload.iv, 'base64'));
-  decipher.setAuthTag(Buffer.from(payload.authTag, 'base64'));
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(payload.iv, "base64"));
+  decipher.setAuthTag(Buffer.from(payload.authTag, "base64"));
   const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(payload.payload, 'base64')),
+    decipher.update(Buffer.from(payload.payload, "base64")),
     decipher.final(),
   ]);
-  return decrypted.toString('utf8');
+  return decrypted.toString("utf8");
 }
 
 function readStoreEnvelope(storePath: string): { store: ChatGPTIdentityStore; encrypted: boolean } {
@@ -150,8 +154,10 @@ function readStoreEnvelope(storePath: string): { store: ChatGPTIdentityStore; en
     };
   }
 
-  const raw = JSON.parse(fs.readFileSync(storePath, 'utf8')) as PersistedChatGPTIdentityStore | ChatGPTIdentityStore;
-  if ('identities' in raw) {
+  const raw = JSON.parse(fs.readFileSync(storePath, "utf8")) as
+    | PersistedChatGPTIdentityStore
+    | ChatGPTIdentityStore;
+  if ("identities" in raw) {
     return {
       store: raw,
       encrypted: false,
@@ -178,7 +184,10 @@ function readStoreEnvelope(storePath: string): { store: ChatGPTIdentityStore; en
   };
 }
 
-function writeStoreEnvelope(storePath: string, store: ChatGPTIdentityStore): { encrypted: boolean } {
+function writeStoreEnvelope(
+  storePath: string,
+  store: ChatGPTIdentityStore,
+): { encrypted: boolean } {
   ensureDir(path.dirname(storePath));
   const payload = JSON.stringify(store, null, 2);
   const key = getMasterKey();
@@ -198,7 +207,11 @@ function writeStoreEnvelope(storePath: string, store: ChatGPTIdentityStore): { e
   return { encrypted: envelope.encrypted };
 }
 
-function summarize(identity: StoredChatGPTIdentity, storePath: string, encrypted: boolean): StoredChatGPTIdentitySummary {
+function summarize(
+  identity: StoredChatGPTIdentity,
+  storePath: string,
+  encrypted: boolean,
+): StoredChatGPTIdentitySummary {
   return {
     id: identity.id,
     email: identity.email,
@@ -227,7 +240,7 @@ function readAllStoredChatGPTIdentities(): ResolvedChatGPTIdentity[] {
 
   if (fs.existsSync(accountDir)) {
     for (const entry of fs.readdirSync(accountDir, { withFileTypes: true })) {
-      if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== '.json') continue;
+      if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".json") continue;
       const resolved = readIdentityStoreFile(path.join(accountDir, entry.name));
       if (resolved) results.set(resolved.identity.id, resolved);
     }
@@ -246,11 +259,13 @@ function readAllStoredChatGPTIdentities(): ResolvedChatGPTIdentity[] {
   return [...results.values()];
 }
 
-export function persistChatGPTIdentity(input: PersistChatGPTIdentityInput): ResolvedChatGPTIdentity {
+export function persistChatGPTIdentity(
+  input: PersistChatGPTIdentityInput,
+): ResolvedChatGPTIdentity {
   const now = new Date().toISOString();
   const identity: StoredChatGPTIdentity = {
     id: crypto.randomUUID(),
-    provider: 'chatgpt',
+    provider: "chatgpt",
     createdAt: now,
     updatedAt: now,
     email: input.email,
@@ -259,7 +274,7 @@ export function persistChatGPTIdentity(input: PersistChatGPTIdentityInput): Reso
     metadata: {
       prefix: input.prefix,
       mailbox: input.mailbox,
-      source: 'chatgpt-register-exchange',
+      source: "chatgpt-register-exchange",
       passkeyCreated: input.passkeyCreated,
       chatgptUrl: getRuntimeConfig().openai.chatgptUrl,
     },
@@ -285,12 +300,17 @@ export function resolveStoredChatGPTIdentity(
 
   const match = candidates.find((entry) => {
     if (options.id && entry.identity.id !== options.id) return false;
-    if (options.email && entry.identity.email.toLowerCase() !== options.email.toLowerCase()) return false;
+    if (options.email && entry.identity.email.toLowerCase() !== options.email.toLowerCase())
+      return false;
     return true;
   });
 
   if (!match) {
-    const requested = options.id ? `id=${options.id}` : options.email ? `email=${options.email}` : 'latest record';
+    const requested = options.id
+      ? `id=${options.id}`
+      : options.email
+        ? `email=${options.email}`
+        : "latest record";
     throw new Error(`No persisted ChatGPT identity found for ${requested}.`);
   }
 

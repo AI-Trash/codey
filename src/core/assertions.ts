@@ -1,9 +1,9 @@
-import type { Locator, Page } from 'patchright';
+import type { Locator, Page } from "patchright";
 
 export async function expectVisible(locator: Locator, message?: string): Promise<void> {
-  await locator.waitFor({ state: 'visible' });
+  await locator.waitFor({ state: "visible" });
   if (!(await locator.isVisible())) {
-    throw new Error(message || 'Expected locator to be visible');
+    throw new Error(message || "Expected locator to be visible");
   }
 }
 

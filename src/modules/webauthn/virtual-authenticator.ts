@@ -1,6 +1,6 @@
-import type { CDPSession, Page } from 'patchright';
+import type { CDPSession, Page } from "patchright";
 
-const DEFAULT_BITWARDEN_AAGUID = 'd548826e-79b4-db40-a3d8-11116f7e8349';
+const DEFAULT_BITWARDEN_AAGUID = "d548826e-79b4-db40-a3d8-11116f7e8349";
 const AAGUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface VirtualPasskeyCredential {
@@ -18,8 +18,8 @@ export interface VirtualPasskeyCredential {
 }
 
 export interface VirtualAuthenticatorOptions {
-  protocol?: 'ctap2' | 'u2f';
-  transport?: 'internal' | 'usb' | 'nfc' | 'ble';
+  protocol?: "ctap2" | "u2f";
+  transport?: "internal" | "usb" | "nfc" | "ble";
   hasResidentKey?: boolean;
   hasUserVerification?: boolean;
   isUserVerified?: boolean;
@@ -32,9 +32,9 @@ export interface VirtualPasskeyStore {
   credentials: VirtualPasskeyCredential[];
 }
 
-const DEFAULT_AUTHENTICATOR: Required<Omit<VirtualAuthenticatorOptions, 'aaguid'>> = {
-  protocol: 'ctap2',
-  transport: 'internal',
+const DEFAULT_AUTHENTICATOR: Required<Omit<VirtualAuthenticatorOptions, "aaguid">> = {
+  protocol: "ctap2",
+  transport: "internal",
   hasResidentKey: true,
   hasUserVerification: true,
   isUserVerified: true,
@@ -60,12 +60,12 @@ function resolveAaguid(options: VirtualAuthenticatorOptions): string {
 async function installAttestationAaguidOverride(page: Page, aaguid: string): Promise<void> {
   await page.addInitScript(
     ({ aaguid: injectedAaguid }) => {
-      const globalKey = '__codeyWebAuthnAaguidOverrideInstalled__';
+      const globalKey = "__codeyWebAuthnAaguidOverrideInstalled__";
       if ((window as typeof window & Record<string, unknown>)[globalKey]) return;
       (window as typeof window & Record<string, unknown>)[globalKey] = true;
 
       const uuidToBytes = (value: string): Uint8Array => {
-        const hex = value.replace(/-/g, '').toLowerCase();
+        const hex = value.replace(/-/g, "").toLowerCase();
         const bytes = new Uint8Array(16);
         for (let i = 0; i < 16; i += 1) {
           bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
@@ -73,20 +73,32 @@ async function installAttestationAaguidOverride(page: Page, aaguid: string): Pro
         return bytes;
       };
 
-      const readLength = (data: Uint8Array, offset: number, additionalInfo: number): { length: number; offset: number } => {
+      const readLength = (
+        data: Uint8Array,
+        offset: number,
+        additionalInfo: number,
+      ): { length: number; offset: number } => {
         if (additionalInfo < 24) return { length: additionalInfo, offset };
         if (additionalInfo === 24) return { length: data[offset], offset: offset + 1 };
-        if (additionalInfo === 25) return { length: (data[offset] << 8) | data[offset + 1], offset: offset + 2 };
+        if (additionalInfo === 25)
+          return { length: (data[offset] << 8) | data[offset + 1], offset: offset + 2 };
         if (additionalInfo === 26) {
           return {
-            length: ((data[offset] << 24) >>> 0) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3],
+            length:
+              ((data[offset] << 24) >>> 0) |
+              (data[offset + 1] << 16) |
+              (data[offset + 2] << 8) |
+              data[offset + 3],
             offset: offset + 4,
           };
         }
         throw new Error(`Unsupported CBOR length encoding: ${additionalInfo}`);
       };
 
-      const decodeItem = (data: Uint8Array, startOffset = 0): { value: unknown; offset: number } => {
+      const decodeItem = (
+        data: Uint8Array,
+        startOffset = 0,
+      ): { value: unknown; offset: number } => {
         const initial = data[startOffset];
         const majorType = initial >> 5;
         const additionalInfo = initial & 0x1f;
@@ -160,10 +172,10 @@ async function installAttestationAaguidOverride(page: Page, aaguid: string): Pro
       };
 
       const encodeItem = (value: unknown): Uint8Array => {
-        if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+        if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
           return Uint8Array.from(encodeLength(0, value));
         }
-        if (typeof value === 'string') {
+        if (typeof value === "string") {
           const bytes = new TextEncoder().encode(value);
           return concat([Uint8Array.from(encodeLength(3, bytes.length)), bytes]);
         }
@@ -171,7 +183,10 @@ async function installAttestationAaguidOverride(page: Page, aaguid: string): Pro
           return concat([Uint8Array.from(encodeLength(2, value.length)), value]);
         }
         if (Array.isArray(value)) {
-          return concat([Uint8Array.from(encodeLength(4, value.length)), ...value.map((item) => encodeItem(item))]);
+          return concat([
+            Uint8Array.from(encodeLength(4, value.length)),
+            ...value.map((item) => encodeItem(item)),
+          ]);
         }
         if (value instanceof Map) {
           const entries: Uint8Array[] = [Uint8Array.from(encodeLength(5, value.size))];
@@ -195,7 +210,7 @@ async function installAttestationAaguidOverride(page: Page, aaguid: string): Pro
         if (!(decoded.value instanceof Map)) return toArrayBuffer(buffer);
 
         const attestation = decoded.value;
-        const authData = attestation.get('authData');
+        const authData = attestation.get("authData");
         if (!(authData instanceof Uint8Array)) return toArrayBuffer(buffer);
         if (authData.length < 53) return toArrayBuffer(buffer);
 
@@ -204,7 +219,7 @@ async function installAttestationAaguidOverride(page: Page, aaguid: string): Pro
 
         const nextAuthData = new Uint8Array(authData);
         nextAuthData.set(uuidToBytes(injectedAaguid), 37);
-        attestation.set('authData', nextAuthData);
+        attestation.set("authData", nextAuthData);
 
         const encoded = encodeItem(attestation);
         return encoded.slice().buffer;
@@ -218,11 +233,11 @@ async function installAttestationAaguidOverride(page: Page, aaguid: string): Pro
         if (!(response instanceof AuthenticatorAttestationResponse)) return credential;
 
         const readAttestationObject = () => patchAttestationObject(response.attestationObject);
-        Object.defineProperty(response, 'getAttestationObject', {
+        Object.defineProperty(response, "getAttestationObject", {
           configurable: true,
           value: readAttestationObject,
         });
-        Object.defineProperty(response, 'attestationObject', {
+        Object.defineProperty(response, "attestationObject", {
           configurable: true,
           get: readAttestationObject,
         });
@@ -244,10 +259,10 @@ export async function ensureVirtualAuthenticator(
   const session = await createSession(page);
   const aaguid = resolveAaguid(options);
   await installAttestationAaguidOverride(page, aaguid);
-  await session.send('WebAuthn.enable');
+  await session.send("WebAuthn.enable");
 
   const { aaguid: _aaguid, ...authenticatorOptions } = options;
-  const authenticator = await session.send('WebAuthn.addVirtualAuthenticator', {
+  const authenticator = await session.send("WebAuthn.addVirtualAuthenticator", {
     options: {
       ...DEFAULT_AUTHENTICATOR,
       ...authenticatorOptions,
@@ -264,7 +279,7 @@ export async function getVirtualAuthenticatorCredentials(
   session: CDPSession,
   authenticatorId: string,
 ): Promise<VirtualPasskeyCredential[]> {
-  const result = await session.send('WebAuthn.getCredentials', { authenticatorId });
+  const result = await session.send("WebAuthn.getCredentials", { authenticatorId });
   return (result.credentials || []) as VirtualPasskeyCredential[];
 }
 
@@ -273,7 +288,7 @@ export async function addVirtualAuthenticatorCredential(
   authenticatorId: string,
   credential: VirtualPasskeyCredential,
 ): Promise<void> {
-  await session.send('WebAuthn.addCredential', {
+  await session.send("WebAuthn.addCredential", {
     authenticatorId,
     credential,
   });

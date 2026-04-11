@@ -1,7 +1,7 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 
 export interface BrowserCliConfig {
   headless: boolean;
@@ -16,7 +16,7 @@ export interface OpenAIFlowConfig {
 }
 
 export interface ExchangeAuthConfig {
-  mode: 'client_credentials';
+  mode: "client_credentials";
   tenantId: string;
   clientId: string;
   clientSecret: string;
@@ -53,8 +53,8 @@ type PartialDeep<T> = {
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value == null || value === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+  if (value == null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -63,7 +63,7 @@ function parseNumber(value: string | undefined, fallback: number): number {
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function mergeDeep<T>(base: T, patch?: PartialDeep<T>): T {
@@ -84,7 +84,7 @@ function mergeDeep<T>(base: T, patch?: PartialDeep<T>): T {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const rootDir = path.resolve(__dirname, '..');
+const rootDir = path.resolve(__dirname, "..");
 
 function buildDefaultConfig(): AppConfig {
   const exchangeMailFlowCatchAll = process.env.EXCHANGE_CATCH_ALL_PREFIX
@@ -95,7 +95,7 @@ function buildDefaultConfig(): AppConfig {
 
   return {
     rootDir,
-    artifactsDir: path.join(rootDir, 'artifacts'),
+    artifactsDir: path.join(rootDir, "artifacts"),
     browser: {
       headless: parseBoolean(process.env.HEADLESS, false),
       slowMo: parseNumber(process.env.SLOW_MO, 0),
@@ -103,8 +103,8 @@ function buildDefaultConfig(): AppConfig {
       navigationTimeoutMs: parseNumber(process.env.NAVIGATION_TIMEOUT_MS, 30000),
     },
     openai: {
-      baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',
-      chatgptUrl: process.env.CHATGPT_URL || 'https://chatgpt.com',
+      baseUrl: process.env.OPENAI_BASE_URL || "https://openai.com",
+      chatgptUrl: process.env.CHATGPT_URL || "https://chatgpt.com",
     },
     exchange:
       process.env.EXCHANGE_TENANT_ID &&
@@ -113,7 +113,7 @@ function buildDefaultConfig(): AppConfig {
         ? {
             mailbox: process.env.EXCHANGE_MAILBOX,
             auth: {
-              mode: 'client_credentials',
+              mode: "client_credentials",
               tenantId: process.env.EXCHANGE_TENANT_ID,
               clientId: process.env.EXCHANGE_CLIENT_ID,
               clientSecret: process.env.EXCHANGE_CLIENT_SECRET,
@@ -134,19 +134,23 @@ let runtimeConfig: AppConfig = buildDefaultConfig();
 
 export function loadConfigFile(configFile?: string): PartialDeep<AppConfig> | undefined {
   if (!configFile) return undefined;
-  const resolved = path.isAbsolute(configFile) ? configFile : path.resolve(process.cwd(), configFile);
+  const resolved = path.isAbsolute(configFile)
+    ? configFile
+    : path.resolve(process.cwd(), configFile);
   if (!fs.existsSync(resolved)) {
     throw new Error(`Config file not found: ${resolved}`);
   }
-  return JSON.parse(fs.readFileSync(resolved, 'utf8')) as PartialDeep<AppConfig>;
+  return JSON.parse(fs.readFileSync(resolved, "utf8")) as PartialDeep<AppConfig>;
 }
 
-export function resolveConfig(options: {
-  configFile?: string;
-  profile?: string;
-  overrides?: PartialDeep<AppConfig>;
-  command?: string;
-} = {}): CliRuntimeConfig {
+export function resolveConfig(
+  options: {
+    configFile?: string;
+    profile?: string;
+    overrides?: PartialDeep<AppConfig>;
+    command?: string;
+  } = {},
+): CliRuntimeConfig {
   const fromEnv = buildDefaultConfig();
   const fromFile = loadConfigFile(options.configFile);
   const merged = mergeDeep(mergeDeep(fromEnv, fromFile), options.overrides);

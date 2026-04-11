@@ -1,4 +1,4 @@
-import { newSession } from '../../core/browser';
+import { newSession } from "../../core/browser";
 
 export async function runWithSession(
   options: Parameters<typeof newSession>[0],

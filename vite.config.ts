@@ -1,19 +1,18 @@
-import { defineConfig } from 'vite';
-import { builtinModules } from 'module';
+import { defineConfig } from "vite";
+import { builtinModules } from "module";
 
 export default defineConfig({
   build: {
-    target: 'node22',
-    outDir: 'dist',
+    target: "node22",
+    outDir: "dist",
     emptyOutDir: true,
     lib: {
-      entry: 'src/cli.ts',
-      formats: ['es'],
-      fileName: 'index',
+      entry: "src/cli.ts",
+      formats: ["es"],
+      fileName: "index",
     },
     rollupOptions: {
-      external: [...builtinModules,
-      ...builtinModules.map((m) => `node:${m}`), 'patchright']
+      external: [...builtinModules, ...builtinModules.map((m) => `node:${m}`), "patchright"],
     },
   },
 });

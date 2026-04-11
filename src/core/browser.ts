@@ -1,7 +1,7 @@
-import { chromium, type Browser, type BrowserContext } from 'patchright';
-import { getRuntimeConfig } from '../config';
-import { ensureDir } from '../utils/fs';
-import type { Session } from '../types';
+import { chromium, type Browser, type BrowserContext } from "patchright";
+import { getRuntimeConfig } from "../config";
+import { ensureDir } from "../utils/fs";
+import type { Session } from "../types";
 
 export async function launchBrowser(): Promise<Browser> {
   const config = getRuntimeConfig();
@@ -15,7 +15,7 @@ export async function launchBrowser(): Promise<Browser> {
 }
 
 export async function newSession(
-  options: { context?: Parameters<Browser['newContext']>[0] } = {},
+  options: { context?: Parameters<Browser["newContext"]>[0] } = {},
 ): Promise<Session> {
   const config = getRuntimeConfig();
   const browser = await launchBrowser();

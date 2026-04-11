@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    "node_modules/**",
+    ".npm-cache/**",
+    ".playwright-browsers/**",
+    "artifacts/**",
+    ".env",
+    "npm-debug.log*",
+    "dist/**",
+    ".codey/**"
+  ]
+}

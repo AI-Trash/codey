@@ -1,15 +1,15 @@
-import crypto from 'crypto';
-import type { Page } from 'patchright';
+import crypto from "crypto";
+import type { Page } from "patchright";
 import {
   waitForAuthorizationCode,
   type AuthorizationCallbackPayload,
   type CallbackServerOptions,
-} from './callback-server';
+} from "./callback-server";
 
 export interface PkcePair {
   verifier: string;
   challenge: string;
-  method: 'S256';
+  method: "S256";
 }
 
 export interface BuildAuthorizationUrlOptions {
@@ -27,7 +27,7 @@ export interface BuildAuthorizationUrlResult {
   state: string;
   codeVerifier: string | null;
   codeChallenge: string | null;
-  codeChallengeMethod: 'S256' | null;
+  codeChallengeMethod: "S256" | null;
 }
 
 export interface RunAuthorizationCodeFlowOptions {
@@ -38,9 +38,9 @@ export interface RunAuthorizationCodeFlowOptions {
 }
 
 export function createPkcePair(): PkcePair {
-  const verifier = crypto.randomBytes(32).toString('base64url');
-  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
-  return { verifier, challenge, method: 'S256' };
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge, method: "S256" };
 }
 
 export function buildAuthorizationUrl(
@@ -57,20 +57,20 @@ export function buildAuthorizationUrl(
   } = options;
 
   if (!authorizeUrl || !clientId || !redirectUri) {
-    throw new Error('authorizeUrl, clientId and redirectUri are required');
+    throw new Error("authorizeUrl, clientId and redirectUri are required");
   }
 
   const url = new URL(authorizeUrl);
   const pkcePair = pkce ? createPkcePair() : null;
 
-  url.searchParams.set('response_type', 'code');
-  url.searchParams.set('client_id', clientId);
-  url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('state', state);
-  if (scope) url.searchParams.set('scope', scope);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("state", state);
+  if (scope) url.searchParams.set("scope", scope);
   if (pkcePair) {
-    url.searchParams.set('code_challenge', pkcePair.challenge);
-    url.searchParams.set('code_challenge_method', pkcePair.method);
+    url.searchParams.set("code_challenge", pkcePair.challenge);
+    url.searchParams.set("code_challenge_method", pkcePair.method);
   }
 
   for (const [key, value] of Object.entries(extraParams)) {
@@ -92,11 +92,11 @@ export async function runAuthorizationCodeFlow(
 ): Promise<AuthorizationCallbackPayload> {
   const { startUrl, callback = {}, expectedState, afterNavigation } = options;
   if (!startUrl) {
-    throw new Error('startUrl is required');
+    throw new Error("startUrl is required");
   }
 
   const callbackPromise = waitForAuthorizationCode(callback);
-  await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
+  await page.goto(startUrl, { waitUntil: "domcontentloaded" });
 
   if (afterNavigation) {
     await afterNavigation(page);
@@ -107,7 +107,9 @@ export async function runAuthorizationCodeFlow(
     throw new Error(`Authorization callback did not contain code: ${result.callbackUrl}`);
   }
   if (expectedState && result.state !== expectedState) {
-    throw new Error(`Authorization state mismatch, expected "${expectedState}" got "${result.state}"`);
+    throw new Error(
+      `Authorization state mismatch, expected "${expectedState}" got "${result.state}"`,
+    );
   }
 
   return result;

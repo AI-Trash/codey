@@ -1,7 +1,7 @@
-import type { Locator, Page } from 'patchright';
-import { firstVisible, toLocator } from '../../utils/selectors';
-import type { SelectorList, SelectorTarget } from '../../types';
-import { sleep } from '../../utils/wait';
+import type { Locator, Page } from "patchright";
+import { firstVisible, toLocator } from "../../utils/selectors";
+import type { SelectorList, SelectorTarget } from "../../types";
+import { sleep } from "../../utils/wait";
 
 export async function clickAny(page: Page, selectors: SelectorList) {
   const locator = await firstVisible(page, selectors);
@@ -9,20 +9,28 @@ export async function clickAny(page: Page, selectors: SelectorList) {
   return locator;
 }
 
-export async function fillIfPresent(page: Page, selector: SelectorTarget | SelectorList, value?: string) {
+export async function fillIfPresent(
+  page: Page,
+  selector: SelectorTarget | SelectorList,
+  value?: string,
+) {
   if (value == null) return false;
   const locator = await resolveVisibleLocator(page, selector);
   await locator.fill(String(value));
   return true;
 }
 
-export async function typeIfPresent(page: Page, selector: SelectorTarget | SelectorList, value?: string) {
+export async function typeIfPresent(
+  page: Page,
+  selector: SelectorTarget | SelectorList,
+  value?: string,
+) {
   if (value == null) return false;
   const locator = await resolveEditableLocator(page, selector);
   if (!locator) return false;
 
   await locator.click({ delay: randomBetween(60, 140) }).catch(() => undefined);
-  await locator.fill('');
+  await locator.fill("");
   await sleep(randomBetween(120, 240));
 
   for (const char of String(value)) {
@@ -59,17 +67,23 @@ export async function checkIfPresent(page: Page, selectors: SelectorList): Promi
   return false;
 }
 
-async function resolveVisibleLocator(page: Page, selector: SelectorTarget | SelectorList): Promise<Locator> {
+async function resolveVisibleLocator(
+  page: Page,
+  selector: SelectorTarget | SelectorList,
+): Promise<Locator> {
   if (Array.isArray(selector)) {
     return firstVisible(page, selector);
   }
 
   const locator = toLocator(page, selector).first();
-  await locator.waitFor({ state: 'visible' });
+  await locator.waitFor({ state: "visible" });
   return locator;
 }
 
-async function resolveEditableLocator(page: Page, selector: SelectorTarget | SelectorList): Promise<Locator | null> {
+async function resolveEditableLocator(
+  page: Page,
+  selector: SelectorTarget | SelectorList,
+): Promise<Locator | null> {
   const targets = Array.isArray(selector) ? selector : [selector];
   const visibleCandidates: Locator[] = [];
 
@@ -94,11 +108,17 @@ async function resolveEditableLocator(page: Page, selector: SelectorTarget | Sel
 }
 
 async function isEditableLocator(locator: Locator): Promise<boolean> {
-  return locator.evaluate((element) => {
-    const candidate = element as HTMLInputElement | HTMLTextAreaElement;
-    const htmlElement = element as HTMLElement & { disabled?: boolean };
-    return !candidate.readOnly && !htmlElement.disabled && htmlElement.getAttribute('aria-disabled') !== 'true';
-  }).catch(async () => locator.isEditable().catch(() => false));
+  return locator
+    .evaluate((element) => {
+      const candidate = element as HTMLInputElement | HTMLTextAreaElement;
+      const htmlElement = element as HTMLElement & { disabled?: boolean };
+      return (
+        !candidate.readOnly &&
+        !htmlElement.disabled &&
+        htmlElement.getAttribute("aria-disabled") !== "true"
+      );
+    })
+    .catch(async () => locator.isEditable().catch(() => false));
 }
 
 function randomBetween(min: number, max: number): number {

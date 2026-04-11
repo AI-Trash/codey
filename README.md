@@ -284,6 +284,13 @@ Exchange-specific options:
 pnpm build
 ```
 
+## Format
+
+```bash
+pnpm fmt
+pnpm fmt:check
+```
+
 ## Lint
 
 ```bash

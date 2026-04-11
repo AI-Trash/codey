@@ -1,6 +1,6 @@
-import type { Page } from 'patchright';
-import { clickAny, clickIfPresent, typeIfPresent } from '../common/form-actions';
-import { sleep } from '../../utils/wait';
+import type { Page } from "patchright";
+import { clickAny, clickIfPresent, typeIfPresent } from "../common/form-actions";
+import { sleep } from "../../utils/wait";
 import {
   ADULT_AGE,
   AGE_CONFIRM_SELECTORS,
@@ -24,14 +24,14 @@ import {
   REGISTRATION_EMAIL_SELECTORS,
   SECURITY_ADD_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
-} from './common';
-import type { SelectorTarget } from '../../types';
-import { toLocator } from '../../utils/selectors';
+} from "./common";
+import type { SelectorTarget } from "../../types";
+import { toLocator } from "../../utils/selectors";
 
 export async function gotoSignupEntry(page: Page): Promise<void> {
-  await page.goto(CHATGPT_HOME_URL, { waitUntil: 'domcontentloaded' });
-  await page.locator('body').waitFor({ state: 'visible' });
-  await page.waitForLoadState('networkidle').catch(() => undefined);
+  await page.goto(CHATGPT_HOME_URL, { waitUntil: "domcontentloaded" });
+  await page.locator("body").waitFor({ state: "visible" });
+  await page.waitForLoadState("networkidle").catch(() => undefined);
 }
 
 export async function clickSignupEntry(page: Page): Promise<void> {
@@ -39,9 +39,9 @@ export async function clickSignupEntry(page: Page): Promise<void> {
 }
 
 export async function gotoLoginEntry(page: Page): Promise<void> {
-  await page.goto(CHATGPT_ENTRY_LOGIN_URL, { waitUntil: 'domcontentloaded' });
-  await page.locator('body').waitFor({ state: 'visible' });
-  await page.waitForLoadState('networkidle').catch(() => undefined);
+  await page.goto(CHATGPT_ENTRY_LOGIN_URL, { waitUntil: "domcontentloaded" });
+  await page.locator("body").waitFor({ state: "visible" });
+  await page.waitForLoadState("networkidle").catch(() => undefined);
 }
 
 export async function clickLoginEntryIfPresent(page: Page): Promise<boolean> {
@@ -78,19 +78,27 @@ export async function clickPasswordTimeoutRetry(page: Page): Promise<boolean> {
 }
 
 export async function typeVerificationCode(page: Page, code: string): Promise<void> {
-  const input = page.locator('input#_r_5_-code, input[autocomplete="one-time-code"], input[name="code"], input[name*="code"], input[id*="code"]').first();
+  const input = page
+    .locator(
+      'input#_r_5_-code, input[autocomplete="one-time-code"], input[name="code"], input[name*="code"], input[id*="code"]',
+    )
+    .first();
   await input.fill(code);
 }
 
 export async function clickVerificationContinue(page: Page): Promise<boolean> {
   return clickIfPresent(page, [
-    { role: 'button', options: { name: /继续|continue|verify|验证/i } },
+    { role: "button", options: { name: /继续|continue|verify|验证/i } },
     { text: /继续|continue|verify|验证/i },
     'button[type="submit"]',
   ]);
 }
 
-async function fillFirstAvailable(page: Page, selectors: SelectorTarget[], value: string): Promise<boolean> {
+async function fillFirstAvailable(
+  page: Page,
+  selectors: SelectorTarget[],
+  value: string,
+): Promise<boolean> {
   for (const selector of selectors) {
     const locator = toLocator(page, selector).first();
     const visible = await locator.isVisible().catch(() => false);
@@ -114,7 +122,7 @@ export async function confirmAgeDialogIfPresent(page: Page): Promise<boolean> {
   const confirmed = await clickIfPresent(page, AGE_CONFIRM_SELECTORS);
   if (confirmed) {
     await Promise.any([
-      page.waitForLoadState('domcontentloaded', { timeout: 5000 }),
+      page.waitForLoadState("domcontentloaded", { timeout: 5000 }),
       sleep(500),
     ]).catch(() => undefined);
   }
@@ -125,7 +133,7 @@ export async function clickCompleteAccountCreation(page: Page): Promise<boolean>
   const clicked = await clickIfPresent(page, COMPLETE_ACCOUNT_SELECTORS);
   if (clicked) {
     await Promise.any([
-      page.waitForLoadState('domcontentloaded', { timeout: 5000 }),
+      page.waitForLoadState("domcontentloaded", { timeout: 5000 }),
       sleep(500),
     ]).catch(() => undefined);
     await confirmAgeDialogIfPresent(page);
@@ -142,8 +150,8 @@ export async function clickOnboardingAction(page: Page): Promise<string | null> 
 }
 
 export async function gotoSecuritySettings(page: Page): Promise<void> {
-  await page.goto(CHATGPT_SECURITY_URL, { waitUntil: 'domcontentloaded' });
-  await page.waitForLoadState('networkidle').catch(() => undefined);
+  await page.goto(CHATGPT_SECURITY_URL, { waitUntil: "domcontentloaded" });
+  await page.waitForLoadState("networkidle").catch(() => undefined);
 }
 
 export async function clickAddPasskey(page: Page): Promise<boolean> {
@@ -167,38 +175,47 @@ export async function clickPasskeyEntry(page: Page): Promise<boolean> {
 }
 
 async function clearOriginStorage(page: Page, originUrl: string): Promise<void> {
-  await page.goto(originUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
-  await page.evaluate(async () => {
-    try { window.localStorage.clear(); } catch {}
-    try { window.sessionStorage.clear(); } catch {}
-    try {
-      const cacheKeys = await caches.keys();
-      await Promise.all(cacheKeys.map((key) => caches.delete(key)));
-    } catch {}
-    try {
-      const dbs = await indexedDB.databases?.();
-      if (dbs?.length) {
-        await Promise.all(
-          dbs
-            .map((db) => db.name)
-            .filter((name): name is string => Boolean(name))
-            .map(
-              (name) =>
-                new Promise<void>((resolve) => {
-                  const request = indexedDB.deleteDatabase(name);
-                  request.onsuccess = () => resolve();
-                  request.onerror = () => resolve();
-                  request.onblocked = () => resolve();
-                }),
-            ),
-        );
-      }
-    } catch {}
-  }).catch(() => undefined);
+  await page.goto(originUrl, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+  await page
+    .evaluate(async () => {
+      try {
+        window.localStorage.clear();
+      } catch {}
+      try {
+        window.sessionStorage.clear();
+      } catch {}
+      try {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+      } catch {}
+      try {
+        const dbs = await indexedDB.databases?.();
+        if (dbs?.length) {
+          await Promise.all(
+            dbs
+              .map((db) => db.name)
+              .filter((name): name is string => Boolean(name))
+              .map(
+                (name) =>
+                  new Promise<void>((resolve) => {
+                    const request = indexedDB.deleteDatabase(name);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => resolve();
+                    request.onblocked = () => resolve();
+                  }),
+              ),
+          );
+        }
+      } catch {}
+    })
+    .catch(() => undefined);
 }
 
 export async function clearAuthenticatedSessionState(page: Page): Promise<void> {
-  await page.context().clearCookies().catch(() => undefined);
+  await page
+    .context()
+    .clearCookies()
+    .catch(() => undefined);
   await clearOriginStorage(page, CHATGPT_HOME_URL);
   await clearOriginStorage(page, CHATGPT_LOGIN_URL);
   await clearOriginStorage(page, CHATGPT_ENTRY_LOGIN_URL);
