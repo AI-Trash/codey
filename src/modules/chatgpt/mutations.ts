@@ -24,7 +24,6 @@ import {
   REGISTRATION_EMAIL_SELECTORS,
   SECURITY_ADD_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
-  VERIFICATION_CODE_INPUT_SELECTORS,
 } from './common';
 import type { SelectorTarget } from '../../types';
 import { toLocator } from '../../utils/selectors';

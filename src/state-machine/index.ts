@@ -44,11 +44,7 @@ export interface StateMachineConfig<State extends string, Context extends object
   historyLimit?: number;
 }
 
-export interface StateMachineTransitionOptions<
-  State extends string,
-  Context extends object,
-  Event extends string = string,
-> {
+export interface StateMachineTransitionOptions<Context extends object, Event extends string = string> {
   event?: Event;
   status?: MachineStatus;
   patch?: Partial<Context> | ((context: Context) => Partial<Context> | Context);
@@ -60,11 +56,8 @@ export interface StateMachineTransitionOptions<
   preserveCurrentAction?: boolean;
 }
 
-export interface StateMachineCompletionOptions<
-  State extends string,
-  Context extends object,
-  Event extends string = string,
-> extends Omit<StateMachineTransitionOptions<State, Context, Event>, 'status' | 'startedAt' | 'finishedAt'> {}
+export interface StateMachineCompletionOptions<Context extends object, Event extends string = string>
+  extends Omit<StateMachineTransitionOptions<Context, Event>, 'status' | 'startedAt' | 'finishedAt'> {}
 
 export interface StateMachineController<
   State extends string,
@@ -79,25 +72,25 @@ export interface StateMachineController<
   start(context?: Partial<Context>, meta?: Record<string, unknown>): StateMachineSnapshot<State, Context, Event>;
   transition(
     nextState: State,
-    options?: StateMachineTransitionOptions<State, Context, Event>,
+    options?: StateMachineTransitionOptions<Context, Event>,
   ): StateMachineSnapshot<State, Context, Event>;
   patchContext(
     patch: Partial<Context> | ((context: Context) => Partial<Context> | Context),
-    options?: Omit<StateMachineTransitionOptions<State, Context, Event>, 'patch'>,
+    options?: Omit<StateMachineTransitionOptions<Context, Event>, 'patch'>,
   ): StateMachineSnapshot<State, Context, Event>;
   beginAction(
     action: string,
-    options?: Omit<StateMachineTransitionOptions<State, Context, Event>, 'action'>,
+    options?: Omit<StateMachineTransitionOptions<Context, Event>, 'action'>,
   ): StateMachineSnapshot<State, Context, Event>;
-  endAction(options?: Omit<StateMachineTransitionOptions<State, Context, Event>, 'action'>): StateMachineSnapshot<State, Context, Event>;
+  endAction(options?: Omit<StateMachineTransitionOptions<Context, Event>, 'action'>): StateMachineSnapshot<State, Context, Event>;
   succeed(
     nextState: State,
-    options?: StateMachineCompletionOptions<State, Context, Event>,
+    options?: StateMachineCompletionOptions<Context, Event>,
   ): StateMachineSnapshot<State, Context, Event>;
   fail(
     error: unknown,
     nextState: State,
-    options?: StateMachineCompletionOptions<State, Context, Event>,
+    options?: StateMachineCompletionOptions<Context, Event>,
   ): StateMachineSnapshot<State, Context, Event>;
 }
 
@@ -149,7 +142,7 @@ export function createStateMachine<State extends string, Context extends object,
 
   function commit(
     nextState: State,
-    options: StateMachineTransitionOptions<State, Context, Event> = {},
+    options: StateMachineTransitionOptions<Context, Event> = {},
   ): StateMachineSnapshot<State, Context, Event> {
     const previous = store.getState();
     const timestamp = now();
@@ -212,7 +205,7 @@ export function createStateMachine<State extends string, Context extends object,
         id: config.id,
         status: 'running',
         state: config.initialState,
-        context: { ...initialContext, ...(context || {}) } as Context,
+        context: { ...initialContext, ...context } as Context,
         updatedAt: timestamp,
         startedAt: timestamp,
         history: [

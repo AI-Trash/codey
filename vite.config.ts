@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite';
-import path from 'path';
 import { builtinModules } from 'module';
 
 export default defineConfig({

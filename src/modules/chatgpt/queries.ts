@@ -5,7 +5,6 @@ import { sleep } from '../../utils/wait';
 import type { ExchangeClient } from '../exchange';
 import { captureVirtualPasskeyStore, type VirtualPasskeyStore } from '../webauthn/virtual-authenticator';
 import {
-  CHATGPT_SECURITY_URL,
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_HOME_URL,
   CHATGPT_LOGIN_URL,

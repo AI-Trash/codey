@@ -5,7 +5,9 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "vite build",
-    "flow": "jiti"
+    "flow": "jiti",
+    "lint": "oxlint src vite.config.ts",
+    "lint:fix": "oxlint src vite.config.ts --fix"
   },
   "keywords": [],
   "author": "",
@@ -16,7 +18,9 @@
     "@types/node": "^25.5.2",
     "cac": "^7.0.0",
     "jiti": "^2.6.1",
+    "oxlint": "^1.59.0",
     "patchright": "^1.59.4",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"
   },

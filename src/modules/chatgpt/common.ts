@@ -148,7 +148,7 @@ export const PASSKEY_DONE_SELECTORS: SelectorTarget[] = [
 ];
 
 export function logStep(step: string, details?: Record<string, unknown>): void {
-  console.log(JSON.stringify({ scope: 'chatgpt-register', step, ...(details || {}) }));
+  console.log(JSON.stringify({ scope: 'chatgpt-register', step, ...details }));
 }
 
 function randomString(length = 8): string {

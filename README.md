@@ -284,6 +284,13 @@ Exchange-specific options:
 pnpm build
 ```
 
+## Lint
+
+```bash
+pnpm lint
+pnpm lint:fix
+```
+
 ## Troubleshooting
 
 - If Chrome cannot be launched, run `pnpx patchright install chrome` again.
