@@ -361,7 +361,7 @@ async function runSameSessionPasskeyCheck(
   }
 }
 
-export async function registerChatGPTWithExchange(
+export async function registerChatGPT(
   page: Page,
   options: FlowOptions &
     Pick<Partial<ChatGPTRegistrationFlowOptions>, "passkeyStore" | "virtualAuthenticator"> = {},
@@ -391,7 +391,7 @@ export async function registerChatGPTWithExchange(
       url: CHATGPT_HOME_URL,
     },
     {
-      source: "registerChatGPTWithExchange",
+      source: "registerChatGPT",
     },
   );
 
@@ -673,14 +673,14 @@ export async function registerChatGPTWithExchange(
   }
 }
 
-export const chatgptRegisterExchangeFlow: SingleFileFlowDefinition<
+export const chatgptRegisterFlow: SingleFileFlowDefinition<
   FlowOptions,
   ChatGPTRegistrationFlowResult
 > = {
-  command: "flow:chatgpt-register-exchange",
-  run: registerChatGPTWithExchange,
+  command: "flow:chatgpt-register",
+  run: registerChatGPT,
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runSingleFileFlowFromCli(chatgptRegisterExchangeFlow, parseFlowCliArgs(process.argv.slice(2)));
+  runSingleFileFlowFromCli(chatgptRegisterFlow, parseFlowCliArgs(process.argv.slice(2)));
 }

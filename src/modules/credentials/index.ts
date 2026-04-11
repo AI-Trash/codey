@@ -23,7 +23,7 @@ export interface StoredChatGPTIdentity {
   metadata: {
     prefix?: string;
     mailbox?: string;
-    source: "chatgpt-register-exchange";
+    source: "chatgpt-register";
     passkeyCreated: boolean;
     chatgptUrl?: string;
   };
@@ -274,7 +274,7 @@ export function persistChatGPTIdentity(
     metadata: {
       prefix: input.prefix,
       mailbox: input.mailbox,
-      source: "chatgpt-register-exchange",
+      source: "chatgpt-register",
       passkeyCreated: input.passkeyCreated,
       chatgptUrl: getRuntimeConfig().openai.chatgptUrl,
     },

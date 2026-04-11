@@ -1,10 +1,7 @@
 export { launchBrowser, newSession } from "./core/browser";
 export {
-  verifyOpenAIHome,
-  verifyChatGPTEntry,
-  registerChatGPTWithExchange,
+  registerChatGPT,
   loginChatGPTWithStoredPasskey,
-  openChatGPT,
 } from "./flows";
 export { resolveConfig, defaultConfig } from "./config";
 export * from "./state-machine";
@@ -24,7 +21,7 @@ export * from "./modules/auth-machine";
 export { ExchangeClient } from "./modules/exchange";
 export { persistChatGPTIdentity, resolveStoredChatGPTIdentity } from "./modules/credentials";
 export * from "./modules/webauthn";
-export type * from "./flows/chatgpt-register-exchange";
+export type * from "./flows/chatgpt-register";
 export type * from "./flows/chatgpt-login-passkey";
 export type * from "./types";
 export type * from "./modules/exchange";

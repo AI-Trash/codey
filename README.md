@@ -194,17 +194,14 @@ Codey supports only Patchright Chrome.
 ### OpenAI flow commands
 
 ```bash
-pnpm exec tsx src/cli.ts flow openai-home
-pnpm exec tsx src/cli.ts flow chatgpt-entry
-pnpm exec tsx src/cli.ts flow chatgpt-open --waitMs 300000
-pnpm exec tsx src/cli.ts flow chatgpt-register-exchange --verificationTimeoutMs 180000 --createPasskey true
-pnpm exec tsx src/cli.ts flow chatgpt-register-exchange --createPasskey true --sameSessionPasskeyCheck true
+pnpm exec tsx src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true
+pnpm exec tsx src/cli.ts flow chatgpt-register --createPasskey true --sameSessionPasskeyCheck true
 pnpm exec tsx src/cli.ts flow chatgpt-login-passkey
 ```
 
 ### Persisted ChatGPT identities
 
-`chatgpt-register-exchange` now saves the generated ChatGPT identity to:
+`chatgpt-register` now saves the generated ChatGPT identity to:
 
 ```text
 C:\Users\Summp\Documents\GitHub\codey\.codey\credentials\chatgpt-identities.json
@@ -264,10 +261,10 @@ Common options for `flow` and `exchange` commands:
 
 Flow-specific options:
 
-- `--verificationTimeoutMs <ms>`: How long `chatgpt-register-exchange` waits for the email verification code
-- `--pollIntervalMs <ms>`: How often `chatgpt-register-exchange` polls Exchange for the verification code
-- `--password <password>`: Override the generated password for `chatgpt-register-exchange`
-- `--createPasskey <bool>`: Whether `chatgpt-register-exchange` should provision a passkey
+- `--verificationTimeoutMs <ms>`: How long `chatgpt-register` waits for the email verification code
+- `--pollIntervalMs <ms>`: How often `chatgpt-register` polls Exchange for the verification code
+- `--password <password>`: Override the generated password for `chatgpt-register`
+- `--createPasskey <bool>`: Whether `chatgpt-register` should provision a passkey
 - `--sameSessionPasskeyCheck <bool>`: After registration, try a same-session passkey re-login diagnostic in the same browser/authenticator context
 - `--email <email>`: Select a stored identity for `chatgpt-login-passkey`
 - `--identityId <id>`: Select a stored identity by saved id for `chatgpt-login-passkey`

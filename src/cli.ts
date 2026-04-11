@@ -5,11 +5,8 @@ import { loadWorkspaceEnv } from "./utils/env";
 loadWorkspaceEnv();
 
 import {
-  chatgptOpenFlow,
   loginChatGPTWithStoredPasskey,
-  registerChatGPTWithExchange,
-  verifyChatGPTEntry,
-  verifyOpenAIHome,
+  registerChatGPT,
 } from "./flows";
 import { ExchangeClient } from "./modules/exchange";
 import {
@@ -30,47 +27,11 @@ async function runFlowCommand(
   config: ReturnType<typeof prepareRuntimeConfig>,
 ): Promise<void> {
   await runWithSession({ context: {} }, async (session) => {
-    if (subcommand === "openai-home") {
-      const result = await verifyOpenAIHome(session.page);
+    if (subcommand === "chatgpt-register") {
+      const result = await registerChatGPT(session.page, options);
       console.log(
         JSON.stringify(
-          { command: "flow:openai-home", config: redactForOutput(config), result },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
-
-    if (subcommand === "chatgpt-entry") {
-      const result = await verifyChatGPTEntry(session.page);
-      console.log(
-        JSON.stringify(
-          { command: "flow:chatgpt-entry", config: redactForOutput(config), result },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
-
-    if (subcommand === "chatgpt-open") {
-      const result = await chatgptOpenFlow.run(session.page, options);
-      console.log(
-        JSON.stringify(
-          { command: "flow:chatgpt-open", config: redactForOutput(config), result },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
-
-    if (subcommand === "chatgpt-register-exchange") {
-      const result = await registerChatGPTWithExchange(session.page, options);
-      console.log(
-        JSON.stringify(
-          { command: "flow:chatgpt-register-exchange", config: redactForOutput(config), result },
+          { command: "flow:chatgpt-register", config: redactForOutput(config), result },
           null,
           2,
         ),
@@ -166,50 +127,7 @@ function withCommonOptions<
 
 withCommonOptions(
   flowCli
-    .command("openai-home", "Validate the OpenAI home page")
-    .example("codey flow openai-home --config path/to/config.json"),
-).action((options: CommonOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig("flow:openai-home", options);
-      await runFlowCommand("openai-home", options, config);
-    })(),
-  );
-});
-
-withCommonOptions(
-  flowCli
-    .command("chatgpt-entry", "Validate the ChatGPT entry page")
-    .example("codey flow chatgpt-entry --headless true"),
-).action((options: CommonOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig("flow:chatgpt-entry", options);
-      await runFlowCommand("chatgpt-entry", options, config);
-    })(),
-  );
-});
-
-withCommonOptions(
-  flowCli
-    .command("chatgpt-open", "Open ChatGPT and keep the page open")
-    .option("--waitMs <ms>", "How long to keep ChatGPT open for chatgpt-open")
-    .example("codey flow chatgpt-open --waitMs 300000"),
-).action((options: FlowOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig("flow:chatgpt-open", options);
-      await runFlowCommand("chatgpt-open", options, config);
-    })(),
-  );
-});
-
-withCommonOptions(
-  flowCli
-    .command(
-      "chatgpt-register-exchange",
-      "Register a ChatGPT account using the configured Exchange mailbox",
-    )
+    .command("chatgpt-register", "Register a ChatGPT account using the configured Exchange mailbox")
     .option("--password <password>", "Optional password override")
     .option("--verificationTimeoutMs <ms>", "How long to wait for the verification email")
     .option("--pollIntervalMs <ms>", "How often to poll Exchange for the verification email")
@@ -218,14 +136,12 @@ withCommonOptions(
       "--sameSessionPasskeyCheck <bool>",
       "Whether to run a same-session passkey re-login diagnostic after registration",
     )
-    .example(
-      "codey flow chatgpt-register-exchange --verificationTimeoutMs 180000 --createPasskey true",
-    ),
+    .example("codey flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true"),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const config = prepareRuntimeConfig("flow:chatgpt-register-exchange", options);
-      await runFlowCommand("chatgpt-register-exchange", options, config);
+      const config = prepareRuntimeConfig("flow:chatgpt-register", options);
+      await runFlowCommand("chatgpt-register", options, config);
     })(),
   );
 });
@@ -236,7 +152,7 @@ withCommonOptions(
       "chatgpt-login-passkey",
       "Try to sign in to ChatGPT with a previously stored passkey identity",
     )
-    .option("--identityId <id>", "Stored identity id from a previous chatgpt-register-exchange run")
+    .option("--identityId <id>", "Stored identity id from a previous chatgpt-register run")
     .option("--email <email>", "Stored identity email; defaults to the latest saved identity")
     .example("codey flow chatgpt-login-passkey")
     .example("codey flow chatgpt-login-passkey --email someone@example.com"),
@@ -293,12 +209,7 @@ withCommonOptions(
 
 cli
   .command("flow", "Run OpenAI flow commands")
-  .example("codey flow openai-home --config path/to/config.json")
-  .example("codey flow chatgpt-entry --headless true")
-  .example("codey flow chatgpt-open --waitMs 300000")
-  .example(
-    "codey flow chatgpt-register-exchange --verificationTimeoutMs 180000 --createPasskey true",
-  )
+  .example("codey flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true")
   .example("codey flow chatgpt-login-passkey --email someone@example.com")
   .action(() => {
     flowCli.outputHelp();
