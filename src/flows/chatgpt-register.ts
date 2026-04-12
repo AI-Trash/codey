@@ -15,7 +15,6 @@ import {
   clickPasskeyDoneIfPresent,
   clearAuthenticatedSessionState,
   clickLoginContinue,
-  clickLoginEntryIfPresent,
   clickPasswordSubmit,
   clickPasswordTimeoutRetry,
   clickPasskeyEntry,
@@ -24,12 +23,11 @@ import {
   clickVerificationContinue,
   buildExchangeEmail,
   buildPassword,
-  CHATGPT_HOME_URL,
+  CHATGPT_ENTRY_LOGIN_URL,
   confirmAgeDialogIfPresent,
   fillAgeGateAge,
   fillAgeGateName,
   gotoSecuritySettings,
-  gotoSignupEntry,
   typePassword,
   typeLoginEmail,
   typeRegistrationEmail,
@@ -385,10 +383,10 @@ export async function registerChatGPT(
     {
       email,
       prefix,
-      mailbox: config.exchange.mailbox,
-      createPasskey,
-      passkeyCreated: false,
-      url: CHATGPT_HOME_URL,
+        mailbox: config.exchange.mailbox,
+        createPasskey,
+        passkeyCreated: false,
+        url: CHATGPT_ENTRY_LOGIN_URL,
     },
     {
       source: "registerChatGPT",
@@ -399,10 +397,10 @@ export async function registerChatGPT(
     await exchangeClient.primeMessageDelta();
 
     transitionRegistrationMachine(machine, "opening-entry", "chatgpt.entry.opened", {
-      url: CHATGPT_HOME_URL,
-      lastMessage: "Opening ChatGPT sign-up entry",
+      url: CHATGPT_ENTRY_LOGIN_URL,
+      lastMessage: "Opening ChatGPT auth entry",
     });
-    await gotoSignupEntry(page);
+    await gotoLoginEntry(page);
     await clickSignupEntry(page);
 
     transitionRegistrationMachine(machine, "email-step", "chatgpt.email.started", {

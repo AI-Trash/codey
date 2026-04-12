@@ -7,7 +7,6 @@ import {
   AGE_GATE_AGE_SELECTORS,
   AGE_GATE_NAME_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
-  CHATGPT_HOME_URL,
   CHATGPT_LOGIN_URL,
   CHATGPT_SECURITY_URL,
   COMPLETE_ACCOUNT_SELECTORS,
@@ -27,12 +26,6 @@ import {
 } from "./common";
 import type { SelectorTarget } from "../../types";
 import { toLocator } from "../../utils/selectors";
-
-export async function gotoSignupEntry(page: Page): Promise<void> {
-  await page.goto(CHATGPT_HOME_URL, { waitUntil: "domcontentloaded" });
-  await page.locator("body").waitFor({ state: "visible" });
-  await page.waitForLoadState("networkidle").catch(() => undefined);
-}
 
 export async function clickSignupEntry(page: Page): Promise<void> {
   await clickAny(page, SIGNUP_ENTRY_SELECTORS);
