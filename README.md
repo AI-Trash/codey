@@ -193,9 +193,12 @@ Codey supports only Patchright Chrome.
 
 ### OpenAI flow commands
 
+`chatgpt-register` uses a single registration path. It attempts passkey provisioning by default, so you only need `--createPasskey false` when you want to skip passkey setup.
+
 ```bash
-pnpm exec tsx src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true
-pnpm exec tsx src/cli.ts flow chatgpt-register --createPasskey true --sameSessionPasskeyCheck true
+pnpm exec tsx src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000
+pnpm exec tsx src/cli.ts flow chatgpt-register --sameSessionPasskeyCheck true
+pnpm exec tsx src/cli.ts flow chatgpt-register --createPasskey false
 pnpm exec tsx src/cli.ts flow chatgpt-login-passkey
 ```
 
@@ -222,7 +225,7 @@ pnpm exec tsx src/cli.ts flow chatgpt-login-passkey --email stored-address@examp
 pnpm exec tsx src/cli.ts flow chatgpt-login-passkey --identityId <saved-identity-id>
 ```
 
-The login flow prefers the saved passkey when present. If the passkey prompt is unavailable, it falls back to the saved password so the flow can still attempt to complete sign-in.
+The login flow uses the saved passkey identity by submitting the stored email first and then continuing through the passkey prompt.
 
 ### Exchange commands
 
@@ -264,7 +267,7 @@ Flow-specific options:
 - `--verificationTimeoutMs <ms>`: How long `chatgpt-register` waits for the email verification code
 - `--pollIntervalMs <ms>`: How often `chatgpt-register` polls Exchange for the verification code
 - `--password <password>`: Override the generated password for `chatgpt-register`
-- `--createPasskey <bool>`: Whether `chatgpt-register` should provision a passkey
+- `--createPasskey <bool>`: Whether `chatgpt-register` should provision a passkey. Defaults to `true`; pass `false` to disable it.
 - `--sameSessionPasskeyCheck <bool>`: After registration, try a same-session passkey re-login diagnostic in the same browser/authenticator context
 - `--email <email>`: Select a stored identity for `chatgpt-login-passkey`
 - `--identityId <id>`: Select a stored identity by saved id for `chatgpt-login-passkey`

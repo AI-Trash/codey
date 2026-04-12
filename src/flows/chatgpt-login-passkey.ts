@@ -13,16 +13,12 @@ import {
   logStep,
   summarizePasskeyCredentials,
   waitForAuthenticatedSession,
-  waitForLoginEmailFormReady,
-  waitForLoginEmailSubmissionOutcome,
   waitForLoginSurface,
   waitForPasskeyEntryReady,
-  clickLoginContinue,
   clickLoginEntryIfPresent,
-  clickPasswordTimeoutRetry,
   clickPasskeyEntry,
   gotoLoginEntry,
-  typeLoginEmail,
+  submitLoginEmail,
 } from "../modules/chatgpt/shared";
 import {
   captureVirtualPasskeyStore,
@@ -93,7 +89,6 @@ export interface ChatGPTLoginPasskeyFlowContext<Result = unknown> {
   method?: "password" | "passkey";
   passkeyCreated?: boolean;
   passkeyStore?: VirtualPasskeyStore;
-  usedEmailFallback?: boolean;
   assertionObserved?: boolean;
   storedIdentity?: StoredChatGPTIdentitySummary;
   lastMessage?: string;
@@ -171,35 +166,6 @@ async function openChatGPTLogin(page: Page): Promise<"authenticated" | "email" |
   return surface;
 }
 
-async function submitLoginEmail(page: Page, email: string): Promise<void> {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const formReady = await waitForLoginEmailFormReady(page, 15000);
-    if (!formReady) {
-      throw new Error("ChatGPT login page did not finish rendering a stable email form.");
-    }
-
-    const filled = await typeLoginEmail(page, email);
-    if (!filled) {
-      throw new Error("ChatGPT login email field was visible but could not be filled.");
-    }
-
-    const submitted = await clickLoginContinue(page);
-    if (!submitted) {
-      throw new Error("ChatGPT login page did not expose a clickable continue button.");
-    }
-
-    const outcome = await waitForLoginEmailSubmissionOutcome(page);
-    if (outcome === "next" || outcome === "unknown") return;
-
-    const retried = await clickPasswordTimeoutRetry(page);
-    if (!retried) {
-      throw new Error("Login email submission timed out and retry button was not clickable.");
-    }
-  }
-
-  throw new Error("Login email submission timed out repeatedly.");
-}
-
 async function triggerStoredPasskeyLogin(
   page: Page,
   stored: ResolvedChatGPTIdentity,
@@ -208,7 +174,6 @@ async function triggerStoredPasskeyLogin(
   } = {},
 ): Promise<{
   method: "passkey";
-  usedEmailFallback: boolean;
   assertionObserved: boolean;
   passkeyStore: VirtualPasskeyStore;
 }> {
@@ -256,38 +221,25 @@ async function triggerStoredPasskeyLogin(
     importedStore,
   );
 
-  let usedEmailFallback = false;
   let assertionObserved = false;
 
   if (await waitForAuthenticatedSession(page, 5000)) {
     tracker.dispose();
     return {
       method: "passkey",
-      usedEmailFallback: false,
       assertionObserved: false,
       passkeyStore: importedStore,
     };
   }
 
-  if (await waitForPasskeyEntryReady(page, 5000)) {
-    const triggered = await clickPasskeyEntry(page);
-    if (!triggered)
-      throw new Error("Passkey entry button became visible but could not be clicked.");
-    assertionObserved = await tracker.waitForAssertion(10000);
-  } else {
-    usedEmailFallback = true;
-    await submitLoginEmail(page, stored.identity.email);
-    assertionObserved = await tracker.waitForAssertion(10000);
-    if (!(await waitForAuthenticatedSession(page, 5000))) {
-      const passkeyReady = await waitForPasskeyEntryReady(page, 20000);
-      if (!passkeyReady)
-        throw new Error("Passkey entry button did not appear on the login surface.");
-      const triggered = await clickPasskeyEntry(page);
-      if (!triggered)
-        throw new Error("Passkey entry button became visible but could not be clicked.");
-      assertionObserved = (await tracker.waitForAssertion(10000)) || assertionObserved;
-    }
-  }
+  await submitLoginEmail(page, stored.identity.email);
+  const passkeyReady = await waitForPasskeyEntryReady(page, 20000);
+  if (!passkeyReady)
+    throw new Error("Passkey entry button did not appear on the login surface.");
+  const triggered = await clickPasskeyEntry(page);
+  if (!triggered)
+    throw new Error("Passkey entry button became visible but could not be clicked.");
+  assertionObserved = await tracker.waitForAssertion(10000);
 
   tracker.dispose();
   const passkeyStore = await captureVirtualPasskeyStore(
@@ -296,7 +248,6 @@ async function triggerStoredPasskeyLogin(
   );
   return {
     method: "passkey",
-    usedEmailFallback,
     assertionObserved,
     passkeyStore,
   };
@@ -311,7 +262,6 @@ export async function performStoredPasskeyLogin(
 ): Promise<{
   surface: "authenticated" | "email" | "passkey";
   method: "passkey";
-  usedEmailFallback: boolean;
   assertionObserved: boolean;
   passkeyStore: VirtualPasskeyStore;
 }> {
@@ -325,7 +275,7 @@ export async function performStoredPasskeyLogin(
 
 export async function loginChatGPTWithStoredPasskey(
   page: Page,
-  options: FlowOptions = {},
+  options: FlowOptions & Pick<Partial<ChatGPTLoginPasskeyFlowOptions>, "virtualAuthenticator"> = {},
 ): Promise<ChatGPTLoginPasskeyFlowResult> {
   const machine = createChatGPTLoginPasskeyMachine();
   const stored = resolveStoredChatGPTIdentity({
@@ -353,7 +303,9 @@ export async function loginChatGPTWithStoredPasskey(
       url: CHATGPT_ENTRY_LOGIN_URL,
       lastMessage: "Opening ChatGPT login entry",
     });
-    const passkey = await performStoredPasskeyLogin(page, stored, {});
+    const passkey = await performStoredPasskeyLogin(page, stored, {
+      virtualAuthenticator: options.virtualAuthenticator,
+    });
     const surface = passkey.surface;
 
     if (surface === "authenticated") {
@@ -377,7 +329,7 @@ export async function loginChatGPTWithStoredPasskey(
       lastMessage: "Starting passkey login",
     });
 
-    if (passkey.usedEmailFallback) {
+    if (surface !== "authenticated") {
       transitionLoginMachine(machine, "email-step", "chatgpt.email.started", {
         email: stored.identity.email,
         url: page.url(),
@@ -393,7 +345,6 @@ export async function loginChatGPTWithStoredPasskey(
     transitionLoginMachine(machine, "passkey-login", "context.updated", {
       email: stored.identity.email,
       method: passkey.method,
-      usedEmailFallback: passkey.usedEmailFallback,
       assertionObserved: passkey.assertionObserved,
       passkeyStore: passkey.passkeyStore,
       storedIdentity: stored.summary,

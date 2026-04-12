@@ -17,6 +17,12 @@ import {
   type VirtualPasskeyStore,
 } from "../webauthn";
 
+const unifiedRegistrationSelectors: RegistrationSelectors = {
+  ...registrationDefaults.common,
+  ...registrationDefaults.parent,
+  ...registrationDefaults.child,
+};
+
 export interface RegistrationOptions {
   accountType?: string;
   url?: string;
@@ -49,6 +55,10 @@ function mergeSelectors(
   return { ...base, ...overrides };
 }
 
+function resolveCreatePasskey(createPasskey?: boolean): boolean {
+  return createPasskey ?? true;
+}
+
 async function openRegistration(page: Page, options: RegistrationOptions): Promise<void> {
   options.machine?.transition("opening", {
     event: "action.started",
@@ -79,23 +89,36 @@ export async function registerParentAccount(
   page: Page,
   options: RegistrationOptions = {},
 ): Promise<RegistrationResult> {
+  return registerAccount(page, { ...options, accountType: ACCOUNT_TYPES.PARENT });
+}
+
+export async function registerChildAccount(
+  page: Page,
+  options: RegistrationOptions = {},
+): Promise<RegistrationResult> {
+  return registerAccount(page, { ...options, accountType: ACCOUNT_TYPES.CHILD });
+}
+
+export async function registerAccount(
+  page: Page,
+  options: RegistrationOptions = {},
+): Promise<RegistrationResult> {
+  const type = normalizeAccountType(options.accountType);
   const machine = options.machine ?? createRegistrationMachine({ options });
+  const selectors = mergeSelectors(unifiedRegistrationSelectors, options.selectors);
+  const createPasskey = resolveCreatePasskey(options.createPasskey);
+
   return runWithAuthMachine(
     machine,
     {
-      accountType: ACCOUNT_TYPES.PARENT,
+      accountType: type,
       url: options.url,
       email: options.email || null,
       organizationName: options.organizationName || null,
-      createPasskey: false,
+      createPasskey,
       passkeyCreated: false,
     },
     async () => {
-      const selectors = mergeSelectors(
-        { ...registrationDefaults.common, ...registrationDefaults.parent } as RegistrationSelectors,
-        options.selectors,
-      );
-
       await openRegistration(page, { ...options, machine });
 
       markAuthStep(machine, "typing-email", "auth.email.typed", {
@@ -126,70 +149,9 @@ export async function registerParentAccount(
       });
       await clickAny(page, selectors.submit);
 
-      if (options.afterSubmit) {
-        markAuthStep(machine, "post-submit", "auth.after-submit.started", {
-          lastMessage: "Running afterSubmit hook",
-        });
-        await options.afterSubmit(page);
-        markAuthStep(machine, "post-submit", "auth.after-submit.finished", {
-          url: page.url(),
-          lastMessage: "afterSubmit hook finished",
-        });
-      }
-
-      return {
-        module: "registration",
-        accountType: ACCOUNT_TYPES.PARENT,
-        email: options.email || null,
-        organizationName: options.organizationName || null,
-        passkeyCreated: false,
-      };
-    },
-  );
-}
-
-export async function registerChildAccount(
-  page: Page,
-  options: RegistrationOptions = {},
-): Promise<RegistrationResult> {
-  const machine = options.machine ?? createRegistrationMachine({ options });
-  return runWithAuthMachine(
-    machine,
-    {
-      accountType: ACCOUNT_TYPES.CHILD,
-      url: options.url,
-      email: options.email || null,
-      createPasskey: options.createPasskey,
-    },
-    async () => {
-      const selectors = mergeSelectors(
-        { ...registrationDefaults.common, ...registrationDefaults.child } as RegistrationSelectors,
-        options.selectors,
-      );
-
-      await openRegistration(page, { ...options, machine });
-      markAuthStep(machine, "typing-email", "auth.email.typed", {
-        email: options.email || null,
-        lastSelectors: selectors.email,
-        lastMessage: "Typing registration email",
-      });
-      await typeIfPresent(page, selectors.email, options.email);
-
-      markAuthStep(machine, "typing-password", "auth.password.typed", {
-        lastSelectors: selectors.password,
-        lastMessage: "Typing registration password",
-      });
-      await typeIfPresent(page, selectors.password, options.password);
-
-      markAuthStep(machine, "submitting", "auth.submitted", {
-        lastSelectors: selectors.submit,
-        lastMessage: "Submitting registration form",
-      });
-      await clickAny(page, selectors.submit);
-
       let passkeyCreated = false;
       let passkeyStore: VirtualPasskeyStore | undefined;
-      if (options.createPasskey !== false && selectors.createPasskey) {
+      if (createPasskey && selectors.createPasskey) {
         markAuthStep(machine, "choosing-passkey", "auth.passkey.chosen", {
           lastSelectors: selectors.createPasskey,
           lastMessage: "Trying to create passkey",
@@ -238,20 +200,12 @@ export async function registerChildAccount(
 
       return {
         module: "registration",
-        accountType: ACCOUNT_TYPES.CHILD,
+        accountType: type,
         email: options.email || null,
+        organizationName: options.organizationName || null,
         passkeyCreated,
         passkeyStore,
       };
     },
   );
-}
-
-export async function registerAccount(
-  page: Page,
-  options: RegistrationOptions = {},
-): Promise<RegistrationResult> {
-  const type = normalizeAccountType(options.accountType);
-  if (type === ACCOUNT_TYPES.PARENT) return registerParentAccount(page, options);
-  return registerChildAccount(page, options);
 }

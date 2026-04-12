@@ -26,6 +26,10 @@ import {
 } from "./common";
 import type { SelectorTarget } from "../../types";
 import { toLocator } from "../../utils/selectors";
+import {
+  waitForLoginEmailFormReady,
+  waitForLoginEmailSubmissionOutcome,
+} from "./queries";
 
 export async function clickSignupEntry(page: Page): Promise<void> {
   await clickAny(page, SIGNUP_ENTRY_SELECTORS);
@@ -165,6 +169,35 @@ export async function clickLoginContinue(page: Page): Promise<boolean> {
 
 export async function clickPasskeyEntry(page: Page): Promise<boolean> {
   return clickIfPresent(page, PASSKEY_ENTRY_SELECTORS);
+}
+
+export async function submitLoginEmail(page: Page, email: string): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const formReady = await waitForLoginEmailFormReady(page, 15000);
+    if (!formReady) {
+      throw new Error("ChatGPT login page did not finish rendering a stable email form.");
+    }
+
+    const filled = await typeLoginEmail(page, email);
+    if (!filled) {
+      throw new Error("ChatGPT login email field was visible but could not be filled.");
+    }
+
+    const submitted = await clickLoginContinue(page);
+    if (!submitted) {
+      throw new Error("ChatGPT login page did not expose a clickable continue button.");
+    }
+
+    const outcome = await waitForLoginEmailSubmissionOutcome(page);
+    if (outcome === "next" || outcome === "unknown") return;
+
+    const retried = await clickPasswordTimeoutRetry(page);
+    if (!retried) {
+      throw new Error("Login email submission timed out and retry button was not clickable.");
+    }
+  }
+
+  throw new Error("Login email submission timed out repeatedly.");
 }
 
 async function clearOriginStorage(page: Page, originUrl: string): Promise<void> {

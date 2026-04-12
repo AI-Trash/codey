@@ -119,7 +119,7 @@ export function createRegistrationMachine(
     url: config.options?.url,
     email: config.options?.email ?? null,
     organizationName: config.options?.organizationName ?? null,
-    createPasskey: config.options?.createPasskey,
+    createPasskey: config.options?.createPasskey ?? true,
   });
 }
 

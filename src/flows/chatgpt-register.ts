@@ -14,9 +14,7 @@ import {
   clickOnboardingAction,
   clickPasskeyDoneIfPresent,
   clearAuthenticatedSessionState,
-  clickLoginContinue,
   clickPasswordSubmit,
-  clickPasswordTimeoutRetry,
   clickPasskeyEntry,
   clickSignupEntry,
   clickRegistrationContinue,
@@ -28,16 +26,14 @@ import {
   fillAgeGateAge,
   fillAgeGateName,
   gotoSecuritySettings,
+  submitLoginEmail,
   typePassword,
-  typeLoginEmail,
   typeRegistrationEmail,
   typeVerificationCode,
   gotoLoginEntry,
   waitForAnySelectorState,
   waitForAuthenticatedSession,
   waitForEnabledSelector,
-  waitForLoginEmailFormReady,
-  waitForLoginEmailSubmissionOutcome,
   waitForLoginSurface,
   waitForPasskeyEntryReady,
   waitForPasswordInputReady,
@@ -317,24 +313,7 @@ async function runSameSessionPasskeyCheck(
 
     await loadVirtualPasskeyStore(page, passkeyStore, virtualAuthenticator);
 
-    if (!(await waitForPasskeyEntryReady(page, 5000))) {
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
-        const formReady = await waitForLoginEmailFormReady(page, 15000);
-        if (!formReady)
-          throw new Error("ChatGPT login page did not finish rendering a stable email form.");
-        const filled = await typeLoginEmail(page, email);
-        if (!filled)
-          throw new Error("ChatGPT login email field was visible but could not be filled.");
-        const submitted = await clickLoginContinue(page);
-        if (!submitted)
-          throw new Error("ChatGPT login page did not expose a clickable continue button.");
-        const outcome = await waitForLoginEmailSubmissionOutcome(page);
-        if (outcome === "next" || outcome === "unknown") break;
-        const retried = await clickPasswordTimeoutRetry(page);
-        if (!retried)
-          throw new Error("Login email submission timed out and retry button was not clickable.");
-      }
-    }
+    await submitLoginEmail(page, email);
 
     const passkeyReady = await waitForPasskeyEntryReady(page, 20000);
     if (!passkeyReady) throw new Error("Passkey entry button did not appear on the login surface.");
