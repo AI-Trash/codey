@@ -22,6 +22,7 @@ import {
   buildExchangeEmail,
   buildPassword,
   CHATGPT_ENTRY_LOGIN_URL,
+  completePasswordOrVerificationLoginFallback,
   confirmAgeDialogIfPresent,
   fillAgeGateAge,
   fillAgeGateName,
@@ -36,6 +37,7 @@ import {
   waitForEnabledSelector,
   waitForLoginSurface,
   waitForPasskeyEntryReady,
+  waitForPostEmailLoginStep,
   waitForPasswordInputReady,
   waitForPasswordSubmissionOutcome,
   waitForPasskeyCreation,
@@ -109,7 +111,7 @@ export type ChatGPTRegistrationFlowEvent =
 export interface SameSessionPasskeyCheckResult {
   attempted: boolean;
   authenticated: boolean;
-  method?: "passkey";
+  method?: "passkey" | "password" | "verification";
   error?: string;
 }
 
@@ -120,7 +122,7 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   email?: string;
   prefix?: string;
   verificationCode?: string;
-  method?: "password" | "passkey";
+  method?: "password" | "passkey" | "verification";
   createPasskey?: boolean;
   passkeyCreated?: boolean;
   passkeyStore?: VirtualPasskeyStore;
@@ -295,8 +297,15 @@ async function provisionRegistrationPasskey(
 
 async function runSameSessionPasskeyCheck(
   page: Page,
-  email: string,
+  options: {
+    email: string;
+    password: string;
+    exchangeClient: ExchangeClient;
+    verificationTimeoutMs: number;
+    pollIntervalMs: number;
+  },
 ): Promise<SameSessionPasskeyCheckResult> {
+  let attemptedMethod: SameSessionPasskeyCheckResult["method"] = "passkey";
   try {
     await clearAuthenticatedSessionState(page);
     await gotoLoginEntry(page);
@@ -314,9 +323,36 @@ async function runSameSessionPasskeyCheck(
     // Reuse the existing virtual authenticator created during passkey provisioning.
     // Chrome only allows one internal virtual authenticator per environment.
 
-    await submitLoginEmail(page, email);
+    const startedAt = new Date().toISOString();
+    await submitLoginEmail(page, options.email);
 
-    const passkeyReady = await waitForPasskeyEntryReady(page, 20000);
+    const postEmailStep = await waitForPostEmailLoginStep(page, 20000);
+    if (postEmailStep === "password" || postEmailStep === "verification") {
+      attemptedMethod = "password";
+      const fallback = await completePasswordOrVerificationLoginFallback(page, {
+        email: options.email,
+        password: options.password,
+        step: postEmailStep,
+        startedAt,
+        exchangeClient: options.exchangeClient,
+        verificationTimeoutMs: options.verificationTimeoutMs,
+        pollIntervalMs: options.pollIntervalMs,
+      });
+      const authenticated = await waitForAuthenticatedSession(page, 30000);
+      return {
+        attempted: true,
+        authenticated,
+        method: fallback.method,
+        ...(authenticated ? {} : { error: "Password fallback login did not authenticate." }),
+      };
+    }
+
+    if (postEmailStep === "authenticated") {
+      return { attempted: true, authenticated: true, method: "passkey" };
+    }
+
+    const passkeyReady =
+      postEmailStep === "passkey" ? true : await waitForPasskeyEntryReady(page, 20000);
     if (!passkeyReady) throw new Error("Passkey entry button did not appear on the login surface.");
     const triggered = await clickPasskeyEntry(page);
     if (!triggered)
@@ -333,7 +369,7 @@ async function runSameSessionPasskeyCheck(
     return {
       attempted: true,
       authenticated: false,
-      method: "passkey",
+      method: attemptedMethod,
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -556,7 +592,13 @@ export async function registerChatGPT(
             );
             return runSameSessionPasskeyCheck(
               page,
-              email,
+              {
+                email,
+                password,
+                exchangeClient,
+                verificationTimeoutMs,
+                pollIntervalMs,
+              },
             );
           })()
         : undefined;

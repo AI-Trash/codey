@@ -1,5 +1,6 @@
 import type { Page } from "patchright";
 import { clickAny, clickIfPresent, typeIfPresent } from "../common/form-actions";
+import type { ExchangeClient } from "../exchange";
 import { sleep } from "../../utils/wait";
 import {
   ADULT_AGE,
@@ -28,8 +29,14 @@ import {
 import type { SelectorTarget } from "../../types";
 import { toLocator } from "../../utils/selectors";
 import {
+  type ChatGPTPostEmailLoginStep,
   waitForLoginEmailFormReady,
   waitForLoginEmailSubmissionOutcome,
+  waitForPasswordInputReady,
+  waitForPasswordSubmissionOutcome,
+  waitForPostEmailLoginStep,
+  waitForVerificationCode,
+  waitForVerificationCodeInputReady,
 } from "./queries";
 
 export async function clickSignupEntry(page: Page): Promise<void> {
@@ -199,6 +206,106 @@ export async function submitLoginEmail(page: Page, email: string): Promise<void>
   }
 
   throw new Error("Login email submission timed out repeatedly.");
+}
+
+export interface CompletePasswordOrVerificationLoginFallbackOptions {
+  email: string;
+  password: string;
+  step: Extract<ChatGPTPostEmailLoginStep, "password" | "verification">;
+  startedAt: string;
+  exchangeClient?: ExchangeClient;
+  getExchangeClient?: () => ExchangeClient | Promise<ExchangeClient>;
+  verificationTimeoutMs?: number;
+  pollIntervalMs?: number;
+}
+
+export interface CompletePasswordOrVerificationLoginFallbackResult {
+  method: "password" | "verification";
+  verificationCode?: string;
+}
+
+export async function completePasswordOrVerificationLoginFallback(
+  page: Page,
+  options: CompletePasswordOrVerificationLoginFallbackOptions,
+): Promise<CompletePasswordOrVerificationLoginFallbackResult> {
+  let exchangeClient = options.exchangeClient;
+
+  const requireExchangeClient = async (): Promise<ExchangeClient> => {
+    exchangeClient ??= await options.getExchangeClient?.();
+    if (!exchangeClient) {
+      throw new Error(
+        "Exchange client is required when ChatGPT login fallback requests a verification code.",
+      );
+    }
+    return exchangeClient;
+  };
+
+  const completeVerificationStep = async (): Promise<string> => {
+    const verificationReady = await waitForVerificationCodeInputReady(page, 10000);
+    if (!verificationReady) {
+      throw new Error("ChatGPT verification code input did not become ready.");
+    }
+
+    const verificationCode = await waitForVerificationCode({
+      exchangeClient: await requireExchangeClient(),
+      email: options.email,
+      startedAt: options.startedAt,
+      timeoutMs: options.verificationTimeoutMs ?? 180000,
+      pollIntervalMs: options.pollIntervalMs ?? 5000,
+    });
+    await typeVerificationCode(page, verificationCode);
+    await clickVerificationContinue(page);
+    return verificationCode;
+  };
+
+  if (options.step === "verification") {
+    return {
+      method: "verification",
+      verificationCode: await completeVerificationStep(),
+    };
+  }
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const passwordReady = await waitForPasswordInputReady(page, 10000);
+    if (!passwordReady) {
+      throw new Error("ChatGPT password step did not become ready.");
+    }
+
+    const passwordTyped = await typePassword(page, options.password);
+    if (!passwordTyped) {
+      throw new Error("ChatGPT password field was visible but could not be typed into.");
+    }
+
+    await clickPasswordSubmit(page);
+    const outcome = await waitForPasswordSubmissionOutcome(page);
+    if (outcome === "timeout") {
+      const retried = await clickPasswordTimeoutRetry(page);
+      if (!retried) {
+        throw new Error("Password submission timed out and retry button was not clickable.");
+      }
+      continue;
+    }
+
+    if (outcome === "verification") {
+      return {
+        method: "verification",
+        verificationCode: await completeVerificationStep(),
+      };
+    }
+
+    const nextStep = await waitForPostEmailLoginStep(page, 5000);
+    if (nextStep === "password") continue;
+    if (nextStep === "verification") {
+      return {
+        method: "verification",
+        verificationCode: await completeVerificationStep(),
+      };
+    }
+
+    return { method: "password" };
+  }
+
+  throw new Error("Password submission timed out repeatedly.");
 }
 
 async function clearOriginStorage(page: Page, originUrl: string): Promise<void> {

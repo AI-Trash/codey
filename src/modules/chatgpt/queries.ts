@@ -25,6 +25,13 @@ import {
   VERIFICATION_CODE_INPUT_SELECTORS,
 } from "./common";
 
+export type ChatGPTPostEmailLoginStep =
+  | "authenticated"
+  | "passkey"
+  | "password"
+  | "verification"
+  | "unknown";
+
 export function isChatGPTHomeUrl(url: string): boolean {
   return /^https:\/\/chatgpt\.com\/?(#.*)?$/i.test(url) || url.startsWith(CHATGPT_HOME_URL);
 }
@@ -307,7 +314,7 @@ export async function waitForLoginEmailSubmissionOutcome(
 ): Promise<"next" | "timeout" | "unknown"> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await isAnySelectorVisible(page, LOGIN_NEXT_STEP_SELECTORS)) return "next";
+    if ((await detectPostEmailLoginStep(page)) !== "unknown") return "next";
     if (
       (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_ERROR_SELECTORS)) &&
       (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_RETRY_SELECTORS))
@@ -317,6 +324,33 @@ export async function waitForLoginEmailSubmissionOutcome(
     await sleep(500);
   }
   return "unknown";
+}
+
+export async function detectPostEmailLoginStep(
+  page: Page,
+): Promise<ChatGPTPostEmailLoginStep> {
+  if (await waitForAuthenticatedSession(page, 250)) return "authenticated";
+  if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) return "passkey";
+  if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS)) return "verification";
+  if (await hasEnabledSelector(page, PASSWORD_INPUT_SELECTORS)) return "password";
+  if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) return "passkey";
+  if (await isAnySelectorVisible(page, PASSWORD_INPUT_SELECTORS)) return "password";
+  if (await isAnySelectorVisible(page, LOGIN_NEXT_STEP_SELECTORS)) return "passkey";
+  return "unknown";
+}
+
+export async function waitForPostEmailLoginStep(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<ChatGPTPostEmailLoginStep> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const step = await detectPostEmailLoginStep(page);
+    if (step !== "unknown") return step;
+    await sleep(250);
+  }
+
+  return detectPostEmailLoginStep(page);
 }
 
 export async function waitForPasskeyCreation(
