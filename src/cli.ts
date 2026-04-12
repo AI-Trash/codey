@@ -26,33 +26,36 @@ async function runFlowCommand(
   options: FlowOptions,
   config: ReturnType<typeof prepareRuntimeConfig>,
 ): Promise<void> {
-  await runWithSession({ context: {} }, async (session) => {
+  let result: unknown;
+  let harPath: string | undefined;
+
+  await runWithSession({ artifactName: subcommand, context: {} }, async (session) => {
+    harPath = session.harPath;
     if (subcommand === "chatgpt-register") {
-      const result = await registerChatGPT(session.page, options);
-      console.log(
-        JSON.stringify(
-          { command: "flow:chatgpt-register", config: redactForOutput(config), result },
-          null,
-          2,
-        ),
-      );
+      result = await registerChatGPT(session.page, options);
       return;
     }
 
     if (subcommand === "chatgpt-login-passkey") {
-      const result = await loginChatGPTWithStoredPasskey(session.page, options);
-      console.log(
-        JSON.stringify(
-          { command: "flow:chatgpt-login-passkey", config: redactForOutput(config), result },
-          null,
-          2,
-        ),
-      );
+      result = await loginChatGPTWithStoredPasskey(session.page, options);
       return;
     }
 
     throw new Error(`Unsupported flow command: ${subcommand || "(missing)"}`);
   });
+
+  console.log(
+    JSON.stringify(
+      {
+        command: `flow:${subcommand}`,
+        config: redactForOutput(config),
+        ...(harPath ? { harPath } : {}),
+        result,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 async function runExchangeCommand(
@@ -129,6 +132,7 @@ withCommonOptions(
   flowCli
     .command("chatgpt-register", "Register a ChatGPT account using the configured Exchange mailbox")
     .option("--password <password>", "Optional password override")
+    .option("--har <bool>", "Whether to record a HAR file for this flow run")
     .option("--verificationTimeoutMs <ms>", "How long to wait for the verification email")
     .option("--pollIntervalMs <ms>", "How often to poll Exchange for the verification email")
     .option("--createPasskey <bool>", "Whether to provision a passkey after registration")
@@ -152,6 +156,7 @@ withCommonOptions(
       "chatgpt-login-passkey",
       "Try to sign in to ChatGPT with a previously stored passkey identity",
     )
+    .option("--har <bool>", "Whether to record a HAR file for this flow run")
     .option("--identityId <id>", "Stored identity id from a previous chatgpt-register run")
     .option("--email <email>", "Stored identity email; defaults to the latest saved identity")
     .example("codey flow chatgpt-login-passkey")

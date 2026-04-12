@@ -29,11 +29,17 @@ export async function typeIfPresent(
   const locator = await resolveEditableLocator(page, selector);
   if (!locator) return false;
 
+  const nextValue = String(value);
+
+  if (await fillEditableLocator(locator, nextValue)) {
+    return true;
+  }
+
   await locator.click({ delay: randomBetween(60, 140) }).catch(() => undefined);
   await locator.fill("");
   await sleep(randomBetween(120, 240));
 
-  for (const char of String(value)) {
+  for (const char of nextValue) {
     await locator.pressSequentially(char, { delay: randomBetween(45, 110) });
     if (Math.random() < 0.18) {
       await sleep(randomBetween(90, 260));
@@ -119,6 +125,28 @@ async function isEditableLocator(locator: Locator): Promise<boolean> {
       );
     })
     .catch(async () => locator.isEditable().catch(() => false));
+}
+
+async function fillEditableLocator(locator: Locator, value: string): Promise<boolean> {
+  try {
+    await locator.click().catch(() => undefined);
+    await locator.fill(value);
+    await sleep(20);
+
+    const matches = await locator
+      .evaluate((element, expected) => {
+        const candidate = element as HTMLInputElement | HTMLTextAreaElement;
+        return candidate.value === expected;
+      }, value)
+      .catch(() => false);
+
+    if (!matches) return false;
+
+    await locator.blur().catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function randomBetween(min: number, max: number): number {

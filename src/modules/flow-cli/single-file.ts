@@ -18,12 +18,19 @@ export async function runSingleFileFlow<
   loadWorkspaceEnv();
   const config = prepareRuntimeConfig(definition.command, options);
   let result!: TResult;
-  await runWithSession({ context: {} }, async (session) => {
+  let harPath: string | undefined;
+  await runWithSession({ artifactName: definition.command, context: {} }, async (session) => {
+    harPath = session.harPath;
     result = await definition.run(session.page, options);
   });
   console.log(
     JSON.stringify(
-      { command: definition.command, config: redactForOutput(config), result },
+      {
+        command: definition.command,
+        config: redactForOutput(config),
+        ...(harPath ? { harPath } : {}),
+        result,
+      },
       null,
       2,
     ),

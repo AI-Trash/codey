@@ -23,6 +23,7 @@ import {
   REGISTRATION_EMAIL_SELECTORS,
   SECURITY_ADD_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
+  CHATGPT_HOME_URL,
 } from "./common";
 import type { SelectorTarget } from "../../types";
 import { toLocator } from "../../utils/selectors";

@@ -9,6 +9,7 @@ import {
 } from "../webauthn/virtual-authenticator";
 import {
   CHATGPT_AUTHENTICATED_SELECTORS,
+  CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_HOME_URL,
   CHATGPT_LOGIN_URL,
   DEFAULT_EVENT_TIMEOUT_MS,
@@ -363,7 +364,9 @@ export async function waitForLoginEmailFormReady(page: Page, timeoutMs = 15000):
 
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const onExpectedUrl = page.url().startsWith(CHATGPT_LOGIN_URL);
+    const currentUrl = page.url();
+    const onExpectedUrl =
+      currentUrl.startsWith(CHATGPT_LOGIN_URL) || currentUrl.startsWith(CHATGPT_ENTRY_LOGIN_URL);
     const emailReady = await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS);
     if (onExpectedUrl && emailReady) {
       await sleep(500);

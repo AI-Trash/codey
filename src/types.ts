@@ -15,6 +15,7 @@ export interface Session {
   browser: import("patchright").Browser;
   context: import("patchright").BrowserContext;
   page: Page;
+  harPath?: string;
   close(): Promise<void>;
 }
 

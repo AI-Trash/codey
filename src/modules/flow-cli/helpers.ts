@@ -5,6 +5,7 @@ export interface CommonOptions {
   profile?: string;
   headless?: string | boolean;
   slowMo?: string | boolean;
+  har?: string | boolean;
 }
 
 export interface FlowOptions extends CommonOptions {
@@ -60,6 +61,7 @@ export function buildRuntimeConfig(command: string, options: CommonOptions): Cli
       browser: {
         headless: parseBooleanFlag(options.headless),
         slowMo: parseNumberFlag(options.slowMo),
+        recordHar: parseBooleanFlag(options.har),
       },
     },
   });

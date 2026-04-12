@@ -8,6 +8,7 @@ export interface BrowserCliConfig {
   slowMo: number;
   defaultTimeoutMs: number;
   navigationTimeoutMs: number;
+  recordHar: boolean;
 }
 
 export interface OpenAIFlowConfig {
@@ -101,6 +102,7 @@ function buildDefaultConfig(): AppConfig {
       slowMo: parseNumber(process.env.SLOW_MO, 0),
       defaultTimeoutMs: parseNumber(process.env.DEFAULT_TIMEOUT_MS, 15000),
       navigationTimeoutMs: parseNumber(process.env.NAVIGATION_TIMEOUT_MS, 30000),
+      recordHar: false,
     },
     openai: {
       baseUrl: process.env.OPENAI_BASE_URL || "https://openai.com",
@@ -130,7 +132,7 @@ function buildDefaultConfig(): AppConfig {
 
 export const defaultConfig: AppConfig = buildDefaultConfig();
 
-let runtimeConfig: AppConfig = buildDefaultConfig();
+let runtimeConfig: CliRuntimeConfig = buildDefaultConfig();
 
 export function loadConfigFile(configFile?: string): PartialDeep<AppConfig> | undefined {
   if (!configFile) return undefined;
@@ -162,10 +164,10 @@ export function resolveConfig(
   };
 }
 
-export function setRuntimeConfig(config: AppConfig): void {
+export function setRuntimeConfig(config: CliRuntimeConfig): void {
   runtimeConfig = config;
 }
 
-export function getRuntimeConfig(): AppConfig {
+export function getRuntimeConfig(): CliRuntimeConfig {
   return runtimeConfig;
 }

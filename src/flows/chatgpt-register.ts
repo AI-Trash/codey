@@ -48,6 +48,8 @@ import {
   AGE_GATE_INPUT_SELECTORS,
   AGE_GATE_AGE_SELECTORS,
   SECURITY_READY_SELECTORS,
+  clickLoginEntryIfPresent,
+  clickPasswordTimeoutRetry,
 } from "../modules/chatgpt/shared";
 import { parseBooleanFlag, parseNumberFlag, type FlowOptions } from "../modules/flow-cli/helpers";
 import {
@@ -294,8 +296,6 @@ async function provisionRegistrationPasskey(
 async function runSameSessionPasskeyCheck(
   page: Page,
   email: string,
-  passkeyStore?: VirtualPasskeyStore,
-  virtualAuthenticator?: VirtualAuthenticatorOptions,
 ): Promise<SameSessionPasskeyCheckResult> {
   try {
     await clearAuthenticatedSessionState(page);
@@ -311,7 +311,8 @@ async function runSameSessionPasskeyCheck(
       throw new Error("ChatGPT login entry page did not reach a supported login surface.");
     }
 
-    await loadVirtualPasskeyStore(page, passkeyStore, virtualAuthenticator);
+    // Reuse the existing virtual authenticator created during passkey provisioning.
+    // Chrome only allows one internal virtual authenticator per environment.
 
     await submitLoginEmail(page, email);
 
@@ -556,8 +557,6 @@ export async function registerChatGPT(
             return runSameSessionPasskeyCheck(
               page,
               email,
-              resolvedPasskey.passkeyStore,
-              options.virtualAuthenticator,
             );
           })()
         : undefined;

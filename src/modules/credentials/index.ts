@@ -191,20 +191,18 @@ function writeStoreEnvelope(
   ensureDir(path.dirname(storePath));
   const payload = JSON.stringify(store, null, 2);
   const key = getMasterKey();
-  const envelope: PersistedChatGPTIdentityStore = key
-    ? {
-        version: STORE_VERSION,
-        updatedAt: new Date().toISOString(),
-        ...encryptStorePayload(payload, key),
-      }
-    : {
-        version: STORE_VERSION,
-        updatedAt: new Date().toISOString(),
-        encrypted: false,
-        payload,
-      };
+  if (!key) {
+    writeFileAtomic(storePath, `${payload}\n`);
+    return { encrypted: false };
+  }
+
+  const envelope: PersistedChatGPTIdentityStore = {
+    version: STORE_VERSION,
+    updatedAt: new Date().toISOString(),
+    ...encryptStorePayload(payload, key),
+  };
   writeFileAtomic(storePath, `${JSON.stringify(envelope, null, 2)}\n`);
-  return { encrypted: envelope.encrypted };
+  return { encrypted: true };
 }
 
 function summarize(
