@@ -1,0 +1,13 @@
+{
+  "browser": {
+    "headless": true,
+    "slowMo": 123,
+    "defaultTimeoutMs": 15000,
+    "navigationTimeoutMs": 30000,
+    "recordHar": false
+  },
+  "openai": {
+    "baseUrl": "https://openai.com",
+    "chatgptUrl": "https://chatgpt.com"
+  }
+}
