@@ -1,12 +1,12 @@
-import type { Locator, Page } from "patchright";
-import { firstVisible, toLocator } from "../../utils/selectors";
-import type { SelectorList, SelectorTarget } from "../../types";
-import { sleep } from "../../utils/wait";
+import type { Locator, Page } from 'patchright'
+import { firstVisible, toLocator } from '../../utils/selectors'
+import type { SelectorList, SelectorTarget } from '../../types'
+import { sleep } from '../../utils/wait'
 
 export async function clickAny(page: Page, selectors: SelectorList) {
-  const locator = await firstVisible(page, selectors);
-  await locator.click();
-  return locator;
+  const locator = await firstVisible(page, selectors)
+  await locator.click()
+  return locator
 }
 
 export async function fillIfPresent(
@@ -14,10 +14,10 @@ export async function fillIfPresent(
   selector: SelectorTarget | SelectorList,
   value?: string,
 ) {
-  if (value == null) return false;
-  const locator = await resolveVisibleLocator(page, selector);
-  await locator.fill(String(value));
-  return true;
+  if (value == null) return false
+  const locator = await resolveVisibleLocator(page, selector)
+  await locator.fill(String(value))
+  return true
 }
 
 export async function typeIfPresent(
@@ -25,52 +25,58 @@ export async function typeIfPresent(
   selector: SelectorTarget | SelectorList,
   value?: string,
 ) {
-  if (value == null) return false;
-  const locator = await resolveEditableLocator(page, selector);
-  if (!locator) return false;
+  if (value == null) return false
+  const locator = await resolveEditableLocator(page, selector)
+  if (!locator) return false
 
-  const nextValue = String(value);
+  const nextValue = String(value)
 
   if (await fillEditableLocator(locator, nextValue)) {
-    return true;
+    return true
   }
 
-  await locator.click({ delay: randomBetween(60, 140) }).catch(() => undefined);
-  await locator.fill("");
-  await sleep(randomBetween(120, 240));
+  await locator.click({ delay: randomBetween(60, 140) }).catch(() => undefined)
+  await locator.fill('')
+  await sleep(randomBetween(120, 240))
 
   for (const char of nextValue) {
-    await locator.pressSequentially(char, { delay: randomBetween(45, 110) });
+    await locator.pressSequentially(char, { delay: randomBetween(45, 110) })
     if (Math.random() < 0.18) {
-      await sleep(randomBetween(90, 260));
+      await sleep(randomBetween(90, 260))
     }
   }
 
-  await sleep(randomBetween(80, 180));
-  await locator.blur().catch(() => undefined);
-  return true;
+  await sleep(randomBetween(80, 180))
+  await locator.blur().catch(() => undefined)
+  return true
 }
 
-export async function clickIfPresent(page: Page, selectors: SelectorList): Promise<boolean> {
+export async function clickIfPresent(
+  page: Page,
+  selectors: SelectorList,
+): Promise<boolean> {
   for (const selector of selectors) {
-    const locator = toLocator(page, selector).first();
+    const locator = toLocator(page, selector).first()
     if (await locator.isVisible().catch(() => false)) {
-      await locator.click();
-      return true;
+      await locator.click()
+      return true
     }
   }
-  return false;
+  return false
 }
 
-export async function checkIfPresent(page: Page, selectors: SelectorList): Promise<boolean> {
+export async function checkIfPresent(
+  page: Page,
+  selectors: SelectorList,
+): Promise<boolean> {
   for (const selector of selectors) {
-    const locator = toLocator(page, selector).first();
+    const locator = toLocator(page, selector).first()
     if (await locator.isVisible().catch(() => false)) {
-      await locator.check().catch(async () => locator.click());
-      return true;
+      await locator.check().catch(async () => locator.click())
+      return true
     }
   }
-  return false;
+  return false
 }
 
 async function resolveVisibleLocator(
@@ -78,77 +84,80 @@ async function resolveVisibleLocator(
   selector: SelectorTarget | SelectorList,
 ): Promise<Locator> {
   if (Array.isArray(selector)) {
-    return firstVisible(page, selector);
+    return firstVisible(page, selector)
   }
 
-  const locator = toLocator(page, selector).first();
-  await locator.waitFor({ state: "visible" });
-  return locator;
+  const locator = toLocator(page, selector).first()
+  await locator.waitFor({ state: 'visible' })
+  return locator
 }
 
 async function resolveEditableLocator(
   page: Page,
   selector: SelectorTarget | SelectorList,
 ): Promise<Locator | null> {
-  const targets = Array.isArray(selector) ? selector : [selector];
-  const visibleCandidates: Locator[] = [];
+  const targets = Array.isArray(selector) ? selector : [selector]
+  const visibleCandidates: Locator[] = []
 
   for (const target of targets) {
-    const locator = toLocator(page, target).first();
-    const visible = await locator.isVisible().catch(() => false);
-    if (!visible) continue;
-    visibleCandidates.push(locator);
-    if (await isEditableLocator(locator)) return locator;
+    const locator = toLocator(page, target).first()
+    const visible = await locator.isVisible().catch(() => false)
+    if (!visible) continue
+    visibleCandidates.push(locator)
+    if (await isEditableLocator(locator)) return locator
   }
 
   for (const locator of visibleCandidates) {
-    if (await isEditableLocator(locator)) return locator;
+    if (await isEditableLocator(locator)) return locator
   }
 
   try {
-    const locator = await resolveVisibleLocator(page, selector);
-    if (await isEditableLocator(locator)) return locator;
+    const locator = await resolveVisibleLocator(page, selector)
+    if (await isEditableLocator(locator)) return locator
   } catch {}
 
-  return null;
+  return null
 }
 
 async function isEditableLocator(locator: Locator): Promise<boolean> {
   return locator
     .evaluate((element) => {
-      const candidate = element as HTMLInputElement | HTMLTextAreaElement;
-      const htmlElement = element as HTMLElement & { disabled?: boolean };
+      const candidate = element as HTMLInputElement | HTMLTextAreaElement
+      const htmlElement = element as HTMLElement & { disabled?: boolean }
       return (
         !candidate.readOnly &&
         !htmlElement.disabled &&
-        htmlElement.getAttribute("aria-disabled") !== "true"
-      );
+        htmlElement.getAttribute('aria-disabled') !== 'true'
+      )
     })
-    .catch(async () => locator.isEditable().catch(() => false));
+    .catch(async () => locator.isEditable().catch(() => false))
 }
 
-async function fillEditableLocator(locator: Locator, value: string): Promise<boolean> {
+async function fillEditableLocator(
+  locator: Locator,
+  value: string,
+): Promise<boolean> {
   try {
-    await locator.click().catch(() => undefined);
-    await locator.fill(value);
-    await sleep(20);
+    await locator.click().catch(() => undefined)
+    await locator.fill(value)
+    await sleep(20)
 
     const matches = await locator
       .evaluate((element, expected) => {
-        const candidate = element as HTMLInputElement | HTMLTextAreaElement;
-        return candidate.value === expected;
+        const candidate = element as HTMLInputElement | HTMLTextAreaElement
+        return candidate.value === expected
       }, value)
-      .catch(() => false);
+      .catch(() => false)
 
-    if (!matches) return false;
+    if (!matches) return false
 
-    await locator.blur().catch(() => undefined);
-    return true;
+    await locator.blur().catch(() => undefined)
+    return true
   } catch {
-    return false;
+    return false
   }
 }
 
 function randomBetween(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(Math.random() * (max - min + 1)) + min
 }

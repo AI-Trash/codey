@@ -8,11 +8,12 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check",
+    "fmt": "oxfmt -c ../../.oxfmtrc.json",
+    "fmt:check": "oxfmt -c ../../.oxfmtrc.json --check",
     "flow": "jiti",
-    "lint": "oxlint src vite.config.ts test",
-    "lint:fix": "oxlint src vite.config.ts test --fix"
+    "lint": "oxlint --config ../../.oxlintrc.json src vitest.config.ts test",
+    "lint:fix": "oxlint --config ../../.oxlintrc.json src vitest.config.ts test --fix",
+    "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
     "zustand": "catalog:"

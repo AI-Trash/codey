@@ -1,112 +1,115 @@
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-import { loadWorkspaceEnv } from "./utils/env";
-import { resolveWorkspaceRoot } from "./utils/workspace-root";
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import { loadWorkspaceEnv } from './utils/env'
+import { resolveWorkspaceRoot } from './utils/workspace-root'
 
 export interface BrowserCliConfig {
-  headless: boolean;
-  slowMo: number;
-  defaultTimeoutMs: number;
-  navigationTimeoutMs: number;
-  recordHar: boolean;
+  headless: boolean
+  slowMo: number
+  defaultTimeoutMs: number
+  navigationTimeoutMs: number
+  recordHar: boolean
 }
 
 export interface OpenAIFlowConfig {
-  baseUrl: string;
-  chatgptUrl: string;
+  baseUrl: string
+  chatgptUrl: string
 }
 
 export interface ExchangeAuthConfig {
-  mode: "client_credentials";
-  tenantId: string;
-  clientId: string;
-  clientSecret: string;
+  mode: 'client_credentials'
+  tenantId: string
+  clientId: string
+  clientSecret: string
 }
 
 export interface ExchangeMailFlowCatchAllConfig {
-  prefix?: string;
+  prefix?: string
 }
 
 export interface ExchangeConfig {
-  auth: ExchangeAuthConfig;
-  mailbox?: string;
+  auth: ExchangeAuthConfig
+  mailbox?: string
   mailFlow?: {
-    catchAll?: ExchangeMailFlowCatchAllConfig;
-  };
+    catchAll?: ExchangeMailFlowCatchAllConfig
+  }
 }
 
 export interface AppConfig {
-  rootDir: string;
-  artifactsDir: string;
-  browser: BrowserCliConfig;
-  openai: OpenAIFlowConfig;
-  exchange?: ExchangeConfig;
+  rootDir: string
+  artifactsDir: string
+  browser: BrowserCliConfig
+  openai: OpenAIFlowConfig
+  exchange?: ExchangeConfig
 }
 
 export interface CliRuntimeConfig extends AppConfig {
-  command?: string;
-  profile?: string;
-  configFile?: string;
+  command?: string
+  profile?: string
+  configFile?: string
 }
 
 type PartialDeep<T> = {
-  [K in keyof T]?: T[K] extends object ? PartialDeep<T[K]> : T[K];
-};
+  [K in keyof T]?: T[K] extends object ? PartialDeep<T[K]> : T[K]
+}
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (value == null || value === "") return fallback;
-  return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+  if (value == null || value === '') return fallback
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase())
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
+  const num = Number(value)
+  return Number.isFinite(num) ? num : fallback
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function mergeDeep<T>(base: T, patch?: PartialDeep<T>): T {
-  if (!patch) return base;
-  const output = { ...base } as Record<string, unknown>;
+  if (!patch) return base
+  const output = { ...base } as Record<string, unknown>
 
   for (const [key, value] of Object.entries(patch)) {
-    const current = output[key];
+    const current = output[key]
     if (isObject(current) && isObject(value)) {
-      output[key] = mergeDeep(current, value);
+      output[key] = mergeDeep(current, value)
     } else if (value !== undefined) {
-      output[key] = value;
+      output[key] = value
     }
   }
 
-  return output as T;
+  return output as T
 }
 
-const workspaceRoot = resolveWorkspaceRoot(fileURLToPath(import.meta.url));
+const workspaceRoot = resolveWorkspaceRoot(fileURLToPath(import.meta.url))
 
 function buildDefaultConfig(): AppConfig {
-  loadWorkspaceEnv();
+  loadWorkspaceEnv()
   const exchangeMailFlowCatchAll = process.env.EXCHANGE_CATCH_ALL_PREFIX
     ? {
         prefix: process.env.EXCHANGE_CATCH_ALL_PREFIX,
       }
-    : undefined;
+    : undefined
 
   return {
     rootDir: workspaceRoot,
-    artifactsDir: path.join(workspaceRoot, "artifacts"),
+    artifactsDir: path.join(workspaceRoot, 'artifacts'),
     browser: {
       headless: parseBoolean(process.env.HEADLESS, false),
       slowMo: parseNumber(process.env.SLOW_MO, 0),
       defaultTimeoutMs: parseNumber(process.env.DEFAULT_TIMEOUT_MS, 15000),
-      navigationTimeoutMs: parseNumber(process.env.NAVIGATION_TIMEOUT_MS, 30000),
+      navigationTimeoutMs: parseNumber(
+        process.env.NAVIGATION_TIMEOUT_MS,
+        30000,
+      ),
       recordHar: false,
     },
     openai: {
-      baseUrl: process.env.OPENAI_BASE_URL || "https://openai.com",
-      chatgptUrl: process.env.CHATGPT_URL || "https://chatgpt.com",
+      baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',
+      chatgptUrl: process.env.CHATGPT_URL || 'https://chatgpt.com',
     },
     exchange:
       process.env.EXCHANGE_TENANT_ID &&
@@ -115,7 +118,7 @@ function buildDefaultConfig(): AppConfig {
         ? {
             mailbox: process.env.EXCHANGE_MAILBOX,
             auth: {
-              mode: "client_credentials",
+              mode: 'client_credentials',
               tenantId: process.env.EXCHANGE_TENANT_ID,
               clientId: process.env.EXCHANGE_CLIENT_ID,
               clientSecret: process.env.EXCHANGE_CLIENT_SECRET,
@@ -127,47 +130,49 @@ function buildDefaultConfig(): AppConfig {
               : undefined,
           }
         : undefined,
-  };
+  }
 }
 
-export const defaultConfig: AppConfig = buildDefaultConfig();
+export const defaultConfig: AppConfig = buildDefaultConfig()
 
-let runtimeConfig: CliRuntimeConfig = buildDefaultConfig();
+let runtimeConfig: CliRuntimeConfig = buildDefaultConfig()
 
-export function loadConfigFile(configFile?: string): PartialDeep<AppConfig> | undefined {
-  if (!configFile) return undefined;
+export function loadConfigFile(
+  configFile?: string,
+): PartialDeep<AppConfig> | undefined {
+  if (!configFile) return undefined
   const resolved = path.isAbsolute(configFile)
     ? configFile
-    : path.resolve(workspaceRoot, configFile);
+    : path.resolve(workspaceRoot, configFile)
   if (!fs.existsSync(resolved)) {
-    throw new Error(`Config file not found: ${resolved}`);
+    throw new Error(`Config file not found: ${resolved}`)
   }
-  return JSON.parse(fs.readFileSync(resolved, "utf8")) as PartialDeep<AppConfig>;
+  return JSON.parse(fs.readFileSync(resolved, 'utf8')) as PartialDeep<AppConfig>
 }
 
 export function resolveConfig(
   options: {
-    configFile?: string;
-    profile?: string;
-    overrides?: PartialDeep<AppConfig>;
-    command?: string;
+    configFile?: string
+    profile?: string
+    overrides?: PartialDeep<AppConfig>
+    command?: string
   } = {},
 ): CliRuntimeConfig {
-  const fromEnv = buildDefaultConfig();
-  const fromFile = loadConfigFile(options.configFile);
-  const merged = mergeDeep(mergeDeep(fromEnv, fromFile), options.overrides);
+  const fromEnv = buildDefaultConfig()
+  const fromFile = loadConfigFile(options.configFile)
+  const merged = mergeDeep(mergeDeep(fromEnv, fromFile), options.overrides)
   return {
     ...merged,
     command: options.command,
     profile: options.profile,
     configFile: options.configFile,
-  };
+  }
 }
 
 export function setRuntimeConfig(config: CliRuntimeConfig): void {
-  runtimeConfig = config;
+  runtimeConfig = config
 }
 
 export function getRuntimeConfig(): CliRuntimeConfig {
-  return runtimeConfig;
+  return runtimeConfig
 }

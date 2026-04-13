@@ -1,51 +1,51 @@
-import fs from "fs";
-import path from "path";
+import fs from 'fs'
+import path from 'path'
 
-const WORKSPACE_MARKER = "pnpm-workspace.yaml";
+const WORKSPACE_MARKER = 'pnpm-workspace.yaml'
 
 function hasWorkspaceMarker(directory: string): boolean {
-  return fs.existsSync(path.join(directory, WORKSPACE_MARKER));
+  return fs.existsSync(path.join(directory, WORKSPACE_MARKER))
 }
 
 function resolveDirectory(inputPath: string): string {
-  const resolved = path.resolve(inputPath);
+  const resolved = path.resolve(inputPath)
   if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
-    return path.dirname(resolved);
+    return path.dirname(resolved)
   }
-  return resolved;
+  return resolved
 }
 
 function findWorkspaceRoot(startPath: string): string | undefined {
-  let current = resolveDirectory(startPath);
+  let current = resolveDirectory(startPath)
 
   while (true) {
     if (hasWorkspaceMarker(current)) {
-      return current;
+      return current
     }
 
-    const parent = path.dirname(current);
+    const parent = path.dirname(current)
     if (parent === current) {
-      return undefined;
+      return undefined
     }
-    current = parent;
+    current = parent
   }
 }
 
 export function resolveWorkspaceRoot(fromPath: string): string {
-  const configuredRoot = process.env.CODEY_WORKSPACE_ROOT?.trim();
+  const configuredRoot = process.env.CODEY_WORKSPACE_ROOT?.trim()
   if (configuredRoot) {
-    return path.resolve(configuredRoot);
+    return path.resolve(configuredRoot)
   }
 
-  const fileSystemWorkspaceRoot = findWorkspaceRoot(fromPath);
+  const fileSystemWorkspaceRoot = findWorkspaceRoot(fromPath)
   if (fileSystemWorkspaceRoot) {
-    return fileSystemWorkspaceRoot;
+    return fileSystemWorkspaceRoot
   }
 
-  const cwdWorkspaceRoot = findWorkspaceRoot(process.cwd());
+  const cwdWorkspaceRoot = findWorkspaceRoot(process.cwd())
   if (cwdWorkspaceRoot) {
-    return cwdWorkspaceRoot;
+    return cwdWorkspaceRoot
   }
 
-  return process.cwd();
+  return process.cwd()
 }

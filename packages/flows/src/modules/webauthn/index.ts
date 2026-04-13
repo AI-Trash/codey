@@ -1,1 +1,1 @@
-export * from "./virtual-authenticator";
+export * from './virtual-authenticator'

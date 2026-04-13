@@ -1,4 +1,4 @@
-import type { ExchangeConfig } from "../../config";
+import type { ExchangeConfig } from '../../config'
 import type {
   ExchangeFindMessagesOptions,
   ExchangeFolder,
@@ -6,321 +6,353 @@ import type {
   ExchangeMessage,
   ExchangeMessageDetail,
   ExchangeVerificationResult,
-} from "./types";
+} from './types'
 
 interface GraphMailFolder {
-  id: string;
-  displayName: string;
-  childFolderCount?: number;
-  unreadItemCount?: number;
-  totalItemCount?: number;
+  id: string
+  displayName: string
+  childFolderCount?: number
+  unreadItemCount?: number
+  totalItemCount?: number
 }
 
 interface GraphEmailAddress {
-  address?: string;
-  name?: string;
+  address?: string
+  name?: string
 }
 
 interface GraphRecipient {
-  emailAddress?: GraphEmailAddress;
+  emailAddress?: GraphEmailAddress
 }
 
 interface GraphItemBody {
-  contentType?: string;
-  content?: string;
+  contentType?: string
+  content?: string
 }
 
 interface GraphMessage {
-  id: string;
-  subject?: string;
-  bodyPreview?: string;
-  isRead?: boolean;
-  receivedDateTime?: string;
+  id: string
+  subject?: string
+  bodyPreview?: string
+  isRead?: boolean
+  receivedDateTime?: string
   from?: {
-    emailAddress?: GraphEmailAddress;
-  };
-  toRecipients?: GraphRecipient[];
-  body?: GraphItemBody;
-  "@removed"?: {
-    reason?: string;
-  };
+    emailAddress?: GraphEmailAddress
+  }
+  toRecipients?: GraphRecipient[]
+  body?: GraphItemBody
+  '@removed'?: {
+    reason?: string
+  }
 }
 
 interface GraphMessageDeltaResponse {
-  value?: GraphMessage[];
-  "@odata.nextLink"?: string;
-  "@odata.deltaLink"?: string;
+  value?: GraphMessage[]
+  '@odata.nextLink'?: string
+  '@odata.deltaLink'?: string
 }
 
-function normalizeAddressList(recipients?: GraphRecipient[]): string[] | undefined {
+function normalizeAddressList(
+  recipients?: GraphRecipient[],
+): string[] | undefined {
   const values = (recipients || [])
     .map((item) => item.emailAddress?.address || item.emailAddress?.name)
-    .filter((value): value is string => Boolean(value));
-  return values.length ? values : undefined;
+    .filter((value): value is string => Boolean(value))
+  return values.length ? values : undefined
 }
 
 function mapMessage(message: GraphMessage): ExchangeMessage {
   return {
     id: message.id,
-    subject: message.subject || "",
-    from: message.from?.emailAddress?.address || message.from?.emailAddress?.name,
+    subject: message.subject || '',
+    from:
+      message.from?.emailAddress?.address || message.from?.emailAddress?.name,
     to: normalizeAddressList(message.toRecipients),
     bodyPreview: message.bodyPreview,
     isRead: message.isRead,
     receivedAt: message.receivedDateTime,
-  };
+  }
 }
 
 function uniqueMessages(messages: ExchangeMessage[]): ExchangeMessage[] {
-  const seen = new Set<string>();
-  const output: ExchangeMessage[] = [];
+  const seen = new Set<string>()
+  const output: ExchangeMessage[] = []
   for (const message of messages) {
-    if (seen.has(message.id)) continue;
-    seen.add(message.id);
-    output.push(message);
+    if (seen.has(message.id)) continue
+    seen.add(message.id)
+    output.push(message)
   }
   return output.sort((a, b) => {
-    const aTime = a.receivedAt ? new Date(a.receivedAt).getTime() : 0;
-    const bTime = b.receivedAt ? new Date(b.receivedAt).getTime() : 0;
-    return bTime - aTime;
-  });
+    const aTime = a.receivedAt ? new Date(a.receivedAt).getTime() : 0
+    const bTime = b.receivedAt ? new Date(b.receivedAt).getTime() : 0
+    return bTime - aTime
+  })
 }
 
 export class ExchangeClient {
-  private accessToken?: string;
-  private accessTokenExpiresAt = 0;
-  private readonly messageDeltaLinks = new Map<string, string>();
+  private accessToken?: string
+  private accessTokenExpiresAt = 0
+  private readonly messageDeltaLinks = new Map<string, string>()
 
   constructor(private readonly config: ExchangeConfig) {}
 
   private async getAccessToken(): Promise<string> {
-    const now = Date.now();
+    const now = Date.now()
     if (this.accessToken && now < this.accessTokenExpiresAt - 60_000) {
-      return this.accessToken;
+      return this.accessToken
     }
 
     const body = new URLSearchParams({
       client_id: this.config.auth.clientId,
       client_secret: this.config.auth.clientSecret,
-      scope: "https://graph.microsoft.com/.default",
-      grant_type: "client_credentials",
-    });
+      scope: 'https://graph.microsoft.com/.default',
+      grant_type: 'client_credentials',
+    })
 
-    const tokenUrl = `https://login.microsoftonline.com/${this.config.auth.tenantId}/oauth2/v2.0/token`;
+    const tokenUrl = `https://login.microsoftonline.com/${this.config.auth.tenantId}/oauth2/v2.0/token`
     const response = await fetch(tokenUrl, {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
       body,
-    });
+    })
 
     const json = (await response.json()) as {
-      access_token?: string;
-      expires_in?: number;
-      error?: string;
-      error_description?: string;
-    };
+      access_token?: string
+      expires_in?: number
+      error?: string
+      error_description?: string
+    }
 
     if (!response.ok || !json.access_token) {
       throw new Error(
-        `Failed to acquire Microsoft Graph token: ${json.error || response.status} ${json.error_description || ""}`.trim(),
-      );
+        `Failed to acquire Microsoft Graph token: ${json.error || response.status} ${json.error_description || ''}`.trim(),
+      )
     }
 
-    this.accessToken = json.access_token;
-    this.accessTokenExpiresAt = now + (json.expires_in || 3600) * 1000;
-    return this.accessToken;
+    this.accessToken = json.access_token
+    this.accessTokenExpiresAt = now + (json.expires_in || 3600) * 1000
+    return this.accessToken
   }
 
   private getMailboxPath(): string {
     if (!this.config.mailbox) {
-      throw new Error("Exchange mailbox is required for Microsoft Graph application permissions.");
+      throw new Error(
+        'Exchange mailbox is required for Microsoft Graph application permissions.',
+      )
     }
-    return `/users/${this.config.mailbox}`;
+    return `/users/${this.config.mailbox}`
   }
 
   private async graphGetUrl<T>(url: string | URL): Promise<T> {
-    const token = await this.getAccessToken();
+    const token = await this.getAccessToken()
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
-        Accept: "application/json",
+        Accept: 'application/json',
       },
-    });
+    })
 
-    const json = (await response.json()) as T & { error?: { message?: string } };
+    const json = (await response.json()) as T & { error?: { message?: string } }
     if (!response.ok) {
-      throw new Error(json.error?.message || `Microsoft Graph request failed: ${response.status}`);
+      throw new Error(
+        json.error?.message ||
+          `Microsoft Graph request failed: ${response.status}`,
+      )
     }
-    return json as T;
+    return json as T
   }
 
   private async graphGet<T>(
     path: string,
     query?: Record<string, string | number | boolean | undefined>,
   ): Promise<T> {
-    const url = new URL(`https://graph.microsoft.com/v1.0${path}`);
+    const url = new URL(`https://graph.microsoft.com/v1.0${path}`)
     for (const [key, value] of Object.entries(query || {})) {
       if (value !== undefined) {
-        url.searchParams.set(key, String(value));
+        url.searchParams.set(key, String(value))
       }
     }
-    return this.graphGetUrl<T>(url);
+    return this.graphGetUrl<T>(url)
   }
 
   private async listMessagesAtPath(
     path: string,
     options: ExchangeListMessagesOptions = {},
   ): Promise<ExchangeMessage[]> {
-    const maxItems = options.maxItems ?? 20;
-    const filter = options.unreadOnly ? "isRead eq false" : undefined;
+    const maxItems = options.maxItems ?? 20
+    const filter = options.unreadOnly ? 'isRead eq false' : undefined
     const result = await this.graphGet<{ value?: GraphMessage[] }>(path, {
       $top: maxItems,
-      $select: "id,subject,bodyPreview,isRead,receivedDateTime,from,toRecipients",
-      $orderby: "receivedDateTime desc",
+      $select:
+        'id,subject,bodyPreview,isRead,receivedDateTime,from,toRecipients',
+      $orderby: 'receivedDateTime desc',
       $filter: filter,
-    });
+    })
 
-    return (result.value || []).filter((message) => !message["@removed"]).map(mapMessage);
+    return (result.value || [])
+      .filter((message) => !message['@removed'])
+      .map(mapMessage)
   }
 
   private getMessageCollectionPath(folderId?: string): string {
-    const mailboxPath = this.getMailboxPath();
+    const mailboxPath = this.getMailboxPath()
     return folderId
       ? `${mailboxPath}/mailFolders/${folderId}/messages`
-      : `${mailboxPath}/mailFolders/inbox/messages`;
+      : `${mailboxPath}/mailFolders/inbox/messages`
   }
 
   private getMessageDeltaKey(folderId?: string): string {
-    return folderId || "inbox";
+    return folderId || 'inbox'
   }
 
   private async listMessageDeltaChanges(
     options: ExchangeListMessagesOptions = {},
   ): Promise<ExchangeMessage[]> {
-    const deltaKey = this.getMessageDeltaKey(options.folderId);
-    let nextUrl = this.messageDeltaLinks.get(deltaKey);
+    const deltaKey = this.getMessageDeltaKey(options.folderId)
+    let nextUrl = this.messageDeltaLinks.get(deltaKey)
 
     if (!nextUrl) {
       const deltaUrl = new URL(
         `https://graph.microsoft.com/v1.0${this.getMessageCollectionPath(options.folderId)}/delta`,
-      );
+      )
       deltaUrl.searchParams.set(
-        "$select",
-        "id,subject,bodyPreview,isRead,receivedDateTime,from,toRecipients",
-      );
-      nextUrl = deltaUrl.toString();
+        '$select',
+        'id,subject,bodyPreview,isRead,receivedDateTime,from,toRecipients',
+      )
+      nextUrl = deltaUrl.toString()
     }
 
-    const messages: ExchangeMessage[] = [];
-    let latestDeltaLink = this.messageDeltaLinks.get(deltaKey);
+    const messages: ExchangeMessage[] = []
+    let latestDeltaLink = this.messageDeltaLinks.get(deltaKey)
 
     while (nextUrl) {
       const deltaPage: GraphMessageDeltaResponse =
-        await this.graphGetUrl<GraphMessageDeltaResponse>(nextUrl);
+        await this.graphGetUrl<GraphMessageDeltaResponse>(nextUrl)
       messages.push(
         ...(deltaPage.value || [])
-          .filter((message: GraphMessage) => !message["@removed"])
+          .filter((message: GraphMessage) => !message['@removed'])
           .map(mapMessage),
-      );
-      nextUrl = deltaPage["@odata.nextLink"];
-      if (deltaPage["@odata.deltaLink"]) {
-        latestDeltaLink = deltaPage["@odata.deltaLink"];
+      )
+      nextUrl = deltaPage['@odata.nextLink']
+      if (deltaPage['@odata.deltaLink']) {
+        latestDeltaLink = deltaPage['@odata.deltaLink']
       }
     }
 
     if (latestDeltaLink) {
-      this.messageDeltaLinks.set(deltaKey, latestDeltaLink);
+      this.messageDeltaLinks.set(deltaKey, latestDeltaLink)
     }
 
-    return uniqueMessages(messages);
+    return uniqueMessages(messages)
   }
 
   private filterMessages(
     messages: ExchangeMessage[],
     options: ExchangeFindMessagesOptions,
   ): ExchangeMessage[] {
-    const normalizedToIncludes = options.toIncludes?.toLowerCase();
+    const normalizedToIncludes = options.toIncludes?.toLowerCase()
     const filtered = messages.filter((message) => {
       if (options.unreadOnly && message.isRead) {
-        return false;
+        return false
       }
       if (
         options.fromIncludes &&
-        !(message.from || "").toLowerCase().includes(options.fromIncludes.toLowerCase())
+        !(message.from || '')
+          .toLowerCase()
+          .includes(options.fromIncludes.toLowerCase())
       ) {
-        return false;
+        return false
       }
       if (
         normalizedToIncludes &&
-        !(message.to || []).some((entry) => entry.toLowerCase().includes(normalizedToIncludes))
+        !(message.to || []).some((entry) =>
+          entry.toLowerCase().includes(normalizedToIncludes),
+        )
       ) {
-        return false;
+        return false
       }
       if (
         options.subjectIncludes &&
-        !(message.subject || "").toLowerCase().includes(options.subjectIncludes.toLowerCase())
+        !(message.subject || '')
+          .toLowerCase()
+          .includes(options.subjectIncludes.toLowerCase())
       ) {
-        return false;
+        return false
       }
       if (
         options.receivedAfter &&
         message.receivedAt &&
-        new Date(message.receivedAt).getTime() < new Date(options.receivedAfter).getTime()
+        new Date(message.receivedAt).getTime() <
+          new Date(options.receivedAfter).getTime()
       ) {
-        return false;
+        return false
       }
-      return true;
-    });
+      return true
+    })
 
-    return filtered.slice(0, options.maxItems ?? filtered.length);
+    return filtered.slice(0, options.maxItems ?? filtered.length)
   }
 
-  async primeMessageDelta(options: ExchangeListMessagesOptions = {}): Promise<void> {
-    await this.listMessageDeltaChanges(options);
+  async primeMessageDelta(
+    options: ExchangeListMessagesOptions = {},
+  ): Promise<void> {
+    await this.listMessageDeltaChanges(options)
   }
 
   async verifyAccess(): Promise<ExchangeVerificationResult> {
-    const mailbox = this.config.mailbox || "";
-    let tokenAcquired = false;
-    let folderAccess = false;
-    let inboxAccess = false;
-    let mailboxAccess = false;
-    let folderCount: number | undefined;
+    const mailbox = this.config.mailbox || ''
+    let tokenAcquired = false
+    let folderAccess = false
+    let inboxAccess = false
+    let mailboxAccess = false
+    let folderCount: number | undefined
     let folders:
-      | Array<{ displayName: string; totalCount?: number; unreadCount?: number }>
-      | undefined;
-    let inboxSampleSubjects: string[] | undefined;
-    let mailboxSampleSubjects: string[] | undefined;
-    let mailboxSampleRecipients: string[][] | undefined;
+      | Array<{
+          displayName: string
+          totalCount?: number
+          unreadCount?: number
+        }>
+      | undefined
+    let inboxSampleSubjects: string[] | undefined
+    let mailboxSampleSubjects: string[] | undefined
+    let mailboxSampleRecipients: string[][] | undefined
 
-    await this.getAccessToken();
-    tokenAcquired = true;
+    await this.getAccessToken()
+    tokenAcquired = true
 
-    const folderList = await this.listFolders();
-    folderAccess = true;
-    folderCount = folderList.length;
+    const folderList = await this.listFolders()
+    folderAccess = true
+    folderCount = folderList.length
     folders = folderList.map((folder) => ({
       displayName: folder.displayName,
       totalCount: folder.totalCount,
       unreadCount: folder.unreadCount,
-    }));
+    }))
 
-    const inboxMessages = await this.listMessages({ maxItems: 10, unreadOnly: false });
-    inboxAccess = true;
+    const inboxMessages = await this.listMessages({
+      maxItems: 10,
+      unreadOnly: false,
+    })
+    inboxAccess = true
     inboxSampleSubjects = inboxMessages
       .map((message) => message.subject)
       .filter(Boolean)
-      .slice(0, 10);
+      .slice(0, 10)
 
-    const mailboxMessages = await this.listMailboxMessages({ maxItems: 10, unreadOnly: false });
-    mailboxAccess = true;
+    const mailboxMessages = await this.listMailboxMessages({
+      maxItems: 10,
+      unreadOnly: false,
+    })
+    mailboxAccess = true
     mailboxSampleSubjects = mailboxMessages
       .map((message) => message.subject)
       .filter(Boolean)
-      .slice(0, 10);
-    mailboxSampleRecipients = mailboxMessages.map((message) => message.to || []).slice(0, 10);
+      .slice(0, 10)
+    mailboxSampleRecipients = mailboxMessages
+      .map((message) => message.to || [])
+      .slice(0, 10)
 
     return {
       ok: true,
@@ -334,17 +366,18 @@ export class ExchangeClient {
       inboxSampleSubjects,
       mailboxSampleSubjects,
       mailboxSampleRecipients,
-    };
+    }
   }
 
   async listFolders(): Promise<ExchangeFolder[]> {
-    const mailboxPath = this.getMailboxPath();
+    const mailboxPath = this.getMailboxPath()
     const result = await this.graphGet<{ value?: GraphMailFolder[] }>(
       `${mailboxPath}/mailFolders`,
       {
-        $select: "id,displayName,childFolderCount,unreadItemCount,totalItemCount",
+        $select:
+          'id,displayName,childFolderCount,unreadItemCount,totalItemCount',
       },
-    );
+    )
 
     return (result.value || []).map((folder) => ({
       id: folder.id,
@@ -352,39 +385,52 @@ export class ExchangeClient {
       childFolderCount: folder.childFolderCount,
       unreadCount: folder.unreadItemCount,
       totalCount: folder.totalItemCount,
-    }));
+    }))
   }
 
-  async listMessages(options: ExchangeListMessagesOptions = {}): Promise<ExchangeMessage[]> {
-    return this.listMessagesAtPath(this.getMessageCollectionPath(options.folderId), options);
+  async listMessages(
+    options: ExchangeListMessagesOptions = {},
+  ): Promise<ExchangeMessage[]> {
+    return this.listMessagesAtPath(
+      this.getMessageCollectionPath(options.folderId),
+      options,
+    )
   }
 
-  async listMailboxMessages(options: ExchangeListMessagesOptions = {}): Promise<ExchangeMessage[]> {
-    const mailboxPath = this.getMailboxPath();
-    return this.listMessagesAtPath(`${mailboxPath}/messages`, options);
+  async listMailboxMessages(
+    options: ExchangeListMessagesOptions = {},
+  ): Promise<ExchangeMessage[]> {
+    const mailboxPath = this.getMailboxPath()
+    return this.listMessagesAtPath(`${mailboxPath}/messages`, options)
   }
 
   async getMessage(messageId: string): Promise<ExchangeMessageDetail> {
-    const mailboxPath = this.getMailboxPath();
-    const result = await this.graphGet<GraphMessage>(`${mailboxPath}/messages/${messageId}`, {
-      $select: "id,subject,bodyPreview,isRead,receivedDateTime,from,toRecipients,body",
-    });
+    const mailboxPath = this.getMailboxPath()
+    const result = await this.graphGet<GraphMessage>(
+      `${mailboxPath}/messages/${messageId}`,
+      {
+        $select:
+          'id,subject,bodyPreview,isRead,receivedDateTime,from,toRecipients,body',
+      },
+    )
 
-    const mapped = mapMessage(result);
+    const mapped = mapMessage(result)
     return {
       ...mapped,
       body: result.body?.content,
       bodyContentType: result.body?.contentType,
-    };
+    }
   }
 
-  async findMessages(options: ExchangeFindMessagesOptions = {}): Promise<ExchangeMessage[]> {
+  async findMessages(
+    options: ExchangeFindMessagesOptions = {},
+  ): Promise<ExchangeMessage[]> {
     try {
-      const deltaMessages = await this.listMessageDeltaChanges(options);
-      return this.filterMessages(deltaMessages, options);
+      const deltaMessages = await this.listMessageDeltaChanges(options)
+      return this.filterMessages(deltaMessages, options)
     } catch {
-      const inboxMessages = await this.listMessages(options);
-      return this.filterMessages(inboxMessages, options);
+      const inboxMessages = await this.listMessages(options)
+      return this.filterMessages(inboxMessages, options)
     }
   }
 }
