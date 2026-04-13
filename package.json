@@ -7,7 +7,6 @@
   "author": "",
   "private": true,
   "scripts": {
-    "build": "pnpm --filter ./packages/codey run build",
     "fmt": "pnpm --filter ./packages/codey run fmt",
     "fmt:check": "pnpm --filter ./packages/codey run fmt:check",
     "flow": "pnpm --filter ./packages/codey exec jiti",
@@ -16,7 +15,7 @@
     "test": "pnpm --filter ./packages/codey run test"
   },
   "devDependencies": {
-    "oxfmt": "^0.44.0",
+    "oxfmt": "^0.45.0",
     "oxlint": "^1.59.0",
     "typescript": "^6.0.2"
   },

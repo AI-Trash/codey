@@ -7,3 +7,4 @@ npm-debug.log*
 packages/*/dist/
 packages/*/*.tsbuildinfo
 .codey/
+dist
