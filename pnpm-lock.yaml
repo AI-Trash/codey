@@ -7,6 +7,18 @@ settings:
 importers:
 
   .:
+    devDependencies:
+      oxfmt:
+        specifier: ^0.44.0
+        version: 0.44.0
+      oxlint:
+        specifier: ^1.59.0
+        version: 1.59.0
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
+
+  packages/codey:
     dependencies:
       zustand:
         specifier: ^5.0.12
@@ -24,21 +36,12 @@ importers:
       jiti:
         specifier: ^2.6.1
         version: 2.6.1
-      oxfmt:
-        specifier: ^0.44.0
-        version: 0.44.0
-      oxlint:
-        specifier: ^1.59.0
-        version: 1.59.0
       patchright:
         specifier: ^1.59.4
         version: 1.59.4
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
-      typescript:
-        specifier: ^6.0.2
-        version: 6.0.2
       vite:
         specifier: ^8.0.8
         version: 8.0.8(@types/node@25.5.2)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)

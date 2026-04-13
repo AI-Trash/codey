@@ -1,5 +1,7 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+import { resolveWorkspaceRoot } from "./workspace-root";
 
 function loadEnvFile(filePath: string): void {
   if (!fs.existsSync(filePath)) return;
@@ -20,6 +22,6 @@ function loadEnvFile(filePath: string): void {
 }
 
 export function loadWorkspaceEnv(): void {
-  const envPath = path.resolve(process.cwd(), ".env");
+  const envPath = path.join(resolveWorkspaceRoot(fileURLToPath(import.meta.url)), ".env");
   loadEnvFile(envPath);
 }

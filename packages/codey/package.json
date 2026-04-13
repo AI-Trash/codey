@@ -1,0 +1,32 @@
+{
+  "name": "codey",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright library environment for validating OpenAI web flows with Chromium only",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "vite build",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "flow": "jiti",
+    "lint": "oxlint src vite.config.ts test",
+    "lint:fix": "oxlint src vite.config.ts test --fix",
+    "test": "tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "zustand": "^5.0.12"
+  },
+  "devDependencies": {
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@types/node": "^25.5.2",
+    "cac": "^7.0.0",
+    "jiti": "^2.6.1",
+    "patchright": "^1.59.4",
+    "tsx": "^4.21.0",
+    "vite": "^8.0.8"
+  }
+}

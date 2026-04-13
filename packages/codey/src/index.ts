@@ -1,8 +1,5 @@
 export { launchBrowser, newSession } from "./core/browser";
-export {
-  registerChatGPT,
-  loginChatGPTWithStoredPasskey,
-} from "./flows";
+export { registerChatGPT, loginChatGPTWithStoredPasskey } from "./flows";
 export { resolveConfig, defaultConfig } from "./config";
 export * from "./state-machine";
 export {

@@ -4,10 +4,7 @@ import { cac } from "cac";
 import { loadWorkspaceEnv } from "./utils/env";
 loadWorkspaceEnv();
 
-import {
-  loginChatGPTWithStoredPasskey,
-  registerChatGPT,
-} from "./flows";
+import { loginChatGPTWithStoredPasskey, registerChatGPT } from "./flows";
 import { ExchangeClient } from "./modules/exchange";
 import {
   execute,

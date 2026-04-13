@@ -277,8 +277,7 @@ async function triggerStoredPasskeyLogin(
 
     const passkeyReady =
       postEmailStep === "passkey" ? true : await waitForPasskeyEntryReady(page, 20000);
-    if (!passkeyReady)
-      throw new Error("Passkey entry button did not appear on the login surface.");
+    if (!passkeyReady) throw new Error("Passkey entry button did not appear on the login surface.");
     const triggered = await clickPasskeyEntry(page);
     if (!triggered)
       throw new Error("Passkey entry button became visible but could not be clicked.");
@@ -451,20 +450,20 @@ export async function loginChatGPTWithStoredPasskey(
     };
     const snapshot = machine.succeed("completed", {
       event: "chatgpt.completed",
-        patch: {
-          email: stored.identity.email,
-          method: passkey.method,
-          storedIdentity: stored.summary,
-          url: result.url,
-          title: result.title,
-          lastMessage:
-            passkey.method === "passkey"
-              ? "ChatGPT passkey login completed"
-              : passkey.method === "verification"
-                ? "ChatGPT verification fallback login completed"
-                : "ChatGPT password fallback login completed",
-        },
-      });
+      patch: {
+        email: stored.identity.email,
+        method: passkey.method,
+        storedIdentity: stored.summary,
+        url: result.url,
+        title: result.title,
+        lastMessage:
+          passkey.method === "passkey"
+            ? "ChatGPT passkey login completed"
+            : passkey.method === "verification"
+              ? "ChatGPT verification fallback login completed"
+              : "ChatGPT password fallback login completed",
+      },
+    });
     result.machine = snapshot;
     return result;
   } catch (error) {

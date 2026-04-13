@@ -326,9 +326,7 @@ export async function waitForLoginEmailSubmissionOutcome(
   return "unknown";
 }
 
-export async function detectPostEmailLoginStep(
-  page: Page,
-): Promise<ChatGPTPostEmailLoginStep> {
+export async function detectPostEmailLoginStep(page: Page): Promise<ChatGPTPostEmailLoginStep> {
   if (await waitForAuthenticatedSession(page, 250)) return "authenticated";
   if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) return "passkey";
   if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS)) return "verification";

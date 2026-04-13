@@ -31,7 +31,7 @@ Codey loads environment variables from a local `.env` file automatically. You ca
 
 ### 1. Create your environment file
 
-Copy `C:\Users\Summp\Desktop\codey\.env.example` to `.env` and update the values you need.
+Copy `.env.example` to `.env` at the repository root and update the values you need.
 
 Example:
 
@@ -196,10 +196,10 @@ Codey supports only Patchright Chrome.
 `chatgpt-register` uses a single registration path. It attempts passkey provisioning by default, so you only need `--createPasskey false` when you want to skip passkey setup.
 
 ```bash
-pnpm exec tsx src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000
-pnpm exec tsx src/cli.ts flow chatgpt-register --sameSessionPasskeyCheck true
-pnpm exec tsx src/cli.ts flow chatgpt-register --createPasskey false
-pnpm exec tsx src/cli.ts flow chatgpt-login-passkey
+pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000
+pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-register --sameSessionPasskeyCheck true
+pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-register --createPasskey false
+pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-login-passkey
 ```
 
 ### Persisted ChatGPT identities
@@ -220,9 +220,9 @@ The saved record includes:
 You can later try signing in with the stored identity:
 
 ```bash
-pnpm exec tsx src/cli.ts flow chatgpt-login-passkey
-pnpm exec tsx src/cli.ts flow chatgpt-login-passkey --email stored-address@example.com
-pnpm exec tsx src/cli.ts flow chatgpt-login-passkey --identityId <saved-identity-id>
+pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-login-passkey
+pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-login-passkey --email stored-address@example.com
+pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-login-passkey --identityId <saved-identity-id>
 ```
 
 The login flow uses the saved passkey identity by submitting the stored email first and then continuing through the passkey prompt.
@@ -232,25 +232,25 @@ The login flow uses the saved passkey identity by submitting the stored email fi
 Verify Exchange access:
 
 ```bash
-pnpm exec tsx src/cli.ts exchange verify
+pnpm --filter ./packages/codey exec tsx src/cli.ts exchange verify
 ```
 
 List folders:
 
 ```bash
-pnpm exec tsx src/cli.ts exchange folders
+pnpm --filter ./packages/codey exec tsx src/cli.ts exchange folders
 ```
 
 List messages from Inbox:
 
 ```bash
-pnpm exec tsx src/cli.ts exchange messages --maxItems 20
+pnpm --filter ./packages/codey exec tsx src/cli.ts exchange messages --maxItems 20
 ```
 
 List unread messages from a specific folder:
 
 ```bash
-pnpm exec tsx src/cli.ts exchange messages --folderId <folder-id> --unreadOnly true
+pnpm --filter ./packages/codey exec tsx src/cli.ts exchange messages --folderId <folder-id> --unreadOnly true
 ```
 
 ## Available CLI options
@@ -284,6 +284,8 @@ Exchange-specific options:
 pnpm build
 ```
 
+Build output is written to `packages/codey/dist`.
+
 ## Format
 
 ```bash
@@ -296,6 +298,12 @@ pnpm fmt:check
 ```bash
 pnpm lint
 pnpm lint:fix
+```
+
+## Test
+
+```bash
+pnpm test
 ```
 
 ## Troubleshooting

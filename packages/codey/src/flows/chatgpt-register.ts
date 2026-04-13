@@ -399,10 +399,10 @@ export async function registerChatGPT(
     {
       email,
       prefix,
-        mailbox: config.exchange.mailbox,
-        createPasskey,
-        passkeyCreated: false,
-        url: CHATGPT_ENTRY_LOGIN_URL,
+      mailbox: config.exchange.mailbox,
+      createPasskey,
+      passkeyCreated: false,
+      url: CHATGPT_ENTRY_LOGIN_URL,
     },
     {
       source: "registerChatGPT",
@@ -590,16 +590,13 @@ export async function registerChatGPT(
                 lastMessage: "Running same-session passkey check",
               },
             );
-            return runSameSessionPasskeyCheck(
-              page,
-              {
-                email,
-                password,
-                exchangeClient,
-                verificationTimeoutMs,
-                pollIntervalMs,
-              },
-            );
+            return runSameSessionPasskeyCheck(page, {
+              email,
+              password,
+              exchangeClient,
+              verificationTimeoutMs,
+              pollIntervalMs,
+            });
           })()
         : undefined;
     const resolvedSameSessionPasskeyCheck = await sameSessionPasskeyCheck;

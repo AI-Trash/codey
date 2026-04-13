@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { loadWorkspaceEnv } from "./utils/env";
+import { resolveWorkspaceRoot } from "./utils/workspace-root";
 
 export interface BrowserCliConfig {
   headless: boolean;
@@ -83,11 +84,10 @@ function mergeDeep<T>(base: T, patch?: PartialDeep<T>): T {
   return output as T;
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const rootDir = path.resolve(__dirname, "..");
+const workspaceRoot = resolveWorkspaceRoot(fileURLToPath(import.meta.url));
 
 function buildDefaultConfig(): AppConfig {
+  loadWorkspaceEnv();
   const exchangeMailFlowCatchAll = process.env.EXCHANGE_CATCH_ALL_PREFIX
     ? {
         prefix: process.env.EXCHANGE_CATCH_ALL_PREFIX,
@@ -95,8 +95,8 @@ function buildDefaultConfig(): AppConfig {
     : undefined;
 
   return {
-    rootDir,
-    artifactsDir: path.join(rootDir, "artifacts"),
+    rootDir: workspaceRoot,
+    artifactsDir: path.join(workspaceRoot, "artifacts"),
     browser: {
       headless: parseBoolean(process.env.HEADLESS, false),
       slowMo: parseNumber(process.env.SLOW_MO, 0),
@@ -138,7 +138,7 @@ export function loadConfigFile(configFile?: string): PartialDeep<AppConfig> | un
   if (!configFile) return undefined;
   const resolved = path.isAbsolute(configFile)
     ? configFile
-    : path.resolve(process.cwd(), configFile);
+    : path.resolve(workspaceRoot, configFile);
   if (!fs.existsSync(resolved)) {
     throw new Error(`Config file not found: ${resolved}`);
   }

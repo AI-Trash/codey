@@ -1,33 +1,24 @@
 {
-  "name": "codey",
+  "name": "codey-workspace",
   "version": "1.0.0",
   "description": "Playwright library environment for validating OpenAI web flows with Chromium only",
   "keywords": [],
   "license": "ISC",
   "author": "",
-  "main": "dist/index.js",
+  "private": true,
   "scripts": {
-    "build": "vite build",
-    "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check",
-    "flow": "jiti",
-    "lint": "oxlint src vite.config.ts",
-    "lint:fix": "oxlint src vite.config.ts --fix"
-  },
-  "dependencies": {
-    "zustand": "^5.0.12"
+    "build": "pnpm --filter ./packages/codey run build",
+    "fmt": "pnpm --filter ./packages/codey run fmt",
+    "fmt:check": "pnpm --filter ./packages/codey run fmt:check",
+    "flow": "pnpm --filter ./packages/codey exec jiti",
+    "lint": "pnpm --filter ./packages/codey run lint",
+    "lint:fix": "pnpm --filter ./packages/codey run lint:fix",
+    "test": "pnpm --filter ./packages/codey run test"
   },
   "devDependencies": {
-    "@microsoft/microsoft-graph-client": "^3.0.7",
-    "@types/node": "^25.5.2",
-    "cac": "^7.0.0",
-    "jiti": "^2.6.1",
     "oxfmt": "^0.44.0",
     "oxlint": "^1.59.0",
-    "patchright": "^1.59.4",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.8"
+    "typescript": "^6.0.2"
   },
   "packageManager": "pnpm@10.33.0"
 }
