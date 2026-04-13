@@ -8,3 +8,7 @@ packages/*/dist/
 packages/*/*.tsbuildinfo
 .codey/
 dist
+.tanstack
+.wrangler
+.nitro
+.output
