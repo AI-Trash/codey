@@ -28,6 +28,7 @@
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "lucide-react": "catalog:",
+    "nitro": "3.0.260311-beta",
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "catalog:",
@@ -35,9 +36,6 @@
     "tw-animate-css": "catalog:"
   },
   "devDependencies": {
-    "oxfmt": "catalog:",
-    "oxlint": "catalog:",
-    "typescript": "catalog:",
     "@inlang/paraglide-js": "catalog:",
     "@tailwindcss/typography": "catalog:",
     "@tanstack/devtools-vite": "catalog:",
@@ -48,6 +46,9 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "jsdom": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
   },
