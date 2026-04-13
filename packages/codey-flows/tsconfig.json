@@ -8,9 +8,15 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "composite": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "vite.config.ts"
+  ]
 }

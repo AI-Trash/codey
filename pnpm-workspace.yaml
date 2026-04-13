@@ -1,2 +1,15 @@
 packages:
   - packages/*
+
+linkWorkspacePackages: true
+
+catalog:
+  "zustand": "^5.0.12"
+  "@microsoft/microsoft-graph-client": "^3.0.7"
+  "@types/node": "^25.5.2"
+  "cac": "^7.0.0"
+  "jiti": "^2.6.1"
+  "patchright": "^1.59.4"
+  "oxfmt": "^0.45.0"
+  "oxlint": "^1.59.0"
+  "typescript": "^6.0.2"

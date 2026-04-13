@@ -1,5 +1,5 @@
 {
-  "name": "codey-workspace",
+  "name": "codey",
   "version": "1.0.0",
   "description": "Playwright library environment for validating OpenAI web flows with Chromium only",
   "keywords": [],
@@ -15,9 +15,9 @@
     "test": "pnpm --filter ./packages/codey run test"
   },
   "devDependencies": {
-    "oxfmt": "^0.45.0",
-    "oxlint": "^1.59.0",
-    "typescript": "^6.0.2"
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:"
   },
   "packageManager": "pnpm@10.33.0"
 }

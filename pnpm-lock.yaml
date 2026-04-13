@@ -4,40 +4,70 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@microsoft/microsoft-graph-client':
+      specifier: ^3.0.7
+      version: 3.0.7
+    '@types/node':
+      specifier: ^25.5.2
+      version: 25.5.2
+    cac:
+      specifier: ^7.0.0
+      version: 7.0.0
+    jiti:
+      specifier: ^2.6.1
+      version: 2.6.1
+    oxfmt:
+      specifier: ^0.45.0
+      version: 0.45.0
+    oxlint:
+      specifier: ^1.59.0
+      version: 1.59.0
+    patchright:
+      specifier: ^1.59.4
+      version: 1.59.4
+    typescript:
+      specifier: ^6.0.2
+      version: 6.0.2
+    zustand:
+      specifier: ^5.0.12
+      version: 5.0.12
+
 importers:
 
   .:
     devDependencies:
       oxfmt:
-        specifier: ^0.45.0
+        specifier: 'catalog:'
         version: 0.45.0
       oxlint:
-        specifier: ^1.59.0
+        specifier: 'catalog:'
         version: 1.59.0
       typescript:
-        specifier: ^6.0.2
+        specifier: 'catalog:'
         version: 6.0.2
 
-  packages/codey:
+  packages/codey-flows:
     dependencies:
       zustand:
-        specifier: ^5.0.12
+        specifier: 'catalog:'
         version: 5.0.12
     devDependencies:
       '@microsoft/microsoft-graph-client':
-        specifier: ^3.0.7
+        specifier: 'catalog:'
         version: 3.0.7
       '@types/node':
-        specifier: ^25.5.2
+        specifier: 'catalog:'
         version: 25.5.2
       cac:
-        specifier: ^7.0.0
+        specifier: 'catalog:'
         version: 7.0.0
       jiti:
-        specifier: ^2.6.1
+        specifier: 'catalog:'
         version: 2.6.1
       patchright:
-        specifier: ^1.59.4
+        specifier: 'catalog:'
         version: 1.59.4
 
 packages:
