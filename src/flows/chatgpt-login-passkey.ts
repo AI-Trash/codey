@@ -177,7 +177,7 @@ async function triggerStoredPasskeyLogin(
     virtualAuthenticator?: VirtualAuthenticatorOptions;
   } = {},
 ): Promise<{
-  method: "passkey" | "password";
+  method: "passkey" | "password" | "verification";
   assertionObserved: boolean;
   passkeyStore: VirtualPasskeyStore;
   verificationCode?: string;
