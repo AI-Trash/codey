@@ -12,6 +12,12 @@ catalogs:
     '@microsoft/microsoft-graph-client':
       specifier: ^3.0.7
       version: 3.0.7
+    '@prisma/adapter-better-sqlite3':
+      specifier: ^7.7.0
+      version: 7.7.0
+    '@prisma/client':
+      specifier: ^7.7.0
+      version: 7.7.0
     '@tailwindcss/typography':
       specifier: ^0.5.16
       version: 0.5.19
@@ -66,6 +72,9 @@ catalogs:
     clsx:
       specifier: ^2.1.1
       version: 2.1.1
+    dotenv:
+      specifier: ^17.4.2
+      version: 17.4.2
     jiti:
       specifier: ^2.6.1
       version: 2.6.1
@@ -75,6 +84,9 @@ catalogs:
     lucide-react:
       specifier: ^0.577.0
       version: 0.577.0
+    nitro:
+      specifier: 3.0.260311-beta
+      version: 3.0.260311-beta
     oxfmt:
       specifier: ^0.45.0
       version: 0.45.0
@@ -84,12 +96,18 @@ catalogs:
     patchright:
       specifier: ^1.59.4
       version: 1.59.4
+    prisma:
+      specifier: ^7.7.0
+      version: 7.7.0
     react:
       specifier: ^19.2.0
       version: 19.2.5
     react-dom:
       specifier: ^19.2.0
       version: 19.2.5
+    server-only:
+      specifier: ^0.0.1
+      version: 0.0.1
     tailwind-merge:
       specifier: ^3.0.2
       version: 3.5.0
@@ -117,10 +135,10 @@ importers:
   .:
     dependencies:
       '@prisma/adapter-better-sqlite3':
-        specifier: ^7.7.0
+        specifier: 'catalog:'
         version: 7.7.0
       '@prisma/client':
-        specifier: ^7.7.0
+        specifier: 'catalog:'
         version: 7.7.0(prisma@7.7.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(better-sqlite3@12.9.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.2))(typescript@6.0.2)
       '@tailwindcss/vite':
         specifier: 'catalog:'
@@ -150,13 +168,13 @@ importers:
         specifier: 'catalog:'
         version: 2.1.1
       dotenv:
-        specifier: ^17.4.2
+        specifier: 'catalog:'
         version: 17.4.2
       lucide-react:
         specifier: 'catalog:'
         version: 0.577.0(react@19.2.5)
       nitro:
-        specifier: 3.0.260311-beta
+        specifier: 'catalog:'
         version: 3.0.260311-beta(@electric-sql/pglite@0.4.1)(better-sqlite3@12.9.0)(chokidar@4.0.3)(dotenv@17.4.2)(giget@2.0.0)(jiti@2.6.1)(lru-cache@11.3.5)(mysql2@3.15.3)(rollup@4.60.1)(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0))
       react:
         specifier: 'catalog:'
@@ -165,7 +183,7 @@ importers:
         specifier: 'catalog:'
         version: 19.2.5(react@19.2.5)
       server-only:
-        specifier: ^0.0.1
+        specifier: 'catalog:'
         version: 0.0.1
       tailwind-merge:
         specifier: 'catalog:'
@@ -214,7 +232,7 @@ importers:
         specifier: 'catalog:'
         version: 1.59.0
       prisma:
-        specifier: ^7.7.0
+        specifier: 'catalog:'
         version: 7.7.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(better-sqlite3@12.9.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(typescript@6.0.2)
       typescript:
         specifier: 'catalog:'
@@ -226,8 +244,13 @@ importers:
         specifier: 'catalog:'
         version: 3.2.4(@types/node@22.19.17)(jiti@2.6.1)(jsdom@28.1.0)(lightningcss@1.32.0)(tsx@4.21.0)
 
+  packages/cloudflare-email-worker: {}
+
   packages/flows:
     dependencies:
+      dotenv:
+        specifier: 'catalog:'
+        version: 17.4.2
       zustand:
         specifier: 'catalog:'
         version: 5.0.12(@types/react@19.2.14)(react@19.2.5)(use-sync-external-store@1.6.0(react@19.2.5))

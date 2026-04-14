@@ -21,8 +21,8 @@
     "test": "pnpm --filter ./packages/flows run test"
   },
   "dependencies": {
-    "@prisma/adapter-better-sqlite3": "^7.7.0",
-    "@prisma/client": "^7.7.0",
+    "@prisma/adapter-better-sqlite3": "catalog:",
+    "@prisma/client": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-devtools": "catalog:",
     "@tanstack/react-router": "catalog:",
@@ -32,12 +32,12 @@
     "@tanstack/router-plugin": "catalog:",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
-    "dotenv": "^17.4.2",
+    "dotenv": "catalog:",
     "lucide-react": "catalog:",
-    "nitro": "3.0.260311-beta",
+    "nitro": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "server-only": "^0.0.1",
+    "server-only": "catalog:",
     "tailwind-merge": "catalog:",
     "tailwindcss": "catalog:",
     "tw-animate-css": "catalog:"
@@ -55,7 +55,7 @@
     "jsdom": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
-    "prisma": "^7.7.0",
+    "prisma": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
