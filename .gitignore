@@ -12,3 +12,9 @@ dist
 .wrangler
 .nitro
 .output
+prisma/dev.db
+prisma/dev.db-journal
+prisma/*.db
+prisma/*.db-journal
+src/generated/prisma/
+src/routeTree.gen.ts

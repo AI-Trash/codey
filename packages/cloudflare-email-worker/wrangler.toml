@@ -1,0 +1,8 @@
+name = "codey-cloudflare-email-worker"
+main = "src/index.ts"
+compatibility_date = "2026-04-14"
+
+[vars]
+CODEY_INGEST_URL = "http://localhost:3000/api/ingest/cloudflare-email"
+CODEY_SIGNATURE_HEADER = "x-codey-signature"
+CODEY_TIMESTAMP_HEADER = "x-codey-timestamp"

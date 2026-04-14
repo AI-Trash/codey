@@ -1,0 +1,33 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { denyDeviceChallenge } from "../../../../../lib/server/device-auth";
+import { requireAdmin } from "../../../../../lib/server/auth";
+import { json, redirect, text } from "../../../../../lib/server/http";
+
+export const Route = createFileRoute("/api/admin/device/$deviceCode/deny")({
+  server: {
+    handlers: {
+      POST: async ({ request, params }) => {
+        try {
+          await requireAdmin(request);
+        } catch (error) {
+          return text(
+            error instanceof Error ? error.message : "Unauthorized",
+            401,
+          );
+        }
+
+        const form = await request.formData();
+        const approvalMessage =
+          String(form.get("approvalMessage") || "") || undefined;
+        await denyDeviceChallenge(params.deviceCode, approvalMessage);
+
+        const accept = request.headers.get("accept") || "";
+        if (accept.includes("application/json")) {
+          return json({ ok: true });
+        }
+
+        return redirect("/admin");
+      },
+    },
+  },
+});

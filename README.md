@@ -1,315 +1,190 @@
 # Codey
 
-Codey is a TypeScript CLI and helper library for validating OpenAI web flows and reading Exchange mailbox data through Microsoft Graph.
+Codey is now a small TanStack Start control plane plus a TypeScript CLI for ChatGPT/OpenAI browser flows.
 
-## Features
+It preserves the original Exchange mailbox verification path, adds a pluggable verification-provider layer, and includes a built-in app-backed path for:
 
-- Validate OpenAI and ChatGPT page flows with Patchright Chrome sessions
-- Read Exchange mailbox folders and messages through Microsoft Graph application permissions
-- Support a configurable catch-all email prefix convention such as `codey*`
-- Configure settings with environment variables or a JSON config file
-- Persist ChatGPT registration identities locally for later login attempts, including password and virtual passkey data
+- Cloudflare Email Routing -> Email Worker -> TanStack Start ingest
+- GitHub OAuth browser login for admins
+- device-code style CLI authentication
+- SSE delivery of verification codes and admin notifications to CLI daemons
+
+## What is implemented
+
+- Exchange verification remains available through the existing Microsoft Graph client flow
+- `packages/flows` now resolves verification through a provider abstraction instead of hard-coded Exchange polling
+- the TanStack Start app exposes:
+  - `POST /api/verification/email-reservations`
+  - `GET /api/verification/codes`
+  - `GET /api/verification/events`
+  - `POST /api/ingest/cloudflare-email`
+  - `POST /api/device`
+  - `GET|POST /api/device/{deviceCode}`
+  - `GET /api/device/{deviceCode}/events`
+  - `GET /api/cli/events`
+- browser admin routes:
+  - `/admin/login`
+  - `/admin`
+  - `/device`
+- CLI commands:
+  - `flow ...`
+  - `exchange ...`
+  - `auth login|status|logout|codex-login|codex-status`
+  - `daemon start`
+- a Cloudflare Email Worker package exists at `packages/cloudflare-email-worker`
 
 ## Requirements
 
 - Node.js 20+
 - pnpm 10+
-- Exchange Online / Microsoft 365
-- A Microsoft Entra ID app registration if you want to use the Exchange commands
-- Patchright Chrome installed with `pnpx patchright install chrome`
+- Patchright Chrome installed via `pnpx patchright install chrome`
+- Exchange Online / Microsoft 365 if you want the legacy Exchange provider
+- GitHub OAuth credentials if you want browser admin login
+- Cloudflare Email Routing + Email Worker if you want the built-in app-backed provider
 
 ## Installation
 
 ```bash
 pnpm install
+pnpm prisma generate
+pnpm prisma db push
 pnpx patchright install chrome
 ```
 
-## Configuration
+## Environment
 
-Codey loads environment variables from a local `.env` file automatically. You can also pass a JSON config file with `--config`.
+Copy `.env.example` to `.env` and fill the parts you need.
 
-### 1. Create your environment file
-
-Copy `.env.example` to `.env` at the repository root and update the values you need.
-
-Example:
+Typical local app-backed setup:
 
 ```env
-HEADLESS=false
-SLOW_MO=0
-OPENAI_BASE_URL=https://openai.com
-CHATGPT_URL=https://chatgpt.com
-DEFAULT_TIMEOUT_MS=15000
-NAVIGATION_TIMEOUT_MS=30000
+DATABASE_URL=file:./prisma/dev.db
+APP_BASE_URL=http://localhost:3000
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
 
+VERIFICATION_PROVIDER=app
+VERIFICATION_MAILBOX=codey@your-domain.com
+CLOUDFLARE_EMAIL_WEBHOOK_SECRET=replace-with-a-long-random-secret
+
+APP_CLI_EVENTS_PATH=/api/cli/events
+APP_DEVICE_START_PATH=/api/device
+APP_DEVICE_STATUS_PATH=/api/device/{deviceCode}
+APP_DEVICE_EVENTS_PATH=/api/device/{deviceCode}/events
+VERIFICATION_APP_BASE_URL=http://localhost:3000
+VERIFICATION_APP_RESERVE_EMAIL_PATH=/api/verification/email-reservations
+VERIFICATION_APP_CODE_PATH=/api/verification/codes
+VERIFICATION_APP_EVENTS_PATH=/api/verification/events
+```
+
+Typical legacy Exchange setup:
+
+```env
 EXCHANGE_TENANT_ID=your-tenant-id
 EXCHANGE_CLIENT_ID=your-app-client-id
 EXCHANGE_CLIENT_SECRET=your-app-client-secret
 EXCHANGE_MAILBOX=codey-shared@contoso.com
 EXCHANGE_CATCH_ALL_PREFIX=codey
-CODEY_CREDENTIALS_MASTER_KEY=replace-this-with-a-long-random-secret
 ```
 
-`CODEY_CREDENTIALS_MASTER_KEY` is optional but strongly recommended. When it is set, Codey encrypts persisted ChatGPT identities with AES-256-GCM before writing them to disk.
+## Verification providers
 
-`VIRTUAL_AUTHENTICATOR_AAGUID` is optional. When omitted, Codey uses Bitwarden's AAGUID (`d548826e-79b4-db40-a3d8-11116f7e8349`) for the virtual authenticator so attestation requests receive a stable default authenticator identity.
+Codey now supports two provider modes:
 
-### 2. Configure Exchange access
+- `exchange` — preserve the original Exchange / Graph polling behavior
+- `app` — reserve email aliases from the app and receive verification codes via app SSE / Cloudflare ingest
 
-To use the `exchange` commands, create a Microsoft Entra ID application with Microsoft Graph application permissions.
+Resolution order:
 
-#### Required values
+1. explicit `VERIFICATION_PROVIDER`
+2. Exchange if Exchange config is present
+3. app-backed provider if app verification config is present
 
-- `EXCHANGE_TENANT_ID`: Your Microsoft Entra tenant ID
-- `EXCHANGE_CLIENT_ID`: The application (client) ID of your app registration
-- `EXCHANGE_CLIENT_SECRET`: A client secret created for that app
-- `EXCHANGE_MAILBOX`: The mailbox address to query, for example `codey-shared@contoso.com`
-
-#### Recommended setup steps
-
-1. Open the Azure portal and go to **Microsoft Entra ID** -> **App registrations**.
-2. Create or select an app registration.
-3. Under **Certificates & secrets**, create a new client secret and save it securely.
-4. Under **API permissions**, add **Microsoft Graph** -> **Application permissions**.
-5. Grant the mail permissions required by your use case, such as:
-   - `Mail.Read`
-   - `Mail.ReadBasic.All` (optional if basic metadata is enough)
-6. Click **Grant admin consent** for the tenant.
-7. Put the tenant ID, client ID, client secret, and mailbox address in your `.env` file or JSON config.
-
-> Note: This project uses the OAuth 2.0 client credentials flow.
-
-### 3. Optional but recommended: configure a shared mailbox for Codey
-
-If you do not want to use a dedicated user mailbox for automation, configure an Exchange shared mailbox specifically for Codey.
-
-#### Why use a shared mailbox
-
-- Keeps Codey traffic isolated from personal inboxes
-- Avoids creating a separate end-user login just for test mail
-- Gives admins a single mailbox to inspect for automation issues
-
-#### How to configure the shared mailbox in Microsoft 365 admin
-
-1. Open the **Microsoft 365 admin center**.
-2. Go to **Teams & groups** -> **Shared mailboxes**.
-3. Click **Add a shared mailbox**.
-4. Enter a name such as `Codey Shared Mailbox`.
-5. Enter an email such as `codey-shared@contoso.com`.
-6. Create the mailbox.
-7. Wait until the mailbox appears in Exchange Online.
-
-#### Exchange-side recommendations
-
-After the shared mailbox exists, ask your Microsoft 365 / Exchange admin to:
-
-1. Confirm the shared mailbox can receive mail from the scenarios you want to test.
-2. Create any mail-flow or routing rules needed for prefixed addresses such as `codey*@contoso.com`.
-3. If required by your tenant policy, scope your app registration so it can read this shared mailbox.
-4. Verify the mailbox has an Inbox and that test messages arrive there.
-
-#### What to put in Codey config
-
-Use the shared mailbox SMTP address as `EXCHANGE_MAILBOX`.
-
-Example:
-
-```env
-EXCHANGE_MAILBOX=codey-shared@contoso.com
-```
-
-This is optional. A normal mailbox also works if that better matches your environment.
-
-### 4. Catch-all prefix convention
-
-If your mailbox setup uses prefixed test addresses such as `codey*`, configure the prefix in Codey so your application and test flows can use a consistent address pattern.
-
-#### Supported configuration
-
-- `EXCHANGE_CATCH_ALL_PREFIX`: The reserved address prefix, for example `codey`
-
-#### Example convention
-
-- Shared mailbox: `codey-shared@contoso.com`
-- Prefix: `codey`
-- Test address pattern: `codey*@contoso.com`
-
-#### Important rule-setting note
-
-If you create a dedicated Exchange mail-flow rule for Codey addresses, make sure the rule is configured to **stop processing more rules** after it matches.
-
-This is important when your tenant also has a broader catch-all or forwarding rule. Without **Stop processing more rules**, the Codey message can match your Codey rule first and then continue into another broader rule, causing the message to be forwarded or redirected somewhere else instead of remaining in the Codey mailbox.
-
-Recommended behavior for the Codey-specific rule:
-
-- Match the Codey prefix, for example `codey*@contoso.com`
-- Deliver or redirect to the Codey mailbox you configured
-- Enable **Stop processing more rules**
-- Place the rule above broader catch-all rules when possible
-
-### 5. Optional JSON config
-
-Instead of environment variables, you can provide a JSON file:
-
-```json
-{
-  "browser": {
-    "headless": false,
-    "slowMo": 0,
-    "defaultTimeoutMs": 15000,
-    "navigationTimeoutMs": 30000
-  },
-  "openai": {
-    "baseUrl": "https://openai.com",
-    "chatgptUrl": "https://chatgpt.com"
-  },
-  "exchange": {
-    "mailbox": "codey-shared@contoso.com",
-    "auth": {
-      "mode": "client_credentials",
-      "tenantId": "your-tenant-id",
-      "clientId": "your-app-client-id",
-      "clientSecret": "your-app-client-secret"
-    },
-    "mailFlow": {
-      "catchAll": {
-        "prefix": "codey"
-      }
-    }
-  }
-}
-```
-
-## Browser support
-
-Codey supports only Patchright Chrome.
-
-- Install it with `pnpx patchright install chrome`
-- Codey launches Patchright with `channel: "chrome"`
-- No custom browser path configuration is required
-
-## Usage
-
-### OpenAI flow commands
-
-`chatgpt-register` uses a single registration path. It attempts passkey provisioning by default, so you only need `--createPasskey false` when you want to skip passkey setup.
+## Running the app
 
 ```bash
-pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000
-pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-register --sameSessionPasskeyCheck true
-pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-register --createPasskey false
-pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-login-passkey
+pnpm dev
 ```
 
-### Persisted ChatGPT identities
+Then open:
 
-`chatgpt-register` now saves the generated ChatGPT identity to:
+- `http://localhost:3000/admin/login` to sign in with GitHub
+- `http://localhost:3000/admin` to inspect device challenges, notifications, reservations, and verification codes
 
-```text
-C:\Users\Summp\Documents\GitHub\codey\.codey\credentials\chatgpt-identities.json
-```
+## CLI usage
 
-The saved record includes:
-
-- ChatGPT email
-- Account password
-- Registration metadata such as prefix and mailbox
-- Virtual WebAuthn passkey credentials when passkey provisioning succeeds
-
-You can later try signing in with the stored identity:
+### Flow commands
 
 ```bash
-pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-login-passkey
-pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-login-passkey --email stored-address@example.com
-pnpm --filter ./packages/codey exec tsx src/cli.ts flow chatgpt-login-passkey --identityId <saved-identity-id>
+pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000
+pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-login-passkey
 ```
-
-The login flow uses the saved passkey identity by submitting the stored email first and then continuing through the passkey prompt.
 
 ### Exchange commands
 
-Verify Exchange access:
-
 ```bash
-pnpm --filter ./packages/codey exec tsx src/cli.ts exchange verify
+pnpm --filter ./packages/flows exec jiti src/cli.ts exchange verify
+pnpm --filter ./packages/flows exec jiti src/cli.ts exchange folders
+pnpm --filter ./packages/flows exec jiti src/cli.ts exchange messages --maxItems 20
 ```
 
-List folders:
+### CLI auth commands
+
+Authenticate the CLI against the app with a device-code style flow:
 
 ```bash
-pnpm --filter ./packages/codey exec tsx src/cli.ts exchange folders
+pnpm --filter ./packages/flows exec jiti src/cli.ts auth login --target octocat
+pnpm --filter ./packages/flows exec jiti src/cli.ts auth status
+pnpm --filter ./packages/flows exec jiti src/cli.ts auth logout
 ```
 
-List messages from Inbox:
+### CLI daemon notifications
 
 ```bash
-pnpm --filter ./packages/codey exec tsx src/cli.ts exchange messages --maxItems 20
+pnpm --filter ./packages/flows exec jiti src/cli.ts daemon start --target octocat
 ```
 
-List unread messages from a specific folder:
+The daemon keeps an SSE connection to `/api/cli/events` and prints admin notifications as JSON.
+
+### Simplified Codex OAuth flow
 
 ```bash
-pnpm --filter ./packages/codey exec tsx src/cli.ts exchange messages --folderId <folder-id> --unreadOnly true
+pnpm --filter ./packages/flows exec jiti src/cli.ts auth codex-login
+pnpm --filter ./packages/flows exec jiti src/cli.ts auth codex-status
 ```
 
-## Available CLI options
+This uses the existing localhost callback helper and stores the resulting token under `.codey/credentials/`.
 
-Common options for `flow` and `exchange` commands:
+## Cloudflare Email Worker
 
-- `--config <file>`: Load configuration from a JSON file
-- `--profile <name>`: Reserved for future profile support
-- `--headless <bool>`: Override browser headless mode
-- `--slowMo <ms>`: Override browser slow motion delay
+The built-in Worker package is at `packages/cloudflare-email-worker`.
 
-Flow-specific options:
+It receives Cloudflare-routed mail, signs the payload, and POSTs it to the app's `/api/ingest/cloudflare-email` endpoint.
 
-- `--verificationTimeoutMs <ms>`: How long `chatgpt-register` waits for the email verification code
-- `--pollIntervalMs <ms>`: How often `chatgpt-register` polls Exchange for the verification code
-- `--password <password>`: Override the generated password for `chatgpt-register`
-- `--createPasskey <bool>`: Whether `chatgpt-register` should provision a passkey. Defaults to `true`; pass `false` to disable it.
-- `--sameSessionPasskeyCheck <bool>`: After registration, try a same-session passkey re-login diagnostic in the same browser/authenticator context
-- `--email <email>`: Select a stored identity for `chatgpt-login-passkey`
-- `--identityId <id>`: Select a stored identity by saved id for `chatgpt-login-passkey`
+Local development example:
 
-Exchange-specific options:
+```bash
+pnpm --dir packages/cloudflare-email-worker dev
+```
 
-- `--folderId <id>`: Mail folder ID
-- `--maxItems <count>`: Maximum number of messages to return
-- `--unreadOnly <bool>`: Return unread messages only
+Before deploying, set:
 
-## Build
+- `CODEY_INGEST_URL`
+- `CODEY_WEBHOOK_SECRET`
+- optional signature/timestamp header names
+
+The app and worker must share the same webhook secret.
+
+## Build and validation
 
 ```bash
 pnpm build
-```
-
-Build output is written to `packages/codey/dist`.
-
-## Format
-
-```bash
-pnpm fmt
-pnpm fmt:check
-```
-
-## Lint
-
-```bash
-pnpm lint
-pnpm lint:fix
-```
-
-## Test
-
-```bash
 pnpm test
 ```
 
-## Troubleshooting
+## Notes
 
-- If Chrome cannot be launched, run `pnpx patchright install chrome` again.
-- If Exchange commands fail with an authentication error, verify the tenant ID, client ID, and client secret.
-- If Exchange commands fail with authorization errors, confirm Microsoft Graph application permissions were added and admin consent was granted.
-- If mailbox queries fail, verify `EXCHANGE_MAILBOX` points to a mailbox your app is allowed to access.
-- If Exchange message tracing shows the message arrived but Codey cannot read it, check whether a broader mail-flow rule forwarded it after the Codey rule matched. In that case, enable **Stop processing more rules** on the Codey-specific rule.
+- Prisma 7 is configured via `prisma.config.ts`
+- generated Prisma client output is written to `src/generated/prisma`
+- SQLite is used locally by default at `prisma/dev.db`
+- TanStack Router generates `src/routeTree.gen.ts` during build/dev

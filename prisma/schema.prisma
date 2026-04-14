@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum SessionKind {
+  BROWSER
+  CLI
+}
+
+enum DeviceChallengeStatus {
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+  CONSUMED
+}
+
+enum VerificationCodeSource {
+  MANUAL
+  CLOUDFLARE_EMAIL
+}
+
+model User {
+  id               String            @id @default(cuid())
+  email            String?           @unique
+  githubId         String?           @unique
+  githubLogin      String?
+  name             String?
+  avatarUrl        String?
+  role             UserRole          @default(USER)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  sessions         Session[]
+  deviceChallenges DeviceChallenge[]
+}
+
+model Session {
+  id         String      @id @default(cuid())
+  tokenHash  String      @unique
+  kind       SessionKind @default(BROWSER)
+  userId     String
+  expiresAt  DateTime
+  createdAt  DateTime    @default(now())
+  lastSeenAt DateTime    @default(now())
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationEmailReservation {
+  id        String             @id @default(cuid())
+  email     String             @unique
+  prefix    String?
+  mailbox   String?
+  createdAt DateTime           @default(now())
+  expiresAt DateTime
+  updatedAt DateTime           @updatedAt
+  codes     VerificationCode[]
+  emails    EmailIngestRecord[]
+}
+
+model VerificationCode {
+  id            String                       @id @default(cuid())
+  reservationId String
+  code          String
+  source        VerificationCodeSource
+  messageId     String?
+  receivedAt    DateTime                     @default(now())
+  consumedAt    DateTime?
+  createdAt     DateTime                     @default(now())
+  reservation   VerificationEmailReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@index([reservationId, receivedAt])
+  @@unique([reservationId, code, receivedAt])
+}
+
+model EmailIngestRecord {
+  id               String                       @id @default(cuid())
+  reservationId    String?
+  messageId        String?
+  recipient        String
+  subject          String?
+  textBody         String?
+  htmlBody         String?
+  rawPayload       String?
+  verificationCode String?
+  receivedAt       DateTime                     @default(now())
+  createdAt        DateTime                     @default(now())
+  reservation      VerificationEmailReservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  @@index([recipient, receivedAt])
+}
+
+model DeviceChallenge {
+  id              String                @id @default(cuid())
+  deviceCode      String                @unique
+  userCode        String                @unique
+  status          DeviceChallengeStatus @default(PENDING)
+  scope           String?
+  flowType        String?
+  cliName         String?
+  requestedBy     String?
+  approvalMessage String?
+  accessTokenHash String?
+  userId          String?
+  createdAt       DateTime              @default(now())
+  expiresAt       DateTime
+  approvedAt      DateTime?
+  deniedAt        DateTime?
+  consumedAt      DateTime?
+  lastPolledAt    DateTime?
+  user            User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model AdminNotification {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  flowType  String?
+  target    String?
+  createdAt DateTime @default(now())
+}

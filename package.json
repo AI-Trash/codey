@@ -6,10 +6,13 @@
   "license": "ISC",
   "author": "",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite dev --port 3000",
     "build": "vite build",
     "preview": "vite preview",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
     "fmt": "pnpm --filter ./packages/flows run fmt",
     "fmt:check": "pnpm --filter ./packages/flows run fmt:check",
     "flow": "pnpm --filter ./packages/flows exec jiti",
@@ -18,6 +21,8 @@
     "test": "pnpm --filter ./packages/flows run test"
   },
   "dependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.7.0",
+    "@prisma/client": "^7.7.0",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-devtools": "catalog:",
     "@tanstack/react-router": "catalog:",
@@ -27,10 +32,12 @@
     "@tanstack/router-plugin": "catalog:",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
+    "dotenv": "^17.4.2",
     "lucide-react": "catalog:",
     "nitro": "3.0.260311-beta",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "server-only": "^0.0.1",
     "tailwind-merge": "catalog:",
     "tailwindcss": "catalog:",
     "tw-animate-css": "catalog:"
@@ -48,6 +55,7 @@
     "jsdom": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
+    "prisma": "^7.7.0",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
@@ -55,8 +63,11 @@
   "packageManager": "pnpm@10.33.0",
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "better-sqlite3",
       "esbuild",
-      "lightningcss"
+      "lightningcss",
+      "prisma"
     ]
   }
 }

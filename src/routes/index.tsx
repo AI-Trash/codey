@@ -1,6 +1,6 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/')({ component: App })
+export const Route = createFileRoute("/")({ component: App });
 
 function App() {
   return (
@@ -8,20 +8,28 @@ function App() {
       <section className="island-shell rise-in relative overflow-hidden rounded-[2rem] px-6 py-10 sm:px-10 sm:py-14">
         <div className="pointer-events-none absolute -left-20 -top-24 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(79,184,178,0.32),transparent_66%)]" />
         <div className="pointer-events-none absolute -bottom-20 -right-20 h-56 w-56 rounded-full bg-[radial-gradient(circle,rgba(47,106,74,0.18),transparent_66%)]" />
-        <p className="island-kicker mb-3">TanStack Start Base Template</p>
+        <p className="island-kicker mb-3">Codey Control Plane</p>
         <h1 className="display-title mb-5 max-w-3xl text-4xl leading-[1.02] font-bold tracking-tight text-[var(--sea-ink)] sm:text-6xl">
-          Start simple, ship quickly.
+          Verification, OAuth, and flow orchestration in one place.
         </h1>
         <p className="mb-8 max-w-2xl text-base text-[var(--sea-ink-soft)] sm:text-lg">
-          This base starter intentionally keeps things light: two routes, clean
-          structure, and the essentials you need to build from scratch.
+          This app now acts as the browser-facing control plane for Codey:
+          GitHub sign-in, device authorization, verification email reservation,
+          Cloudflare email ingest, and streamed verification delivery for flow
+          clients.
         </p>
         <div className="flex flex-wrap gap-3">
+          <a
+            href="/admin"
+            className="rounded-full border border-[rgba(50,143,151,0.3)] bg-[rgba(79,184,178,0.14)] px-5 py-2.5 text-sm font-semibold text-[var(--lagoon-deep)] no-underline transition hover:-translate-y-0.5 hover:bg-[rgba(79,184,178,0.24)]"
+          >
+            Open Admin
+          </a>
           <a
             href="/about"
             className="rounded-full border border-[rgba(50,143,151,0.3)] bg-[rgba(79,184,178,0.14)] px-5 py-2.5 text-sm font-semibold text-[var(--lagoon-deep)] no-underline transition hover:-translate-y-0.5 hover:bg-[rgba(79,184,178,0.24)]"
           >
-            About This Starter
+            About Codey
           </a>
           <a
             href="https://tanstack.com/router"
@@ -37,20 +45,20 @@ function App() {
       <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           [
-            'Type-Safe Routing',
-            'Routes and links stay in sync across every page.',
+            "GitHub Browser Login",
+            "Use GitHub OAuth in the browser to authenticate administrators.",
           ],
           [
-            'Server Functions',
-            'Call server code from your UI without creating API boilerplate.',
+            "Device Challenges",
+            "Approve long-running CLI sessions without putting OAuth secrets into the CLI.",
           ],
           [
-            'Streaming by Default',
-            'Ship progressively rendered responses for faster experiences.',
+            "Verification Streaming",
+            "Reserve mailbox aliases and stream verification codes over SSE instead of polling flows.",
           ],
           [
-            'Tailwind Native',
-            'Design quickly with utility-first styling and reusable tokens.',
+            "Cloudflare Ingest",
+            "Receive forwarded email webhooks and persist extracted verification codes.",
           ],
         ].map(([title, desc], index) => (
           <article
@@ -70,18 +78,19 @@ function App() {
         <p className="island-kicker mb-2">Quick Start</p>
         <ul className="m-0 list-disc space-y-2 pl-5 text-sm text-[var(--sea-ink-soft)]">
           <li>
-            Edit <code>src/routes/index.tsx</code> to customize the home page.
+            Configure <code>DATABASE_URL</code>, GitHub OAuth credentials, and
+            optional Cloudflare email webhook secrets.
           </li>
           <li>
-            Update <code>src/components/Header.tsx</code> and{' '}
-            <code>src/components/Footer.tsx</code> for brand links.
+            Run Prisma generate and create the SQLite database before starting
+            the dev server.
           </li>
           <li>
-            Add routes in <code>src/routes</code> and tweak visual tokens in{' '}
-            <code>src/styles.css</code>.
+            Sign in at <code>/admin/login</code>, then use the admin dashboard
+            to inspect device challenges and manual verification codes.
           </li>
         </ul>
       </section>
     </main>
-  )
+  );
 }
