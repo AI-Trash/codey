@@ -26,6 +26,8 @@ export * from "./modules/app-auth/token-store";
 export * from "./modules/authorization/codex-client";
 export * from "./modules/authorization/codex-token-store";
 export {
+  getStoredChatGPTIdentityStoreSummary,
+  listStoredChatGPTIdentitySummaries,
   persistChatGPTIdentity,
   resolveStoredChatGPTIdentity,
 } from "./modules/credentials";

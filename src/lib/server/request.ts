@@ -24,3 +24,17 @@ export function requireVerificationApiKey(request: Request): Response | null {
 
   return null;
 }
+
+export function requireFlowAppApiKey(request: Request): Response | null {
+  const env = getAppEnv();
+  if (!env.flowAppApiKey) {
+    return text("FLOW_APP_API_KEY is not configured", 503);
+  }
+
+  const provided = request.headers.get(env.flowAppApiKeyHeader);
+  if (provided !== env.flowAppApiKey) {
+    return text("Invalid flow app API key", 401);
+  }
+
+  return null;
+}

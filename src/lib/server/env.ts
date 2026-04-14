@@ -4,6 +4,9 @@ export interface AppEnv {
   databaseUrl: string;
   sessionCookieName: string;
   sessionTtlDays: number;
+  adminGitHubLogins: string[];
+  flowAppApiKey?: string;
+  flowAppApiKeyHeader: string;
   verificationApiKey?: string;
   verificationApiKeyHeader: string;
   githubClientId?: string;
@@ -27,11 +30,26 @@ function readNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function readList(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 export function getAppEnv(): AppEnv {
   return {
     databaseUrl: process.env.DATABASE_URL || "file:./prisma/dev.db",
     sessionCookieName: process.env.SESSION_COOKIE_NAME || "codey_session",
     sessionTtlDays: readNumber(process.env.SESSION_TTL_DAYS, 14),
+    adminGitHubLogins: readList(process.env.ADMIN_GITHUB_LOGINS),
+    flowAppApiKey: process.env.FLOW_APP_API_KEY,
+    flowAppApiKeyHeader:
+      process.env.FLOW_APP_API_KEY_HEADER || "x-codey-flow-app-key",
     verificationApiKey: process.env.VERIFICATION_API_KEY,
     verificationApiKeyHeader:
       process.env.VERIFICATION_API_KEY_HEADER || "x-codey-api-key",

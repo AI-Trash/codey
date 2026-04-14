@@ -182,6 +182,58 @@ pnpm build
 pnpm test
 ```
 
+## Docker and GHCR
+
+The root TanStack Start app can be containerized with the included `Dockerfile`.
+
+Build locally:
+
+```bash
+docker build -t codey:local .
+```
+
+Run locally:
+
+```bash
+docker run --rm -p 3000:3000 -e DATABASE_URL=file:./prisma/dev.db codey:local
+```
+
+GitHub Actions publishing is configured in `.github/workflows/publish-ghcr.yml`.
+On pushes to `main`, version tags, or manual dispatch, it builds the root app image and publishes it to:
+
+```text
+ghcr.io/<owner>/<repo>
+```
+
+The workflow uses the repository `GITHUB_TOKEN`, so the package should remain linked to the same GitHub repository for GHCR writes to succeed.
+
+## Flow app request intake
+
+GitHub Actions or other flow apps can request new auto-add-account coverage without an admin browser session by POSTing JSON to:
+
+```text
+POST /api/flow-app-requests
+```
+
+Use the configured API key header and JSON body:
+
+```json
+{
+  "appName": "my-flow-app",
+  "flowType": "chatgpt-register",
+  "requestedBy": "github-actions",
+  "requestedIdentity": "octocat",
+  "notes": "Need an additional account for nightly registration flow"
+}
+```
+
+Required environment variables:
+
+```text
+FLOW_APP_API_KEY
+FLOW_APP_API_KEY_HEADER (optional, defaults to x-codey-flow-app-key)
+```
+
 ## Notes
 
 - Prisma 7 is configured via `prisma.config.ts`

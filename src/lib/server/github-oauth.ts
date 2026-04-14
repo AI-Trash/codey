@@ -64,6 +64,10 @@ export function resolveBaseUrl(request: Request): string {
   return `${url.protocol}//${url.host}`;
 }
 
+function isAllowlistedAdminLogin(login: string, allowedLogins: string[]) {
+  return allowedLogins.includes(login.trim().toLowerCase());
+}
+
 export async function exchangeGitHubCode(request: Request, code: string) {
   const env = getAppEnv();
   if (!env.githubClientId || !env.githubClientSecret) {
@@ -117,25 +121,32 @@ export async function exchangeGitHubCode(request: Request, code: string) {
   }
 
   const existingUsers = await prisma.user.count();
+  const isAdminFromAllowlist = isAllowlistedAdminLogin(
+    userPayload.login,
+    env.adminGitHubLogins,
+  );
+  const shouldBootstrapAdmin = env.adminGitHubLogins.length === 0 && existingUsers === 0;
+  const nextRole = isAdminFromAllowlist || shouldBootstrapAdmin ? "ADMIN" : "USER";
   const user = await prisma.user.upsert({
     where: {
       githubId: String(userPayload.id),
     },
-    update: {
-      email: userPayload.email || undefined,
-      githubLogin: userPayload.login,
-      name: userPayload.name || undefined,
-      avatarUrl: userPayload.avatar_url || undefined,
-    },
-    create: {
-      githubId: String(userPayload.id),
-      email: userPayload.email || undefined,
-      githubLogin: userPayload.login,
-      name: userPayload.name || undefined,
-      avatarUrl: userPayload.avatar_url || undefined,
-      role: existingUsers === 0 ? "ADMIN" : "USER",
-    },
-  });
+      update: {
+        email: userPayload.email || undefined,
+        githubLogin: userPayload.login,
+        name: userPayload.name || undefined,
+        avatarUrl: userPayload.avatar_url || undefined,
+        ...(env.adminGitHubLogins.length > 0 ? { role: nextRole } : {}),
+      },
+      create: {
+        githubId: String(userPayload.id),
+        email: userPayload.email || undefined,
+        githubLogin: userPayload.login,
+        name: userPayload.name || undefined,
+        avatarUrl: userPayload.avatar_url || undefined,
+        role: nextRole,
+      },
+    });
 
   return {
     user,

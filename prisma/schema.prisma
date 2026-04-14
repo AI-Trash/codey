@@ -30,6 +30,19 @@ enum VerificationCodeSource {
   CLOUDFLARE_EMAIL
 }
 
+enum FlowAppRequestStatus {
+  PENDING
+  IN_REVIEW
+  FULFILLED
+  REJECTED
+}
+
+enum ManagedIdentityStatus {
+  ACTIVE
+  REVIEW
+  ARCHIVED
+}
+
 model User {
   id               String            @id @default(cuid())
   email            String?           @unique
@@ -127,4 +140,32 @@ model AdminNotification {
   flowType  String?
   target    String?
   createdAt DateTime @default(now())
+}
+
+model FlowAppRequest {
+  id                String               @id @default(cuid())
+  appName           String
+  flowType          String?
+  requestedBy       String?
+  requestedIdentity String?
+  notes             String?
+  status            FlowAppRequestStatus @default(PENDING)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+}
+
+model ManagedIdentity {
+  id         String                @id @default(cuid())
+  identityId String                @unique
+  email      String
+  label      String?
+  status     ManagedIdentityStatus @default(ACTIVE)
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  @@index([email])
+  @@index([status, updatedAt])
 }

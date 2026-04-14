@@ -74,6 +74,14 @@ export interface ResolvedChatGPTIdentity {
   summary: StoredChatGPTIdentitySummary
 }
 
+export interface StoredChatGPTIdentityStoreSummary {
+  rootPath: string
+  accountDirectoryPath: string
+  legacyStorePath: string
+  identityCount: number
+  encrypted: boolean
+}
+
 function getStoreRootPath(): string {
   const config = getRuntimeConfig()
   return path.join(config.rootDir, STORE_DIR)
@@ -279,6 +287,21 @@ function readAllStoredChatGPTIdentities(): ResolvedChatGPTIdentity[] {
   }
 
   return [...results.values()]
+}
+
+export function listStoredChatGPTIdentitySummaries(): StoredChatGPTIdentitySummary[] {
+  return readAllStoredChatGPTIdentities().map((entry) => entry.summary)
+}
+
+export function getStoredChatGPTIdentityStoreSummary(): StoredChatGPTIdentityStoreSummary {
+  const summaries = listStoredChatGPTIdentitySummaries()
+  return {
+    rootPath: getStoreRootPath(),
+    accountDirectoryPath: getAccountsDirectoryPath(),
+    legacyStorePath: getLegacyStorePath(),
+    identityCount: summaries.length,
+    encrypted: summaries.some((summary) => summary.encrypted),
+  }
 }
 
 export function persistChatGPTIdentity(

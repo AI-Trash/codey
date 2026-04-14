@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 
-const loadChallenge = createServerFn({ method: "GET" }).handler(
-  async ({ data }: { data: { userCode?: string } }) => {
+const loadChallenge = createServerFn({ method: "GET" })
+  .inputValidator((data: { userCode?: string }) => data)
+  .handler(async ({ data }) => {
     const { prisma } = await import("../lib/server/prisma");
     if (!data.userCode) {
       return null;
@@ -12,15 +13,14 @@ const loadChallenge = createServerFn({ method: "GET" }).handler(
       where: { userCode: data.userCode },
       include: { user: true },
     });
-  },
-);
+  });
 
 export const Route = createFileRoute("/device")({
   validateSearch: (search: Record<string, unknown>) => ({
     userCode: typeof search.userCode === "string" ? search.userCode : undefined,
   }),
-  loader: ({ search }) =>
-    loadChallenge({ data: { userCode: search.userCode } }),
+  loaderDeps: ({ search: { userCode } }) => ({ userCode }),
+  loader: ({ deps }) => loadChallenge({ data: { userCode: deps.userCode } }),
   component: DevicePage,
 });
 
