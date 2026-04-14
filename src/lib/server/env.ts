@@ -25,6 +25,32 @@ export interface AppEnv {
   cloudflareTimestampHeader: string;
 }
 
+function readDatabaseUrl(value: string | undefined): string {
+  const databaseUrl = value?.trim();
+  if (!databaseUrl) {
+    throw new Error(
+      "DATABASE_URL is required and must use a postgres:// or postgresql:// URL.",
+    );
+  }
+
+  let protocol: string;
+  try {
+    protocol = new URL(databaseUrl).protocol;
+  } catch {
+    throw new Error(
+      "DATABASE_URL must be a valid postgres:// or postgresql:// URL.",
+    );
+  }
+
+  if (protocol !== "postgres:" && protocol !== "postgresql:") {
+    throw new Error(
+      "DATABASE_URL must use PostgreSQL. SQLite and other database engines are not supported.",
+    );
+  }
+
+  return databaseUrl;
+}
+
 function readNumber(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -43,7 +69,7 @@ function readList(value: string | undefined): string[] {
 
 export function getAppEnv(): AppEnv {
   return {
-    databaseUrl: process.env.DATABASE_URL || "file:./prisma/dev.db",
+    databaseUrl: readDatabaseUrl(process.env.DATABASE_URL),
     sessionCookieName: process.env.SESSION_COOKIE_NAME || "codey_session",
     sessionTtlDays: readNumber(process.env.SESSION_TTL_DAYS, 14),
     adminGitHubLogins: readList(process.env.ADMIN_GITHUB_LOGINS),

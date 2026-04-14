@@ -46,8 +46,9 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
 
 ```bash
 pnpm install
-pnpm prisma generate
-pnpm prisma db push
+cp .env.example .env
+pnpm db:generate
+pnpm db:migrate
 pnpx patchright install chrome
 ```
 
@@ -58,7 +59,7 @@ Copy `.env.example` to `.env` and fill the parts you need.
 Typical local app-backed setup:
 
 ```env
-DATABASE_URL=file:./prisma/dev.db
+DATABASE_URL=postgresql://codey:codey@localhost:5432/codey
 APP_BASE_URL=http://localhost:3000
 GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
@@ -102,8 +103,16 @@ Resolution order:
 
 ## Running the app
 
+PostgreSQL is required. Codey no longer falls back to SQLite, and startup will fail fast if `DATABASE_URL` is missing or not a PostgreSQL connection string.
+
 ```bash
 pnpm dev
+```
+
+For local app + database development:
+
+```bash
+docker compose up --build
 ```
 
 Then open:
@@ -195,7 +204,7 @@ docker build -t codey:local .
 Run locally:
 
 ```bash
-docker run --rm -p 3000:3000 -e DATABASE_URL=file:./prisma/dev.db codey:local
+docker run --rm -p 3000:3000 -e DATABASE_URL=postgresql://codey:codey@host.docker.internal:5432/codey codey:local
 ```
 
 GitHub Actions publishing is configured in `.github/workflows/publish-ghcr.yml`.
@@ -236,7 +245,7 @@ FLOW_APP_API_KEY_HEADER (optional, defaults to x-codey-flow-app-key)
 
 ## Notes
 
-- Prisma 7 is configured via `prisma.config.ts`
-- generated Prisma client output is written to `src/generated/prisma`
-- SQLite is used locally by default at `prisma/dev.db`
+- Drizzle Kit is configured via `drizzle.config.ts`
+- generated SQL migrations live under `drizzle/`
+- PostgreSQL is the only supported runtime database
 - TanStack Router generates `src/routeTree.gen.ts` during build/dev

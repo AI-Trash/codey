@@ -1,7 +1,9 @@
 import "@tanstack/react-start/server-only";
+import { eq } from "drizzle-orm";
 import { getAppEnv } from "./env";
-import { prisma } from "./prisma";
-import { randomToken, sha256 } from "./security";
+import { getDb } from "./db/client";
+import { sessions } from "./db/schema";
+import { createId, randomToken, sha256 } from "./security";
 
 export interface SessionUser {
   user: {
@@ -36,14 +38,16 @@ export async function createBrowserSession(userId: string): Promise<{
 }> {
   const env = getAppEnv();
   const token = randomToken();
-  const session = await prisma.session.create({
-    data: {
+  const [session] = await getDb()
+    .insert(sessions)
+    .values({
+      id: createId(),
       userId,
       kind: "BROWSER",
       tokenHash: sha256(token),
       expiresAt: getExpiresAt(env.sessionTtlDays),
-    },
-  });
+    })
+    .returning();
 
   return { token, session };
 }
@@ -102,25 +106,23 @@ export async function getSessionUser(
   const token = readCookieValue(request, env.sessionCookieName);
   if (!token) return null;
 
-  const session = await prisma.session.findUnique({
-    where: {
-      tokenHash: sha256(token),
-    },
-    include: {
+  const session = await getDb().query.sessions.findFirst({
+    where: eq(sessions.tokenHash, sha256(token)),
+    with: {
       user: true,
     },
   });
 
-  if (!session || session.kind !== "BROWSER") return null;
+  if (!session || !session.user || session.kind !== "BROWSER") return null;
   if (session.expiresAt.getTime() <= Date.now()) {
-    await prisma.session.delete({ where: { id: session.id } });
+    await getDb().delete(sessions).where(eq(sessions.id, session.id));
     return null;
   }
 
-  await prisma.session.update({
-    where: { id: session.id },
-    data: { lastSeenAt: new Date() },
-  });
+  await getDb()
+    .update(sessions)
+    .set({ lastSeenAt: new Date() })
+    .where(eq(sessions.id, session.id));
 
   return {
     user: session.user,
@@ -154,25 +156,23 @@ export async function getCliSessionUser(
   const token = readBearerToken(request);
   if (!token) return null;
 
-  const session = await prisma.session.findUnique({
-    where: {
-      tokenHash: sha256(token),
-    },
-    include: {
+  const session = await getDb().query.sessions.findFirst({
+    where: eq(sessions.tokenHash, sha256(token)),
+    with: {
       user: true,
     },
   });
 
-  if (!session || session.kind !== "CLI") return null;
+  if (!session || !session.user || session.kind !== "CLI") return null;
   if (session.expiresAt.getTime() <= Date.now()) {
-    await prisma.session.delete({ where: { id: session.id } });
+    await getDb().delete(sessions).where(eq(sessions.id, session.id));
     return null;
   }
 
-  await prisma.session.update({
-    where: { id: session.id },
-    data: { lastSeenAt: new Date() },
-  });
+  await getDb()
+    .update(sessions)
+    .set({ lastSeenAt: new Date() })
+    .where(eq(sessions.id, session.id));
 
   return {
     user: session.user,
@@ -196,9 +196,7 @@ export async function destroyBrowserSession(request: Request): Promise<void> {
   const token = readCookieValue(request, env.sessionCookieName);
   if (!token) return;
 
-  await prisma.session.deleteMany({
-    where: {
-      tokenHash: sha256(token),
-    },
-  });
+  await getDb()
+    .delete(sessions)
+    .where(eq(sessions.tokenHash, sha256(token)));
 }

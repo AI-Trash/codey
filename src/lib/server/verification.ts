@@ -1,7 +1,13 @@
 import "@tanstack/react-start/server-only";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { getAppEnv } from "./env";
-import { prisma } from "./prisma";
-import { randomCode } from "./security";
+import {
+  emailIngestRecords,
+  verificationCodes,
+  verificationEmailReservations,
+} from "./db/schema";
+import { getDb } from "./db/client";
+import { createId, randomCode } from "./security";
 
 export function extractVerificationCode(body: string): string | null {
   const normalized = body.replace(/&nbsp;/gi, " ").replace(/\s+/g, " ");
@@ -48,14 +54,16 @@ export async function reserveVerificationEmailTarget() {
   const tempId = randomCode(12);
   const target = buildReservationEmail(tempId);
 
-  const reservation = await prisma.verificationEmailReservation.create({
-    data: {
+  const [reservation] = await getDb()
+    .insert(verificationEmailReservations)
+    .values({
+      id: createId(),
       email: target.email,
       prefix: target.prefix,
       mailbox: target.mailbox,
       expiresAt,
-    },
-  });
+    })
+    .returning();
 
   return {
     reservationId: reservation.id,
@@ -70,8 +78,8 @@ export async function findVerificationCode(params: {
   email: string;
   startedAt: string;
 }) {
-  const reservation = await prisma.verificationEmailReservation.findUnique({
-    where: { email: params.email },
+  const reservation = await getDb().query.verificationEmailReservations.findFirst({
+    where: eq(verificationEmailReservations.email, params.email),
   });
 
   if (!reservation) {
@@ -80,19 +88,15 @@ export async function findVerificationCode(params: {
 
   const startedAt = new Date(params.startedAt);
   const since = Number.isNaN(startedAt.getTime()) ? new Date(0) : startedAt;
-  const code = await prisma.verificationCode.findFirst({
-    where: {
-      reservationId: reservation.id,
-      receivedAt: {
-        gte: since,
-      },
-    },
-    orderBy: {
-      receivedAt: "desc",
-    },
-  });
+  const matchingCode = await getDb().query.verificationCodes.findFirst({
+      where: and(
+        eq(verificationCodes.reservationId, reservation.id),
+        gte(verificationCodes.receivedAt, since),
+      ),
+      orderBy: [desc(verificationCodes.receivedAt)],
+    });
 
-  if (!code) {
+  if (!matchingCode || matchingCode.receivedAt.getTime() < since.getTime()) {
     return {
       reservationId: reservation.id,
       status: "pending" as const,
@@ -102,8 +106,8 @@ export async function findVerificationCode(params: {
   return {
     reservationId: reservation.id,
     status: "resolved" as const,
-    code: code.code,
-    receivedAt: code.receivedAt.toISOString(),
+    code: matchingCode.code,
+    receivedAt: matchingCode.receivedAt.toISOString(),
   };
 }
 
@@ -111,22 +115,36 @@ export async function createManualVerificationCode(params: {
   email: string;
   code: string;
 }) {
-  const reservation = await prisma.verificationEmailReservation.upsert({
-    where: { email: params.email },
-    update: {},
-    create: {
+  const db = getDb();
+  const inserted = await db
+    .insert(verificationEmailReservations)
+    .values({
+      id: createId(),
       email: params.email,
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    },
-  });
+    })
+    .onConflictDoNothing({ target: verificationEmailReservations.email })
+    .returning();
 
-  const record = await prisma.verificationCode.create({
-    data: {
+  const reservation =
+    inserted[0] ||
+    (await db.query.verificationEmailReservations.findFirst({
+      where: eq(verificationEmailReservations.email, params.email),
+    }));
+
+  if (!reservation) {
+    throw new Error("Unable to create verification reservation");
+  }
+
+  const [record] = await db
+    .insert(verificationCodes)
+    .values({
+      id: createId(),
       reservationId: reservation.id,
       code: params.code,
       source: "MANUAL",
-    },
-  });
+    })
+    .returning();
 
   return record;
 }
@@ -140,10 +158,9 @@ export async function ingestCloudflareEmail(params: {
   messageId?: string;
   receivedAt?: string;
 }) {
-  const reservation = await prisma.verificationEmailReservation.findUnique({
-    where: {
-      email: params.recipient,
-    },
+  const db = getDb();
+  const reservation = await db.query.verificationEmailReservations.findFirst({
+    where: eq(verificationEmailReservations.email, params.recipient),
   });
 
   const receivedAt = params.receivedAt
@@ -152,8 +169,10 @@ export async function ingestCloudflareEmail(params: {
   const body = `${params.textBody || ""}\n${params.htmlBody || ""}\n${params.subject || ""}`;
   const verificationCode = extractVerificationCode(body);
 
-  const emailRecord = await prisma.emailIngestRecord.create({
-    data: {
+  const [emailRecord] = await db
+    .insert(emailIngestRecords)
+    .values({
+      id: createId(),
       reservationId: reservation?.id,
       messageId: params.messageId,
       recipient: params.recipient,
@@ -161,23 +180,25 @@ export async function ingestCloudflareEmail(params: {
       textBody: params.textBody,
       htmlBody: params.htmlBody,
       rawPayload: params.rawPayload,
-      verificationCode: verificationCode || undefined,
+      verificationCode: verificationCode ?? null,
       receivedAt,
-    },
-  });
+    })
+    .returning();
 
   let codeRecord = null;
 
   if (reservation && verificationCode) {
-    codeRecord = await prisma.verificationCode.create({
-      data: {
+    [codeRecord] = await db
+      .insert(verificationCodes)
+      .values({
+        id: createId(),
         reservationId: reservation.id,
         code: verificationCode,
         source: "CLOUDFLARE_EMAIL",
         messageId: params.messageId,
         receivedAt,
-      },
-    });
+      })
+      .returning();
   }
 
   return {
@@ -187,19 +208,20 @@ export async function ingestCloudflareEmail(params: {
 }
 
 export async function listRecentVerificationActivity() {
+  const db = getDb();
   const [reservations, codes, emails] = await Promise.all([
-    prisma.verificationEmailReservation.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
+    db.query.verificationEmailReservations.findMany({
+      orderBy: [desc(verificationEmailReservations.createdAt)],
+      limit: 20,
     }),
-    prisma.verificationCode.findMany({
-      include: { reservation: true },
-      orderBy: { receivedAt: "desc" },
-      take: 20,
+    db.query.verificationCodes.findMany({
+      with: { reservation: true },
+      orderBy: [desc(verificationCodes.receivedAt)],
+      limit: 20,
     }),
-    prisma.emailIngestRecord.findMany({
-      orderBy: { receivedAt: "desc" },
-      take: 20,
+    db.query.emailIngestRecords.findMany({
+      orderBy: [desc(emailIngestRecords.receivedAt)],
+      limit: 20,
     }),
   ]);
 

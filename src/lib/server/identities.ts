@@ -1,5 +1,8 @@
 import "@tanstack/react-start/server-only";
-import { prisma } from "./prisma";
+import { eq } from "drizzle-orm";
+import { getDb } from "./db/client";
+import { managedIdentities } from "./db/schema";
+import { createId } from "./security";
 
 type FlowCredentialSummary = {
   id: string;
@@ -83,7 +86,7 @@ export async function listAdminIdentitySummaries(): Promise<{
   storeStatus: IdentityStoreStatus;
 }> {
   const [managedIdentityRows, storeState] = await Promise.all([
-    prisma.managedIdentity.findMany(),
+    getDb().query.managedIdentities.findMany(),
     readStoredFlowIdentityState(),
   ]);
 
@@ -165,20 +168,35 @@ export async function upsertManagedIdentity(params: {
   const label = params.label?.trim() || undefined;
   const status = params.status || "ACTIVE";
 
-  return prisma.managedIdentity.upsert({
-    where: {
-      identityId: params.identityId,
-    },
-    update: {
-      email: params.email,
-      label,
-      status,
-    },
-    create: {
+  const [record] = await getDb()
+    .insert(managedIdentities)
+    .values({
+      id: createId(),
       identityId: params.identityId,
       email: params.email,
       label,
       status,
-    },
-  });
+    })
+    .onConflictDoUpdate({
+      target: managedIdentities.identityId,
+      set: {
+        email: params.email,
+        label,
+        status,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  if (!record) {
+    const existing = await getDb().query.managedIdentities.findFirst({
+      where: eq(managedIdentities.identityId, params.identityId),
+    });
+    if (!existing) {
+      throw new Error("Unable to persist managed identity");
+    }
+    return existing;
+  }
+
+  return record;
 }

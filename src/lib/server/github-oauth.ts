@@ -1,7 +1,9 @@
 import "@tanstack/react-start/server-only";
+import { count } from "drizzle-orm";
 import { getAppEnv } from "./env";
-import { prisma } from "./prisma";
-import { randomToken } from "./security";
+import { getDb } from "./db/client";
+import { users } from "./db/schema";
+import { createId, randomToken } from "./security";
 
 interface GitHubUserResponse {
   id: number;
@@ -120,33 +122,44 @@ export async function exchangeGitHubCode(request: Request, code: string) {
     throw new Error("Failed to load GitHub user profile");
   }
 
-  const existingUsers = await prisma.user.count();
+  const db = getDb();
+  const [{ count: existingUsers }] = await db
+    .select({ count: count() })
+    .from(users);
   const isAdminFromAllowlist = isAllowlistedAdminLogin(
     userPayload.login,
     env.adminGitHubLogins,
   );
-  const shouldBootstrapAdmin = env.adminGitHubLogins.length === 0 && existingUsers === 0;
+  const shouldBootstrapAdmin =
+    env.adminGitHubLogins.length === 0 && Number(existingUsers) === 0;
   const nextRole = isAdminFromAllowlist || shouldBootstrapAdmin ? "ADMIN" : "USER";
-  const user = await prisma.user.upsert({
-    where: {
+  const [user] = await db
+    .insert(users)
+    .values({
+      id: createId(),
       githubId: String(userPayload.id),
-    },
-      update: {
-        email: userPayload.email || undefined,
+      email: userPayload.email ?? null,
+      githubLogin: userPayload.login,
+      name: userPayload.name ?? null,
+      avatarUrl: userPayload.avatar_url ?? null,
+      role: nextRole,
+    })
+    .onConflictDoUpdate({
+      target: users.githubId,
+      set: {
+        email: userPayload.email ?? null,
         githubLogin: userPayload.login,
-        name: userPayload.name || undefined,
-        avatarUrl: userPayload.avatar_url || undefined,
+        name: userPayload.name ?? null,
+        avatarUrl: userPayload.avatar_url ?? null,
+        updatedAt: new Date(),
         ...(env.adminGitHubLogins.length > 0 ? { role: nextRole } : {}),
       },
-      create: {
-        githubId: String(userPayload.id),
-        email: userPayload.email || undefined,
-        githubLogin: userPayload.login,
-        name: userPayload.name || undefined,
-        avatarUrl: userPayload.avatar_url || undefined,
-        role: nextRole,
-      },
-    });
+    })
+    .returning();
+
+  if (!user) {
+    throw new Error("Failed to persist GitHub user");
+  }
 
   return {
     user,

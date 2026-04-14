@@ -82,8 +82,9 @@ function App() {
             optional Cloudflare email webhook secrets.
           </li>
           <li>
-            Run Prisma generate and create the SQLite database before starting
-            the dev server.
+            Run the Drizzle migration against PostgreSQL before starting the dev
+            server, or use Docker Compose to bring the app and database up
+            together.
           </li>
           <li>
             Sign in at <code>/admin/login</code>, then use the admin dashboard

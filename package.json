@@ -11,8 +11,8 @@
     "dev": "vite dev --port 3000",
     "build": "vite build",
     "preview": "vite preview",
-    "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "fmt": "pnpm --filter ./packages/flows run fmt",
     "fmt:check": "pnpm --filter ./packages/flows run fmt:check",
     "flow": "pnpm --filter ./packages/flows exec jiti",
@@ -23,8 +23,6 @@
   "dependencies": {
     "@base-ui/react": "^1.4.0",
     "@hookform/resolvers": "^5.2.2",
-    "@prisma/adapter-better-sqlite3": "catalog:",
-    "@prisma/client": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-devtools": "catalog:",
     "@tanstack/react-router": "catalog:",
@@ -36,12 +34,14 @@
     "clsx": "catalog:",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "drizzle-orm": "catalog:",
     "dotenv": "catalog:",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "catalog:",
     "next-themes": "^0.4.6",
     "nitro": "catalog:",
+    "postgres": "catalog:",
     "radix-ui": "^1.4.3",
     "react": "catalog:",
     "react-day-picker": "^9.14.0",
@@ -70,7 +70,7 @@
     "jsdom": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
-    "prisma": "catalog:",
+    "drizzle-kit": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
@@ -78,11 +78,8 @@
   "packageManager": "pnpm@10.33.0",
   "pnpm": {
     "onlyBuiltDependencies": [
-      "@prisma/engines",
-      "better-sqlite3",
       "esbuild",
-      "lightningcss",
-      "prisma"
+      "lightningcss"
     ]
   }
 }

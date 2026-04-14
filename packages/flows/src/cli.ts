@@ -155,7 +155,7 @@ async function runAuthCommand(
           config: redactForOutput(config),
           challenge,
           instructions: [
-            `Open ${challenge.verificationUriComplete} in a browser and approve the device from the admin dashboard.`,
+            `Open ${challenge.verificationUriComplete} in a browser, or visit ${challenge.verificationUri} and enter the user code ${challenge.userCode} manually before approving the device from the admin dashboard.`,
           ],
         },
         null,

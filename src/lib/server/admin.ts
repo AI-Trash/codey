@@ -1,9 +1,16 @@
 import "@tanstack/react-start/server-only";
+import { and, count, eq, gt, isNull, or, desc, asc } from "drizzle-orm";
 import { getAppEnv } from "./env";
-import { prisma } from "./prisma";
+import {
+  adminNotifications,
+  flowAppRequests as flowAppRequestsTable,
+  users,
+} from "./db/schema";
+import { getDb } from "./db/client";
 import { listRecentDeviceChallenges } from "./device-auth";
 import { listAdminIdentitySummaries } from "./identities";
 import { listRecentVerificationActivity } from "./verification";
+import { createId } from "./security";
 
 interface ConfigStatusItem {
   id: string;
@@ -20,10 +27,13 @@ function boolStatus(value: boolean, success = "configured") {
 
 async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdminIdentitySummaries>>): Promise<ConfigStatusItem[]> {
   const env = getAppEnv();
-  const [userCount, adminCount] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.count({ where: { role: "ADMIN" } }),
+  const db = getDb();
+  const [userCountResult, adminCountResult] = await Promise.all([
+    db.select({ count: count() }).from(users),
+    db.select({ count: count() }).from(users).where(eq(users.role, "ADMIN")),
   ]);
+  const userCount = Number(userCountResult[0]?.count ?? 0);
+  const adminCount = Number(adminCountResult[0]?.count ?? 0);
 
   const exchangeConfigured = Boolean(
     process.env.EXCHANGE_TENANT_ID &&
@@ -61,7 +71,7 @@ async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdm
         env.adminGitHubLogins.length > 0
           ? `Admin allowlist is active for ${env.adminGitHubLogins.length} GitHub login(s).`
           : adminCount > 0
-            ? `No explicit allowlist is set; ${adminCount} admin account(s) currently exist in Prisma.`
+            ? `No explicit allowlist is set; ${adminCount} admin account(s) currently exist in the app database.`
             : `No admin allowlist or bootstrapped admin account found. Current user count: ${userCount}.`,
     },
     {
@@ -109,16 +119,16 @@ export async function listAdminDashboardData() {
     identityState,
     flowAppRequests,
   ] = await Promise.all([
-    prisma.adminNotification.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
+    getDb().query.adminNotifications.findMany({
+      orderBy: [desc(adminNotifications.createdAt)],
+      limit: 20,
     }),
     listRecentDeviceChallenges(),
     listRecentVerificationActivity(),
     listAdminIdentitySummaries(),
-    prisma.flowAppRequest.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
+    getDb().query.flowAppRequests.findMany({
+      orderBy: [desc(flowAppRequestsTable.createdAt)],
+      limit: 20,
     }),
   ]);
 
@@ -149,9 +159,18 @@ export async function createAdminNotification(params: {
   flowType?: string;
   target?: string;
 }) {
-  return prisma.adminNotification.create({
-    data: params,
-  });
+  const [notification] = await getDb()
+    .insert(adminNotifications)
+    .values({
+      id: createId(),
+      title: params.title,
+      body: params.body,
+      flowType: params.flowType,
+      target: params.target,
+    })
+    .returning();
+
+  return notification;
 }
 
 export async function createFlowAppRequest(params: {
@@ -161,34 +180,42 @@ export async function createFlowAppRequest(params: {
   requestedIdentity?: string;
   notes?: string;
 }) {
-  return prisma.flowAppRequest.create({
-    data: params,
-  });
+  const [request] = await getDb()
+    .insert(flowAppRequestsTable)
+    .values({
+      id: createId(),
+      appName: params.appName,
+      flowType: params.flowType,
+      requestedBy: params.requestedBy,
+      requestedIdentity: params.requestedIdentity,
+      notes: params.notes,
+    })
+    .returning();
+
+  return request;
 }
 
 export async function listCliNotifications(params: {
   target?: string;
   after?: Date;
 }) {
-  const filters = [] as Array<{
-    target?: string | null;
-    createdAt?: { gt: Date };
-  }>;
+  const targetFilter = params.target
+    ? or(
+        isNull(adminNotifications.target),
+        eq(adminNotifications.target, "all"),
+        eq(adminNotifications.target, params.target),
+      )
+    : or(
+        isNull(adminNotifications.target),
+        eq(adminNotifications.target, "all"),
+      );
 
-  filters.push({ target: null });
-  filters.push({ target: "all" });
-  if (params.target) {
-    filters.push({ target: params.target });
-  }
-
-  return prisma.adminNotification.findMany({
-    where: {
-      OR: filters.map((filter) => ({
-        target: filter.target,
-        ...(params.after ? { createdAt: { gt: params.after } } : {}),
-      })),
-    },
-    orderBy: { createdAt: "asc" },
-    take: 50,
+  return getDb().query.adminNotifications.findMany({
+    where:
+      params.after && targetFilter
+        ? and(targetFilter, gt(adminNotifications.createdAt, params.after))
+        : targetFilter,
+    orderBy: [asc(adminNotifications.createdAt)],
+    limit: 50,
   });
 }
