@@ -26,6 +26,8 @@ export interface FlowOptions extends CommonOptions {
   redirectPort?: string | boolean
   projectId?: string
   channelName?: string
+  inviteEmail?: string | string[]
+  inviteFile?: string
 }
 
 export interface AuthOptions extends CommonOptions {

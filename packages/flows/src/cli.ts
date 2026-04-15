@@ -5,6 +5,7 @@ import { loadWorkspaceEnv } from './utils/env'
 loadWorkspaceEnv()
 
 import {
+  loginChatGPTAndInviteMembers,
   loginChatGPTWithStoredPasskey,
   openNoopFlow,
   registerChatGPT,
@@ -51,6 +52,11 @@ async function runFlowCommand(
 
       if (subcommand === 'chatgpt-login-passkey') {
         result = await loginChatGPTWithStoredPasskey(session.page, options)
+        return
+      }
+
+      if (subcommand === 'chatgpt-login-invite') {
+        result = await loginChatGPTAndInviteMembers(session.page, options)
         return
       }
 
@@ -385,6 +391,55 @@ withCommonOptions(
 withCommonOptions(
   flowCli
     .command(
+      'chatgpt-login-invite',
+      'Sign in with a stored ChatGPT identity and invite workspace members',
+    )
+    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+    .option(
+      '--record <bool>',
+      'Whether to keep the browser session open after the flow completes',
+    )
+    .option(
+      '--identityId <id>',
+      'Stored identity id from a previous chatgpt-register run',
+    )
+    .option(
+      '--email <email>',
+      'Stored identity email; defaults to the latest saved identity',
+    )
+    .option(
+      '--inviteEmail <email>',
+      'Invite email(s), repeatable or comma-separated',
+    )
+    .option(
+      '--inviteFile <file>',
+      'CSV or JSON file containing invite email addresses',
+    )
+    .example(
+      'codey flow chatgpt-login-invite --inviteEmail a@example.com --inviteEmail b@example.com',
+    )
+    .example(
+      'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
+    )
+    .example(
+      'codey flow chatgpt-login-invite --inviteFile ./members.csv --record true',
+    ),
+).action((options: FlowOptions) => {
+  execute(
+    (async () => {
+      const resolvedOptions = applyFlowOptionDefaults(options)
+      const config = prepareRuntimeConfig(
+        'flow:chatgpt-login-invite',
+        resolvedOptions,
+      )
+      await runFlowCommand('chatgpt-login-invite', resolvedOptions, config)
+    })(),
+  )
+})
+
+withCommonOptions(
+  flowCli
+    .command(
       'codex-oauth',
       'Run local Codex OAuth, store the token, and create an AxonHub Codex channel',
     )
@@ -555,6 +610,9 @@ cli
     'codey flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true',
   )
   .example('codey flow chatgpt-login-passkey --email someone@example.com')
+  .example(
+    'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
+  )
   .example('codey flow codex-oauth --projectId gid://axonhub/project/123')
   .action(() => {
     flowCli.outputHelp()

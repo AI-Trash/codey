@@ -37,37 +37,12 @@ async function sendResponse(res: ServerResponse, response: Response): Promise<vo
   res.end(body);
 }
 
-async function invokeMountedOidcCallback(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const originalUrl = req.url || "/";
-  const mountedUrl = originalUrl.startsWith("/oidc")
-    ? originalUrl.slice("/oidc".length) || "/"
-    : originalUrl;
-
-  req.url = mountedUrl;
-  try {
-    await getOidcProvider().callback()(req, res);
-  } finally {
-    req.url = originalUrl;
-  }
-}
-
 async function oidcHandler(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  console.log("oidc node handler hit", req.url);
   try {
     const pathname = parseUrl(req.url || "/").pathname || "/";
-
-    if (pathname === "/oidc/__debug") {
-      res.statusCode = 200;
-      res.setHeader("content-type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ ok: true, url: req.url }));
-      return;
-    }
 
     const interactionMatch = pathname.match(/^\/oidc\/interaction\/([^/]+)(?:\/(confirm|abort|done))?$/);
 
@@ -92,7 +67,19 @@ async function oidcHandler(
       }
     }
 
-    await invokeMountedOidcCallback(req, res);
+    const originalUrl = req.url || "/";
+    const mountedUrl = originalUrl.startsWith("/oidc")
+      ? originalUrl.slice("/oidc".length) || "/"
+      : originalUrl;
+    const nodeReq = req as IncomingMessage & { originalUrl?: string; baseUrl?: string };
+    nodeReq.originalUrl = originalUrl;
+    nodeReq.baseUrl = "/oidc";
+    req.url = mountedUrl;
+    try {
+      await getOidcProvider().callback()(req, res);
+    } finally {
+      req.url = originalUrl;
+    }
   } catch (error) {
     if (!res.headersSent) {
       res.statusCode = 500;
@@ -140,14 +127,7 @@ function resolveFetchRequestUrl(req: Request): URL {
 
 export default {
   async fetch(req: Request): Promise<Response> {
-    console.log("oidc fetch wrapper hit", String((req as { url?: unknown }).url || ""));
     const url = resolveFetchRequestUrl(req);
-    if (url.pathname === "/oidc/__debug") {
-      return jsonResponse({
-        ok: true,
-        pathname: url.pathname,
-      });
-    }
 
     try {
       return await fetchOidcHandler(req);

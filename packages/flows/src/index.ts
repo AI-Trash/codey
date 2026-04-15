@@ -2,6 +2,7 @@ export { launchBrowser, newSession } from './core/browser'
 export {
   registerChatGPT,
   loginChatGPTWithStoredPasskey,
+  loginChatGPTAndInviteMembers,
   runCodexOAuthFlow,
   openNoopFlow,
 } from './flows'
@@ -39,6 +40,7 @@ export {
 export * from './modules/webauthn'
 export type * from './flows/chatgpt-register'
 export type * from './flows/chatgpt-login-passkey'
+export type * from './flows/chatgpt-login-invite'
 export type * from './flows/codex-oauth'
 export type * from './flows/noop'
 export type * from './types'
