@@ -122,26 +122,17 @@ function AdminPage() {
   if (!data.authorized) {
     return (
       <main className="page-wrap px-4 py-12">
-        <section className="island-shell admin-hero rounded-[2rem] px-6 py-8 sm:px-10 sm:py-10">
-          <div className="relative z-10 max-w-2xl">
-            <p className="island-kicker mb-3">Admin</p>
-            <h1 className="display-title mb-4 text-4xl font-bold tracking-tight text-[var(--sea-ink)] sm:text-5xl">
-              Sign in to open the control plane.
-            </h1>
-            <p className="mb-6 text-base leading-8 text-[var(--sea-ink-soft)]">
-              GitHub browser access is required before you can approve device
-              logins, inspect verification activity, or manage flow app account
-              requests.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <a href="/admin/login" className="admin-button admin-button-primary">
-                Go to admin login
-              </a>
-              <a href="/device" className="admin-button admin-button-secondary">
-                Inspect a device code
-              </a>
-            </div>
-          </div>
+        <section className="island-shell rounded-2xl p-6 sm:p-8">
+          <p className="island-kicker mb-2">Admin</p>
+          <h1 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)] sm:text-4xl">
+            Admin sign-in required.
+          </h1>
+          <p className="mb-5 max-w-2xl text-base leading-8 text-[var(--sea-ink-soft)]">
+            Sign in with GitHub to view admin tools.
+          </p>
+          <a href="/admin/login" className="admin-button admin-button-primary">
+            Go to admin login
+          </a>
         </section>
       </main>
     );
@@ -153,78 +144,42 @@ function AdminPage() {
   const verificationActivity = getVerificationActivity(data.verification);
   const deviceChallenges = data.deviceChallenges as DeviceChallenge[];
   const notifications = data.notifications as AdminNotification[];
-  const verification = data.verification as VerificationData;
 
-  const approvedCount = deviceChallenges.filter(
-    (challenge) => challenge.status === "APPROVED",
-  ).length;
   const pendingCount = deviceChallenges.filter(
     (challenge) => challenge.status === "PENDING",
   ).length;
-  const codeCount = verification.codes?.length ?? 0;
-  const requestCount = flowAppRequests.length;
 
   return (
     <main className="page-wrap px-4 py-12">
-      <section className="island-shell admin-hero rise-in rounded-[2rem] px-6 py-8 sm:px-10 sm:py-10">
-        <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <div className="mb-4 flex flex-wrap gap-2">
-              <span className="admin-chip">Admin control plane</span>
-              <span className="admin-status-pill" data-tone="good">
-                {data.user.role.toLowerCase()} session
-              </span>
-            </div>
-            <h1 className="display-title mb-4 text-4xl leading-[1.02] font-bold tracking-tight text-[var(--sea-ink)] sm:text-6xl">
-              Run Codey from one calm command deck.
-            </h1>
-            <p className="max-w-2xl text-base leading-8 text-[var(--sea-ink-soft)] sm:text-lg">
-              Signed in as{" "}
-              <strong className="text-[var(--sea-ink)]">
-                {data.user.githubLogin || data.user.email || data.user.name || "unknown user"}
-              </strong>
-              . Review identity coverage, unblock device challenges, watch recent
-              verification traffic, and triage flow app auto-add-account requests
-              without leaving the browser.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 lg:items-end">
-            <div className="admin-anchor-nav">
-              <a href="#overview" className="admin-button admin-button-secondary">
-                Overview
-              </a>
-              <a href="#device-flow" className="admin-button admin-button-secondary">
-                Device flow
-              </a>
-              <a href="#requests" className="admin-button admin-button-secondary">
-                Requests
-              </a>
-            </div>
-            <form method="post" action="/auth/logout">
-              <button className="admin-button admin-button-secondary">
-                Log out
-              </button>
-            </form>
-          </div>
+      <section className="admin-panel admin-panel-muted rise-in flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="island-kicker mb-2">Admin</p>
+          <h1 className="display-title text-3xl font-bold text-[var(--sea-ink)] sm:text-4xl">
+            Operations
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--sea-ink-soft)]">
+            Signed in as{" "}
+            <strong className="text-[var(--sea-ink)]">
+              {data.user.githubLogin || data.user.email || data.user.name || "unknown user"}
+            </strong>
+            .
+          </p>
         </div>
+        <form method="post" action="/auth/logout">
+          <button className="admin-button admin-button-secondary">
+            Log out
+          </button>
+        </form>
       </section>
 
       <section id="overview" className="admin-grid mt-8">
-        <div className="admin-stat-grid" data-columns="4">
-          <StatCard label="Pending approvals" value={String(pendingCount)} detail="Device codes awaiting an admin response." />
-          <StatCard label="Approved sessions" value={String(approvedCount)} detail="Recently completed browser approvals." />
-          <StatCard label="Verification codes" value={String(codeCount)} detail="Most recent captured codes visible to admins." />
-          <StatCard label="Flow app requests" value={String(requestCount)} detail="Queued asks for auto-add-account support." />
-        </div>
-
         <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
           <article className="admin-panel admin-panel-strong">
             <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="island-kicker mb-2">Identity summaries</p>
                 <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                  Saved operator coverage.
+                  Saved identities
                 </h2>
               </div>
               <span
@@ -234,11 +189,6 @@ function AdminPage() {
                 {identitySummaries.length} known identities
               </span>
             </div>
-            <p className="mb-5 max-w-2xl text-sm leading-7 text-[var(--sea-ink-soft)]">
-              This section gives admins a quick read on which browser-backed or
-              flow-backed identities are already represented, so new requests can
-              be routed to existing coverage first.
-            </p>
             {identitySummaries.length > 0 ? (
               <ul className="admin-list sm:grid-cols-2 xl:grid-cols-3">
                 {identitySummaries.map((summary) => (
@@ -302,7 +252,7 @@ function AdminPage() {
                 ))}
               </ul>
             ) : (
-              <EmptyState message="Saved identity summaries will appear here once the backend starts returning coverage data." />
+              <EmptyState message="No saved identities found." />
             )}
           </article>
 
@@ -311,7 +261,7 @@ function AdminPage() {
               <div>
                 <p className="island-kicker mb-2">Config status</p>
                 <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                  App readiness at a glance.
+                  Configuration status
                 </h2>
               </div>
               <span
@@ -341,7 +291,7 @@ function AdminPage() {
                 ))}
               </ul>
             ) : (
-              <EmptyState message="Configuration cards will populate when minimal backend status reporting is connected." />
+              <EmptyState message="No configuration status available." />
             )}
           </article>
         </div>
@@ -353,7 +303,7 @@ function AdminPage() {
             <div>
               <p className="island-kicker mb-2">Device flow management</p>
               <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Approvals and CLI handshakes.
+                Device approvals
               </h2>
             </div>
             <span
@@ -407,7 +357,7 @@ function AdminPage() {
               ))}
             </ul>
           ) : (
-            <EmptyState message="Recent device challenges will appear here after a CLI auth flow starts." />
+            <EmptyState message="No device challenges found." />
           )}
         </article>
 
@@ -415,12 +365,8 @@ function AdminPage() {
           <article className="admin-panel admin-panel-muted">
             <p className="island-kicker mb-2">Manual verification code</p>
             <h2 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)]">
-              Fill a code by hand.
+              Add verification code
             </h2>
-            <p className="mb-4 text-sm leading-7 text-[var(--sea-ink-soft)]">
-              Keep the native post flow intact for route handlers while making the
-              emergency path easier to scan and use.
-            </p>
             <form method="post" action="/api/admin/verification-codes" className="grid gap-3">
               <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
                 Target email
@@ -439,7 +385,7 @@ function AdminPage() {
           <article className="admin-panel admin-panel-muted">
             <p className="island-kicker mb-2">Admin notification</p>
             <h2 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)]">
-              Broadcast an operator note.
+              Create notification
             </h2>
             <form method="post" action="/api/admin/notifications" className="grid gap-3">
               <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
@@ -472,7 +418,7 @@ function AdminPage() {
             <div>
               <p className="island-kicker mb-2">Verification activity</p>
               <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Recent mailbox motion.
+                Recent verification activity
               </h2>
             </div>
             <span className="admin-status-pill" data-tone={verificationActivity.length > 0 ? "good" : "warning"}>
@@ -501,7 +447,7 @@ function AdminPage() {
               ))}
             </ul>
           ) : (
-            <EmptyState message="Verification activity summaries will appear here once the backend exposes the new activity feed." />
+            <EmptyState message="No verification activity found." />
           )}
         </article>
 
@@ -510,7 +456,7 @@ function AdminPage() {
             <div>
               <p className="island-kicker mb-2">Recent notifications</p>
               <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Outbound admin notes.
+                Recent notifications
               </h2>
             </div>
             <span className="admin-status-pill" data-tone={notifications.length > 0 ? "good" : "warning"}>
@@ -536,7 +482,7 @@ function AdminPage() {
               ))}
             </ul>
           ) : (
-            <EmptyState message="Admin notifications will appear here after the first broadcast is created." />
+            <EmptyState message="No notifications found." />
           )}
         </article>
       </section>
@@ -545,13 +491,8 @@ function AdminPage() {
         <article className="admin-panel admin-panel-strong">
           <p className="island-kicker mb-2">GitHub Actions flow apps</p>
           <h2 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)]">
-            Request auto-add-account.
+            Flow app request
           </h2>
-          <p className="mb-4 max-w-2xl text-sm leading-7 text-[var(--sea-ink-soft)]">
-            This is intentionally lightweight: a native form that lets an app or
-            operator queue a request for account coverage without exposing any
-            secrets or speculative workflow-dispatch controls.
-          </p>
           <form method="post" action="/api/admin/flow-app-requests" className="grid gap-3">
             <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
               App name
@@ -580,7 +521,7 @@ function AdminPage() {
             <div>
               <p className="island-kicker mb-2">Request queue</p>
               <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Pending app asks.
+                Request queue
               </h2>
             </div>
             <span className="admin-status-pill" data-tone={flowAppRequests.length > 0 ? "warning" : "good"}>
@@ -616,98 +557,11 @@ function AdminPage() {
               ))}
             </ul>
           ) : (
-            <EmptyState message="The request queue will populate here once GitHub Actions flow apps begin filing account requests." />
+            <EmptyState message="No flow app requests found." />
           )}
         </article>
-      </section>
-
-      <section className="admin-grid mt-8 xl:grid-cols-3">
-        <article className="admin-panel admin-panel-muted xl:col-span-2">
-          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="island-kicker mb-2">Recent verification codes</p>
-              <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Codes and reservations.
-              </h2>
-            </div>
-            <span className="admin-status-pill" data-tone={codeCount > 0 ? "good" : "warning"}>
-              {codeCount} captured
-            </span>
-          </div>
-          {verification.codes && verification.codes.length > 0 ? (
-            <ul className="admin-list">
-              {verification.codes.map((code) => (
-                <li key={code.id} className="admin-list-item">
-                  <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                    <strong className="text-[var(--sea-ink)]">{code.reservation.email}</strong>
-                    <span className="admin-chip">{code.source}</span>
-                  </div>
-                  <dl className="m-0 grid gap-2 text-sm text-[var(--sea-ink-soft)] sm:grid-cols-2">
-                    <InfoRow label="Code" value={code.code} />
-                    <InfoRow label="Received" value={formatDate(code.receivedAt) || "Timestamp unavailable"} />
-                  </dl>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState message="Captured verification codes will appear here when mailbox ingest is active." />
-          )}
-        </article>
-
-        <div className="admin-grid">
-          <article className="admin-panel admin-panel-muted">
-            <p className="island-kicker mb-2">Reservations</p>
-            {verification.reservations && verification.reservations.length > 0 ? (
-              <ul className="admin-list">
-                {verification.reservations.map((reservation) => (
-                  <li key={reservation.id} className="admin-list-item">
-                    <strong className="block text-[var(--sea-ink)]">{reservation.email}</strong>
-                    <p className="mt-2 mb-0 text-sm text-[var(--sea-ink-soft)]">
-                      Expires {formatDate(reservation.expiresAt) || "soon"}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState message="Reserved aliases will show up here once email reservation flows are used." />
-            )}
-          </article>
-
-          <article className="admin-panel admin-panel-muted">
-            <p className="island-kicker mb-2">Inbound emails</p>
-            {verification.emails && verification.emails.length > 0 ? (
-              <ul className="admin-list">
-                {verification.emails.map((email) => (
-                  <li key={email.id} className="admin-list-item">
-                    <strong className="block text-[var(--sea-ink)]">{email.recipient}</strong>
-                    <p className="mt-2 mb-0 text-sm text-[var(--sea-ink-soft)]">
-                      {email.subject || "No subject captured"}
-                    </p>
-                    <p className="mt-2 mb-0 text-sm text-[var(--sea-ink-soft)]">
-                      Code: {email.verificationCode || "Not detected"}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState message="Inbound verification email summaries will populate here when webhook ingest lands." />
-            )}
-          </article>
-        </div>
       </section>
     </main>
-  );
-}
-
-function StatCard(props: { label: string; value: string; detail: string }) {
-  return (
-    <article className="admin-stat-card">
-      <span className="admin-eyebrow">{props.label}</span>
-      <strong>{props.value}</strong>
-      <p className="mt-3 mb-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-        {props.detail}
-      </p>
-    </article>
   );
 }
 

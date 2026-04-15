@@ -23,6 +23,7 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS build
 WORKDIR /app
 RUN pnpm build
+RUN tar -czf .output/public.tar.gz -C .output public && rm -rf .output/public
 
 FROM base AS runtime
 WORKDIR /app
@@ -35,7 +36,10 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/.output ./.output
 COPY --from=build /app/drizzle ./drizzle
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
 
 EXPOSE 3000
 
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", ".output/server/index.mjs"]
