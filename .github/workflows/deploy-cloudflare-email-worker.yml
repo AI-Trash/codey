@@ -1,0 +1,52 @@
+name: deploy-cloudflare-email-worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "packages/cloudflare-email-worker/**"
+      - ".github/workflows/deploy-cloudflare-email-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck email worker
+        run: pnpm --dir packages/cloudflare-email-worker run typecheck
+
+      - name: Deploy email worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: packages/cloudflare-email-worker
+          packageManager: pnpm
+          secrets: |
+            CODEY_INGEST_URL
+            CODEY_WEBHOOK_SECRET
+        env:
+          CODEY_INGEST_URL: ${{ secrets.CODEY_INGEST_URL }}
+          CODEY_WEBHOOK_SECRET: ${{ secrets.CODEY_WEBHOOK_SECRET }}

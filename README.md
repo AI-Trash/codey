@@ -199,19 +199,32 @@ The built-in Worker package is at `packages/cloudflare-email-worker`.
 
 It receives Cloudflare-routed mail, signs the payload, and POSTs it to the app's `/api/ingest/cloudflare-email` endpoint.
 
-Local development example:
+For local development, create `packages/cloudflare-email-worker/.dev.vars` with at least:
+
+```env
+CODEY_INGEST_URL=http://localhost:3000/api/ingest/cloudflare-email
+CODEY_WEBHOOK_SECRET=replace-with-the-same-secret-used-by-the-app
+```
+
+Then run:
 
 ```bash
 pnpm --dir packages/cloudflare-email-worker dev
 ```
 
-Before deploying, set:
-
-- `CODEY_INGEST_URL`
-- `CODEY_WEBHOOK_SECRET`
-- optional signature/timestamp header names
-
 The app and worker must share the same webhook secret.
+
+GitHub Actions deployment is configured in `.github/workflows/deploy-cloudflare-email-worker.yml`.
+It auto-deploys on pushes to `main` when `packages/cloudflare-email-worker/**` or the workflow file itself changes, and also supports manual `workflow_dispatch` runs.
+
+In GitHub, open `Settings -> Secrets and variables -> Actions` and add these repository secrets:
+
+- `CLOUDFLARE_API_TOKEN`: create a Cloudflare API token from the `Edit Cloudflare Workers` template and scope it to the target account
+- `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account ID that owns the Worker
+- `CODEY_INGEST_URL`: the full HTTPS URL for the app's `/api/ingest/cloudflare-email` endpoint
+- `CODEY_WEBHOOK_SECRET`: the shared secret that must match the app's `CLOUDFLARE_EMAIL_WEBHOOK_SECRET`
+
+The workflow syncs `CODEY_INGEST_URL` and `CODEY_WEBHOOK_SECRET` into the Worker at deploy time using Wrangler-managed secrets. `CODEY_SIGNATURE_HEADER` and `CODEY_TIMESTAMP_HEADER` keep their defaults from `wrangler.toml` unless you choose to customize them in the package config.
 
 ## Build and validation
 
