@@ -1,6 +1,8 @@
 import { relations } from "drizzle-orm";
 import {
+  boolean,
   index,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -31,6 +33,10 @@ export const managedIdentityStatusEnum = pgEnum("managed_identity_status", [
   "ACTIVE",
   "REVIEW",
   "ARCHIVED",
+]);
+export const oauthClientAuthMethodEnum = pgEnum("oauth_client_auth_method", [
+  "client_secret_basic",
+  "client_secret_post",
 ]);
 
 export const users = pgTable(
@@ -324,6 +330,106 @@ export const managedIdentities = pgTable(
   ],
 );
 
+export const oauthClients = pgTable(
+  "oauth_clients",
+  {
+    id: text("id").primaryKey(),
+    clientId: text("client_id").notNull(),
+    clientName: text("client_name").notNull(),
+    description: text("description"),
+    enabled: boolean("enabled").default(true).notNull(),
+    clientCredentialsEnabled: boolean("client_credentials_enabled")
+      .default(false)
+      .notNull(),
+    deviceFlowEnabled: boolean("device_flow_enabled")
+      .default(false)
+      .notNull(),
+    tokenEndpointAuthMethod: oauthClientAuthMethodEnum(
+      "token_endpoint_auth_method",
+    )
+      .default("client_secret_basic")
+      .notNull(),
+    clientSecretCiphertext: text("client_secret_ciphertext").notNull(),
+    clientSecretPreview: text("client_secret_preview").notNull(),
+    allowedScopes: text("allowed_scopes").default("").notNull(),
+    createdByUserId: text("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    updatedByUserId: text("updated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    clientSecretUpdatedAt: timestamp("client_secret_updated_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("oauth_clients_client_id_unique").on(table.clientId),
+    index("oauth_clients_enabled_updated_at_idx").on(
+      table.enabled,
+      table.updatedAt,
+    ),
+    index("oauth_clients_created_at_idx").on(table.createdAt),
+  ],
+);
+
+export const oidcArtifacts = pgTable(
+  "oidc_artifacts",
+  {
+    key: text("key").primaryKey(),
+    kind: text("kind").notNull(),
+    artifactId: text("artifact_id").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    grantId: text("grant_id"),
+    userCode: text("user_code"),
+    uid: text("uid"),
+    consumedAt: timestamp("consumed_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("oidc_artifacts_kind_artifact_id_unique").on(
+      table.kind,
+      table.artifactId,
+    ),
+    index("oidc_artifacts_kind_grant_id_idx").on(table.kind, table.grantId),
+    index("oidc_artifacts_kind_user_code_idx").on(table.kind, table.userCode),
+    index("oidc_artifacts_kind_uid_idx").on(table.kind, table.uid),
+    index("oidc_artifacts_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   deviceChallenges: many(deviceChallenges),
@@ -384,6 +490,8 @@ export type FlowAppRequestStatus =
   (typeof flowAppRequestStatusEnum.enumValues)[number];
 export type ManagedIdentityStatus =
   (typeof managedIdentityStatusEnum.enumValues)[number];
+export type OAuthClientAuthMethod =
+  (typeof oauthClientAuthMethodEnum.enumValues)[number];
 
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
@@ -395,3 +503,5 @@ export type DeviceChallengeRow = typeof deviceChallenges.$inferSelect;
 export type AdminNotificationRow = typeof adminNotifications.$inferSelect;
 export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect;
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect;
+export type OAuthClientRow = typeof oauthClients.$inferSelect;
+export type OidcArtifactRow = typeof oidcArtifacts.$inferSelect;

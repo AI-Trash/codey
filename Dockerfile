@@ -32,7 +32,6 @@ ENV NODE_ENV=production
 ENV DATABASE_URL=postgresql://codey:codey@postgres:5432/codey
 ENV PORT=3000
 
-COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/.output ./.output
 COPY --from=build /app/drizzle ./drizzle
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

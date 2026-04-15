@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getAppEnv } from "./env";
 import { getDb } from "./db/client";
 import { sessions } from "./db/schema";
+import { getBearerTokenContext } from "./oauth-resource";
 import { createId, randomToken, sha256 } from "./security";
 
 export interface SessionUser {
@@ -153,6 +154,29 @@ export async function requireAdmin(request: Request): Promise<SessionUser> {
 export async function getCliSessionUser(
   request: Request,
 ): Promise<SessionUser | null> {
+  const oidcBearer = await getBearerTokenContext(request);
+  if (oidcBearer?.accountId) {
+    const user = await getDb().query.users.findFirst({
+      where: (users, { eq: eqOperator }) =>
+        eqOperator(users.id, oidcBearer.accountId as string),
+    });
+
+    if (user) {
+      return {
+        user,
+        session: {
+          id: `oidc:${oidcBearer.clientId}`,
+          tokenHash: "",
+          kind: "CLI",
+          userId: user.id,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          createdAt: new Date(),
+          lastSeenAt: new Date(),
+        },
+      };
+    }
+  }
+
   const token = readBearerToken(request);
   if (!token) return null;
 

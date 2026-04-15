@@ -1,5 +1,10 @@
 import type { AppVerificationProviderConfig } from "../../config";
+import { sleep } from "../../utils/wait";
 import { ensureJson } from "../app-auth/http";
+import {
+  exchangeOidcClientCredentials,
+  type OidcTokenSet,
+} from "../app-auth/oidc";
 import { streamSse } from "../app-auth/sse";
 import type {
   VerificationEmailTarget,
@@ -27,6 +32,8 @@ export interface AppVerificationEvent {
 }
 
 export class AppVerificationProviderClient {
+  private tokenCache?: OidcTokenSet;
+
   constructor(private readonly config: AppVerificationProviderConfig = {}) {}
 
   private getBaseUrl(): string {
@@ -40,15 +47,65 @@ export class AppVerificationProviderClient {
     return baseUrl;
   }
 
-  private getHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-    };
-    const apiKey = this.config.apiKey?.trim();
-    if (apiKey) {
-      headers[this.config.apiKeyHeader || "x-codey-api-key"] = apiKey;
+  private invalidateCachedToken(): void {
+    this.tokenCache = undefined;
+  }
+
+  private hasValidCachedToken(): boolean {
+    if (!this.tokenCache?.accessToken) {
+      return false;
     }
-    return headers;
+    if (!this.tokenCache.expiresAt) {
+      return true;
+    }
+    return Date.parse(this.tokenCache.expiresAt) - Date.now() > 30_000;
+  }
+
+  private async getAccessToken(): Promise<string> {
+    if (!this.hasValidCachedToken()) {
+      this.tokenCache = await exchangeOidcClientCredentials({
+        baseUrl: this.config.baseUrl,
+        oidcIssuer: this.config.oidcIssuer,
+        oidcBasePath: this.config.oidcBasePath,
+        clientId: this.config.clientId,
+        clientSecret: this.config.clientSecret,
+        scope: this.config.scope,
+        resource: this.config.resource,
+        tokenEndpointAuthMethod: this.config.tokenEndpointAuthMethod,
+      });
+    }
+
+    if (!this.tokenCache?.accessToken) {
+      throw new Error("Unable to acquire an OIDC access token for verification.");
+    }
+
+    return this.tokenCache.accessToken;
+  }
+
+  private async fetchWithAuthorization(
+    input: RequestInfo | URL,
+    init: RequestInit = {},
+  ): Promise<Response> {
+    const runRequest = async (): Promise<Response> => {
+      const headers = new Headers(init.headers);
+      headers.set("Authorization", `Bearer ${await this.getAccessToken()}`);
+      if (!headers.has("Accept")) {
+        headers.set("Accept", "application/json");
+      }
+      return fetch(input, {
+        ...init,
+        headers,
+      });
+    };
+
+    let response = await runRequest();
+    if (response.status !== 401) {
+      return response;
+    }
+
+    this.invalidateCachedToken();
+    response = await runRequest();
+    return response;
   }
 
   private buildUrl(pathname: string): string {
@@ -61,7 +118,7 @@ export class AppVerificationProviderClient {
     input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<T> {
-    const response = await fetch(input, init);
+    const response = await this.fetchWithAuthorization(input, init);
     return ensureJson<T>(response);
   }
 
@@ -71,22 +128,12 @@ export class AppVerificationProviderClient {
     );
     return this.getJson<AppVerificationEmailReservation>(reserveUrl, {
       method: "POST",
-      headers: this.getHeaders(),
     });
   }
 
   async waitForVerificationCode(
     options: WaitForVerificationCodeOptions,
   ): Promise<string> {
-    for await (const event of this.streamVerificationEvents({
-      email: options.email,
-      startedAt: options.startedAt,
-    })) {
-      if (event.type === "verification_code" && event.code) {
-        return event.code;
-      }
-    }
-
     const codeUrl = new URL(
       this.buildUrl(
         this.config.verificationCodePath || "/api/verification/codes",
@@ -94,14 +141,28 @@ export class AppVerificationProviderClient {
     );
     codeUrl.searchParams.set("email", options.email);
     codeUrl.searchParams.set("startedAt", options.startedAt);
-    const result = await this.getJson<AppVerificationCodeLookupResponse>(
-      codeUrl,
-      {
-        headers: this.getHeaders(),
-      },
-    );
-    if (result.status === "resolved" && result.code) {
-      return result.code;
+
+    const deadline = Date.now() + options.timeoutMs;
+    let attempt = 0;
+
+    while (Date.now() < deadline) {
+      attempt += 1;
+      options.onPollAttempt?.(attempt);
+
+      const result = await this.getJson<AppVerificationCodeLookupResponse>(
+        codeUrl,
+        {},
+      );
+      if (result.status === "resolved" && result.code) {
+        return result.code;
+      }
+
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        break;
+      }
+
+      await sleep(Math.min(options.pollIntervalMs, remainingMs));
     }
 
     throw new Error(
@@ -120,9 +181,8 @@ export class AppVerificationProviderClient {
     );
     eventsUrl.searchParams.set("email", params.email);
     eventsUrl.searchParams.set("startedAt", params.startedAt);
-    const response = await fetch(eventsUrl, {
+    const response = await this.fetchWithAuthorization(eventsUrl, {
       headers: {
-        ...this.getHeaders(),
         Accept: "text/event-stream",
       },
     });

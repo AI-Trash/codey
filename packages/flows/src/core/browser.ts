@@ -60,6 +60,7 @@ export async function newSession(
   const page = await context.newPage()
   page.setDefaultTimeout(config.browser.defaultTimeoutMs)
   page.setDefaultNavigationTimeout(config.browser.navigationTimeoutMs)
+  let closePromise: Promise<void> | undefined
 
   return {
     browser,
@@ -67,8 +68,14 @@ export async function newSession(
     page,
     harPath,
     async close() {
-      await context.close()
-      await browser.close()
+      if (!closePromise) {
+        closePromise = (async () => {
+          await context.close().catch(() => {})
+          await browser.close().catch(() => {})
+        })()
+      }
+
+      await closePromise
     },
   }
 }

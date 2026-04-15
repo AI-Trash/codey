@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { text } from "../../../lib/server/http";
-import { requireVerificationApiKey } from "../../../lib/server/request";
+import { VERIFICATION_READ_SCOPE } from "../../../lib/server/oauth-scopes";
+import { requireVerificationAccess } from "../../../lib/server/request";
 import { createPollingSseResponse } from "../../../lib/server/sse";
 import { findVerificationCode } from "../../../lib/server/verification";
 
@@ -8,7 +9,9 @@ export const Route = createFileRoute("/api/verification/events")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const authError = requireVerificationApiKey(request);
+        const authError = await requireVerificationAccess(request, [
+          VERIFICATION_READ_SCOPE,
+        ]);
         if (authError) return authError;
 
         const url = new URL(request.url);

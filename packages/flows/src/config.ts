@@ -36,12 +36,24 @@ export interface ExchangeConfig {
   };
 }
 
+export type OidcTokenEndpointAuthMethod =
+  | "client_secret_basic"
+  | "client_secret_post";
+
+export interface OidcEndpointConfig {
+  oidcIssuer?: string;
+  oidcBasePath?: string;
+  clientId?: string;
+  clientSecret?: string;
+  scope?: string;
+  resource?: string;
+  tokenEndpointAuthMethod?: OidcTokenEndpointAuthMethod;
+}
+
 export type VerificationProviderConfigKind = "exchange" | "app";
 
-export interface AppVerificationProviderConfig {
+export interface AppVerificationProviderConfig extends OidcEndpointConfig {
   baseUrl?: string;
-  apiKey?: string;
-  apiKeyHeader?: string;
   reserveEmailPath?: string;
   verificationCodePath?: string;
   verificationEventsPath?: string;
@@ -52,7 +64,7 @@ export interface VerificationConfig {
   app?: AppVerificationProviderConfig;
 }
 
-export interface AppAuthConfig {
+export interface AppAuthConfig extends OidcEndpointConfig {
   baseUrl?: string;
   cliEventsPath?: string;
   deviceStartPath?: string;
@@ -142,6 +154,16 @@ function parseVerificationProviderConfigKind(
   return undefined;
 }
 
+function parseOidcTokenEndpointAuthMethod(
+  value: string | undefined,
+): OidcTokenEndpointAuthMethod | undefined {
+  if (!value) return undefined;
+  if (value === "client_secret_basic" || value === "client_secret_post") {
+    return value;
+  }
+  return undefined;
+}
+
 function mergeDeep<T>(base: T, patch?: PartialDeep<T>): T {
   if (!patch) return base;
   const output = { ...base } as Record<string, unknown>;
@@ -169,15 +191,27 @@ function buildDefaultConfig(): AppConfig {
     : undefined;
   const verificationAppConfig =
     process.env.VERIFICATION_APP_BASE_URL ||
-    process.env.VERIFICATION_APP_API_KEY ||
-    process.env.VERIFICATION_APP_API_KEY_HEADER ||
+    process.env.VERIFICATION_APP_OIDC_ISSUER ||
+    process.env.VERIFICATION_APP_OIDC_BASE_PATH ||
+    process.env.VERIFICATION_APP_OIDC_CLIENT_ID ||
+    process.env.VERIFICATION_APP_OIDC_CLIENT_SECRET ||
+    process.env.VERIFICATION_APP_OIDC_SCOPE ||
+    process.env.VERIFICATION_APP_OIDC_RESOURCE ||
+    process.env.VERIFICATION_APP_OIDC_TOKEN_ENDPOINT_AUTH_METHOD ||
     process.env.VERIFICATION_APP_RESERVE_EMAIL_PATH ||
     process.env.VERIFICATION_APP_CODE_PATH ||
     process.env.VERIFICATION_APP_EVENTS_PATH
       ? {
           baseUrl: process.env.VERIFICATION_APP_BASE_URL,
-          apiKey: process.env.VERIFICATION_APP_API_KEY,
-          apiKeyHeader: process.env.VERIFICATION_APP_API_KEY_HEADER,
+          oidcIssuer: process.env.VERIFICATION_APP_OIDC_ISSUER,
+          oidcBasePath: process.env.VERIFICATION_APP_OIDC_BASE_PATH,
+          clientId: process.env.VERIFICATION_APP_OIDC_CLIENT_ID,
+          clientSecret: process.env.VERIFICATION_APP_OIDC_CLIENT_SECRET,
+          scope: process.env.VERIFICATION_APP_OIDC_SCOPE,
+          resource: process.env.VERIFICATION_APP_OIDC_RESOURCE,
+          tokenEndpointAuthMethod: parseOidcTokenEndpointAuthMethod(
+            process.env.VERIFICATION_APP_OIDC_TOKEN_ENDPOINT_AUTH_METHOD,
+          ),
           reserveEmailPath: process.env.VERIFICATION_APP_RESERVE_EMAIL_PATH,
           verificationCodePath: process.env.VERIFICATION_APP_CODE_PATH,
           verificationEventsPath: process.env.VERIFICATION_APP_EVENTS_PATH,
@@ -195,12 +229,28 @@ function buildDefaultConfig(): AppConfig {
       : undefined;
   const appConfig =
     process.env.APP_BASE_URL ||
+    process.env.APP_OIDC_ISSUER ||
+    process.env.APP_OIDC_BASE_PATH ||
+    process.env.APP_OIDC_CLIENT_ID ||
+    process.env.APP_OIDC_CLIENT_SECRET ||
+    process.env.APP_OIDC_SCOPE ||
+    process.env.APP_OIDC_RESOURCE ||
+    process.env.APP_OIDC_TOKEN_ENDPOINT_AUTH_METHOD ||
     process.env.APP_CLI_EVENTS_PATH ||
     process.env.APP_DEVICE_START_PATH ||
     process.env.APP_DEVICE_STATUS_PATH ||
     process.env.APP_DEVICE_EVENTS_PATH
       ? {
           baseUrl: process.env.APP_BASE_URL,
+          oidcIssuer: process.env.APP_OIDC_ISSUER,
+          oidcBasePath: process.env.APP_OIDC_BASE_PATH,
+          clientId: process.env.APP_OIDC_CLIENT_ID,
+          clientSecret: process.env.APP_OIDC_CLIENT_SECRET,
+          scope: process.env.APP_OIDC_SCOPE,
+          resource: process.env.APP_OIDC_RESOURCE,
+          tokenEndpointAuthMethod: parseOidcTokenEndpointAuthMethod(
+            process.env.APP_OIDC_TOKEN_ENDPOINT_AUTH_METHOD,
+          ),
           cliEventsPath: process.env.APP_CLI_EVENTS_PATH,
           deviceStartPath: process.env.APP_DEVICE_START_PATH,
           deviceStatusPath: process.env.APP_DEVICE_STATUS_PATH,

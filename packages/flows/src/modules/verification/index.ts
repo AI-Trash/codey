@@ -10,8 +10,13 @@ function hasAppVerificationConfig(config: {
   const appConfig = config.verification?.app;
   return Boolean(
     appConfig &&
-    (appConfig.baseUrl ||
-      appConfig.apiKey ||
+      (appConfig.baseUrl ||
+      appConfig.oidcIssuer ||
+      appConfig.oidcBasePath ||
+      appConfig.clientId ||
+      appConfig.clientSecret ||
+      appConfig.scope ||
+      appConfig.resource ||
       appConfig.reserveEmailPath ||
       appConfig.verificationCodePath ||
       appConfig.verificationEventsPath),

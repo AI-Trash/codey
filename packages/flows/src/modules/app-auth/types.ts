@@ -1,31 +1,44 @@
 export interface DeviceChallengeResponse {
   deviceCode: string;
   userCode: string;
-  status: "PENDING" | "APPROVED" | "DENIED" | "EXPIRED" | "CONSUMED";
-  expiresAt: string;
   verificationUri: string;
-  verificationUriComplete: string;
+  verificationUriComplete?: string;
+  expiresAt: string;
+  expiresIn: number;
+  interval?: number;
+  scope?: string;
 }
 
 export interface DeviceChallengeStatusResponse {
-  deviceCode: string;
-  userCode: string;
-  status: "PENDING" | "APPROVED" | "DENIED" | "EXPIRED" | "CONSUMED";
-  flowType?: string;
-  cliName?: string;
-  approvalMessage?: string;
-  expiresAt: string;
+  status: "PENDING" | "APPROVED" | "DENIED" | "EXPIRED";
+  error?: string;
+  errorDescription?: string;
+  expiresAt?: string;
+  pollIntervalSeconds?: number;
 }
 
-export interface DeviceChallengeTokenResponse {
+export interface AppTokenSet {
   accessToken: string;
-  user: {
-    id: string;
-    email?: string | null;
-    githubLogin?: string | null;
-    name?: string | null;
-    role?: "ADMIN" | "USER";
-  };
+  tokenType: string;
+  refreshToken?: string;
+  idToken?: string;
+  scope?: string;
+  obtainedAt: string;
+  expiresAt?: string;
+}
+
+export interface AppSessionUser {
+  id: string;
+  email?: string | null;
+  githubLogin?: string | null;
+  name?: string | null;
+  role?: "ADMIN" | "USER";
+}
+
+export interface DeviceChallengeTokenResponse extends AppTokenSet {
+  status: "APPROVED";
+  subject?: string;
+  user?: AppSessionUser;
 }
 
 export interface AdminNotificationEvent {

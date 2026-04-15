@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createFlowAppRequest } from "../../lib/server/admin";
 import { json, text } from "../../lib/server/http";
+import { FLOW_APP_REQUESTS_WRITE_SCOPE } from "../../lib/server/oauth-scopes";
 import {
   readJsonBody,
-  requireFlowAppApiKey,
+  requireFlowAppAccess,
 } from "../../lib/server/request";
 
 interface FlowAppRequestBody {
@@ -18,7 +19,9 @@ export const Route = createFileRoute("/api/flow-app-requests")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const authError = requireFlowAppApiKey(request);
+        const authError = await requireFlowAppAccess(request, [
+          FLOW_APP_REQUESTS_WRITE_SCOPE,
+        ]);
         if (authError) {
           return authError;
         }

@@ -1,5 +1,7 @@
 import "@tanstack/react-start/server-only";
 
+import { DEFAULT_OAUTH_SUPPORTED_SCOPES } from "./oauth-scopes";
+
 export interface AppEnv {
   databaseUrl: string;
   sessionCookieName: string;
@@ -23,6 +25,15 @@ export interface AppEnv {
   cloudflareWebhookSecret?: string;
   cloudflareSignatureHeader: string;
   cloudflareTimestampHeader: string;
+  oauthIssuer?: string;
+  oauthJwks?: {
+    keys: Array<Record<string, unknown>>;
+  };
+  oauthClientSecretEncryptionKey?: string;
+  oauthAccessTokenTtlSeconds: number;
+  oauthDeviceCodeTtlSeconds: number;
+  oauthDefaultResourceIndicator?: string;
+  oauthSupportedScopes: string[];
 }
 
 function readDatabaseUrl(value: string | undefined): string {
@@ -67,6 +78,57 @@ function readList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function readOptionalBase64Key(
+  value: string | undefined,
+  envName: string,
+): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  let decoded: Buffer;
+  try {
+    decoded = Buffer.from(normalized, "base64");
+  } catch {
+    throw new Error(`${envName} must be valid base64.`);
+  }
+
+  if (decoded.length !== 32) {
+    throw new Error(`${envName} must decode to exactly 32 bytes.`);
+  }
+
+  return normalized;
+}
+
+function readOptionalJsonObject(
+  value: string | undefined,
+  envName: string,
+): { keys: Array<Record<string, unknown>> } | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalized);
+  } catch {
+    throw new Error(`${envName} must be valid JSON.`);
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("keys" in parsed) ||
+    !Array.isArray((parsed as { keys?: unknown }).keys)
+  ) {
+    throw new Error(`${envName} must be a JWKS object with a keys array.`);
+  }
+
+  return parsed as { keys: Array<Record<string, unknown>> };
+}
+
 export function getAppEnv(): AppEnv {
   return {
     databaseUrl: readDatabaseUrl(process.env.DATABASE_URL),
@@ -108,5 +170,24 @@ export function getAppEnv(): AppEnv {
       process.env.CLOUDFLARE_SIGNATURE_HEADER || "x-codey-signature",
     cloudflareTimestampHeader:
       process.env.CLOUDFLARE_TIMESTAMP_HEADER || "x-codey-timestamp",
+    oauthIssuer: process.env.OAUTH_ISSUER,
+    oauthJwks: readOptionalJsonObject(process.env.OAUTH_JWKS_JSON, "OAUTH_JWKS_JSON"),
+    oauthClientSecretEncryptionKey: readOptionalBase64Key(
+      process.env.OAUTH_CLIENT_SECRET_ENCRYPTION_KEY,
+      "OAUTH_CLIENT_SECRET_ENCRYPTION_KEY",
+    ),
+    oauthAccessTokenTtlSeconds: readNumber(
+      process.env.OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+      3600,
+    ),
+    oauthDeviceCodeTtlSeconds: readNumber(
+      process.env.OAUTH_DEVICE_CODE_TTL_SECONDS,
+      600,
+    ),
+    oauthDefaultResourceIndicator:
+      process.env.OAUTH_DEFAULT_RESOURCE_INDICATOR || process.env.OAUTH_RESOURCE,
+    oauthSupportedScopes: readList(process.env.OAUTH_SUPPORTED_SCOPES).length
+      ? readList(process.env.OAUTH_SUPPORTED_SCOPES)
+      : DEFAULT_OAUTH_SUPPORTED_SCOPES,
   };
 }

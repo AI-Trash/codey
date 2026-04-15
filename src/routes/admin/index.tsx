@@ -165,11 +165,16 @@ function AdminPage() {
             .
           </p>
         </div>
-        <form method="post" action="/auth/logout">
-          <button className="admin-button admin-button-secondary">
-            Log out
-          </button>
-        </form>
+        <div className="flex flex-wrap gap-3">
+          <a href="/admin/apps" className="admin-button admin-button-primary">
+            OAuth apps
+          </a>
+          <form method="post" action="/auth/logout">
+            <button className="admin-button admin-button-secondary">
+              Log out
+            </button>
+          </form>
+        </div>
       </section>
 
       <section id="overview" className="admin-grid mt-8">
