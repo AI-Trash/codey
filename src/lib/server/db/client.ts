@@ -1,6 +1,8 @@
 import "@tanstack/react-start/server-only";
 
+import path from "node:path";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { getAppEnv } from "../env";
 import * as schema from "./schema";
@@ -12,7 +14,10 @@ declare global {
   var __codeyDb:
     | PostgresJsDatabase<typeof schema>
     | undefined;
+  var __codeyDbMigrationPromise: Promise<void> | undefined;
 }
+
+const MIGRATIONS_FOLDER = path.join(process.cwd(), "drizzle");
 
 function createClient(): SqlClient {
   const { databaseUrl } = getAppEnv();
@@ -41,6 +46,21 @@ export function getDb(): PostgresJsDatabase<typeof schema> {
 
   return globalThis.__codeyDb;
 }
+
+async function ensureDatabaseReady(): Promise<void> {
+  if (!globalThis.__codeyDbMigrationPromise) {
+    globalThis.__codeyDbMigrationPromise = migrate(getDb(), {
+      migrationsFolder: MIGRATIONS_FOLDER,
+    }).catch((error) => {
+      globalThis.__codeyDbMigrationPromise = undefined;
+      throw error;
+    });
+  }
+
+  await globalThis.__codeyDbMigrationPromise;
+}
+
+await ensureDatabaseReady();
 
 export const queryClient = new Proxy({} as SqlClient, {
   get(_target, property, receiver) {
