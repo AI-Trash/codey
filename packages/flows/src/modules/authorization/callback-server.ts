@@ -7,6 +7,7 @@ export interface CallbackServerOptions {
   path?: string
   timeoutMs?: number
   successHtml?: string
+  signal?: AbortSignal
 }
 
 export interface AuthorizationCallbackPayload {
@@ -26,13 +27,18 @@ export function waitForAuthorizationCode(
     path = '/callback',
     timeoutMs = 180000,
     successHtml,
+    signal,
   } = options
 
   return new Promise((resolve, reject) => {
     let settled = false
+    let abortHandler: (() => void) | undefined
 
     const cleanup = (server: http.Server, timer: NodeJS.Timeout) => {
       clearTimeout(timer)
+      if (signal && abortHandler) {
+        signal.removeEventListener('abort', abortHandler)
+      }
       try {
         server.close()
       } catch {}
@@ -89,6 +95,21 @@ export function waitForAuthorizationCode(
         reject(error)
       }
     })
+
+    abortHandler = () => {
+      if (!settled) {
+        settled = true
+        cleanup(server, timer)
+        reject(new Error('Authorization callback wait aborted.'))
+      }
+    }
+
+    if (signal?.aborted) {
+      abortHandler()
+      return
+    }
+
+    signal?.addEventListener('abort', abortHandler, { once: true })
 
     server.listen(port, host)
   })

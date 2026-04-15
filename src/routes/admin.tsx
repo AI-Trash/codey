@@ -559,7 +559,7 @@ function AdminPage() {
             </label>
             <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
               Flow type
-              <input name="flowType" placeholder="chatgpt-register, auth login..." className="admin-input" />
+              <input name="flowType" placeholder="chatgpt-register, codex-oauth..." className="admin-input" />
             </label>
             <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
               Requested identity

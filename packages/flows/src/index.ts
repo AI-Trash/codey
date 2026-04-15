@@ -1,5 +1,9 @@
 export { launchBrowser, newSession } from "./core/browser";
-export { registerChatGPT, loginChatGPTWithStoredPasskey } from "./flows";
+export {
+  registerChatGPT,
+  loginChatGPTWithStoredPasskey,
+  runCodexOAuthFlow,
+} from "./flows";
 export { resolveConfig, defaultConfig } from "./config";
 export * from "./state-machine";
 export {
@@ -34,5 +38,6 @@ export {
 export * from "./modules/webauthn";
 export type * from "./flows/chatgpt-register";
 export type * from "./flows/chatgpt-login-passkey";
+export type * from "./flows/codex-oauth";
 export type * from "./types";
 export type * from "./modules/exchange";

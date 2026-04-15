@@ -20,7 +20,7 @@ export function readCodexToken(): CodexTokenResponse {
   const storePath = getStorePath();
   if (!fs.existsSync(storePath)) {
     throw new Error(
-      "No stored Codex OAuth token found. Run `codey auth codex-login` first.",
+      "No stored Codex OAuth token found. Run `codey flow codex-oauth` first.",
     );
   }
   return JSON.parse(fs.readFileSync(storePath, "utf8")) as CodexTokenResponse;

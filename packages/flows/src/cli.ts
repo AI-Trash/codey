@@ -4,22 +4,22 @@ import { cac } from "cac";
 import { loadWorkspaceEnv } from "./utils/env";
 loadWorkspaceEnv();
 
-import { loginChatGPTWithStoredPasskey, registerChatGPT } from "./flows";
+import {
+  loginChatGPTWithStoredPasskey,
+  registerChatGPT,
+  runCodexOAuthFlow,
+} from "./flows";
 import { ExchangeClient } from "./modules/exchange";
 import {
-  clearAppSession,
   exchangeDeviceChallenge,
-  readAppSession,
   startDeviceLogin,
   streamCliNotifications,
   waitForDeviceApproval,
 } from "./modules/app-auth/device-login";
 import {
-  clearCodexToken,
-  readCodexToken,
-  saveCodexToken,
-} from "./modules/authorization/codex-token-store";
-import { runCodexAuthorization } from "./modules/authorization/codex-client";
+  clearAppSession,
+  readAppSession,
+} from "./modules/app-auth/token-store";
 import {
   execute,
   parseBooleanFlag,
@@ -52,6 +52,11 @@ async function runFlowCommand(
 
       if (subcommand === "chatgpt-login-passkey") {
         result = await loginChatGPTWithStoredPasskey(session.page, options);
+        return;
+      }
+
+      if (subcommand === "codex-oauth") {
+        result = await runCodexOAuthFlow(session.page, options);
         return;
       }
 
@@ -210,77 +215,12 @@ async function runAuthCommand(
 
   if (subcommand === "logout") {
     clearAppSession();
-    clearCodexToken();
     console.log(
       JSON.stringify(
         {
           command: "auth:logout",
           config: redactForOutput(config),
           ok: true,
-        },
-        null,
-        2,
-      ),
-    );
-    return;
-  }
-
-  if (subcommand === "codex-login") {
-    if (
-      !config.codex?.authorizeUrl ||
-      !config.codex?.tokenUrl ||
-      !config.codex?.clientId
-    ) {
-      throw new Error(
-        "Codex OAuth config is required. Set CODEX_AUTHORIZE_URL, CODEX_TOKEN_URL, and CODEX_CLIENT_ID.",
-      );
-    }
-
-    const token = await runCodexAuthorization({
-      authorizeUrl: config.codex.authorizeUrl,
-      tokenUrl: config.codex.tokenUrl,
-      clientId: config.codex.clientId,
-      clientSecret: config.codex.clientSecret,
-      scope: config.codex.scope,
-      redirectHost: config.codex.redirectHost,
-      redirectPort:
-        parseNumberFlag(options.redirectPort, config.codex.redirectPort) ||
-        config.codex.redirectPort,
-      redirectPath: config.codex.redirectPath,
-      openBrowserWindow: parseBooleanFlag(options.openBrowser, true) ?? true,
-    });
-    const storePath = saveCodexToken(token);
-    console.log(
-      JSON.stringify(
-        {
-          command: "auth:codex-login",
-          config: redactForOutput(config),
-          token: {
-            ...token,
-            accessToken: "***redacted***",
-            refreshToken: token.refreshToken ? "***redacted***" : undefined,
-          },
-          storePath,
-        },
-        null,
-        2,
-      ),
-    );
-    return;
-  }
-
-  if (subcommand === "codex-status") {
-    const token = readCodexToken();
-    console.log(
-      JSON.stringify(
-        {
-          command: "auth:codex-status",
-          config: redactForOutput(config),
-          token: {
-            ...token,
-            accessToken: "***redacted***",
-            refreshToken: token.refreshToken ? "***redacted***" : undefined,
-          },
         },
         null,
         2,
@@ -418,6 +358,32 @@ withCommonOptions(
 });
 
 withCommonOptions(
+  flowCli
+    .command(
+      "codex-oauth",
+      "Run local Codex OAuth, store the token, and create an AxonHub Codex channel",
+    )
+    .option("--redirectPort <port>", "Override localhost callback port")
+    .option(
+      "--projectId <id>",
+      "Optional AxonHub project context sent as X-Project-ID",
+    )
+    .option(
+      "--channelName <name>",
+      "Override the AxonHub channel name for this run",
+    )
+    .example("codey flow codex-oauth --redirectPort 3005")
+    .example("codey flow codex-oauth --projectId gid://axonhub/project/123"),
+).action((options: FlowOptions) => {
+  execute(
+    (async () => {
+      const config = prepareRuntimeConfig("flow:codex-oauth", options);
+      await runFlowCommand("codex-oauth", options, config);
+    })(),
+  );
+});
+
+withCommonOptions(
   authCli
     .command(
       "login",
@@ -454,39 +420,13 @@ withCommonOptions(
 withCommonOptions(
   authCli.command(
     "logout",
-    "Clear stored Codey app and Codex OAuth credentials",
+    "Clear stored Codey app authentication",
   ),
 ).action((options: AuthOptions) => {
   execute(
     (async () => {
       const config = prepareRuntimeConfig("auth:logout", options);
       await runAuthCommand("logout", options, config);
-    })(),
-  );
-});
-
-withCommonOptions(
-  authCli
-    .command("codex-login", "Run a simple Codex OAuth authorization flow")
-    .option("--redirectPort <port>", "Override localhost callback port")
-    .option("--openBrowser <bool>", "Open the authorization URL automatically")
-    .example("codey auth codex-login --redirectPort 3005"),
-).action((options: AuthOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig("auth:codex-login", options);
-      await runAuthCommand("codex-login", options, config);
-    })(),
-  );
-});
-
-withCommonOptions(
-  authCli.command("codex-status", "Show stored Codex OAuth token metadata"),
-).action((options: AuthOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig("auth:codex-status", options);
-      await runAuthCommand("codex-status", options, config);
     })(),
   );
 });
@@ -561,6 +501,7 @@ cli
     "codey flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true",
   )
   .example("codey flow chatgpt-login-passkey --email someone@example.com")
+  .example("codey flow codex-oauth --projectId gid://axonhub/project/123")
   .action(() => {
     flowCli.outputHelp();
   });
@@ -577,9 +518,9 @@ cli
   });
 
 cli
-  .command("auth", "Run Codey app and Codex OAuth authentication commands")
+  .command("auth", "Run Codey app authentication commands")
   .example("codey auth login --target octocat")
-  .example("codey auth codex-login")
+  .example("codey auth logout")
   .action(() => {
     authCli.outputHelp();
   });

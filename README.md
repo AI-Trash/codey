@@ -29,7 +29,7 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
 - CLI commands:
   - `flow ...`
   - `exchange ...`
-  - `auth login|status|logout|codex-login|codex-status`
+  - `auth login|status|logout`
   - `daemon start`
 - a Cloudflare Email Worker package exists at `packages/cloudflare-email-worker`
 
@@ -127,6 +127,7 @@ Then open:
 ```bash
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-login-passkey
+pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --projectId gid://axonhub/project/123
 ```
 
 ### Exchange commands
@@ -155,14 +156,42 @@ pnpm --filter ./packages/flows exec jiti src/cli.ts daemon start --target octoca
 
 The daemon keeps an SSE connection to `/api/cli/events` and prints admin notifications as JSON.
 
-### Simplified Codex OAuth flow
+### Codex OAuth + AxonHub channel flow
 
 ```bash
-pnpm --filter ./packages/flows exec jiti src/cli.ts auth codex-login
-pnpm --filter ./packages/flows exec jiti src/cli.ts auth codex-status
+pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth
 ```
 
-This uses the existing localhost callback helper and stores the resulting token under `.codey/credentials/`.
+This is a standalone flow, not a `codey auth` mode. It runs a local PKCE OAuth callback in `packages/flows`, stores the resulting Codex token under `.codey/credentials/`, signs in to AxonHub admin, and creates a Codex channel using `credentials.oauth`. CLI output redacts access tokens, refresh tokens, and passwords.
+
+Required environment variables for this path:
+
+```env
+CODEX_AUTHORIZE_URL=https://example.com/oauth/authorize
+CODEX_TOKEN_URL=https://example.com/oauth/token
+CODEX_CLIENT_ID=your-codex-client-id
+AXONHUB_BASE_URL=http://localhost:8080
+AXONHUB_ADMIN_EMAIL=admin@example.com
+AXONHUB_ADMIN_PASSWORD=replace-with-admin-password
+```
+
+Optional environment variables:
+
+```env
+CODEX_CLIENT_SECRET=your-codex-client-secret
+CODEX_SCOPE=openid profile
+CODEX_REDIRECT_HOST=127.0.0.1
+CODEX_REDIRECT_PORT=3000
+CODEX_REDIRECT_PATH=/callback
+AXONHUB_PROJECT_ID=your-axonhub-project-guid
+AXONHUB_GRAPHQL_PATH=/admin/graphql
+CODEX_CHANNEL_NAME=Codex OAuth
+CODEX_CHANNEL_BASE_URL=https://api.openai.com
+CODEX_CHANNEL_TAGS=codex
+CODEX_CHANNEL_SUPPORTED_MODELS=codex-mini-latest
+CODEX_CHANNEL_MANUAL_MODELS=
+CODEX_CHANNEL_DEFAULT_TEST_MODEL=codex-mini-latest
+```
 
 ## Cloudflare Email Worker
 

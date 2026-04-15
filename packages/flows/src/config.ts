@@ -71,6 +71,23 @@ export interface CodexOAuthConfig {
   redirectPath?: string;
 }
 
+export interface AxonHubAdminConfig {
+  baseUrl?: string;
+  email?: string;
+  password?: string;
+  projectId?: string;
+  graphqlPath?: string;
+}
+
+export interface CodexChannelConfig {
+  name?: string;
+  baseUrl?: string;
+  tags?: string[];
+  supportedModels?: string[];
+  manualModels?: string[];
+  defaultTestModel?: string;
+}
+
 export interface AppConfig {
   rootDir: string;
   artifactsDir: string;
@@ -80,6 +97,8 @@ export interface AppConfig {
   verification?: VerificationConfig;
   app?: AppAuthConfig;
   codex?: CodexOAuthConfig;
+  axonHub?: AxonHubAdminConfig;
+  codexChannel?: CodexChannelConfig;
 }
 
 export interface CliRuntimeConfig extends AppConfig {
@@ -100,6 +119,15 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
 function parseNumber(value: string | undefined, fallback: number): number {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
+}
+
+function parseList(value: string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const list = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return list.length ? list : undefined;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -197,8 +225,40 @@ function buildDefaultConfig(): AppConfig {
           redirectHost: process.env.CODEX_REDIRECT_HOST,
           redirectPort: process.env.CODEX_REDIRECT_PORT
             ? Number(process.env.CODEX_REDIRECT_PORT)
-            : undefined,
+           : undefined,
           redirectPath: process.env.CODEX_REDIRECT_PATH,
+        }
+      : undefined;
+  const axonHubConfig =
+    process.env.AXONHUB_BASE_URL ||
+    process.env.AXONHUB_ADMIN_EMAIL ||
+    process.env.AXONHUB_ADMIN_PASSWORD ||
+    process.env.AXONHUB_PROJECT_ID ||
+    process.env.AXONHUB_GRAPHQL_PATH
+      ? {
+          baseUrl: process.env.AXONHUB_BASE_URL,
+          email: process.env.AXONHUB_ADMIN_EMAIL,
+          password: process.env.AXONHUB_ADMIN_PASSWORD,
+          projectId: process.env.AXONHUB_PROJECT_ID,
+          graphqlPath: process.env.AXONHUB_GRAPHQL_PATH,
+        }
+      : undefined;
+  const codexChannelConfig =
+    process.env.CODEX_CHANNEL_NAME ||
+    process.env.CODEX_CHANNEL_BASE_URL ||
+    process.env.CODEX_CHANNEL_TAGS ||
+    process.env.CODEX_CHANNEL_SUPPORTED_MODELS ||
+    process.env.CODEX_CHANNEL_MANUAL_MODELS ||
+    process.env.CODEX_CHANNEL_DEFAULT_TEST_MODEL
+      ? {
+          name: process.env.CODEX_CHANNEL_NAME,
+          baseUrl: process.env.CODEX_CHANNEL_BASE_URL,
+          tags: parseList(process.env.CODEX_CHANNEL_TAGS),
+          supportedModels: parseList(
+            process.env.CODEX_CHANNEL_SUPPORTED_MODELS,
+          ),
+          manualModels: parseList(process.env.CODEX_CHANNEL_MANUAL_MODELS),
+          defaultTestModel: process.env.CODEX_CHANNEL_DEFAULT_TEST_MODEL,
         }
       : undefined;
 
@@ -241,6 +301,8 @@ function buildDefaultConfig(): AppConfig {
     verification: verificationConfig,
     app: appConfig,
     codex: codexConfig,
+    axonHub: axonHubConfig,
+    codexChannel: codexChannelConfig,
   };
 }
 
