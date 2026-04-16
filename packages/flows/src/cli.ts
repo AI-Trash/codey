@@ -167,7 +167,7 @@ async function runAuthCommand(
     const challenge = await startDeviceLogin({
       flowType: options.flowType || 'flow-cli',
       cliName: options.cliName || 'codey',
-      scope: options.scope || 'notifications:read',
+      scope: options.scope,
     })
     console.log(
       JSON.stringify(

@@ -42,7 +42,7 @@ function buildReservationEmail(id: string): {
 
   const domain = env.verificationDomain || "example.invalid";
   return {
-    email: `${process.env.VERIFICATION_EMAIL_PREFIX || "codey"}+${id}@${domain}`,
+    email: `${env.verificationEmailPrefix || "codey"}+${id}@${domain}`,
   };
 }
 

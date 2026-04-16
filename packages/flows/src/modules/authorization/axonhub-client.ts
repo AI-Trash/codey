@@ -1,94 +1,94 @@
-import type { AxonHubAdminConfig } from "../../config";
-import { ensureJson } from "../app-auth/http";
-import type { CodexTokenResponse } from "./codex-client";
+import type { AxonHubAdminConfig } from '../../config'
+import { ensureJson } from '../app-auth/http'
+import type { CodexTokenResponse } from './codex-client'
 
 interface AxonHubAdminUser {
-  id?: string;
-  email?: string | null;
-  name?: string | null;
+  id?: string
+  email?: string | null
+  name?: string | null
 }
 
 interface AxonHubAdminSignInResponse {
-  user?: AxonHubAdminUser;
-  token: string;
+  user?: AxonHubAdminUser
+  token: string
 }
 
 export interface AxonHubOAuthCredentialsInput {
   oauth: {
-    accessToken: string;
-    refreshToken?: string;
-    clientID: string;
-    expiresAt?: string;
-    tokenType?: string;
-    scopes: string[];
-  };
+    accessToken: string
+    refreshToken?: string
+    clientID: string
+    expiresAt?: string
+    tokenType?: string
+    scopes: string[]
+  }
 }
 
 export interface CreateAxonHubChannelInput {
-  type: string;
-  baseURL?: string;
-  name: string;
-  credentials: AxonHubOAuthCredentialsInput;
-  supportedModels: string[];
-  manualModels: string[];
-  autoSyncSupportedModels?: boolean;
-  autoSyncModelPattern?: string;
-  tags: string[];
-  defaultTestModel: string;
-  policies?: Record<string, unknown>;
-  settings?: Record<string, unknown>;
-  orderingWeight?: number;
-  remark?: string;
+  type: string
+  baseURL?: string
+  name: string
+  credentials: AxonHubOAuthCredentialsInput
+  supportedModels: string[]
+  manualModels: string[]
+  autoSyncSupportedModels?: boolean
+  autoSyncModelPattern?: string
+  tags: string[]
+  defaultTestModel: string
+  policies?: Record<string, unknown>
+  settings?: Record<string, unknown>
+  orderingWeight?: number
+  remark?: string
 }
 
 interface CreateChannelGraphQLResponse {
   createChannel?: {
-    id?: string;
-    type?: string;
-    name?: string;
-    baseURL?: string | null;
-    supportedModels?: string[] | null;
-    manualModels?: string[] | null;
-    tags?: string[] | null;
-    defaultTestModel?: string | null;
-    remark?: string | null;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-    credentials?: unknown;
-  };
+    id?: string
+    type?: string
+    name?: string
+    baseURL?: string | null
+    supportedModels?: string[] | null
+    manualModels?: string[] | null
+    tags?: string[] | null
+    defaultTestModel?: string | null
+    remark?: string | null
+    createdAt?: string | null
+    updatedAt?: string | null
+    credentials?: unknown
+  }
 }
 
 interface GraphQLErrorItem {
-  message?: string;
+  message?: string
 }
 
 interface GraphQLResponse<T> {
-  data?: T;
-  errors?: GraphQLErrorItem[];
+  data?: T
+  errors?: GraphQLErrorItem[]
 }
 
 function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
 }
 
 function getRequiredConfigValue(
   value: string | undefined,
   message: string,
 ): string {
-  const trimmed = value?.trim();
+  const trimmed = value?.trim()
   if (!trimmed) {
-    throw new Error(message);
+    throw new Error(message)
   }
-  return trimmed;
+  return trimmed
 }
 
 export function resolveCodexTokenExpiresAt(
   token: CodexTokenResponse,
 ): string | undefined {
-  if (!token.expiresIn) return undefined;
-  const createdAt = new Date(token.createdAt).getTime();
-  if (!Number.isFinite(createdAt)) return undefined;
-  return new Date(createdAt + token.expiresIn * 1000).toISOString();
+  if (!token.expiresIn) return undefined
+  const createdAt = new Date(token.createdAt).getTime()
+  if (!Number.isFinite(createdAt)) return undefined
+  return new Date(createdAt + token.expiresIn * 1000).toISOString()
 }
 
 export function buildCodexOAuthCredentials(
@@ -98,7 +98,7 @@ export function buildCodexOAuthCredentials(
   const scopes = token.scope
     ?.split(/\s+/)
     .map((entry) => entry.trim())
-    .filter(Boolean);
+    .filter(Boolean)
 
   return {
     oauth: {
@@ -109,7 +109,7 @@ export function buildCodexOAuthCredentials(
       tokenType: token.tokenType,
       scopes: scopes?.length ? scopes : [],
     },
-  };
+  }
 }
 
 export class AxonHubAdminClient {
@@ -119,66 +119,66 @@ export class AxonHubAdminClient {
     return normalizeBaseUrl(
       getRequiredConfigValue(
         this.config.baseUrl,
-        "AXONHUB_BASE_URL is required for Codex channel creation.",
+        'AXONHUB_BASE_URL is required for Codex channel creation.',
       ),
-    );
+    )
   }
 
   private getGraphqlPath(): string {
-    return this.config.graphqlPath?.trim() || "/graphql";
+    return this.config.graphqlPath?.trim() || '/graphql'
   }
 
   private buildUrl(pathname: string): string {
-    return new URL(pathname, this.getBaseUrl()).toString();
+    return new URL(pathname, this.getBaseUrl()).toString()
   }
 
   private buildHeaders(token?: string): Record<string, string> {
     const headers: Record<string, string> = {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    };
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }
 
     if (token) {
-      headers.Authorization = `Bearer ${token}`;
+      headers.Authorization = `Bearer ${token}`
     }
 
-    const projectId = this.config.projectId?.trim();
+    const projectId = this.config.projectId?.trim()
     if (projectId) {
-      headers["X-Project-ID"] = projectId;
+      headers['X-Project-ID'] = projectId
     }
 
-    return headers;
+    return headers
   }
 
   async signIn(): Promise<AxonHubAdminSignInResponse> {
     const email = getRequiredConfigValue(
       this.config.email,
-      "AXONHUB_ADMIN_EMAIL is required for Codex channel creation.",
-    );
+      'AXONHUB_ADMIN_EMAIL is required for Codex channel creation.',
+    )
     const password = getRequiredConfigValue(
       this.config.password,
-      "AXONHUB_ADMIN_PASSWORD is required for Codex channel creation.",
-    );
+      'AXONHUB_ADMIN_PASSWORD is required for Codex channel creation.',
+    )
 
-    const response = await fetch(this.buildUrl("/admin/auth/signin"), {
-      method: "POST",
+    const response = await fetch(this.buildUrl('/admin/auth/signin'), {
+      method: 'POST',
       headers: this.buildHeaders(),
       body: JSON.stringify({ email, password }),
-    });
+    })
 
-    const payload = await ensureJson<AxonHubAdminSignInResponse>(response);
+    const payload = await ensureJson<AxonHubAdminSignInResponse>(response)
     if (!payload.token?.trim()) {
-      throw new Error("AxonHub admin sign-in did not return a bearer token.");
+      throw new Error('AxonHub admin sign-in did not return a bearer token.')
     }
-    return payload;
+    return payload
   }
 
   async createChannel(
     token: string,
     input: CreateAxonHubChannelInput,
-  ): Promise<NonNullable<CreateChannelGraphQLResponse["createChannel"]>> {
+  ): Promise<NonNullable<CreateChannelGraphQLResponse['createChannel']>> {
     const response = await fetch(this.buildUrl(this.getGraphqlPath()), {
-      method: "POST",
+      method: 'POST',
       headers: this.buildHeaders(token),
       body: JSON.stringify({
         query: `mutation CreateChannel($input: CreateChannelInput!) {
@@ -198,24 +198,23 @@ export class AxonHubAdminClient {
 }`,
         variables: { input },
       }),
-    });
+    })
 
-    const payload = await ensureJson<GraphQLResponse<CreateChannelGraphQLResponse>>(
-      response,
-    );
+    const payload =
+      await ensureJson<GraphQLResponse<CreateChannelGraphQLResponse>>(response)
     if (payload.errors?.length) {
       throw new Error(
         payload.errors
           .map((entry) => entry.message)
           .filter(Boolean)
-          .join("; ") || "AxonHub createChannel failed.",
-      );
+          .join('; ') || 'AxonHub createChannel failed.',
+      )
     }
 
     if (!payload.data?.createChannel) {
-      throw new Error("AxonHub createChannel returned no channel payload.");
+      throw new Error('AxonHub createChannel returned no channel payload.')
     }
 
-    return payload.data.createChannel;
+    return payload.data.createChannel
   }
 }

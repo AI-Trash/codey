@@ -1,23 +1,23 @@
-import type { Page } from "patchright";
-import { pathToFileURL } from "url";
-import { getRuntimeConfig } from "../config";
-import { createStateMachine } from "../state-machine";
+import type { Page } from 'patchright'
+import { pathToFileURL } from 'url'
+import { getRuntimeConfig } from '../config'
+import { createStateMachine } from '../state-machine'
 import {
   resolveStoredChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
-} from "../modules/credentials";
+} from '../modules/credentials'
 import {
   createVerificationProvider,
   type VerificationProvider,
-} from "../modules/verification";
+} from '../modules/verification'
 import type {
   VirtualAuthenticatorOptions,
   VirtualPasskeyStore,
-} from "../modules/webauthn";
+} from '../modules/webauthn'
 import type {
   StateMachineController,
   StateMachineSnapshot,
-} from "../state-machine";
+} from '../state-machine'
 import {
   CHATGPT_ENTRY_LOGIN_URL,
   createPasskeyAssertionTracker,
@@ -32,80 +32,80 @@ import {
   gotoLoginEntry,
   submitLoginEmail,
   waitForPostEmailLoginStep,
-} from "../modules/chatgpt/shared";
+} from '../modules/chatgpt/shared'
 import {
   captureVirtualPasskeyStore,
   loadVirtualPasskeyStore,
-} from "../modules/webauthn/virtual-authenticator";
-import type { ResolvedChatGPTIdentity } from "../modules/credentials";
-import type { FlowOptions } from "../modules/flow-cli/helpers";
+} from '../modules/webauthn/virtual-authenticator'
+import type { ResolvedChatGPTIdentity } from '../modules/credentials'
+import type { FlowOptions } from '../modules/flow-cli/helpers'
 import {
   runSingleFileFlowFromCli,
   type SingleFileFlowDefinition,
-} from "../modules/flow-cli/single-file";
-import { parseFlowCliArgs } from "../modules/flow-cli/parse-argv";
+} from '../modules/flow-cli/single-file'
+import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 
-export type ChatGPTLoginPasskeyFlowKind = "chatgpt-login-passkey";
+export type ChatGPTLoginPasskeyFlowKind = 'chatgpt-login-passkey'
 
 export type ChatGPTLoginPasskeyFlowState =
-  | "idle"
-  | "opening-entry"
-  | "email-step"
-  | "password-step"
-  | "verification-polling"
-  | "verification-code-entry"
-  | "age-gate"
-  | "post-signup-home"
-  | "security-settings"
-  | "passkey-provisioning"
-  | "persisting-identity"
-  | "same-session-passkey-check"
-  | "login-surface"
-  | "passkey-login"
-  | "authenticated"
-  | "completed"
-  | "failed";
+  | 'idle'
+  | 'opening-entry'
+  | 'email-step'
+  | 'password-step'
+  | 'verification-polling'
+  | 'verification-code-entry'
+  | 'age-gate'
+  | 'post-signup-home'
+  | 'security-settings'
+  | 'passkey-provisioning'
+  | 'persisting-identity'
+  | 'same-session-passkey-check'
+  | 'login-surface'
+  | 'passkey-login'
+  | 'authenticated'
+  | 'completed'
+  | 'failed'
 
 export type ChatGPTLoginPasskeyFlowEvent =
-  | "machine.started"
-  | "chatgpt.entry.opened"
-  | "chatgpt.email.started"
-  | "chatgpt.email.submitted"
-  | "chatgpt.password.started"
-  | "chatgpt.password.submitted"
-  | "chatgpt.verification.polling"
-  | "chatgpt.verification.code-found"
-  | "chatgpt.verification.submitted"
-  | "chatgpt.age-gate.started"
-  | "chatgpt.age-gate.completed"
-  | "chatgpt.home.waiting"
-  | "chatgpt.security.started"
-  | "chatgpt.passkey.provisioning"
-  | "chatgpt.identity.persisting"
-  | "chatgpt.same-session-passkey-check.started"
-  | "chatgpt.same-session-passkey-check.completed"
-  | "chatgpt.login.surface.ready"
-  | "chatgpt.passkey.login.started"
-  | "chatgpt.authenticated"
-  | "chatgpt.completed"
-  | "chatgpt.failed"
-  | "context.updated"
-  | "action.started"
-  | "action.finished";
+  | 'machine.started'
+  | 'chatgpt.entry.opened'
+  | 'chatgpt.email.started'
+  | 'chatgpt.email.submitted'
+  | 'chatgpt.password.started'
+  | 'chatgpt.password.submitted'
+  | 'chatgpt.verification.polling'
+  | 'chatgpt.verification.code-found'
+  | 'chatgpt.verification.submitted'
+  | 'chatgpt.age-gate.started'
+  | 'chatgpt.age-gate.completed'
+  | 'chatgpt.home.waiting'
+  | 'chatgpt.security.started'
+  | 'chatgpt.passkey.provisioning'
+  | 'chatgpt.identity.persisting'
+  | 'chatgpt.same-session-passkey-check.started'
+  | 'chatgpt.same-session-passkey-check.completed'
+  | 'chatgpt.login.surface.ready'
+  | 'chatgpt.passkey.login.started'
+  | 'chatgpt.authenticated'
+  | 'chatgpt.completed'
+  | 'chatgpt.failed'
+  | 'context.updated'
+  | 'action.started'
+  | 'action.finished'
 
 export interface ChatGPTLoginPasskeyFlowContext<Result = unknown> {
-  kind: ChatGPTLoginPasskeyFlowKind;
-  url?: string;
-  title?: string;
-  email?: string;
-  verificationCode?: string;
-  method?: "password" | "passkey" | "verification";
-  passkeyCreated?: boolean;
-  passkeyStore?: VirtualPasskeyStore;
-  assertionObserved?: boolean;
-  storedIdentity?: StoredChatGPTIdentitySummary;
-  lastMessage?: string;
-  result?: Result;
+  kind: ChatGPTLoginPasskeyFlowKind
+  url?: string
+  title?: string
+  email?: string
+  verificationCode?: string
+  method?: 'password' | 'passkey' | 'verification'
+  passkeyCreated?: boolean
+  passkeyStore?: VirtualPasskeyStore
+  assertionObserved?: boolean
+  storedIdentity?: StoredChatGPTIdentitySummary
+  lastMessage?: string
+  result?: Result
 }
 
 export type ChatGPTLoginPasskeyFlowMachine<Result = unknown> =
@@ -113,31 +113,31 @@ export type ChatGPTLoginPasskeyFlowMachine<Result = unknown> =
     ChatGPTLoginPasskeyFlowState,
     ChatGPTLoginPasskeyFlowContext<Result>,
     ChatGPTLoginPasskeyFlowEvent
-  >;
+  >
 
 export type ChatGPTLoginPasskeyFlowSnapshot<Result = unknown> =
   StateMachineSnapshot<
     ChatGPTLoginPasskeyFlowState,
     ChatGPTLoginPasskeyFlowContext<Result>,
     ChatGPTLoginPasskeyFlowEvent
-  >;
+  >
 
 export interface ChatGPTLoginPasskeyFlowOptions {
-  identityId?: string;
-  email?: string;
-  virtualAuthenticator?: VirtualAuthenticatorOptions;
-  machine?: ChatGPTLoginPasskeyFlowMachine<ChatGPTLoginPasskeyFlowResult>;
+  identityId?: string
+  email?: string
+  virtualAuthenticator?: VirtualAuthenticatorOptions
+  machine?: ChatGPTLoginPasskeyFlowMachine<ChatGPTLoginPasskeyFlowResult>
 }
 
 export interface ChatGPTLoginPasskeyFlowResult {
-  pageName: "chatgpt-login-passkey";
-  url: string;
-  title: string;
-  email: string;
-  method: "passkey" | "password" | "verification";
-  authenticated: boolean;
-  storedIdentity: StoredChatGPTIdentitySummary;
-  machine: ChatGPTLoginPasskeyFlowSnapshot<ChatGPTLoginPasskeyFlowResult>;
+  pageName: 'chatgpt-login-passkey'
+  url: string
+  title: string
+  email: string
+  method: 'passkey' | 'password' | 'verification'
+  authenticated: boolean
+  storedIdentity: StoredChatGPTIdentitySummary
+  machine: ChatGPTLoginPasskeyFlowSnapshot<ChatGPTLoginPasskeyFlowResult>
 }
 
 export function createChatGPTLoginPasskeyMachine(): ChatGPTLoginPasskeyFlowMachine<ChatGPTLoginPasskeyFlowResult> {
@@ -146,13 +146,13 @@ export function createChatGPTLoginPasskeyMachine(): ChatGPTLoginPasskeyFlowMachi
     ChatGPTLoginPasskeyFlowContext<ChatGPTLoginPasskeyFlowResult>,
     ChatGPTLoginPasskeyFlowEvent
   >({
-    id: "flow.chatgpt.login-passkey",
-    initialState: "idle",
+    id: 'flow.chatgpt.login-passkey',
+    initialState: 'idle',
     initialContext: {
-      kind: "chatgpt-login-passkey",
+      kind: 'chatgpt-login-passkey',
     },
     historyLimit: 200,
-  });
+  })
 }
 
 function transitionLoginMachine(
@@ -166,58 +166,58 @@ function transitionLoginMachine(
   machine.transition(state, {
     event,
     patch,
-  });
+  })
 }
 
 async function openChatGPTLogin(
   page: Page,
-): Promise<"authenticated" | "email" | "passkey"> {
-  await gotoLoginEntry(page);
+): Promise<'authenticated' | 'email' | 'passkey'> {
+  await gotoLoginEntry(page)
   if (await waitForAuthenticatedSession(page, 5000)) {
-    return "authenticated";
+    return 'authenticated'
   }
 
-  await clickLoginEntryIfPresent(page);
-  const surface = await waitForLoginSurface(page, 15000);
-  if (surface === "unknown") {
+  await clickLoginEntryIfPresent(page)
+  const surface = await waitForLoginSurface(page, 15000)
+  if (surface === 'unknown') {
     throw new Error(
-      "ChatGPT login entry page did not reach a supported login surface.",
-    );
+      'ChatGPT login entry page did not reach a supported login surface.',
+    )
   }
-  return surface;
+  return surface
 }
 
 async function triggerStoredPasskeyLogin(
   page: Page,
   stored: ResolvedChatGPTIdentity,
   options: {
-    virtualAuthenticator?: VirtualAuthenticatorOptions;
+    virtualAuthenticator?: VirtualAuthenticatorOptions
   } = {},
 ): Promise<{
-  method: "passkey" | "password" | "verification";
-  assertionObserved: boolean;
-  passkeyStore: VirtualPasskeyStore;
-  verificationCode?: string;
+  method: 'passkey' | 'password' | 'verification'
+  assertionObserved: boolean
+  passkeyStore: VirtualPasskeyStore
+  verificationCode?: string
 }> {
-  const hasPasskey = Boolean(stored.identity.passkeyStore?.credentials.length);
+  const hasPasskey = Boolean(stored.identity.passkeyStore?.credentials.length)
   if (!hasPasskey) {
     throw new Error(
       `Stored identity ${stored.identity.email} does not contain a passkey credential.`,
-    );
+    )
   }
 
-  logStep("login_passkey_store_before_import", {
+  logStep('login_passkey_store_before_import', {
     email: stored.identity.email,
     credentials: summarizePasskeyCredentials(stored.identity.passkeyStore),
-  });
+  })
 
   const virtualAuth = await loadVirtualPasskeyStore(
     page,
     stored.identity.passkeyStore,
     options.virtualAuthenticator,
-  );
-  virtualAuth.session.on("WebAuthn.credentialAsserted", (event) => {
-    logStep("login_passkey_credential_asserted", {
+  )
+  virtualAuth.session.on('WebAuthn.credentialAsserted', (event) => {
+    logStep('login_passkey_credential_asserted', {
       email: stored.identity.email,
       credential: {
         credentialId: event.credential.credentialId,
@@ -230,89 +230,89 @@ async function triggerStoredPasskeyLogin(
         userName: event.credential.userName,
         userDisplayName: event.credential.userDisplayName,
       },
-    });
-  });
+    })
+  })
 
   const importedStore = await captureVirtualPasskeyStore(
     virtualAuth.session,
     virtualAuth.authenticatorId,
-  );
+  )
   const tracker = createPasskeyAssertionTracker(
     virtualAuth.session,
     virtualAuth.authenticatorId,
     importedStore,
-  );
+  )
 
   try {
-    let assertionObserved = false;
+    let assertionObserved = false
 
     if (await waitForAuthenticatedSession(page, 5000)) {
       return {
-        method: "passkey",
+        method: 'passkey',
         assertionObserved: false,
         passkeyStore: importedStore,
-      };
+      }
     }
 
-    const startedAt = new Date().toISOString();
-    await submitLoginEmail(page, stored.identity.email);
+    const startedAt = new Date().toISOString()
+    await submitLoginEmail(page, stored.identity.email)
 
-    const postEmailStep = await waitForPostEmailLoginStep(page, 20000);
-    if (postEmailStep === "password" || postEmailStep === "verification") {
-      const config = getRuntimeConfig();
-      let verificationProvider: VerificationProvider | undefined;
+    const postEmailStep = await waitForPostEmailLoginStep(page, 20000)
+    if (postEmailStep === 'password' || postEmailStep === 'verification') {
+      const config = getRuntimeConfig()
+      let verificationProvider: VerificationProvider | undefined
       const fallback = await completePasswordOrVerificationLoginFallback(page, {
         email: stored.identity.email,
         password: stored.identity.password,
         step: postEmailStep,
         startedAt,
         getVerificationProvider: () => {
-          verificationProvider ??= createVerificationProvider(config);
-          return verificationProvider;
+          verificationProvider ??= createVerificationProvider(config)
+          return verificationProvider
         },
-      });
+      })
       return {
         method: fallback.method,
         assertionObserved: false,
         passkeyStore: importedStore,
         verificationCode: fallback.verificationCode,
-      };
+      }
     }
 
-    if (postEmailStep === "authenticated") {
+    if (postEmailStep === 'authenticated') {
       return {
-        method: "passkey",
+        method: 'passkey',
         assertionObserved: false,
         passkeyStore: importedStore,
-      };
+      }
     }
 
     const passkeyReady =
-      postEmailStep === "passkey"
+      postEmailStep === 'passkey'
         ? true
-        : await waitForPasskeyEntryReady(page, 20000);
+        : await waitForPasskeyEntryReady(page, 20000)
     if (!passkeyReady)
       throw new Error(
-        "Passkey entry button did not appear on the login surface.",
-      );
-    const triggered = await clickPasskeyEntry(page);
+        'Passkey entry button did not appear on the login surface.',
+      )
+    const triggered = await clickPasskeyEntry(page)
     if (!triggered)
       throw new Error(
-        "Passkey entry button became visible but could not be clicked.",
-      );
-    assertionObserved = await tracker.waitForAssertion(10000);
+        'Passkey entry button became visible but could not be clicked.',
+      )
+    assertionObserved = await tracker.waitForAssertion(10000)
 
     const passkeyStore = await captureVirtualPasskeyStore(
       virtualAuth.session,
       virtualAuth.authenticatorId,
-    );
+    )
     return {
-      method: "passkey",
+      method: 'passkey',
       assertionObserved,
       passkeyStore,
-    };
+    }
   } finally {
-    tracker.dispose();
+    tracker.dispose()
   }
 }
 
@@ -320,144 +320,144 @@ export async function performStoredPasskeyLogin(
   page: Page,
   stored: ResolvedChatGPTIdentity,
   options: {
-    virtualAuthenticator?: VirtualAuthenticatorOptions;
+    virtualAuthenticator?: VirtualAuthenticatorOptions
   } = {},
 ): Promise<{
-  surface: "authenticated" | "email" | "passkey";
-  method: "passkey" | "password" | "verification";
-  assertionObserved: boolean;
-  passkeyStore: VirtualPasskeyStore;
-  verificationCode?: string;
+  surface: 'authenticated' | 'email' | 'passkey'
+  method: 'passkey' | 'password' | 'verification'
+  assertionObserved: boolean
+  passkeyStore: VirtualPasskeyStore
+  verificationCode?: string
 }> {
-  const surface = await openChatGPTLogin(page);
-  const passkey = await triggerStoredPasskeyLogin(page, stored, options);
+  const surface = await openChatGPTLogin(page)
+  const passkey = await triggerStoredPasskeyLogin(page, stored, options)
   return {
     surface,
     ...passkey,
-  };
+  }
 }
 
 export async function loginChatGPTWithStoredPasskey(
   page: Page,
   options: FlowOptions &
-    Pick<Partial<ChatGPTLoginPasskeyFlowOptions>, "virtualAuthenticator"> = {},
+    Pick<Partial<ChatGPTLoginPasskeyFlowOptions>, 'virtualAuthenticator'> = {},
 ): Promise<ChatGPTLoginPasskeyFlowResult> {
-  const machine = createChatGPTLoginPasskeyMachine();
+  const machine = createChatGPTLoginPasskeyMachine()
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
-  });
+  })
 
   machine.start(
     {
       email: stored.identity.email,
       storedIdentity: stored.summary,
-      method: "passkey",
+      method: 'passkey',
       passkeyCreated: Boolean(stored.identity.passkeyStore?.credentials.length),
       passkeyStore: stored.identity.passkeyStore,
       url: CHATGPT_ENTRY_LOGIN_URL,
     },
     {
-      source: "loginChatGPTWithStoredPasskey",
+      source: 'loginChatGPTWithStoredPasskey',
     },
-  );
+  )
 
   try {
-    transitionLoginMachine(machine, "opening-entry", "chatgpt.entry.opened", {
+    transitionLoginMachine(machine, 'opening-entry', 'chatgpt.entry.opened', {
       email: stored.identity.email,
       url: CHATGPT_ENTRY_LOGIN_URL,
-      lastMessage: "Opening ChatGPT login entry",
-    });
+      lastMessage: 'Opening ChatGPT login entry',
+    })
     const passkey = await performStoredPasskeyLogin(page, stored, {
       virtualAuthenticator: options.virtualAuthenticator,
-    });
-    const surface = passkey.surface;
+    })
+    const surface = passkey.surface
 
-    if (surface === "authenticated") {
+    if (surface === 'authenticated') {
       transitionLoginMachine(
         machine,
-        "authenticated",
-        "chatgpt.authenticated",
+        'authenticated',
+        'chatgpt.authenticated',
         {
           email: stored.identity.email,
           url: page.url(),
-          lastMessage: "Already authenticated",
+          lastMessage: 'Already authenticated',
         },
-      );
+      )
     } else {
       transitionLoginMachine(
         machine,
-        "login-surface",
-        "chatgpt.login.surface.ready",
+        'login-surface',
+        'chatgpt.login.surface.ready',
         {
           email: stored.identity.email,
           url: page.url(),
           lastMessage: `Login surface ready: ${surface}`,
         },
-      );
+      )
     }
 
-    if (surface !== "authenticated") {
-      transitionLoginMachine(machine, "email-step", "chatgpt.email.started", {
+    if (surface !== 'authenticated') {
+      transitionLoginMachine(machine, 'email-step', 'chatgpt.email.started', {
         email: stored.identity.email,
         url: page.url(),
-        lastMessage: "Submitting login email",
-      });
+        lastMessage: 'Submitting login email',
+      })
       transitionLoginMachine(
         machine,
-        "passkey-login",
-        "chatgpt.email.submitted",
+        'passkey-login',
+        'chatgpt.email.submitted',
         {
           email: stored.identity.email,
           url: page.url(),
-          lastMessage: "Login email submitted",
+          lastMessage: 'Login email submitted',
         },
-      );
+      )
     }
 
-    if (passkey.method === "passkey") {
+    if (passkey.method === 'passkey') {
       transitionLoginMachine(
         machine,
-        "passkey-login",
-        "chatgpt.passkey.login.started",
+        'passkey-login',
+        'chatgpt.passkey.login.started',
         {
           email: stored.identity.email,
           storedIdentity: stored.summary,
           url: page.url(),
-          lastMessage: "Starting passkey login",
+          lastMessage: 'Starting passkey login',
         },
-      );
-      transitionLoginMachine(machine, "passkey-login", "context.updated", {
+      )
+      transitionLoginMachine(machine, 'passkey-login', 'context.updated', {
         email: stored.identity.email,
         method: passkey.method,
         assertionObserved: passkey.assertionObserved,
         passkeyStore: passkey.passkeyStore,
         storedIdentity: stored.summary,
         url: page.url(),
-        lastMessage: "Passkey login triggered",
-      });
+        lastMessage: 'Passkey login triggered',
+      })
     } else {
       transitionLoginMachine(
         machine,
-        "password-step",
-        "chatgpt.password.started",
+        'password-step',
+        'chatgpt.password.started',
         {
           email: stored.identity.email,
           method: passkey.method,
           storedIdentity: stored.summary,
           url: page.url(),
           lastMessage:
-            passkey.method === "verification"
-              ? "Starting verification fallback"
-              : "Starting password fallback",
+            passkey.method === 'verification'
+              ? 'Starting verification fallback'
+              : 'Starting password fallback',
         },
-      );
+      )
       transitionLoginMachine(
         machine,
-        passkey.method === "verification"
-          ? "verification-code-entry"
-          : "password-step",
-        "context.updated",
+        passkey.method === 'verification'
+          ? 'verification-code-entry'
+          : 'password-step',
+        'context.updated',
         {
           email: stored.identity.email,
           method: passkey.method,
@@ -467,25 +467,25 @@ export async function loginChatGPTWithStoredPasskey(
           storedIdentity: stored.summary,
           url: page.url(),
           lastMessage:
-            passkey.method === "verification"
-              ? "Verification fallback completed"
+            passkey.method === 'verification'
+              ? 'Verification fallback completed'
               : passkey.verificationCode
-                ? "Password fallback completed with verification code"
-                : "Password fallback submitted",
+                ? 'Password fallback completed with verification code'
+                : 'Password fallback submitted',
         },
-      );
+      )
     }
 
-    const authenticated = await waitForAuthenticatedSession(page, 30000);
+    const authenticated = await waitForAuthenticatedSession(page, 30000)
     if (!authenticated) {
       throw new Error(
         `ChatGPT login did not reach an authenticated session for ${stored.identity.email}.`,
-      );
+      )
     }
 
-    const title = await page.title();
+    const title = await page.title()
     const result = {
-      pageName: "chatgpt-login-passkey" as const,
+      pageName: 'chatgpt-login-passkey' as const,
       url: page.url(),
       title,
       email: stored.identity.email,
@@ -494,9 +494,9 @@ export async function loginChatGPTWithStoredPasskey(
       storedIdentity: stored.summary,
       machine:
         undefined as unknown as ChatGPTLoginPasskeyFlowSnapshot<ChatGPTLoginPasskeyFlowResult>,
-    };
-    const snapshot = machine.succeed("completed", {
-      event: "chatgpt.completed",
+    }
+    const snapshot = machine.succeed('completed', {
+      event: 'chatgpt.completed',
       patch: {
         email: stored.identity.email,
         method: passkey.method,
@@ -504,26 +504,26 @@ export async function loginChatGPTWithStoredPasskey(
         url: result.url,
         title: result.title,
         lastMessage:
-          passkey.method === "passkey"
-            ? "ChatGPT passkey login completed"
-            : passkey.method === "verification"
-              ? "ChatGPT verification fallback login completed"
-              : "ChatGPT password fallback login completed",
+          passkey.method === 'passkey'
+            ? 'ChatGPT passkey login completed'
+            : passkey.method === 'verification'
+              ? 'ChatGPT verification fallback login completed'
+              : 'ChatGPT password fallback login completed',
       },
-    });
-    result.machine = snapshot;
-    return result;
+    })
+    result.machine = snapshot
+    return result
   } catch (error) {
-    machine.fail(error, "failed", {
-      event: "chatgpt.failed",
+    machine.fail(error, 'failed', {
+      event: 'chatgpt.failed',
       patch: {
         email: stored.identity.email,
         storedIdentity: stored.summary,
         url: page.url(),
-        lastMessage: "ChatGPT passkey login failed",
+        lastMessage: 'ChatGPT passkey login failed',
       },
-    });
-    throw error;
+    })
+    throw error
   }
 }
 
@@ -531,9 +531,9 @@ export const chatgptLoginPasskeyFlow: SingleFileFlowDefinition<
   FlowOptions,
   ChatGPTLoginPasskeyFlowResult
 > = {
-  command: "flow:chatgpt-login-passkey",
+  command: 'flow:chatgpt-login-passkey',
   run: loginChatGPTWithStoredPasskey,
-};
+}
 
 if (
   process.argv[1] &&
@@ -542,5 +542,5 @@ if (
   runSingleFileFlowFromCli(
     chatgptLoginPasskeyFlow,
     parseFlowCliArgs(process.argv.slice(2)),
-  );
+  )
 }

@@ -1,61 +1,63 @@
-import { spawn } from "child_process";
+import { spawn } from 'child_process'
 import {
   buildAuthorizationUrl,
   waitForAuthorizationCode,
-} from "./codex-authorization";
+} from './codex-authorization'
 
 interface CodexTokenPayload {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  scope?: string;
-  token_type?: string;
-  error?: string;
-  error_description?: string;
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+  scope?: string
+  token_type?: string
+  error?: string
+  error_description?: string
 }
 
 export interface CodexTokenResponse {
-  accessToken: string;
-  refreshToken?: string;
-  expiresIn?: number;
-  scope?: string;
-  tokenType?: string;
-  createdAt: string;
+  accessToken: string
+  refreshToken?: string
+  expiresIn?: number
+  scope?: string
+  tokenType?: string
+  createdAt: string
 }
 
 export interface CodexAuthorizationStartResult {
-  authorizationUrl: string;
-  redirectUri: string;
-  redirectHost: string;
-  redirectPort: number;
-  redirectPath: string;
-  state: string;
-  codeVerifier?: string;
+  authorizationUrl: string
+  redirectUri: string
+  redirectHost: string
+  redirectPort: number
+  redirectPath: string
+  state: string
+  codeVerifier?: string
 }
 
 function openBrowser(url: string): void {
-  if (process.platform === "win32") {
-    spawn("cmd", ["/c", "start", "", url], {
+  if (process.platform === 'win32') {
+    spawn('cmd', ['/c', 'start', '', url], {
       detached: true,
-      stdio: "ignore",
-    }).unref();
-    return;
+      stdio: 'ignore',
+    }).unref()
+    return
   }
 
-  const command = process.platform === "darwin" ? "open" : "xdg-open";
+  const command = process.platform === 'darwin' ? 'open' : 'xdg-open'
   spawn(command, [url], {
     detached: true,
-    stdio: "ignore",
-  }).unref();
+    stdio: 'ignore',
+  }).unref()
 }
 
-function mapCodexTokenResponse(tokenPayload: CodexTokenPayload): CodexTokenResponse {
+function mapCodexTokenResponse(
+  tokenPayload: CodexTokenPayload,
+): CodexTokenResponse {
   if (!tokenPayload.access_token) {
     throw new Error(
       tokenPayload.error_description ||
         tokenPayload.error ||
-        "Codex token exchange failed.",
-    );
+        'Codex token exchange failed.',
+    )
   }
 
   return {
@@ -65,32 +67,32 @@ function mapCodexTokenResponse(tokenPayload: CodexTokenPayload): CodexTokenRespo
     scope: tokenPayload.scope,
     tokenType: tokenPayload.token_type,
     createdAt: new Date().toISOString(),
-  };
+  }
 }
 
 export function startCodexAuthorization(input: {
-  authorizeUrl: string;
-  clientId: string;
-  scope?: string;
-  redirectHost?: string;
-  redirectPort?: number;
-  redirectPath?: string;
-  openBrowserWindow?: boolean;
+  authorizeUrl: string
+  clientId: string
+  scope?: string
+  redirectHost?: string
+  redirectPort?: number
+  redirectPath?: string
+  openBrowserWindow?: boolean
 }): CodexAuthorizationStartResult {
-  const redirectHost = input.redirectHost || "127.0.0.1";
-  const redirectPort = input.redirectPort || 3000;
-  const redirectPath = input.redirectPath || "/callback";
-  const redirectUri = `http://${redirectHost}:${redirectPort}${redirectPath}`;
+  const redirectHost = input.redirectHost || '127.0.0.1'
+  const redirectPort = input.redirectPort || 3000
+  const redirectPath = input.redirectPath || '/callback'
+  const redirectUri = `http://${redirectHost}:${redirectPort}${redirectPath}`
   const authorization = buildAuthorizationUrl({
     authorizeUrl: input.authorizeUrl,
     clientId: input.clientId,
     redirectUri,
     scope: input.scope,
     pkce: true,
-  });
+  })
 
   if (input.openBrowserWindow !== false) {
-    openBrowser(authorization.authorizationUrl);
+    openBrowser(authorization.authorizationUrl)
   }
 
   return {
@@ -101,55 +103,55 @@ export function startCodexAuthorization(input: {
     redirectPath,
     state: authorization.state,
     codeVerifier: authorization.codeVerifier || undefined,
-  };
+  }
 }
 
 export async function exchangeCodexAuthorizationCode(input: {
-  tokenUrl: string;
-  clientId: string;
-  clientSecret?: string;
-  code: string;
-  redirectUri: string;
-  codeVerifier?: string;
+  tokenUrl: string
+  clientId: string
+  clientSecret?: string
+  code: string
+  redirectUri: string
+  codeVerifier?: string
 }): Promise<CodexTokenResponse> {
   const response = await fetch(input.tokenUrl, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({
-      grant_type: "authorization_code",
+      grant_type: 'authorization_code',
       code: input.code,
       redirect_uri: input.redirectUri,
       client_id: input.clientId,
       ...(input.clientSecret ? { client_secret: input.clientSecret } : {}),
       ...(input.codeVerifier ? { code_verifier: input.codeVerifier } : {}),
     }),
-  });
+  })
 
-  const tokenPayload = (await response.json()) as CodexTokenPayload;
+  const tokenPayload = (await response.json()) as CodexTokenPayload
   if (!response.ok) {
     throw new Error(
       tokenPayload.error_description ||
         tokenPayload.error ||
-        "Codex token exchange failed.",
-    );
+        'Codex token exchange failed.',
+    )
   }
 
-  return mapCodexTokenResponse(tokenPayload);
+  return mapCodexTokenResponse(tokenPayload)
 }
 
 export async function runCodexAuthorization(input: {
-  authorizeUrl: string;
-  tokenUrl: string;
-  clientId: string;
-  clientSecret?: string;
-  scope?: string;
-  redirectHost?: string;
-  redirectPort?: number;
-  redirectPath?: string;
-  openBrowserWindow?: boolean;
+  authorizeUrl: string
+  tokenUrl: string
+  clientId: string
+  clientSecret?: string
+  scope?: string
+  redirectHost?: string
+  redirectPort?: number
+  redirectPath?: string
+  openBrowserWindow?: boolean
 }): Promise<CodexTokenResponse> {
   const started = startCodexAuthorization({
     authorizeUrl: input.authorizeUrl,
@@ -159,21 +161,23 @@ export async function runCodexAuthorization(input: {
     redirectPort: input.redirectPort,
     redirectPath: input.redirectPath,
     openBrowserWindow: input.openBrowserWindow,
-  });
+  })
 
   const callback = await waitForAuthorizationCode({
     host: started.redirectHost,
     port: started.redirectPort,
     path: started.redirectPath,
-  });
+  })
   if (!callback.state) {
-    throw new Error("Codex OAuth callback did not include state.");
+    throw new Error('Codex OAuth callback did not include state.')
   }
   if (!callback.code) {
-    throw new Error("Codex OAuth callback did not include an authorization code.");
+    throw new Error(
+      'Codex OAuth callback did not include an authorization code.',
+    )
   }
   if (callback.state !== started.state) {
-    throw new Error("Codex OAuth state mismatch.");
+    throw new Error('Codex OAuth state mismatch.')
   }
 
   return exchangeCodexAuthorizationCode({
@@ -183,5 +187,5 @@ export async function runCodexAuthorization(input: {
     code: callback.code,
     redirectUri: started.redirectUri,
     codeVerifier: started.codeVerifier,
-  });
+  })
 }

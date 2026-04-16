@@ -19,6 +19,7 @@ export interface AppEnv {
   githubScope: string;
   appBaseUrl?: string;
   verificationMailbox?: string;
+  verificationEmailPrefix?: string;
   verificationDomain?: string;
   verificationReservationTtlMinutes: number;
   deviceChallengeTtlMinutes: number;
@@ -151,10 +152,10 @@ export function getAppEnv(): AppEnv {
       "https://github.com/login/oauth/access_token",
     githubUserUrl: process.env.GITHUB_USER_URL || "https://api.github.com/user",
     githubScope: process.env.GITHUB_SCOPE || "read:user user:email",
-    appBaseUrl: process.env.APP_URL || process.env.APP_BASE_URL,
+    appBaseUrl: process.env.APP_BASE_URL,
     verificationMailbox: process.env.VERIFICATION_MAILBOX,
-    verificationDomain:
-      process.env.VERIFICATION_EMAIL_DOMAIN || process.env.VERIFICATION_DOMAIN,
+    verificationEmailPrefix: process.env.VERIFICATION_EMAIL_PREFIX,
+    verificationDomain: process.env.VERIFICATION_DOMAIN,
     verificationReservationTtlMinutes: readNumber(
       process.env.VERIFICATION_RESERVATION_TTL_MINUTES,
       15,
@@ -163,9 +164,7 @@ export function getAppEnv(): AppEnv {
       process.env.DEVICE_CHALLENGE_TTL_MINUTES,
       15,
     ),
-    cloudflareWebhookSecret:
-      process.env.CLOUDFLARE_EMAIL_INGEST_SECRET ||
-      process.env.CLOUDFLARE_EMAIL_WEBHOOK_SECRET,
+    cloudflareWebhookSecret: process.env.CLOUDFLARE_EMAIL_WEBHOOK_SECRET,
     cloudflareSignatureHeader:
       process.env.CLOUDFLARE_SIGNATURE_HEADER || "x-codey-signature",
     cloudflareTimestampHeader:
@@ -184,8 +183,7 @@ export function getAppEnv(): AppEnv {
       process.env.OAUTH_DEVICE_CODE_TTL_SECONDS,
       600,
     ),
-    oauthDefaultResourceIndicator:
-      process.env.OAUTH_DEFAULT_RESOURCE_INDICATOR || process.env.OAUTH_RESOURCE,
+    oauthDefaultResourceIndicator: process.env.OAUTH_DEFAULT_RESOURCE_INDICATOR,
     oauthSupportedScopes: readList(process.env.OAUTH_SUPPORTED_SCOPES).length
       ? readList(process.env.OAUTH_SUPPORTED_SCOPES)
       : DEFAULT_OAUTH_SUPPORTED_SCOPES,

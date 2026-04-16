@@ -68,15 +68,19 @@ VERIFICATION_PROVIDER=app
 VERIFICATION_MAILBOX=codey@your-domain.com
 CLOUDFLARE_EMAIL_WEBHOOK_SECRET=replace-with-a-long-random-secret
 
-APP_CLI_EVENTS_PATH=/api/cli/events
-APP_DEVICE_START_PATH=/api/device
-APP_DEVICE_STATUS_PATH=/api/device/{deviceCode}
-APP_DEVICE_EVENTS_PATH=/api/device/{deviceCode}/events
-VERIFICATION_APP_BASE_URL=http://localhost:3000
-VERIFICATION_APP_RESERVE_EMAIL_PATH=/api/verification/email-reservations
-VERIFICATION_APP_CODE_PATH=/api/verification/codes
-VERIFICATION_APP_EVENTS_PATH=/api/verification/events
+CODEY_APP_BASE_URL=http://localhost:3000
+CODEY_APP_CLIENT_ID=your-codey-client-id
+CODEY_APP_CLIENT_SECRET=your-codey-client-secret
+CODEY_APP_CLI_EVENTS_PATH=/api/cli/events
+CODEY_APP_DEVICE_START_PATH=/api/device
+CODEY_APP_DEVICE_STATUS_PATH=/api/device/{deviceCode}
+CODEY_APP_DEVICE_EVENTS_PATH=/api/device/{deviceCode}/events
+CODEY_APP_RESERVE_EMAIL_PATH=/api/verification/email-reservations
+CODEY_APP_CODE_PATH=/api/verification/codes
+CODEY_APP_EVENTS_PATH=/api/verification/events
 ```
+
+`CODEY_APP_CLIENT_SECRET` is optional. When it is present, app-backed verification uses `client_credentials`. When it is omitted, the flow will prompt for a device-code approval and cache the resulting user session under `.codey/credentials/app-session.json`.
 
 Typical legacy Exchange setup:
 
@@ -99,7 +103,7 @@ Resolution order:
 
 1. explicit `VERIFICATION_PROVIDER`
 2. Exchange if Exchange config is present
-3. app-backed provider if app verification config is present
+3. app-backed provider if `CODEY_APP_*` config is present
 
 ## Running the app
 

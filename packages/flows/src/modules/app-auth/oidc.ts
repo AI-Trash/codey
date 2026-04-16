@@ -1,61 +1,61 @@
-import type { OidcEndpointConfig } from "../../config";
-import { resolveAppBaseUrl } from "./http";
+import type { OidcEndpointConfig } from '../../config'
+import { resolveAppBaseUrl } from './http'
 
 export interface OidcDiscoveryDocument {
-  issuer: string;
-  token_endpoint: string;
-  device_authorization_endpoint?: string;
+  issuer: string
+  token_endpoint: string
+  device_authorization_endpoint?: string
 }
 
 export interface OidcTokenSet {
-  accessToken: string;
-  tokenType: string;
-  refreshToken?: string;
-  idToken?: string;
-  scope?: string;
-  obtainedAt: string;
-  expiresAt?: string;
+  accessToken: string
+  tokenType: string
+  refreshToken?: string
+  idToken?: string
+  scope?: string
+  obtainedAt: string
+  expiresAt?: string
 }
 
 export interface OidcDeviceAuthorizationResponse {
-  deviceCode: string;
-  userCode: string;
-  verificationUri: string;
-  verificationUriComplete?: string;
-  expiresIn: number;
-  interval?: number;
-  scope?: string;
-  expiresAt: string;
+  deviceCode: string
+  userCode: string
+  verificationUri: string
+  verificationUriComplete?: string
+  expiresIn: number
+  interval?: number
+  scope?: string
+  expiresAt: string
 }
 
 interface OidcJsonErrorPayload {
-  error?: string;
-  error_description?: string;
+  error?: string
+  error_description?: string
 }
 
 interface OidcDiscoveryPayload extends OidcJsonErrorPayload {
-  issuer?: string;
-  token_endpoint?: string;
-  device_authorization_endpoint?: string;
+  issuer?: string
+  token_endpoint?: string
+  device_authorization_endpoint?: string
 }
 
 interface OidcTokenPayload extends OidcJsonErrorPayload {
-  access_token?: string;
-  token_type?: string;
-  refresh_token?: string;
-  id_token?: string;
-  scope?: string;
-  expires_in?: number;
+  access_token?: string
+  token_type?: string
+  refresh_token?: string
+  id_token?: string
+  scope?: string
+  expires_in?: number
 }
 
 interface OidcDeviceAuthorizationPayload extends OidcJsonErrorPayload {
-  device_code?: string;
-  user_code?: string;
-  verification_uri?: string;
-  verification_uri_complete?: string;
-  expires_in?: number;
-  interval?: number;
-  scope?: string;
+  device_code?: string
+  user_code?: string
+  verification_uri?: string
+  verification_uri_complete?: string
+  expires_in?: number
+  interval?: number
+  scope?: string
 }
 
 export class OidcRequestError extends Error {
@@ -65,136 +65,145 @@ export class OidcRequestError extends Error {
     readonly error?: string,
     readonly errorDescription?: string,
   ) {
-    super(message);
-    this.name = "OidcRequestError";
+    super(message)
+    this.name = 'OidcRequestError'
   }
 }
 
-const DEFAULT_OIDC_BASE_PATH = "/oidc";
-const DEFAULT_TOKEN_TYPE = "Bearer";
-const discoveryCache = new Map<string, Promise<OidcDiscoveryDocument>>();
+const DEFAULT_OIDC_BASE_PATH = '/oidc'
+const DEFAULT_TOKEN_TYPE = 'Bearer'
+const discoveryCache = new Map<string, Promise<OidcDiscoveryDocument>>()
 
 function ensureTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value : `${value}/`;
+  return value.endsWith('/') ? value : `${value}/`
 }
 
 function stripTrailingSlash(value: string): string {
-  return value.endsWith("/") ? value.slice(0, -1) : value;
+  return value.endsWith('/') ? value.slice(0, -1) : value
 }
 
 function normalizeBasePath(value: string | undefined): string {
-  const basePath = (value || DEFAULT_OIDC_BASE_PATH).trim();
-  if (!basePath || basePath === "/") {
-    return "/";
+  const basePath = (value || DEFAULT_OIDC_BASE_PATH).trim()
+  if (!basePath || basePath === '/') {
+    return '/'
   }
-  return basePath.startsWith("/") ? basePath : `/${basePath}`;
+  return basePath.startsWith('/') ? basePath : `/${basePath}`
 }
 
 function readBaseUrl(baseUrl: string | undefined): string {
-  return baseUrl?.trim() || resolveAppBaseUrl();
+  return baseUrl?.trim() || resolveAppBaseUrl()
 }
 
 function joinUrl(baseUrl: string, pathname: string): string {
-  if (pathname === "/") {
-    return stripTrailingSlash(baseUrl);
+  if (pathname === '/') {
+    return stripTrailingSlash(baseUrl)
   }
   return stripTrailingSlash(
-    new URL(pathname.replace(/^\//, ""), ensureTrailingSlash(baseUrl)).toString(),
-  );
+    new URL(
+      pathname.replace(/^\//, ''),
+      ensureTrailingSlash(baseUrl),
+    ).toString(),
+  )
 }
 
 export function resolveOidcIssuer(
-  config: Pick<OidcEndpointConfig & { baseUrl?: string }, "baseUrl" | "oidcIssuer" | "oidcBasePath">,
+  config: Pick<
+    OidcEndpointConfig & { baseUrl?: string },
+    'baseUrl' | 'oidcIssuer' | 'oidcBasePath'
+  >,
 ): string {
-  const explicitIssuer = config.oidcIssuer?.trim();
-  const basePath = normalizeBasePath(config.oidcBasePath);
+  const explicitIssuer = config.oidcIssuer?.trim()
+  const basePath = normalizeBasePath(config.oidcBasePath)
 
   if (!explicitIssuer) {
-    return joinUrl(readBaseUrl(config.baseUrl), basePath);
+    return joinUrl(readBaseUrl(config.baseUrl), basePath)
   }
 
-  if (basePath === "/") {
-    return stripTrailingSlash(explicitIssuer);
+  if (basePath === '/') {
+    return stripTrailingSlash(explicitIssuer)
   }
 
-  const parsed = new URL(explicitIssuer);
-  if (parsed.pathname && parsed.pathname !== "/") {
-    return stripTrailingSlash(parsed.toString());
+  const parsed = new URL(explicitIssuer)
+  if (parsed.pathname && parsed.pathname !== '/') {
+    return stripTrailingSlash(parsed.toString())
   }
 
-  return joinUrl(parsed.toString(), basePath);
+  return joinUrl(parsed.toString(), basePath)
 }
 
 export function buildOidcDiscoveryUrl(
-  config: Pick<OidcEndpointConfig & { baseUrl?: string }, "baseUrl" | "oidcIssuer" | "oidcBasePath">,
+  config: Pick<
+    OidcEndpointConfig & { baseUrl?: string },
+    'baseUrl' | 'oidcIssuer' | 'oidcBasePath'
+  >,
 ): string {
   return new URL(
-    ".well-known/openid-configuration",
+    '.well-known/openid-configuration',
     ensureTrailingSlash(resolveOidcIssuer(config)),
-  ).toString();
+  ).toString()
 }
 
 function buildClientAuth(
   config: Pick<
     OidcEndpointConfig,
-    "clientId" | "clientSecret" | "tokenEndpointAuthMethod"
+    'clientId' | 'clientSecret' | 'tokenEndpointAuthMethod'
   >,
   options: { requireClientSecret?: boolean } = {},
 ): {
-  headers: Headers;
-  params: URLSearchParams;
+  headers: Headers
+  params: URLSearchParams
 } {
-  const clientId = config.clientId?.trim();
-  const clientSecret = config.clientSecret?.trim();
+  const clientId = config.clientId?.trim()
+  const clientSecret = config.clientSecret?.trim()
   if (!clientId) {
-    throw new Error("OIDC clientId is required for app-backed OAuth flows.");
+    throw new Error('OIDC clientId is required for app-backed OAuth flows.')
   }
   if (options.requireClientSecret && !clientSecret) {
     throw new Error(
-      "OIDC clientSecret is required for client_credentials verification access.",
-    );
+      'OIDC clientSecret is required for client_credentials verification access.',
+    )
   }
 
-  const authMethod = config.tokenEndpointAuthMethod || "client_secret_basic";
+  const authMethod = config.tokenEndpointAuthMethod || 'client_secret_basic'
   const headers = new Headers({
-    Accept: "application/json",
-    "Content-Type": "application/x-www-form-urlencoded",
-  });
-  const params = new URLSearchParams();
+    Accept: 'application/json',
+    'Content-Type': 'application/x-www-form-urlencoded',
+  })
+  const params = new URLSearchParams()
 
   if (!clientSecret) {
-    params.set("client_id", clientId);
-    return { headers, params };
+    params.set('client_id', clientId)
+    return { headers, params }
   }
 
-  if (authMethod === "client_secret_post") {
-    params.set("client_id", clientId);
-    params.set("client_secret", clientSecret);
-    return { headers, params };
+  if (authMethod === 'client_secret_post') {
+    params.set('client_id', clientId)
+    params.set('client_secret', clientSecret)
+    return { headers, params }
   }
 
   headers.set(
-    "Authorization",
-    `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-  );
-  return { headers, params };
+    'Authorization',
+    `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+  )
+  return { headers, params }
 }
 
 async function parseJsonResponse<T extends OidcJsonErrorPayload>(
   response: Response,
 ): Promise<T> {
-  const body = await response.text();
+  const body = await response.text()
   if (!body) {
-    return {} as T;
+    return {} as T
   }
 
   try {
-    return JSON.parse(body) as T;
+    return JSON.parse(body) as T
   } catch {
     if (!response.ok) {
-      throw new OidcRequestError(body, response.status);
+      throw new OidcRequestError(body, response.status)
     }
-    throw new Error("Expected a JSON response from the OIDC provider.");
+    throw new Error('Expected a JSON response from the OIDC provider.')
   }
 }
 
@@ -208,19 +217,24 @@ function buildOidcError(
     response.status,
     payload.error,
     payload.error_description,
-  );
+  )
 }
 
 function mapTokenSet(payload: OidcTokenPayload): OidcTokenSet {
   if (!payload.access_token) {
-    throw new Error(payload.error_description || payload.error || "OIDC token exchange failed.");
+    throw new Error(
+      payload.error_description ||
+        payload.error ||
+        'OIDC token exchange failed.',
+    )
   }
 
-  const obtainedAt = new Date().toISOString();
+  const obtainedAt = new Date().toISOString()
   const expiresAt =
-    typeof payload.expires_in === "number" && Number.isFinite(payload.expires_in)
+    typeof payload.expires_in === 'number' &&
+    Number.isFinite(payload.expires_in)
       ? new Date(Date.now() + payload.expires_in * 1000).toISOString()
-      : undefined;
+      : undefined
 
   return {
     accessToken: payload.access_token,
@@ -230,144 +244,150 @@ function mapTokenSet(payload: OidcTokenPayload): OidcTokenSet {
     scope: payload.scope,
     obtainedAt,
     expiresAt,
-  };
+  }
 }
 
 export async function getOidcDiscovery(
-  config: Pick<OidcEndpointConfig & { baseUrl?: string }, "baseUrl" | "oidcIssuer" | "oidcBasePath">,
+  config: Pick<
+    OidcEndpointConfig & { baseUrl?: string },
+    'baseUrl' | 'oidcIssuer' | 'oidcBasePath'
+  >,
 ): Promise<OidcDiscoveryDocument> {
-  const discoveryUrl = buildOidcDiscoveryUrl(config);
-  const cached = discoveryCache.get(discoveryUrl);
+  const discoveryUrl = buildOidcDiscoveryUrl(config)
+  const cached = discoveryCache.get(discoveryUrl)
   if (cached) {
-    return cached;
+    return cached
   }
 
   const pending = (async () => {
     const response = await fetch(discoveryUrl, {
       headers: {
-        Accept: "application/json",
+        Accept: 'application/json',
       },
-    });
-    const payload = await parseJsonResponse<OidcDiscoveryPayload>(response);
+    })
+    const payload = await parseJsonResponse<OidcDiscoveryPayload>(response)
     if (!response.ok) {
       throw buildOidcError(
         response,
         payload,
-        "Unable to load the OIDC discovery document.",
-      );
+        'Unable to load the OIDC discovery document.',
+      )
     }
     if (!payload.issuer || !payload.token_endpoint) {
       throw new Error(
         `OIDC discovery document is missing required endpoints at ${discoveryUrl}.`,
-      );
+      )
     }
 
     return {
       issuer: payload.issuer,
       token_endpoint: payload.token_endpoint,
       device_authorization_endpoint: payload.device_authorization_endpoint,
-    };
-  })();
+    }
+  })()
 
-  discoveryCache.set(discoveryUrl, pending);
+  discoveryCache.set(discoveryUrl, pending)
   try {
-    return await pending;
+    return await pending
   } catch (error) {
-    discoveryCache.delete(discoveryUrl);
-    throw error;
+    discoveryCache.delete(discoveryUrl)
+    throw error
   }
 }
 
 export async function exchangeOidcClientCredentials(
   config: Pick<
     OidcEndpointConfig & { baseUrl?: string },
-    | "baseUrl"
-    | "oidcIssuer"
-    | "oidcBasePath"
-    | "clientId"
-    | "clientSecret"
-    | "scope"
-    | "resource"
-    | "tokenEndpointAuthMethod"
+    | 'baseUrl'
+    | 'oidcIssuer'
+    | 'oidcBasePath'
+    | 'clientId'
+    | 'clientSecret'
+    | 'scope'
+    | 'resource'
+    | 'tokenEndpointAuthMethod'
   >,
 ): Promise<OidcTokenSet> {
-  const discovery = await getOidcDiscovery(config);
-  const auth = buildClientAuth(config, { requireClientSecret: true });
-  const body = new URLSearchParams(auth.params);
-  body.set("grant_type", "client_credentials");
+  const discovery = await getOidcDiscovery(config)
+  const auth = buildClientAuth(config, { requireClientSecret: true })
+  const body = new URLSearchParams(auth.params)
+  body.set('grant_type', 'client_credentials')
   if (config.scope?.trim()) {
-    body.set("scope", config.scope.trim());
+    body.set('scope', config.scope.trim())
   }
   if (config.resource?.trim()) {
-    body.set("resource", config.resource.trim());
+    body.set('resource', config.resource.trim())
   }
 
   const response = await fetch(discovery.token_endpoint, {
-    method: "POST",
+    method: 'POST',
     headers: auth.headers,
     body,
-  });
-  const payload = await parseJsonResponse<OidcTokenPayload>(response);
+  })
+  const payload = await parseJsonResponse<OidcTokenPayload>(response)
   if (!response.ok) {
     throw buildOidcError(
       response,
       payload,
-      "OIDC client credentials exchange failed.",
-    );
+      'OIDC client credentials exchange failed.',
+    )
   }
 
-  return mapTokenSet(payload);
+  return mapTokenSet(payload)
 }
 
 export async function startOidcDeviceAuthorization(
   config: Pick<
     OidcEndpointConfig & { baseUrl?: string },
-    | "baseUrl"
-    | "oidcIssuer"
-    | "oidcBasePath"
-    | "clientId"
-    | "clientSecret"
-    | "scope"
-    | "resource"
-    | "tokenEndpointAuthMethod"
+    | 'baseUrl'
+    | 'oidcIssuer'
+    | 'oidcBasePath'
+    | 'clientId'
+    | 'clientSecret'
+    | 'scope'
+    | 'resource'
+    | 'tokenEndpointAuthMethod'
   >,
 ): Promise<OidcDeviceAuthorizationResponse> {
-  const discovery = await getOidcDiscovery(config);
+  const discovery = await getOidcDiscovery(config)
   if (!discovery.device_authorization_endpoint) {
     throw new Error(
       `OIDC discovery at ${discovery.issuer} does not advertise a device authorization endpoint.`,
-    );
+    )
   }
 
-  const auth = buildClientAuth(config);
-  const body = new URLSearchParams(auth.params);
+  const auth = buildClientAuth(config)
+  const body = new URLSearchParams(auth.params)
   if (config.scope?.trim()) {
-    body.set("scope", config.scope.trim());
+    body.set('scope', config.scope.trim())
   }
   if (config.resource?.trim()) {
-    body.set("resource", config.resource.trim());
+    body.set('resource', config.resource.trim())
   }
 
   const response = await fetch(discovery.device_authorization_endpoint, {
-    method: "POST",
+    method: 'POST',
     headers: auth.headers,
     body,
-  });
-  const payload = await parseJsonResponse<OidcDeviceAuthorizationPayload>(response);
+  })
+  const payload =
+    await parseJsonResponse<OidcDeviceAuthorizationPayload>(response)
   if (!response.ok) {
     throw buildOidcError(
       response,
       payload,
-      "OIDC device authorization request failed.",
-    );
+      'OIDC device authorization request failed.',
+    )
   }
   if (
     !payload.device_code ||
     !payload.user_code ||
     !payload.verification_uri ||
-    typeof payload.expires_in !== "number"
+    typeof payload.expires_in !== 'number'
   ) {
-    throw new Error("OIDC device authorization response is missing required fields.");
+    throw new Error(
+      'OIDC device authorization response is missing required fields.',
+    )
   }
 
   return {
@@ -379,40 +399,44 @@ export async function startOidcDeviceAuthorization(
     interval: payload.interval,
     scope: payload.scope,
     expiresAt: new Date(Date.now() + payload.expires_in * 1000).toISOString(),
-  };
+  }
 }
 
 export async function exchangeOidcDeviceCode(
   config: Pick<
     OidcEndpointConfig & { baseUrl?: string },
-    | "baseUrl"
-    | "oidcIssuer"
-    | "oidcBasePath"
-    | "clientId"
-    | "clientSecret"
-    | "resource"
-    | "tokenEndpointAuthMethod"
+    | 'baseUrl'
+    | 'oidcIssuer'
+    | 'oidcBasePath'
+    | 'clientId'
+    | 'clientSecret'
+    | 'resource'
+    | 'tokenEndpointAuthMethod'
   >,
   deviceCode: string,
 ): Promise<OidcTokenSet> {
-  const discovery = await getOidcDiscovery(config);
-  const auth = buildClientAuth(config);
-  const body = new URLSearchParams(auth.params);
-  body.set("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
-  body.set("device_code", deviceCode);
+  const discovery = await getOidcDiscovery(config)
+  const auth = buildClientAuth(config)
+  const body = new URLSearchParams(auth.params)
+  body.set('grant_type', 'urn:ietf:params:oauth:grant-type:device_code')
+  body.set('device_code', deviceCode)
   if (config.resource?.trim()) {
-    body.set("resource", config.resource.trim());
+    body.set('resource', config.resource.trim())
   }
 
   const response = await fetch(discovery.token_endpoint, {
-    method: "POST",
+    method: 'POST',
     headers: auth.headers,
     body,
-  });
-  const payload = await parseJsonResponse<OidcTokenPayload>(response);
+  })
+  const payload = await parseJsonResponse<OidcTokenPayload>(response)
   if (!response.ok) {
-    throw buildOidcError(response, payload, "OIDC device token exchange failed.");
+    throw buildOidcError(
+      response,
+      payload,
+      'OIDC device token exchange failed.',
+    )
   }
 
-  return mapTokenSet(payload);
+  return mapTokenSet(payload)
 }
