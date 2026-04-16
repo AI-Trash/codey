@@ -1,271 +1,316 @@
-import { useEffect, useMemo, useState, type ReactNode, type Dispatch, type SetStateAction, type FormEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useState,
+  type Dispatch,
+  type FormEvent,
+  type ReactNode,
+  type SetStateAction,
+} from 'react'
+
+import {
+  EmptyState,
+  StatusBadge,
+  formatAdminDate,
+} from '#/components/admin/layout'
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import { Badge } from '#/components/ui/badge'
+import { Button } from '#/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '#/components/ui/card'
+import { Checkbox } from '#/components/ui/checkbox'
+import { Input } from '#/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '#/components/ui/table'
+import { Textarea } from '#/components/ui/textarea'
 
 export type ManagedOAuthClient = {
-  id: string;
-  clientId: string;
-  clientName: string;
-  description: string | null;
-  enabled: boolean;
-  clientCredentialsEnabled: boolean;
-  deviceFlowEnabled: boolean;
-  tokenEndpointAuthMethod: "client_secret_basic" | "client_secret_post";
-  allowedScopes: string[];
-  clientSecretPreview: string;
-  clientSecretUpdatedAt: string | Date;
-  createdAt: string | Date;
-  updatedAt: string | Date;
-};
+  id: string
+  clientId: string
+  clientName: string
+  description: string | null
+  enabled: boolean
+  clientCredentialsEnabled: boolean
+  deviceFlowEnabled: boolean
+  tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
+  allowedScopes: string[]
+  clientSecretPreview: string
+  clientSecretUpdatedAt: string | Date
+  createdAt: string | Date
+  updatedAt: string | Date
+}
 
 type OAuthClientFormValues = {
-  clientName: string;
-  description: string;
-  enabled: boolean;
-  tokenEndpointAuthMethod: "client_secret_basic" | "client_secret_post";
-  allowedScopes: string;
-  clientCredentialsEnabled: boolean;
-  deviceFlowEnabled: boolean;
-};
+  clientName: string
+  description: string
+  enabled: boolean
+  tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
+  allowedScopes: string
+  clientCredentialsEnabled: boolean
+  deviceFlowEnabled: boolean
+}
 
 type OAuthClientPayload = {
-  clientName: string;
-  description?: string;
-  enabled: boolean;
-  tokenEndpointAuthMethod: "client_secret_basic" | "client_secret_post";
-  allowedScopes: string[];
-  clientCredentialsEnabled: boolean;
-  deviceFlowEnabled: boolean;
-};
+  clientName: string
+  description?: string
+  enabled: boolean
+  tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
+  allowedScopes: string[]
+  clientCredentialsEnabled: boolean
+  deviceFlowEnabled: boolean
+}
 
 export function AdminAuthRequired() {
   return (
-    <main className="page-wrap px-4 py-12">
-      <section className="island-shell rounded-2xl p-6 sm:p-8">
-        <p className="island-kicker mb-2">Admin</p>
-        <h1 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)] sm:text-4xl">
-          Admin sign-in required.
-        </h1>
-        <p className="mb-5 max-w-2xl text-base leading-8 text-[var(--sea-ink-soft)]">
-          Sign in with GitHub to manage OAuth clients.
-        </p>
-        <a href="/admin/login" className="admin-button admin-button-primary">
-          Go to admin login
-        </a>
-      </section>
-    </main>
-  );
+    <Card className="max-w-2xl">
+      <CardHeader>
+        <CardDescription>Admin</CardDescription>
+        <CardTitle className="text-2xl">Admin sign-in required</CardTitle>
+        <CardDescription className="max-w-xl text-sm leading-6">
+          Sign in with GitHub to manage OAuth clients and access the operator
+          console.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button asChild>
+          <a href="/admin/login">Go to admin login</a>
+        </Button>
+      </CardContent>
+    </Card>
+  )
 }
 
-export function AdminAppsHero({
-  kicker,
-  title,
-  description,
-  actions,
+export function OAuthClientsList({
+  clients,
 }: {
-  kicker: string;
-  title: string;
-  description: string;
-  actions?: ReactNode;
+  clients: ManagedOAuthClient[]
 }) {
-  return (
-    <section className="admin-panel admin-panel-muted rise-in flex flex-wrap items-start justify-between gap-4">
-      <div className="max-w-3xl">
-        <p className="island-kicker mb-2">{kicker}</p>
-        <h1 className="display-title text-3xl font-bold text-[var(--sea-ink)] sm:text-4xl">
-          {title}
-        </h1>
-        <p className="mt-3 text-sm leading-7 text-[var(--sea-ink-soft)]">{description}</p>
-      </div>
-      {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
-    </section>
-  );
-}
-
-export function AdminAppsNav({ current }: { current: "list" | "new" | "detail" }) {
-  return (
-    <nav className="admin-anchor-nav mt-6">
-      <a href="/admin" className="admin-button admin-button-secondary">
-        Operations
-      </a>
-      <a
-        href="/admin/apps"
-        className={`admin-button ${current === "list" ? "admin-button-primary" : "admin-button-secondary"}`}
-      >
-        OAuth apps
-      </a>
-      <a
-        href="/admin/apps/new"
-        className={`admin-button ${current === "new" ? "admin-button-primary" : "admin-button-secondary"}`}
-      >
-        Register app
-      </a>
-    </nav>
-  );
-}
-
-export function OAuthClientsList({ clients }: { clients: ManagedOAuthClient[] }) {
   if (!clients.length) {
     return (
-      <div className="admin-empty">
-        No OAuth clients registered yet. Create the first app to issue client credentials or enable device flow.
-      </div>
-    );
+      <EmptyState
+        title="No OAuth clients yet"
+        description="Create the first app to issue client credentials or support device flow."
+      />
+    )
   }
 
+  const enabledCount = clients.filter((client) => client.enabled).length
+  const deviceFlowCount = clients.filter(
+    (client) => client.deviceFlowEnabled,
+  ).length
+
   return (
-    <ul className="admin-list">
-      {clients.map((client) => {
-        const tone = client.enabled ? "good" : "warning";
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="outline">{clients.length} total</Badge>
+        <Badge variant="outline">{enabledCount} enabled</Badge>
+        <Badge variant="outline">{deviceFlowCount} device flow</Badge>
+      </div>
 
-        return (
-          <li key={client.id} className="admin-list-item">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="admin-eyebrow">{client.clientId}</div>
-                <h2 className="mt-1 text-xl font-semibold text-[var(--sea-ink)]">
-                  {client.clientName}
-                </h2>
-              </div>
-              <span className="admin-status-pill" data-tone={tone}>
-                {client.enabled ? "enabled" : "disabled"}
-              </span>
-            </div>
-
-            <p className="mt-3 mb-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-              {client.description || "No description added yet."}
-            </p>
-
-            <dl className="mt-4 grid gap-2 text-sm text-[var(--sea-ink-soft)] sm:grid-cols-2 xl:grid-cols-4">
-              <InfoRow label="Auth method" value={formatAuthMethod(client.tokenEndpointAuthMethod)} />
-              <InfoRow label="Allowed scopes" value={client.allowedScopes.join(", ") || "None"} />
-              <InfoRow
-                label="Grants"
-                value={[
-                  client.clientCredentialsEnabled ? "client_credentials" : null,
-                  client.deviceFlowEnabled ? "device flow" : null,
-                ]
-                  .filter(Boolean)
-                  .join(" • ")}
-              />
-              <InfoRow
-                label="Secret preview"
-                value={`${client.clientSecretPreview}… • updated ${formatDate(client.clientSecretUpdatedAt) || "recently"}`}
-              />
-            </dl>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <a href={`/admin/apps/${client.id}`} className="admin-button admin-button-primary">
-                Edit app
-              </a>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
+      <Table className="min-w-[1080px]">
+        <TableHeader>
+          <TableRow>
+            <TableHead>App</TableHead>
+            <TableHead>Client ID</TableHead>
+            <TableHead>Grants</TableHead>
+            <TableHead>Scopes</TableHead>
+            <TableHead>Secret</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Updated</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {clients.map((client) => (
+            <TableRow key={client.id}>
+              <TableCell className="whitespace-normal align-top">
+                <div className="space-y-1">
+                  <div className="font-medium text-foreground">
+                    {client.clientName}
+                  </div>
+                  <p className="max-w-[320px] text-sm leading-6 text-muted-foreground">
+                    {client.description || 'No description added yet.'}
+                  </p>
+                </div>
+              </TableCell>
+              <TableCell className="align-top">
+                <div className="space-y-1">
+                  <code className="inline-block max-w-[240px] overflow-x-auto whitespace-nowrap">
+                    {client.clientId}
+                  </code>
+                  <p className="text-xs text-muted-foreground">
+                    {formatAuthMethod(client.tokenEndpointAuthMethod)}
+                  </p>
+                </div>
+              </TableCell>
+              <TableCell className="align-top">
+                <div className="flex max-w-[200px] flex-wrap gap-1.5">
+                  {formatGrantList(client).map((grant) => (
+                    <Badge key={grant} variant="secondary">
+                      {grant}
+                    </Badge>
+                  ))}
+                </div>
+              </TableCell>
+              <TableCell className="whitespace-normal align-top">
+                <div className="flex max-w-[280px] flex-wrap gap-1.5">
+                  {client.allowedScopes.length ? (
+                    client.allowedScopes.map((scope) => (
+                      <Badge key={scope} variant="outline">
+                        {scope}
+                      </Badge>
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      No scopes
+                    </span>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell className="align-top">
+                <div className="space-y-1">
+                  <code>{client.clientSecretPreview}...</code>
+                  <p className="text-xs text-muted-foreground">
+                    Rotated{' '}
+                    {formatAdminDate(client.clientSecretUpdatedAt) ||
+                      'recently'}
+                  </p>
+                </div>
+              </TableCell>
+              <TableCell className="align-top">
+                <StatusBadge value={client.enabled ? 'Enabled' : 'Disabled'} />
+              </TableCell>
+              <TableCell className="align-top text-sm text-muted-foreground">
+                {formatAdminDate(client.updatedAt) || 'Recently'}
+              </TableCell>
+              <TableCell className="align-top text-right">
+                <Button asChild size="sm">
+                  <a href={`/admin/apps/${client.id}`}>Edit app</a>
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  )
 }
 
 export function NewOAuthClientPageContent({
   supportedScopes,
 }: {
-  supportedScopes: string[];
+  supportedScopes: string[]
 }) {
   const [form, setForm] = useState<OAuthClientFormValues>(() =>
     createFormValues({
-      clientName: "",
-      description: "",
+      clientName: '',
+      description: '',
       enabled: true,
-      tokenEndpointAuthMethod: "client_secret_basic",
-      allowedScopes: supportedScopes.join("\n"),
+      tokenEndpointAuthMethod: 'client_secret_basic',
+      allowedScopes: supportedScopes.join('\n'),
       clientCredentialsEnabled: true,
       deviceFlowEnabled: false,
     }),
-  );
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  )
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<{
-    client: ManagedOAuthClient;
-    clientSecret: string;
-  } | null>(null);
+    client: ManagedOAuthClient
+    clientSecret: string
+  } | null>(null)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
+    event.preventDefault()
+    setSubmitting(true)
+    setError(null)
 
     try {
-      const payload = toPayload(form);
-      const response = await fetch("/api/admin/oauth-clients", {
-        method: "POST",
+      const payload = toPayload(form)
+      const response = await fetch('/api/admin/oauth-clients', {
+        method: 'POST',
         headers: {
-          "content-type": "application/json",
+          'content-type': 'application/json',
         },
         body: JSON.stringify(payload),
-      });
+      })
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await response.text())
       }
 
       const data = (await response.json()) as {
-        client: ManagedOAuthClient;
-        clientSecret: string;
-      };
-      setCreated(data);
+        client: ManagedOAuthClient
+        clientSecret: string
+      }
+      setCreated(data)
     } catch (submitError) {
       setError(
         submitError instanceof Error
           ? submitError.message
-          : "Unable to create OAuth client",
-      );
+          : 'Unable to create OAuth client',
+      )
     } finally {
-      setSubmitting(false);
+      setSubmitting(false)
     }
   }
 
   return (
-    <div className="admin-grid mt-8 xl:grid-cols-[1.15fr_0.85fr]">
-      <article className="admin-panel admin-panel-strong">
-        <div className="mb-5">
-          <p className="island-kicker mb-2">Registration</p>
-          <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-            Create a managed OAuth app
-          </h2>
-        </div>
-        <OAuthClientForm
-          form={form}
-          submitting={submitting}
-          submitLabel="Create OAuth app"
-          supportedScopes={supportedScopes}
-          error={error}
-          onChange={setForm}
-          onSubmit={handleSubmit}
-        />
-      </article>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
+      <Card>
+        <CardHeader>
+          <CardDescription>Registration</CardDescription>
+          <CardTitle>Create a managed OAuth app</CardTitle>
+          <CardDescription>
+            Create the client, define the grant types, and make the supported
+            scopes explicit before handing the secret to a caller.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <OAuthClientForm
+            form={form}
+            submitting={submitting}
+            submitLabel="Create OAuth app"
+            supportedScopes={supportedScopes}
+            error={error}
+            onChange={setForm}
+            onSubmit={handleSubmit}
+          />
+        </CardContent>
+      </Card>
 
-      <div className="admin-grid">
-        <article className="admin-panel admin-panel-muted">
-          <p className="island-kicker mb-2">Practical defaults</p>
-          <ul className="admin-list">
-            <li className="admin-list-item">
-              <strong className="block text-[var(--sea-ink)]">Client credentials</strong>
-              <p className="mt-2 mb-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-                Turn this on for service-to-service access where the app can hold a secret.
-              </p>
-            </li>
-            <li className="admin-list-item">
-              <strong className="block text-[var(--sea-ink)]">Device flow</strong>
-              <p className="mt-2 mb-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-                Turn this on for GitHub-like device approvals where the operator completes a browser step.
-              </p>
-            </li>
-            <li className="admin-list-item">
-              <strong className="block text-[var(--sea-ink)]">Secret handling</strong>
-              <p className="mt-2 mb-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-                The full secret is shown once after registration. Save it immediately, then use the edit page if you need to rotate or reveal the current value.
-              </p>
-            </li>
-          </ul>
-        </article>
+      <div className="grid gap-4">
+        <Card>
+          <CardHeader>
+            <CardDescription>Practical defaults</CardDescription>
+            <CardTitle className="text-lg">What to enable</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm leading-6 text-muted-foreground">
+            <InfoBlock
+              title="Client credentials"
+              detail="Use this when the caller can safely hold a secret and does not need an operator browser step."
+            />
+            <InfoBlock
+              title="Device flow"
+              detail="Use this when a CLI or daemon needs an approval handoff into the browser."
+            />
+            <InfoBlock
+              title="Secret handling"
+              detail="The full secret is shown once after registration. Save it in the calling app immediately."
+            />
+          </CardContent>
+        </Card>
 
         {created ? (
           <SecretPanel
@@ -276,208 +321,227 @@ export function NewOAuthClientPageContent({
             preview={created.client.clientSecretPreview}
             footer={
               <div className="flex flex-wrap gap-2">
-                <a href={`/admin/apps/${created.client.id}`} className="admin-button admin-button-primary">
-                  Open app settings
-                </a>
-                <a href="/admin/apps" className="admin-button admin-button-secondary">
-                  Back to apps
-                </a>
+                <Button asChild size="sm">
+                  <a href={`/admin/apps/${created.client.id}`}>
+                    Open app settings
+                  </a>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <a href="/admin/apps">Back to apps</a>
+                </Button>
               </div>
             }
           />
         ) : null}
       </div>
     </div>
-  );
+  )
 }
 
 export function EditOAuthClientPageContent({
   initialClient,
   supportedScopes,
 }: {
-  initialClient: ManagedOAuthClient;
-  supportedScopes: string[];
+  initialClient: ManagedOAuthClient
+  supportedScopes: string[]
 }) {
-  const [client, setClient] = useState(initialClient);
-  const [form, setForm] = useState<OAuthClientFormValues>(() => createFormValues(initialClient));
-  const [saving, setSaving] = useState(false);
-  const [revealing, setRevealing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [visibleSecret, setVisibleSecret] = useState<string | null>(null);
+  const [client, setClient] = useState(initialClient)
+  const [form, setForm] = useState<OAuthClientFormValues>(() =>
+    createFormValues(initialClient),
+  )
+  const [saving, setSaving] = useState(false)
+  const [revealing, setRevealing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [visibleSecret, setVisibleSecret] = useState<string | null>(null)
 
   useEffect(() => {
-    setClient(initialClient);
-    setForm(createFormValues(initialClient));
-  }, [initialClient]);
+    setClient(initialClient)
+    setForm(createFormValues(initialClient))
+  }, [initialClient])
 
   async function saveClient(rotateSecret: boolean) {
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
+    setSaving(true)
+    setError(null)
+    setSuccess(null)
 
     try {
       const response = await fetch(`/api/admin/oauth-clients/${client.id}`, {
-        method: "PATCH",
+        method: 'PATCH',
         headers: {
-          "content-type": "application/json",
+          'content-type': 'application/json',
         },
         body: JSON.stringify({
           ...toPayload(form),
           rotateSecret,
         }),
-      });
+      })
 
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await response.text())
       }
 
       const data = (await response.json()) as {
-        client: ManagedOAuthClient;
-        rotatedSecret?: string;
-      };
-      setClient(data.client);
-      setForm(createFormValues(data.client));
-      setVisibleSecret(data.rotatedSecret || null);
+        client: ManagedOAuthClient
+        rotatedSecret?: string
+      }
+      setClient(data.client)
+      setForm(createFormValues(data.client))
+      setVisibleSecret(data.rotatedSecret || null)
       setSuccess(
         rotateSecret
-          ? "OAuth app updated and secret rotated."
-          : "OAuth app settings saved.",
-      );
+          ? 'OAuth app updated and secret rotated.'
+          : 'OAuth app settings saved.',
+      )
     } catch (saveError) {
       setError(
-        saveError instanceof Error ? saveError.message : "Unable to update OAuth client",
-      );
+        saveError instanceof Error
+          ? saveError.message
+          : 'Unable to update OAuth client',
+      )
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
   }
 
   async function revealSecret() {
-    setRevealing(true);
-    setError(null);
+    setRevealing(true)
+    setError(null)
 
     try {
-      const response = await fetch(`/api/admin/oauth-clients/${client.id}?includeSecret=true`);
+      const response = await fetch(
+        `/api/admin/oauth-clients/${client.id}?includeSecret=true`,
+      )
       if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await response.text())
       }
 
       const data = (await response.json()) as {
-        client: ManagedOAuthClient;
-        clientSecret?: string;
-      };
-      setVisibleSecret(data.clientSecret || null);
-      setClient(data.client);
-      setSuccess("Current client secret revealed.");
+        client: ManagedOAuthClient
+        clientSecret?: string
+      }
+      setVisibleSecret(data.clientSecret || null)
+      setClient(data.client)
+      setSuccess('Current client secret revealed.')
     } catch (revealError) {
       setError(
-        revealError instanceof Error ? revealError.message : "Unable to reveal client secret",
-      );
+        revealError instanceof Error
+          ? revealError.message
+          : 'Unable to reveal client secret',
+      )
     } finally {
-      setRevealing(false);
+      setRevealing(false)
     }
   }
 
-  const grantSummary = useMemo(
-    () =>
-      [
-        client.clientCredentialsEnabled ? "client_credentials" : null,
-        client.deviceFlowEnabled ? "device flow" : null,
-      ]
-        .filter(Boolean)
-        .join(" • "),
-    [client.clientCredentialsEnabled, client.deviceFlowEnabled],
-  );
+  const grantSummary = formatGrantList(client).join(' • ')
 
   return (
-    <div className="admin-grid mt-8 xl:grid-cols-[1.15fr_0.85fr]">
-      <article className="admin-panel admin-panel-strong">
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="island-kicker mb-2">OAuth app settings</p>
-            <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-              {client.clientName}
-            </h2>
-          </div>
-          <span className="admin-status-pill" data-tone={client.enabled ? "good" : "warning"}>
-            {client.enabled ? "enabled" : "disabled"}
-          </span>
-        </div>
-
-        <OAuthClientForm
-          form={form}
-          submitting={saving}
-          submitLabel="Save app settings"
-          supportedScopes={supportedScopes}
-          error={error}
-          success={success}
-          onChange={setForm}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void saveClient(false);
-          }}
-        >
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="submit"
-              className="admin-button admin-button-primary disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={saving || revealing}
-            >
-              {saving ? "Saving…" : "Save app settings"}
-            </button>
-            <button
-              type="button"
-              className="admin-button admin-button-secondary disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={saving || revealing}
-              onClick={() => {
-                void saveClient(true);
-              }}
-            >
-              {saving ? "Updating…" : "Rotate secret"}
-            </button>
-          </div>
-        </OAuthClientForm>
-      </article>
-
-      <div className="admin-grid">
-        <article className="admin-panel admin-panel-muted">
-          <p className="island-kicker mb-2">Client summary</p>
-          <dl className="grid gap-3 text-sm text-[var(--sea-ink-soft)]">
-            <InfoRow label="Client ID" value={client.clientId} />
-            <InfoRow label="Auth method" value={formatAuthMethod(client.tokenEndpointAuthMethod)} />
-            <InfoRow label="Enabled grants" value={grantSummary} />
-            <InfoRow label="Allowed scopes" value={client.allowedScopes.join(", ") || "None"} />
-            <InfoRow label="Updated" value={formatDate(client.updatedAt) || "Recently"} />
-          </dl>
-        </article>
-
-        <article className="admin-panel admin-panel-muted">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
+      <Card>
+        <CardHeader className="gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="island-kicker mb-2">Secret state</p>
-              <h3 className="m-0 text-xl font-semibold text-[var(--sea-ink)]">Reveal or rotate</h3>
+              <CardDescription>OAuth app settings</CardDescription>
+              <CardTitle>{client.clientName}</CardTitle>
             </div>
-            <span className="admin-status-pill" data-tone="good">
-              preview {client.clientSecretPreview}…
-            </span>
+            <StatusBadge value={client.enabled ? 'Enabled' : 'Disabled'} />
           </div>
-          <p className="mt-0 mb-4 text-sm leading-7 text-[var(--sea-ink-soft)]">
-            The stored secret is hidden by default. Reveal the current value if you need to reconfigure an existing caller, or rotate it to invalidate the old one.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <button
+          <CardDescription>
+            Update app metadata, adjust grants, and change secret state without
+            leaving the management view.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <OAuthClientForm
+            form={form}
+            submitting={saving}
+            submitLabel="Save app settings"
+            supportedScopes={supportedScopes}
+            error={error}
+            success={success}
+            onChange={setForm}
+            onSubmit={(event) => {
+              event.preventDefault()
+              void saveClient(false)
+            }}
+          >
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={saving || revealing}>
+                {saving ? 'Saving...' : 'Save app settings'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving || revealing}
+                onClick={() => {
+                  void saveClient(true)
+                }}
+              >
+                {saving ? 'Updating...' : 'Rotate secret'}
+              </Button>
+            </div>
+          </OAuthClientForm>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4">
+        <Card>
+          <CardHeader>
+            <CardDescription>Client summary</CardDescription>
+            <CardTitle className="text-lg">Current state</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-4 text-sm text-muted-foreground">
+              <SummaryItem label="Client ID" value={client.clientId} code />
+              <SummaryItem
+                label="Auth method"
+                value={formatAuthMethod(client.tokenEndpointAuthMethod)}
+              />
+              <SummaryItem
+                label="Enabled grants"
+                value={grantSummary || 'None'}
+              />
+              <SummaryItem
+                label="Allowed scopes"
+                value={client.allowedScopes.join(', ') || 'None'}
+              />
+              <SummaryItem
+                label="Updated"
+                value={formatAdminDate(client.updatedAt) || 'Recently'}
+              />
+            </dl>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardDescription>Secret state</CardDescription>
+            <CardTitle className="text-lg">Reveal or rotate</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge
+                value={`Preview ${client.clientSecretPreview}`}
+                tone="good"
+              />
+            </div>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Reveal the current secret when you need to reconfigure an existing
+              caller, or rotate it to invalidate the previous one.
+            </p>
+            <Button
               type="button"
-              className="admin-button admin-button-secondary disabled:cursor-not-allowed disabled:opacity-70"
+              variant="outline"
               disabled={saving || revealing}
               onClick={() => {
-                void revealSecret();
+                void revealSecret()
               }}
             >
-              {revealing ? "Revealing…" : "Reveal current secret"}
-            </button>
-          </div>
-        </article>
+              {revealing ? 'Revealing...' : 'Reveal current secret'}
+            </Button>
+          </CardContent>
+        </Card>
 
         {visibleSecret ? (
           <SecretPanel
@@ -490,7 +554,7 @@ export function EditOAuthClientPageContent({
         ) : null}
       </div>
     </div>
-  );
+  )
 }
 
 function OAuthClientForm({
@@ -504,178 +568,164 @@ function OAuthClientForm({
   success,
   children,
 }: {
-  form: OAuthClientFormValues;
-  onChange: Dispatch<SetStateAction<OAuthClientFormValues>>;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  submitting: boolean;
-  submitLabel: string;
-  supportedScopes: string[];
-  error?: string | null;
-  success?: string | null;
-  children?: ReactNode;
+  form: OAuthClientFormValues
+  onChange: Dispatch<SetStateAction<OAuthClientFormValues>>
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  submitting: boolean
+  submitLabel: string
+  supportedScopes: string[]
+  error?: string | null
+  success?: string | null
+  children?: ReactNode
 }) {
-  const parsedScopes = parseScopes(form.allowedScopes);
-  const hasGrantEnabled = form.clientCredentialsEnabled || form.deviceFlowEnabled;
+  const enabledId = useId()
+  const clientCredentialsId = useId()
+  const deviceFlowId = useId()
+
+  const parsedScopes = parseScopes(form.allowedScopes)
+  const hasGrantEnabled =
+    form.clientCredentialsEnabled || form.deviceFlowEnabled
 
   return (
     <form className="grid gap-5" onSubmit={onSubmit}>
-      <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-        Client name
-        <input
+      <Field label="Client name">
+        <Input
           value={form.clientName}
           onChange={(event) => {
-            const nextValue = event.target.value;
-            onChange((current) => ({ ...current, clientName: nextValue }));
+            const nextValue = event.target.value
+            onChange((current) => ({ ...current, clientName: nextValue }))
           }}
           placeholder="CLI daemon"
-          className="admin-input"
           required
         />
-      </label>
+      </Field>
 
-      <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-        Description
-        <textarea
+      <Field label="Description">
+        <Textarea
           value={form.description}
           onChange={(event) => {
-            const nextValue = event.target.value;
-            onChange((current) => ({ ...current, description: nextValue }));
+            const nextValue = event.target.value
+            onChange((current) => ({ ...current, description: nextValue }))
           }}
           placeholder="What this app is for"
-          className="admin-textarea"
+          className="min-h-28"
         />
-      </label>
+      </Field>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-          Token endpoint auth method
-          <select
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+        <Field label="Token endpoint auth method">
+          <NativeSelect
             value={form.tokenEndpointAuthMethod}
             onChange={(event) => {
-              const nextValue = event.target.value as OAuthClientFormValues["tokenEndpointAuthMethod"];
-              onChange((current) => ({ ...current, tokenEndpointAuthMethod: nextValue }));
+              const nextValue = event.target
+                .value as OAuthClientFormValues['tokenEndpointAuthMethod']
+              onChange((current) => ({
+                ...current,
+                tokenEndpointAuthMethod: nextValue,
+              }))
             }}
-            className="admin-select"
+            className="w-full"
           >
-            <option value="client_secret_basic">client_secret_basic</option>
-            <option value="client_secret_post">client_secret_post</option>
-          </select>
-        </label>
+            <NativeSelectOption value="client_secret_basic">
+              client_secret_basic
+            </NativeSelectOption>
+            <NativeSelectOption value="client_secret_post">
+              client_secret_post
+            </NativeSelectOption>
+          </NativeSelect>
+        </Field>
 
-        <div className="grid gap-3">
-          <label className="admin-list-item flex items-start gap-3">
-            <input
-              type="checkbox"
-              checked={form.enabled}
-              onChange={(event) => {
-                const nextValue = event.target.checked;
-                onChange((current) => ({ ...current, enabled: nextValue }));
-              }}
-              className="mt-1"
-            />
-            <span>
-              <strong className="block text-[var(--sea-ink)]">Enabled</strong>
-              <span className="mt-1 block text-sm leading-6 text-[var(--sea-ink-soft)]">
-                Disable the app without deleting its configuration.
-              </span>
-            </span>
-          </label>
-        </div>
+        <ToggleCard
+          id={enabledId}
+          title="Enabled"
+          description="Disable the app without deleting its configuration."
+          checked={form.enabled}
+          onCheckedChange={(checked) => {
+            onChange((current) => ({ ...current, enabled: checked }))
+          }}
+        />
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <label className="admin-list-item flex items-start gap-3">
-          <input
-            type="checkbox"
-            checked={form.clientCredentialsEnabled}
-            onChange={(event) => {
-              const nextValue = event.target.checked;
-              onChange((current) => ({ ...current, clientCredentialsEnabled: nextValue }));
-            }}
-            className="mt-1"
-          />
-          <span>
-            <strong className="block text-[var(--sea-ink)]">Enable client credentials</strong>
-            <span className="mt-1 block text-sm leading-6 text-[var(--sea-ink-soft)]">
-              Allow token exchange with the app secret and no browser step.
-            </span>
-          </span>
-        </label>
+        <ToggleCard
+          id={clientCredentialsId}
+          title="Enable client credentials"
+          description="Allow token exchange with the app secret and no browser step."
+          checked={form.clientCredentialsEnabled}
+          onCheckedChange={(checked) => {
+            onChange((current) => ({
+              ...current,
+              clientCredentialsEnabled: checked,
+            }))
+          }}
+        />
 
-        <label className="admin-list-item flex items-start gap-3">
-          <input
-            type="checkbox"
-            checked={form.deviceFlowEnabled}
-            onChange={(event) => {
-              const nextValue = event.target.checked;
-              onChange((current) => ({ ...current, deviceFlowEnabled: nextValue }));
-            }}
-            className="mt-1"
-          />
-          <span>
-            <strong className="block text-[var(--sea-ink)]">Enable device flow</strong>
-            <span className="mt-1 block text-sm leading-6 text-[var(--sea-ink-soft)]">
-              Allow user-code sign-in flows that finish with an admin-approved browser step.
-            </span>
-          </span>
-        </label>
+        <ToggleCard
+          id={deviceFlowId}
+          title="Enable device flow"
+          description="Allow user-code sign-in flows that finish with an admin-approved browser step."
+          checked={form.deviceFlowEnabled}
+          onCheckedChange={(checked) => {
+            onChange((current) => ({ ...current, deviceFlowEnabled: checked }))
+          }}
+        />
       </div>
 
-      <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-        Allowed scopes
-        <textarea
+      <Field
+        label="Allowed scopes"
+        description={`One scope per line. Supported in this app: ${supportedScopes.join(', ')}.`}
+      >
+        <Textarea
           value={form.allowedScopes}
           onChange={(event) => {
-            const nextValue = event.target.value;
-            onChange((current) => ({ ...current, allowedScopes: nextValue }));
+            const nextValue = event.target.value
+            onChange((current) => ({ ...current, allowedScopes: nextValue }))
           }}
-          placeholder={supportedScopes.join("\n")}
-          className="admin-textarea"
+          placeholder={supportedScopes.join('\n')}
+          className="min-h-32"
         />
-        <span className="text-xs leading-6 text-[var(--sea-ink-soft)]">
-          One scope per line. Supported in this app: {supportedScopes.join(", ")}.
-        </span>
-      </label>
+      </Field>
 
       {!hasGrantEnabled ? (
-        <div className="admin-status-pill w-fit" data-tone="danger">
-          Enable at least one grant type before saving.
-        </div>
+        <Alert variant="destructive">
+          <AlertTitle>Grant type required</AlertTitle>
+          <AlertDescription>
+            Enable at least one grant type before saving the OAuth app.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {parsedScopes.length ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {parsedScopes.map((scope) => (
-            <span key={scope} className="admin-chip">
+            <Badge key={scope} variant="outline">
               {scope}
-            </span>
+            </Badge>
           ))}
         </div>
       ) : null}
 
       {error ? (
-        <div className="admin-status-pill w-fit" data-tone="danger">
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertTitle>Unable to save</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       ) : null}
 
       {success ? (
-        <div className="admin-status-pill w-fit" data-tone="good">
-          {success}
-        </div>
+        <Alert>
+          <AlertTitle>Saved</AlertTitle>
+          <AlertDescription>{success}</AlertDescription>
+        </Alert>
       ) : null}
 
       {children || (
-        <button
-          type="submit"
-          className="admin-button admin-button-primary disabled:cursor-not-allowed disabled:opacity-70"
-          disabled={submitting || !hasGrantEnabled}
-        >
-          {submitting ? "Saving…" : submitLabel}
-        </button>
+        <Button type="submit" disabled={submitting || !hasGrantEnabled}>
+          {submitting ? 'Saving...' : submitLabel}
+        </Button>
       )}
     </form>
-  );
+  )
 }
 
 function SecretPanel({
@@ -686,69 +736,133 @@ function SecretPanel({
   preview,
   footer,
 }: {
-  title: string;
-  body: string;
-  clientId: string;
-  secret: string;
-  preview: string;
-  footer?: ReactNode;
+  title: string
+  body: string
+  clientId: string
+  secret: string
+  preview: string
+  footer?: ReactNode
 }) {
   return (
-    <article className="admin-panel admin-panel-strong">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="island-kicker mb-2">Secret preview</p>
-          <h3 className="m-0 text-xl font-semibold text-[var(--sea-ink)]">{title}</h3>
+    <Card>
+      <CardHeader className="gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardDescription>Secret preview</CardDescription>
+            <CardTitle className="text-lg">{title}</CardTitle>
+          </div>
+          <StatusBadge value={preview} tone="good" />
         </div>
-        <span className="admin-status-pill" data-tone="good">
-          {preview}…
-        </span>
-      </div>
-      <p className="mt-0 mb-4 text-sm leading-7 text-[var(--sea-ink-soft)]">{body}</p>
-      <dl className="grid gap-3 text-sm text-[var(--sea-ink-soft)]">
-        <InfoRow label="Client ID" value={clientId} />
-      </dl>
-      <div className="mt-4 rounded-[1.25rem] border border-[var(--line)] bg-[color:var(--surface-strong)] p-4 shadow-[inset_0_1px_0_var(--inset-glint)]">
-        <code className="block overflow-x-auto border-0 bg-transparent px-0 py-0 text-sm text-[var(--sea-ink)]">
-          {secret}
-        </code>
-      </div>
-      {footer ? <div className="mt-4">{footer}</div> : null}
-    </article>
-  );
+        <CardDescription className="text-sm leading-6">{body}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <SummaryItem label="Client ID" value={clientId} code />
+        <div className="rounded-lg border bg-muted/40 p-4">
+          <code className="block overflow-x-auto border-0 bg-transparent px-0 py-0 text-sm text-foreground">
+            {secret}
+          </code>
+        </div>
+        {footer}
+      </CardContent>
+    </Card>
+  )
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function Field(props: {
+  label: string
+  description?: string
+  children: ReactNode
+}) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-sm font-medium text-foreground">{props.label}</span>
+      {props.children}
+      {props.description ? (
+        <span className="text-xs leading-5 text-muted-foreground">
+          {props.description}
+        </span>
+      ) : null}
+    </label>
+  )
+}
+
+function ToggleCard(props: {
+  id: string
+  title: string
+  description: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border p-4">
+      <Checkbox
+        id={props.id}
+        checked={props.checked}
+        onCheckedChange={(checked) => {
+          props.onCheckedChange(checked === true)
+        }}
+        className="mt-0.5"
+      />
+      <label htmlFor={props.id} className="grid gap-1">
+        <span className="text-sm font-medium text-foreground">
+          {props.title}
+        </span>
+        <span className="text-sm leading-6 text-muted-foreground">
+          {props.description}
+        </span>
+      </label>
+    </div>
+  )
+}
+
+function SummaryItem(props: { label: string; value: string; code?: boolean }) {
   return (
     <div className="grid gap-1">
-      <dt className="text-xs font-semibold tracking-[0.12em] uppercase text-[var(--kicker)]">
-        {label}
+      <dt className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
+        {props.label}
       </dt>
-      <dd className="m-0 text-sm text-[var(--sea-ink)]">{value}</dd>
+      <dd className="m-0 text-sm text-foreground">
+        {props.code ? (
+          <code className="inline-block max-w-full overflow-x-auto whitespace-nowrap">
+            {props.value}
+          </code>
+        ) : (
+          props.value
+        )}
+      </dd>
     </div>
-  );
+  )
+}
+
+function InfoBlock(props: { title: string; detail: string }) {
+  return (
+    <div className="space-y-1">
+      <div className="font-medium text-foreground">{props.title}</div>
+      <p className="m-0">{props.detail}</p>
+    </div>
+  )
 }
 
 function createFormValues(client: {
-  clientName: string;
-  description?: string | null;
-  enabled: boolean;
-  tokenEndpointAuthMethod: "client_secret_basic" | "client_secret_post";
-  allowedScopes: string[] | string;
-  clientCredentialsEnabled: boolean;
-  deviceFlowEnabled: boolean;
+  clientName: string
+  description?: string | null
+  enabled: boolean
+  tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
+  allowedScopes: string[] | string
+  clientCredentialsEnabled: boolean
+  deviceFlowEnabled: boolean
 }): OAuthClientFormValues {
   return {
     clientName: client.clientName,
-    description: client.description || "",
+    description: client.description || '',
     enabled: client.enabled,
     tokenEndpointAuthMethod: client.tokenEndpointAuthMethod,
     allowedScopes: Array.isArray(client.allowedScopes)
-      ? client.allowedScopes.join("\n")
+      ? client.allowedScopes.join('\n')
       : client.allowedScopes,
     clientCredentialsEnabled: client.clientCredentialsEnabled,
     deviceFlowEnabled: client.deviceFlowEnabled,
-  };
+  }
 }
 
 function toPayload(form: OAuthClientFormValues): OAuthClientPayload {
@@ -760,7 +874,7 @@ function toPayload(form: OAuthClientFormValues): OAuthClientPayload {
     allowedScopes: parseScopes(form.allowedScopes),
     clientCredentialsEnabled: form.clientCredentialsEnabled,
     deviceFlowEnabled: form.deviceFlowEnabled,
-  };
+  }
 }
 
 function parseScopes(value: string): string[] {
@@ -771,25 +885,23 @@ function parseScopes(value: string): string[] {
         .map((scope) => scope.trim())
         .filter(Boolean),
     ),
-  ).sort();
+  ).sort()
 }
 
-function formatDate(value: string | Date | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+function formatAuthMethod(value: 'client_secret_basic' | 'client_secret_post') {
+  return value === 'client_secret_post'
+    ? 'client_secret_post'
+    : 'client_secret_basic'
 }
 
-function formatAuthMethod(value: "client_secret_basic" | "client_secret_post") {
-  return value === "client_secret_post" ? "client_secret_post" : "client_secret_basic";
+function formatGrantList(
+  client: Pick<
+    ManagedOAuthClient,
+    'clientCredentialsEnabled' | 'deviceFlowEnabled'
+  >,
+) {
+  return [
+    client.clientCredentialsEnabled ? 'client_credentials' : null,
+    client.deviceFlowEnabled ? 'device_flow' : null,
+  ].filter(Boolean) as string[]
 }

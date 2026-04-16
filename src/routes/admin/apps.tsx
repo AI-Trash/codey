@@ -1,9 +1,9 @@
-import { Outlet, createFileRoute } from "@tanstack/react-router";
+import { Outlet, createFileRoute } from '@tanstack/react-router'
 
-export const Route = createFileRoute("/admin/apps")({
+export const Route = createFileRoute('/admin/apps')({
   component: AdminAppsLayout,
-});
+})
 
 function AdminAppsLayout() {
-  return <Outlet />;
+  return <Outlet />
 }

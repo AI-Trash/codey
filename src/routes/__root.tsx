@@ -1,4 +1,9 @@
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
+import {
+  HeadContent,
+  Scripts,
+  createRootRoute,
+  useRouterState,
+} from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import Footer from '../components/Footer'
@@ -41,6 +46,11 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
+  const isAdminRoute = pathname.startsWith('/admin')
+
   return (
     <html lang={getLocale()} suppressHydrationWarning>
       <head>
@@ -48,9 +58,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(13,148,136,0.18)] selection:text-[var(--sea-ink)]">
-        <Header />
+        {!isAdminRoute ? <Header /> : null}
         {children}
-        <Footer />
+        {!isAdminRoute ? <Footer /> : null}
         <TanStackDevtools
           config={{
             position: 'bottom-right',

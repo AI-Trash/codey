@@ -1,8 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from '@tanstack/react-router'
 
-export const Route = createFileRoute("/admin/login")({
+export const Route = createFileRoute('/admin/login')({
   component: AdminLoginPage,
-});
+})
 
 function AdminLoginPage() {
   return (
@@ -42,20 +42,22 @@ function AdminLoginPage() {
             <ul className="admin-list">
               {[
                 [
-                  "Approve CLI device challenges",
-                  "Review pending browser handshakes and unblock flow operators quickly.",
+                  'Approve CLI device challenges',
+                  'Review pending browser handshakes and unblock flow operators quickly.',
                 ],
                 [
-                  "Inspect verification motion",
-                  "Scan code capture, reservations, and inbound email summaries from one page.",
+                  'Inspect verification motion',
+                  'Scan code capture, reservations, and inbound email summaries from one page.',
                 ],
                 [
-                  "Manage account coverage",
-                  "See saved identities, config readiness, and GitHub Actions auto-add-account requests.",
+                  'Manage account coverage',
+                  'See saved identities, config readiness, and GitHub Actions auto-add-account requests.',
                 ],
               ].map(([title, detail]) => (
                 <li key={title} className="admin-list-item">
-                  <strong className="block text-[var(--sea-ink)]">{title}</strong>
+                  <strong className="block text-[var(--sea-ink)]">
+                    {title}
+                  </strong>
                   <p className="mt-2 mb-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
                     {detail}
                   </p>
@@ -66,5 +68,5 @@ function AdminLoginPage() {
         </div>
       </section>
     </main>
-  );
+  )
 }

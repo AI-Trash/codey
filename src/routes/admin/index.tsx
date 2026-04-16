@@ -1,22 +1,52 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { createServerFn } from "@tanstack/react-start";
+import type { ReactNode } from 'react'
 
-const loadDashboard = createServerFn({ method: "GET" }).handler(async () => {
+import { createFileRoute } from '@tanstack/react-router'
+import { createServerFn } from '@tanstack/react-start'
+
+import {
+  AdminMetricCard,
+  AdminPageHeader,
+  EmptyState,
+  StatusBadge,
+  formatAdminDate,
+  getStatusTone,
+} from '#/components/admin/layout'
+import { Button } from '#/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '#/components/ui/card'
+import { Input } from '#/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '#/components/ui/table'
+import { Textarea } from '#/components/ui/textarea'
+
+const loadDashboard = createServerFn({ method: 'GET' }).handler(async () => {
   const [{ getRequest }, { requireAdmin }, { listAdminDashboardData }] =
     await Promise.all([
-      import("@tanstack/react-start/server"),
-      import("../../lib/server/auth"),
-      import("../../lib/server/admin"),
-    ]);
-  const request = getRequest();
-  let sessionUser;
+      import('@tanstack/react-start/server'),
+      import('../../lib/server/auth'),
+      import('../../lib/server/admin'),
+    ])
+  const request = getRequest()
+  let sessionUser
   try {
-    sessionUser = await requireAdmin(request);
+    sessionUser = await requireAdmin(request)
   } catch {
-    return { authorized: false as const };
+    return { authorized: false as const }
   }
 
-  const data = await listAdminDashboardData();
+  const data = await listAdminDashboardData()
   return {
     authorized: true as const,
     user: {
@@ -27,698 +57,816 @@ const loadDashboard = createServerFn({ method: "GET" }).handler(async () => {
       avatarUrl: sessionUser.user.avatarUrl,
     },
     ...data,
-  };
-});
+  }
+})
 
-export const Route = createFileRoute("/admin/")({
+export const Route = createFileRoute('/admin/')({
   loader: async () => loadDashboard(),
   component: AdminPage,
-});
+})
 
 type VerificationData = {
   codes?: Array<{
-    id: string;
-    code: string;
-    source: string;
-    receivedAt: string | Date;
+    id: string
+    code: string
+    source: string
+    receivedAt: string | Date
     reservation: {
-      email: string;
-    };
-  }>;
+      email: string
+    }
+  }>
   reservations?: Array<{
-    id: string;
-    email: string;
-    expiresAt: string | Date;
-  }>;
+    id: string
+    email: string
+    expiresAt: string | Date
+  }>
   emails?: Array<{
-    id: string;
-    recipient: string;
-    subject: string | null;
-    verificationCode: string | null;
-    receivedAt?: string | Date;
-  }>;
+    id: string
+    recipient: string
+    subject: string | null
+    verificationCode: string | null
+    receivedAt?: string | Date
+  }>
   activity?: Array<{
-    id: string;
-    title?: string | null;
-    detail?: string | null;
-    status?: string | null;
-    createdAt?: string | Date;
-  }>;
-};
+    id: string
+    title?: string | null
+    detail?: string | null
+    status?: string | null
+    createdAt?: string | Date
+  }>
+}
 
 type DeviceChallenge = {
-  id: string;
-  deviceCode: string;
-  userCode: string;
-  status: string;
-  flowType: string | null;
-  cliName: string | null;
-  target?: string | null;
-  createdAt?: string | Date;
-  updatedAt?: string | Date;
-};
+  id: string
+  deviceCode: string
+  userCode: string
+  status: string
+  flowType: string | null
+  cliName: string | null
+  target?: string | null
+  createdAt?: string | Date
+  updatedAt?: string | Date
+}
 
 type AdminNotification = {
-  id: string;
-  title: string;
-  body: string;
-  flowType: string | null;
-  target: string | null;
-  createdAt?: string | Date;
-};
+  id: string
+  title: string
+  body: string
+  flowType: string | null
+  target: string | null
+  createdAt?: string | Date
+}
 
 type IdentitySummary = {
-  id: string;
-  label: string;
-  provider?: string | null;
-  account?: string | null;
-  flowCount?: number | null;
-  lastSeenAt?: string | Date | null;
-  status?: string | null;
-};
+  id: string
+  label: string
+  provider?: string | null
+  account?: string | null
+  flowCount?: number | null
+  lastSeenAt?: string | Date | null
+  status?: string | null
+}
 
 type ConfigStatusItem = {
-  id?: string;
-  key?: string;
-  label: string;
-  description?: string | null;
-  status: string;
-  detail?: string | null;
-};
+  id?: string
+  key?: string
+  label: string
+  description?: string | null
+  status: string
+  detail?: string | null
+}
 
 type FlowAppRequest = {
-  id: string;
-  appName: string;
-  flowType?: string | null;
-  requestedBy?: string | null;
-  requestedIdentity?: string | null;
-  notes?: string | null;
-  status?: string | null;
-  createdAt?: string | Date;
-};
+  id: string
+  appName: string
+  flowType?: string | null
+  requestedBy?: string | null
+  requestedIdentity?: string | null
+  notes?: string | null
+  status?: string | null
+  createdAt?: string | Date
+}
 
 function AdminPage() {
-  const data = Route.useLoaderData();
+  const data = Route.useLoaderData()
   if (!data.authorized) {
     return (
-      <main className="page-wrap px-4 py-12">
-        <section className="island-shell rounded-2xl p-6 sm:p-8">
-          <p className="island-kicker mb-2">Admin</p>
-          <h1 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)] sm:text-4xl">
-            Admin sign-in required.
-          </h1>
-          <p className="mb-5 max-w-2xl text-base leading-8 text-[var(--sea-ink-soft)]">
-            Sign in with GitHub to view admin tools.
-          </p>
-          <a href="/admin/login" className="admin-button admin-button-primary">
-            Go to admin login
-          </a>
-        </section>
-      </main>
-    );
+      <Card className="max-w-2xl">
+        <CardHeader>
+          <CardDescription>Admin</CardDescription>
+          <CardTitle>Admin sign-in required</CardTitle>
+          <CardDescription>
+            Sign in with GitHub to review operational data, manage apps, and
+            approve device sessions.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild>
+            <a href="/admin/login">Go to admin login</a>
+          </Button>
+        </CardContent>
+      </Card>
+    )
   }
 
-  const identitySummaries = getIdentitySummaries(data);
-  const configStatuses = getConfigStatuses(data);
-  const flowAppRequests = getFlowAppRequests(data);
-  const verificationActivity = getVerificationActivity(data.verification);
-  const deviceChallenges = data.deviceChallenges as DeviceChallenge[];
-  const notifications = data.notifications as AdminNotification[];
+  const identitySummaries = getIdentitySummaries(data)
+  const configStatuses = getConfigStatuses(data)
+  const flowAppRequests = getFlowAppRequests(data)
+  const verificationActivity = getVerificationActivity(data.verification)
+  const deviceChallenges = data.deviceChallenges as DeviceChallenge[]
+  const notifications = data.notifications as AdminNotification[]
 
   const pendingCount = deviceChallenges.filter(
-    (challenge) => challenge.status === "PENDING",
-  ).length;
+    (challenge) => challenge.status === 'PENDING',
+  ).length
 
   return (
-    <main className="page-wrap px-4 py-12">
-      <section className="admin-panel admin-panel-muted rise-in flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="island-kicker mb-2">Admin</p>
-          <h1 className="display-title text-3xl font-bold text-[var(--sea-ink)] sm:text-4xl">
-            Operations
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--sea-ink-soft)]">
-            Signed in as{" "}
-            <strong className="text-[var(--sea-ink)]">
-              {data.user.githubLogin || data.user.email || data.user.name || "unknown user"}
+    <>
+      <AdminPageHeader
+        eyebrow="Admin"
+        title="Operations"
+        description={
+          <>
+            Signed in as{' '}
+            <strong className="text-foreground">
+              {data.user.githubLogin ||
+                data.user.email ||
+                data.user.name ||
+                'unknown user'}
             </strong>
-            .
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <a href="/admin/apps" className="admin-button admin-button-primary">
-            OAuth apps
-          </a>
-          <form method="post" action="/auth/logout">
-            <button className="admin-button admin-button-secondary">
-              Log out
-            </button>
-          </form>
-        </div>
+            . The admin console is now organized around high-density tables so
+            device sessions, verification activity, identities, and request
+            queues stay visible.
+          </>
+        }
+        meta={
+          <StatusBadge
+            value={summarizeConfigState(configStatuses)}
+            tone={getConfigTone(configStatuses)}
+          />
+        }
+        actions={
+          <>
+            <Button asChild variant="outline">
+              <a href="/admin/apps">OAuth apps</a>
+            </Button>
+            <Button asChild variant="outline">
+              <a href="/device">Device route</a>
+            </Button>
+          </>
+        }
+      />
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <AdminMetricCard
+          label="Identities"
+          value={String(identitySummaries.length)}
+          description="Saved identities currently available from the local store."
+        />
+        <AdminMetricCard
+          label="Pending approvals"
+          value={String(pendingCount)}
+          description="Device handshakes waiting for an operator decision."
+        />
+        <AdminMetricCard
+          label="Verification events"
+          value={String(verificationActivity.length)}
+          description="Recent verification activity available for review."
+        />
+        <AdminMetricCard
+          label="Notifications"
+          value={String(notifications.length)}
+          description="Recent admin notifications stored for clients."
+        />
+        <AdminMetricCard
+          label="Flow requests"
+          value={String(flowAppRequests.length)}
+          description="App onboarding requests currently in the queue."
+        />
       </section>
 
-      <section id="overview" className="admin-grid mt-8">
-        <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
-          <article className="admin-panel admin-panel-strong">
-            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="island-kicker mb-2">Identity summaries</p>
-                <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                  Saved identities
-                </h2>
-              </div>
-              <span
-                className="admin-status-pill"
-                data-tone={identitySummaries.length > 0 ? "good" : "warning"}
-              >
-                {identitySummaries.length} known identities
-              </span>
+      <section className="grid gap-4 xl:grid-cols-3">
+        <ActionCard
+          eyebrow="Manual verification code"
+          title="Inject verification code"
+          description="Add a known verification code directly when you need to unblock a flow."
+        >
+          <form
+            method="post"
+            action="/api/admin/verification-codes"
+            className="grid gap-3"
+          >
+            <LabeledInput label="Target email">
+              <Input name="email" placeholder="target@example.com" />
+            </LabeledInput>
+            <LabeledInput label="6-digit code">
+              <Input name="code" placeholder="123456" inputMode="numeric" />
+            </LabeledInput>
+            <Button type="submit">Inject code</Button>
+          </form>
+        </ActionCard>
+
+        <ActionCard
+          eyebrow="Admin notification"
+          title="Create notification"
+          description="Send a browser-side message to operators or attached clients."
+        >
+          <form
+            method="post"
+            action="/api/admin/notifications"
+            className="grid gap-3"
+          >
+            <LabeledInput label="Title">
+              <Input name="title" placeholder="Title" />
+            </LabeledInput>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <LabeledInput label="Flow type">
+                <Input name="flowType" placeholder="codex-oauth" />
+              </LabeledInput>
+              <LabeledInput label="Target">
+                <Input name="target" placeholder="all or octocat" />
+              </LabeledInput>
             </div>
-            {identitySummaries.length > 0 ? (
-              <ul className="admin-list sm:grid-cols-2 xl:grid-cols-3">
-                {identitySummaries.map((summary) => (
-                  <li key={summary.id} className="admin-list-item">
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="admin-eyebrow">{summary.provider || "Saved identity"}</div>
-                        <div className="mt-1 text-lg font-semibold text-[var(--sea-ink)]">
-                          {summary.label}
-                        </div>
+            <LabeledInput label="Message">
+              <Textarea
+                name="body"
+                placeholder="Message"
+                className="min-h-28"
+              />
+            </LabeledInput>
+            <Button type="submit">Create notification</Button>
+          </form>
+        </ActionCard>
+
+        <ActionCard
+          eyebrow="GitHub Actions flow apps"
+          title="Submit flow app request"
+          description="Queue support requests for auto-add-account coverage in flow apps."
+        >
+          <form
+            method="post"
+            action="/api/admin/flow-app-requests"
+            className="grid gap-3"
+          >
+            <LabeledInput label="App name">
+              <Input name="appName" placeholder="GitHub Actions app name" />
+            </LabeledInput>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <LabeledInput label="Flow type">
+                <Input name="flowType" placeholder="chatgpt-register" />
+              </LabeledInput>
+              <LabeledInput label="Requested identity">
+                <Input name="requestedIdentity" placeholder="octocat" />
+              </LabeledInput>
+            </div>
+            <LabeledInput label="Notes">
+              <Textarea
+                name="notes"
+                placeholder="Why this app needs auto-add-account support"
+                className="min-h-28"
+              />
+            </LabeledInput>
+            <Button type="submit">Submit request</Button>
+          </form>
+        </ActionCard>
+      </section>
+
+      <TableCard
+        eyebrow="Config status"
+        title="Configuration status"
+        description="Readiness across OAuth, identity storage, signing keys, and flow support."
+      >
+        {configStatuses.length > 0 ? (
+          <Table className="min-w-[760px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Capability</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Detail</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {configStatuses.map((item, index) => (
+                <TableRow key={item.id ?? item.key ?? `${item.label}-${index}`}>
+                  <TableCell className="align-top">
+                    <div className="space-y-1">
+                      <div className="font-medium text-foreground">
+                        {item.label}
                       </div>
-                      <span
-                        className="admin-status-pill"
-                        data-tone={getStatusTone(summary.status)}
-                      >
-                        {summary.status || "available"}
-                      </span>
+                      {item.description ? (
+                        <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
+                          {item.description}
+                        </p>
+                      ) : null}
                     </div>
-                    <dl className="m-0 grid gap-2 text-sm text-[var(--sea-ink-soft)]">
-                      <InfoRow label="Account" value={summary.account || "Not linked yet"} />
-                      <InfoRow label="Flow coverage" value={summary.flowCount != null ? `${summary.flowCount} flows` : "Pending backend data"} />
-                      <InfoRow label="Last seen" value={formatDate(summary.lastSeenAt) || "Not captured yet"} />
-                    </dl>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <StatusBadge value={item.status} />
+                  </TableCell>
+                  <TableCell className="whitespace-normal align-top text-sm leading-6 text-muted-foreground">
+                    {item.detail || 'Waiting for backend status detail.'}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <EmptyState
+            title="No configuration data"
+            description="Configuration readiness is not available yet."
+          />
+        )}
+      </TableCard>
+
+      <TableCard
+        eyebrow="Identity summaries"
+        title="Saved identities"
+        description="Review local store coverage and edit label or managed status inline."
+      >
+        {identitySummaries.length > 0 ? (
+          <Table className="min-w-[1200px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Identity</TableHead>
+                <TableHead>Account</TableHead>
+                <TableHead>Provider</TableHead>
+                <TableHead>Flows</TableHead>
+                <TableHead>Last seen</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Manage</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {identitySummaries.map((summary) => (
+                <TableRow key={summary.id}>
+                  <TableCell className="align-top">
+                    <div className="space-y-1">
+                      <div className="font-medium text-foreground">
+                        {summary.label}
+                      </div>
+                      <code>{summary.id}</code>
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {summary.account || 'Not linked yet'}
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {summary.provider || 'Saved identity'}
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {summary.flowCount != null
+                      ? `${summary.flowCount} flows`
+                      : 'Pending'}
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {formatAdminDate(summary.lastSeenAt) || 'Not captured yet'}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <StatusBadge value={summary.status || 'available'} />
+                  </TableCell>
+                  <TableCell className="align-top">
                     <form
                       method="post"
                       action="/api/admin/identities"
-                      className="mt-4 grid gap-3 border-t border-[var(--line)] pt-4"
+                      className="grid min-w-[320px] gap-2 md:grid-cols-[minmax(0,1fr)_160px_auto]"
                     >
-                      <input type="hidden" name="identityId" value={summary.id} />
+                      <input
+                        type="hidden"
+                        name="identityId"
+                        value={summary.id}
+                      />
                       <input
                         type="hidden"
                         name="email"
                         value={summary.account || summary.label}
                       />
-                      <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-                        Display label
-                        <input
-                          name="label"
-                          defaultValue={summary.label !== summary.account ? summary.label : ""}
-                          placeholder={summary.account || "Identity label"}
-                          className="admin-input"
-                        />
-                      </label>
-                      <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-                        Status
-                        <select
-                          name="status"
-                          defaultValue={toManagedStatus(summary.status)}
-                          className="admin-select"
-                        >
-                          <option value="ACTIVE">Active</option>
-                          <option value="REVIEW">Needs review</option>
-                          <option value="ARCHIVED">Archived</option>
-                        </select>
-                      </label>
-                      <button className="admin-button admin-button-secondary">
-                        Save account settings
-                      </button>
-                    </form>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState message="No saved identities found." />
-            )}
-          </article>
-
-          <article className="admin-panel admin-panel-muted">
-            <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="island-kicker mb-2">Config status</p>
-                <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                  Configuration status
-                </h2>
-              </div>
-              <span
-                className="admin-status-pill"
-                data-tone={getConfigTone(configStatuses)}
-              >
-                {summarizeConfigState(configStatuses)}
-              </span>
-            </div>
-            {configStatuses.length > 0 ? (
-              <ul className="admin-list">
-                {configStatuses.map((item, index) => (
-                  <li key={item.id ?? item.key ?? `${item.label}-${index}`} className="admin-list-item">
-                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                      <strong className="text-[var(--sea-ink)]">{item.label}</strong>
-                      <span
-                        className="admin-status-pill"
-                        data-tone={getStatusTone(item.status)}
+                      <Input
+                        name="label"
+                        defaultValue={
+                          summary.label !== summary.account ? summary.label : ''
+                        }
+                        placeholder={summary.account || 'Identity label'}
+                        className="h-8"
+                      />
+                      <NativeSelect
+                        name="status"
+                        defaultValue={toManagedStatus(summary.status)}
+                        size="sm"
+                        className="w-full min-w-[140px]"
                       >
-                        {item.status}
-                      </span>
-                    </div>
-                    <p className="m-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-                      {item.detail || item.description || "Waiting for backend status detail."}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState message="No configuration status available." />
-            )}
-          </article>
-        </div>
-      </section>
+                        <NativeSelectOption value="ACTIVE">
+                          Active
+                        </NativeSelectOption>
+                        <NativeSelectOption value="REVIEW">
+                          Needs review
+                        </NativeSelectOption>
+                        <NativeSelectOption value="ARCHIVED">
+                          Archived
+                        </NativeSelectOption>
+                      </NativeSelect>
+                      <Button type="submit" size="sm" variant="outline">
+                        Save
+                      </Button>
+                    </form>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <EmptyState
+            title="No saved identities"
+            description="Capture an identity through the flows package and it will appear here."
+          />
+        )}
+      </TableCard>
 
-      <section id="device-flow" className="admin-grid mt-8 lg:grid-cols-[1.2fr_0.8fr]">
-        <article className="admin-panel admin-panel-strong">
-          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="island-kicker mb-2">Device flow management</p>
-              <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Device approvals
-              </h2>
-            </div>
-            <span
-              className="admin-status-pill"
-              data-tone={pendingCount > 0 ? "warning" : "good"}
-            >
-              {pendingCount > 0 ? `${pendingCount} pending` : "Queue clear"}
-            </span>
-          </div>
-          {deviceChallenges.length > 0 ? (
-            <ul className="admin-list">
+      <TableCard
+        eyebrow="Device flow management"
+        title="Device approvals"
+        description="Approve or deny pending device sessions without losing the surrounding queue context."
+      >
+        {deviceChallenges.length > 0 ? (
+          <Table className="min-w-[1040px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>User code</TableHead>
+                <TableHead>Flow</TableHead>
+                <TableHead>CLI client</TableHead>
+                <TableHead>Target</TableHead>
+                <TableHead>Updated</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {deviceChallenges.map((challenge) => (
-                <li key={challenge.id} className="admin-list-item">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="admin-eyebrow">{challenge.flowType || "CLI device flow"}</div>
-                      <div className="mt-1 text-xl font-semibold text-[var(--sea-ink)]">
+                <TableRow key={challenge.id}>
+                  <TableCell className="align-top">
+                    <div className="space-y-1">
+                      <div className="font-medium text-foreground">
                         {challenge.userCode}
                       </div>
+                      <code>{challenge.deviceCode}</code>
                     </div>
-                    <span
-                      className="admin-status-pill"
-                      data-tone={getChallengeTone(challenge.status)}
-                    >
-                      {challenge.status}
-                    </span>
-                  </div>
-
-                  <dl className="mt-4 grid gap-2 text-sm text-[var(--sea-ink-soft)] sm:grid-cols-2">
-                    <InfoRow label="CLI client" value={challenge.cliName || "Unknown client"} />
-                    <InfoRow label="Target" value={challenge.target || "No explicit target"} />
-                    <InfoRow label="Device code" value={challenge.deviceCode} />
-                    <InfoRow label="Updated" value={formatDate(challenge.updatedAt || challenge.createdAt) || "Awaiting backend timestamp"} />
-                  </dl>
-
-                  {challenge.status === "PENDING" ? (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <form method="post" action={`/api/admin/device/${challenge.deviceCode}/approve`}>
-                        <button className="admin-button admin-button-primary">
-                          Approve device
-                        </button>
-                      </form>
-                      <form method="post" action={`/api/admin/device/${challenge.deviceCode}/deny`}>
-                        <button className="admin-button admin-button-danger">
-                          Deny device
-                        </button>
-                      </form>
-                    </div>
-                  ) : null}
-                </li>
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {challenge.flowType || 'CLI device flow'}
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {challenge.cliName || 'Unknown client'}
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {challenge.target || 'No explicit target'}
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {formatAdminDate(
+                      challenge.updatedAt || challenge.createdAt,
+                    ) || 'Awaiting timestamp'}
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <StatusBadge
+                      value={challenge.status}
+                      tone={getChallengeTone(challenge.status)}
+                    />
+                  </TableCell>
+                  <TableCell className="align-top text-right">
+                    {challenge.status === 'PENDING' ? (
+                      <div className="flex justify-end gap-2">
+                        <form
+                          method="post"
+                          action={`/api/admin/device/${challenge.deviceCode}/approve`}
+                        >
+                          <Button type="submit" size="sm">
+                            Approve
+                          </Button>
+                        </form>
+                        <form
+                          method="post"
+                          action={`/api/admin/device/${challenge.deviceCode}/deny`}
+                        >
+                          <Button type="submit" size="sm" variant="outline">
+                            Deny
+                          </Button>
+                        </form>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        Resolved
+                      </span>
+                    )}
+                  </TableCell>
+                </TableRow>
               ))}
-            </ul>
-          ) : (
-            <EmptyState message="No device challenges found." />
-          )}
-        </article>
+            </TableBody>
+          </Table>
+        ) : (
+          <EmptyState
+            title="No device challenges"
+            description="Pending CLI approvals will appear here."
+          />
+        )}
+      </TableCard>
 
-        <div className="admin-grid">
-          <article className="admin-panel admin-panel-muted">
-            <p className="island-kicker mb-2">Manual verification code</p>
-            <h2 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)]">
-              Add verification code
-            </h2>
-            <form method="post" action="/api/admin/verification-codes" className="grid gap-3">
-              <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-                Target email
-                <input name="email" placeholder="target email" className="admin-input" />
-              </label>
-              <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-                6-digit code
-                <input name="code" placeholder="6-digit code" className="admin-input" />
-              </label>
-              <button className="admin-button admin-button-primary">
-                Inject verification code
-              </button>
-            </form>
-          </article>
-
-          <article className="admin-panel admin-panel-muted">
-            <p className="island-kicker mb-2">Admin notification</p>
-            <h2 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)]">
-              Create notification
-            </h2>
-            <form method="post" action="/api/admin/notifications" className="grid gap-3">
-              <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-                Title
-                <input name="title" placeholder="title" className="admin-input" />
-              </label>
-              <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-                Flow type
-                <input name="flowType" placeholder="flow type (optional)" className="admin-input" />
-              </label>
-              <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-                Target
-                <input name="target" placeholder="target (optional)" className="admin-input" />
-              </label>
-              <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-                Message
-                <textarea name="body" placeholder="message" className="admin-textarea" />
-              </label>
-              <button className="admin-button admin-button-secondary">
-                Create notification
-              </button>
-            </form>
-          </article>
-        </div>
-      </section>
-
-      <section className="admin-grid mt-8 xl:grid-cols-[1.1fr_0.9fr]">
-        <article className="admin-panel admin-panel-muted">
-          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="island-kicker mb-2">Verification activity</p>
-              <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Recent verification activity
-              </h2>
-            </div>
-            <span className="admin-status-pill" data-tone={verificationActivity.length > 0 ? "good" : "warning"}>
-              {verificationActivity.length} events
-            </span>
-          </div>
-          {verificationActivity.length > 0 ? (
-            <ul className="admin-list">
+      <TableCard
+        eyebrow="Verification activity"
+        title="Recent verification activity"
+        description="Latest verification events, parsed codes, and inbound mail state."
+      >
+        {verificationActivity.length > 0 ? (
+          <Table className="min-w-[980px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Title</TableHead>
+                <TableHead>Detail</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {verificationActivity.map((item) => (
-                <li key={item.id} className="admin-list-item">
-                  <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                    <strong className="text-[var(--sea-ink)]">{item.title}</strong>
-                    <span className="admin-status-pill" data-tone={getStatusTone(item.status)}>
-                      {item.status}
-                    </span>
-                  </div>
-                  <p className="m-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
+                <TableRow key={item.id}>
+                  <TableCell className="align-top">
+                    <div className="font-medium text-foreground">
+                      {item.title}
+                    </div>
+                  </TableCell>
+                  <TableCell className="max-w-[560px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
                     {item.detail}
-                  </p>
-                  {item.createdAt ? (
-                    <p className="mt-3 mb-0 text-xs font-semibold tracking-[0.12em] text-[var(--sea-ink-soft)] uppercase">
-                      {formatDate(item.createdAt)}
-                    </p>
-                  ) : null}
-                </li>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <StatusBadge value={item.status} />
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {formatAdminDate(item.createdAt) || 'Timestamp unavailable'}
+                  </TableCell>
+                </TableRow>
               ))}
-            </ul>
-          ) : (
-            <EmptyState message="No verification activity found." />
-          )}
-        </article>
+            </TableBody>
+          </Table>
+        ) : (
+          <EmptyState
+            title="No verification activity"
+            description="Verification events will populate here as codes and emails arrive."
+          />
+        )}
+      </TableCard>
 
-        <article className="admin-panel admin-panel-muted">
-          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="island-kicker mb-2">Recent notifications</p>
-              <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Recent notifications
-              </h2>
-            </div>
-            <span className="admin-status-pill" data-tone={notifications.length > 0 ? "good" : "warning"}>
-              {notifications.length} saved
-            </span>
-          </div>
+      <section className="grid gap-4 2xl:grid-cols-2">
+        <TableCard
+          eyebrow="Recent notifications"
+          title="Stored notifications"
+          description="Messages currently available to operators or subscribed clients."
+        >
           {notifications.length > 0 ? (
-            <ul className="admin-list">
-              {notifications.map((notification) => (
-                <li key={notification.id} className="admin-list-item">
-                  <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                    <strong className="text-[var(--sea-ink)]">{notification.title}</strong>
-                    <span className="admin-chip">{notification.target || "all clients"}</span>
-                  </div>
-                  <p className="m-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-                    {notification.body}
-                  </p>
-                  <dl className="mt-3 grid gap-2 text-sm text-[var(--sea-ink-soft)] sm:grid-cols-2">
-                    <InfoRow label="Flow type" value={notification.flowType || "General"} />
-                    <InfoRow label="Created" value={formatDate(notification.createdAt) || "Timestamp unavailable"} />
-                  </dl>
-                </li>
-              ))}
-            </ul>
+            <Table className="min-w-[900px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Target</TableHead>
+                  <TableHead>Flow type</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Message</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {notifications.map((notification) => (
+                  <TableRow key={notification.id}>
+                    <TableCell className="align-top">
+                      <div className="font-medium text-foreground">
+                        {notification.title}
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {notification.target || 'all clients'}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {notification.flowType || 'General'}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {formatAdminDate(notification.createdAt) ||
+                        'Timestamp unavailable'}
+                    </TableCell>
+                    <TableCell className="max-w-[380px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
+                      {notification.body}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           ) : (
-            <EmptyState message="No notifications found." />
+            <EmptyState
+              title="No notifications"
+              description="Saved notifications will appear here after creation."
+            />
           )}
-        </article>
-      </section>
+        </TableCard>
 
-      <section id="requests" className="admin-grid mt-8 xl:grid-cols-[0.95fr_1.05fr]">
-        <article className="admin-panel admin-panel-strong">
-          <p className="island-kicker mb-2">GitHub Actions flow apps</p>
-          <h2 className="display-title mb-3 text-3xl font-bold text-[var(--sea-ink)]">
-            Flow app request
-          </h2>
-          <form method="post" action="/api/admin/flow-app-requests" className="grid gap-3">
-            <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-              App name
-              <input name="appName" placeholder="GitHub Actions app name" className="admin-input" />
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-              Flow type
-              <input name="flowType" placeholder="chatgpt-register, codex-oauth..." className="admin-input" />
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-              Requested identity
-              <input name="requestedIdentity" placeholder="octocat or org identity" className="admin-input" />
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-[var(--sea-ink)]">
-              Notes
-              <textarea name="notes" placeholder="Why this app needs auto-add-account support" className="admin-textarea" />
-            </label>
-            <button className="admin-button admin-button-primary">
-              Submit request
-            </button>
-          </form>
-        </article>
-
-        <article className="admin-panel admin-panel-muted">
-          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="island-kicker mb-2">Request queue</p>
-              <h2 className="display-title text-3xl font-bold text-[var(--sea-ink)]">
-                Request queue
-              </h2>
-            </div>
-            <span className="admin-status-pill" data-tone={flowAppRequests.length > 0 ? "warning" : "good"}>
-              {flowAppRequests.length > 0 ? `${flowAppRequests.length} queued` : "No backlog"}
-            </span>
-          </div>
+        <TableCard
+          eyebrow="Request queue"
+          title="Flow app requests"
+          description="Queued requests for app coverage and managed identity support."
+        >
           {flowAppRequests.length > 0 ? (
-            <ul className="admin-list">
-              {flowAppRequests.map((request) => (
-                <li key={request.id} className="admin-list-item">
-                  <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <div className="admin-eyebrow">{request.flowType || "Flow app"}</div>
-                      <div className="mt-1 text-lg font-semibold text-[var(--sea-ink)]">
+            <Table className="min-w-[980px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>App</TableHead>
+                  <TableHead>Flow type</TableHead>
+                  <TableHead>Requested identity</TableHead>
+                  <TableHead>Requested by</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Submitted</TableHead>
+                  <TableHead>Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {flowAppRequests.map((request) => (
+                  <TableRow key={request.id}>
+                    <TableCell className="align-top">
+                      <div className="font-medium text-foreground">
                         {request.appName}
                       </div>
-                    </div>
-                    <span className="admin-status-pill" data-tone={getStatusTone(request.status)}>
-                      {request.status || "pending"}
-                    </span>
-                  </div>
-                  <dl className="m-0 grid gap-2 text-sm text-[var(--sea-ink-soft)]">
-                    <InfoRow label="Requested identity" value={request.requestedIdentity || "No identity attached yet"} />
-                    <InfoRow label="Requested by" value={request.requestedBy || "Unknown requester"} />
-                    <InfoRow label="Submitted" value={formatDate(request.createdAt) || "Awaiting timestamp"} />
-                  </dl>
-                  {request.notes ? (
-                    <p className="mt-3 mb-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-                      {request.notes}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {request.flowType || 'Flow app'}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {request.requestedIdentity || 'No identity attached yet'}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {request.requestedBy || 'Unknown requester'}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <StatusBadge value={request.status || 'pending'} />
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {formatAdminDate(request.createdAt) ||
+                        'Awaiting timestamp'}
+                    </TableCell>
+                    <TableCell className="max-w-[320px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
+                      {request.notes || 'No notes provided.'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           ) : (
-            <EmptyState message="No flow app requests found." />
+            <EmptyState
+              title="No queued requests"
+              description="New flow app requests will show up here after submission."
+            />
           )}
-        </article>
+        </TableCard>
       </section>
-    </main>
-  );
+    </>
+  )
 }
 
-function InfoRow(props: { label: string; value: string }) {
+function TableCard(props: {
+  eyebrow: string
+  title: string
+  description: string
+  children: ReactNode
+}) {
   return (
-    <div className="grid gap-1">
-      <dt className="admin-eyebrow">{props.label}</dt>
-      <dd className="m-0 text-[var(--sea-ink-soft)]">{props.value}</dd>
-    </div>
-  );
+    <Card>
+      <CardHeader>
+        <CardDescription>{props.eyebrow}</CardDescription>
+        <CardTitle>{props.title}</CardTitle>
+        <CardDescription>{props.description}</CardDescription>
+      </CardHeader>
+      <CardContent>{props.children}</CardContent>
+    </Card>
+  )
 }
 
-function EmptyState(props: { message: string }) {
-  return <div className="admin-empty text-sm leading-7">{props.message}</div>;
+function ActionCard(props: {
+  eyebrow: string
+  title: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardDescription>{props.eyebrow}</CardDescription>
+        <CardTitle className="text-lg">{props.title}</CardTitle>
+        <CardDescription>{props.description}</CardDescription>
+      </CardHeader>
+      <CardContent>{props.children}</CardContent>
+    </Card>
+  )
 }
 
-function formatDate(value: string | Date | null | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date.toLocaleString();
-}
-
-function getStatusTone(status?: string | null) {
-  const normalized = status?.toLowerCase();
-  if (!normalized) {
-    return "warning";
-  }
-
-  if (
-    normalized.includes("error") ||
-    normalized.includes("denied") ||
-    normalized.includes("failed") ||
-    normalized.includes("missing") ||
-    normalized.includes("inactive")
-  ) {
-    return "danger";
-  }
-
-  if (
-    normalized.includes("pending") ||
-    normalized.includes("waiting") ||
-    normalized.includes("queued") ||
-    normalized.includes("partial")
-  ) {
-    return "warning";
-  }
-
-  return "good";
-}
-
-function getChallengeTone(status: string) {
-  const normalized = status.toLowerCase();
-  if (normalized === "pending") {
-    return "warning";
-  }
-
-  if (normalized === "approved" || normalized === "complete") {
-    return "good";
-  }
-
-  return "danger";
+function LabeledInput(props: { label: string; children: ReactNode }) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-sm font-medium text-foreground">{props.label}</span>
+      {props.children}
+    </label>
+  )
 }
 
 function getIdentitySummaries(data: Record<string, unknown>) {
-  const candidate = data.identitySummaries;
-  return Array.isArray(candidate) ? (candidate as IdentitySummary[]) : [];
+  const candidate = data.identitySummaries
+  return Array.isArray(candidate) ? (candidate as IdentitySummary[]) : []
 }
 
 function getConfigStatuses(data: Record<string, unknown>) {
-  const candidate = data.configStatus;
-  return Array.isArray(candidate) ? (candidate as ConfigStatusItem[]) : [];
+  const candidate = data.configStatus
+  return Array.isArray(candidate) ? (candidate as ConfigStatusItem[]) : []
 }
 
 function getFlowAppRequests(data: Record<string, unknown>) {
-  const candidate = data.flowAppRequests;
-  return Array.isArray(candidate) ? (candidate as FlowAppRequest[]) : [];
+  const candidate = data.flowAppRequests
+  return Array.isArray(candidate) ? (candidate as FlowAppRequest[]) : []
 }
 
 function getVerificationActivity(verification: VerificationData) {
   if (Array.isArray(verification.activity)) {
     return verification.activity.map((item) => ({
       id: item.id,
-      title: item.title || "Verification event",
-      detail: item.detail || "Recent verification activity was recorded.",
-      status: item.status || "active",
+      title: item.title || 'Verification event',
+      detail: item.detail || 'Recent verification activity was recorded.',
+      status: item.status || 'active',
       createdAt: item.createdAt,
-    }));
+    }))
   }
 
   const codeEvents = (verification.codes ?? []).slice(0, 3).map((code) => ({
     id: `code-${code.id}`,
     title: code.reservation.email,
     detail: `Code ${code.code} arrived from ${code.source}.`,
-    status: "received",
+    status: 'received',
     createdAt: code.receivedAt,
-  }));
+  }))
 
   const emailEvents = (verification.emails ?? []).slice(0, 3).map((email) => ({
     id: `email-${email.id}`,
     title: email.recipient,
-    detail: email.subject || "Inbound verification email received.",
-    status: email.verificationCode ? "parsed" : "received",
+    detail: email.subject || 'Inbound verification email received.',
+    status: email.verificationCode ? 'parsed' : 'received',
     createdAt: email.receivedAt,
-  }));
+  }))
 
-  return [...codeEvents, ...emailEvents];
+  return [...codeEvents, ...emailEvents]
 }
 
 function getConfigTone(items: ConfigStatusItem[]) {
-  if (items.some((item) => getStatusTone(item.status) === "danger")) {
-    return "danger";
+  if (items.some((item) => getStatusTone(item.status) === 'danger')) {
+    return 'danger' as const
   }
 
-  if (items.some((item) => getStatusTone(item.status) === "warning")) {
-    return "warning";
+  if (items.some((item) => getStatusTone(item.status) === 'warning')) {
+    return 'warning' as const
   }
 
-  return items.length > 0 ? "good" : "warning";
+  return items.length > 0 ? ('good' as const) : ('warning' as const)
 }
 
 function summarizeConfigState(items: ConfigStatusItem[]) {
   if (items.length === 0) {
-    return "Waiting for status";
+    return 'Waiting for status'
   }
 
-  if (items.every((item) => getStatusTone(item.status) === "good")) {
-    return "All systems ready";
+  if (items.every((item) => getStatusTone(item.status) === 'good')) {
+    return 'All systems ready'
   }
 
-  if (items.some((item) => getStatusTone(item.status) === "danger")) {
-    return "Action required";
+  if (items.some((item) => getStatusTone(item.status) === 'danger')) {
+    return 'Action required'
   }
 
-  return "Needs review";
+  return 'Needs review'
+}
+
+function getChallengeTone(status: string) {
+  const normalized = status.toLowerCase()
+  if (normalized === 'pending') {
+    return 'warning' as const
+  }
+
+  if (
+    normalized === 'approved' ||
+    normalized === 'consumed' ||
+    normalized === 'complete'
+  ) {
+    return 'good' as const
+  }
+
+  return 'danger' as const
 }
 
 function toManagedStatus(status?: string | null) {
-  const normalized = status?.toLowerCase();
-  if (normalized === "archived") {
-    return "ARCHIVED";
+  const normalized = status?.toLowerCase()
+  if (normalized === 'archived') {
+    return 'ARCHIVED'
   }
 
-  if (normalized === "review" || normalized === "pending") {
-    return "REVIEW";
+  if (normalized === 'review' || normalized === 'pending') {
+    return 'REVIEW'
   }
 
-  return "ACTIVE";
+  return 'ACTIVE'
 }

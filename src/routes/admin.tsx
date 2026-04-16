@@ -1,9 +1,23 @@
-import { Outlet, createFileRoute } from "@tanstack/react-router";
+import { Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
 
-export const Route = createFileRoute("/admin")({
+import { AdminShell } from '#/components/admin/layout'
+
+export const Route = createFileRoute('/admin')({
   component: AdminLayout,
-});
+})
 
 function AdminLayout() {
-  return <Outlet />;
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
+
+  if (pathname === '/admin/login') {
+    return <Outlet />
+  }
+
+  return (
+    <AdminShell>
+      <Outlet />
+    </AdminShell>
+  )
 }
