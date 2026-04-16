@@ -3,7 +3,6 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react'
 import {
@@ -36,13 +35,16 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from '#/components/ui/resizable'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import {
   Table,
@@ -54,7 +56,6 @@ import {
 } from '#/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { cn } from '#/lib/utils'
-import type { PanelImperativeHandle } from 'react-resizable-panels'
 
 export type AdminMailInboxEmail = {
   id: string
@@ -110,14 +111,9 @@ export function AdminMailInbox(props: {
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(
     props.initialPage.emails[0]?.id ?? null,
   )
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting')
   const [streamError, setStreamError] = useState<string | null>(null)
-  const previewPanelRef = useRef<PanelImperativeHandle | null>(null)
-  const [previewPanelCollapsed, setPreviewPanelCollapsed] = useState(
-    !Boolean(
-      props.initialPage.emails[0]?.htmlBody || props.initialPage.emails[0]?.textBody,
-    ),
-  )
   const deferredSearch = useDeferredValue(search.trim())
 
   const queryKey = useMemo(
@@ -166,22 +162,10 @@ export function AdminMailInbox(props: {
     null
 
   useEffect(() => {
-    const hasPreview = Boolean(activeEmail?.htmlBody || activeEmail?.textBody)
-
-    if (!previewPanelRef.current) {
-      setPreviewPanelCollapsed(!hasPreview)
-      return
+    if (!activeEmail && detailsOpen) {
+      setDetailsOpen(false)
     }
-
-    if (hasPreview) {
-      previewPanelRef.current.expand()
-      setPreviewPanelCollapsed(false)
-      return
-    }
-
-    previewPanelRef.current.collapse()
-    setPreviewPanelCollapsed(true)
-  }, [activeEmail?.htmlBody, activeEmail?.id, activeEmail?.textBody])
+  }, [activeEmail, detailsOpen])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -231,6 +215,11 @@ export function AdminMailInbox(props: {
   const codeReadyCount = data.emails.filter((email) => email.latestCode).length
   const htmlPreviewCount = data.emails.filter((email) => email.htmlBody).length
 
+  function openEmailDetails(emailId: string) {
+    setSelectedEmailId(emailId)
+    setDetailsOpen(true)
+  }
+
   return (
     <div className="space-y-4">
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -256,348 +245,216 @@ export function AdminMailInbox(props: {
         />
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(620px,0.95fr)]">
-        <Card>
-          <CardHeader className="gap-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-1">
-                <CardDescription>Mailbox stream</CardDescription>
-                <CardTitle>Inbound verification mail</CardTitle>
-                <CardDescription className="max-w-2xl text-sm leading-6">
-                  Query-backed pagination keeps the inbox manageable, while the
-                  live stream invalidates the current cache as new mail arrives.
-                </CardDescription>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge
-                  value={getLiveStatusLabel(liveStatus)}
-                  tone={getLiveStatusTone(liveStatus)}
-                />
-                <Badge variant="outline">
-                  {query.isFetching ? 'Refreshing' : 'Synced'}
-                </Badge>
-                <Badge variant="outline">{data.emails.length} on page</Badge>
-              </div>
+      <Card>
+        <CardHeader className="gap-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-1">
+              <CardDescription>Mailbox stream</CardDescription>
+              <CardTitle>Inbound verification mail</CardTitle>
+              <CardDescription className="max-w-3xl text-sm leading-6">
+                Query-backed pagination keeps the inbox manageable, while the
+                live stream invalidates the current cache as new mail arrives.
+                Open any message in a dialog so the table stays wide and the
+                full source plus rendered preview both remain readable.
+              </CardDescription>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px]">
-              <label className="relative block">
-                <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => {
-                    setSearch(event.target.value)
-                    setPage(1)
-                  }}
-                  placeholder="Search recipient, subject, HTML, text, or message id"
-                  className="pl-9"
-                />
-              </label>
-
-              <label className="grid gap-2">
-                <span className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
-                  Page size
-                </span>
-                <NativeSelect
-                  value={String(pageSize)}
-                  onChange={(event) => {
-                    setPageSize(Number(event.target.value))
-                    setPage(1)
-                  }}
-                  className="w-full"
-                >
-                  <NativeSelectOption value="10">10 rows</NativeSelectOption>
-                  <NativeSelectOption value="25">25 rows</NativeSelectOption>
-                  <NativeSelectOption value="50">50 rows</NativeSelectOption>
-                </NativeSelect>
-              </label>
-            </div>
-
-            {query.isError ? (
-              <Alert variant="destructive">
-                <WifiOffIcon />
-                <AlertTitle>Inbox query failed</AlertTitle>
-                <AlertDescription>
-                  {query.error instanceof Error
-                    ? query.error.message
-                    : 'Unable to load inbox data.'}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-
-            {streamError && !query.isError ? (
-              <Alert>
-                {liveStatus === 'offline' ? <WifiOffIcon /> : <WifiIcon />}
-                <AlertTitle>Live updates need attention</AlertTitle>
-                <AlertDescription>{streamError}</AlertDescription>
-              </Alert>
-            ) : null}
-          </CardHeader>
-
-          <CardContent className="space-y-4">
-            {data.emails.length > 0 ? (
-              <>
-                <Table className="min-w-[920px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Received</TableHead>
-                      <TableHead>Recipient</TableHead>
-                      <TableHead>Subject</TableHead>
-                      <TableHead>Delivery</TableHead>
-                      <TableHead>Code</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.emails.map((email) => (
-                      <TableRow
-                        key={email.id}
-                        data-state={
-                          activeEmail?.id === email.id ? 'selected' : undefined
-                        }
-                        className="cursor-pointer"
-                        onClick={() => {
-                          setSelectedEmailId(email.id)
-                        }}
-                      >
-                        <TableCell className="align-top text-sm text-muted-foreground">
-                          {formatAdminDate(email.receivedAt) ||
-                            'Timestamp unavailable'}
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <div className="space-y-1">
-                            <div className="font-medium text-foreground">
-                              {email.recipient}
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {email.reservationMailbox || 'App-managed alias'}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="max-w-[260px] whitespace-normal align-top">
-                          <div className="font-medium text-foreground">
-                            {email.subject || 'No subject captured'}
-                          </div>
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <StatusBadge
-                            value={email.latestCode ? 'code ready' : 'received'}
-                            tone={email.latestCode ? 'good' : 'warning'}
-                          />
-                        </TableCell>
-                        <TableCell className="align-top">
-                          {email.latestCode ? (
-                            <code>{email.latestCode}</code>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              Pending
-                            </span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-
-                <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-sm text-muted-foreground">
-                    Showing page <strong className="text-foreground">{data.page}</strong>{' '}
-                    of{' '}
-                    <strong className="text-foreground">
-                      {Math.max(1, data.pageCount || 1)}
-                    </strong>{' '}
-                    with <strong className="text-foreground">{data.totalCount}</strong>{' '}
-                    matched emails.
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!data.hasPreviousPage || query.isPlaceholderData}
-                      onClick={() => {
-                        setPage((current) => Math.max(1, current - 1))
-                      }}
-                    >
-                      <ChevronLeftIcon />
-                      Previous
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={!data.hasNextPage || query.isPlaceholderData}
-                      onClick={() => {
-                        setPage((current) => current + 1)
-                      }}
-                    >
-                      Next
-                      <ChevronRightIcon />
-                    </Button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <EmptyState
-                title={deferredSearch ? 'No matching emails' : 'No inbound emails yet'}
-                description={
-                  deferredSearch
-                    ? 'Try a broader search term or switch back to the first page.'
-                    : 'Inbound verification email will appear here as soon as it is ingested.'
-                }
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge
+                value={getLiveStatusLabel(liveStatus)}
+                tone={getLiveStatusTone(liveStatus)}
               />
-            )}
-          </CardContent>
-        </Card>
+              <Badge variant="outline">
+                {query.isFetching ? 'Refreshing' : 'Synced'}
+              </Badge>
+              <Badge variant="outline">{data.emails.length} on page</Badge>
+            </div>
+          </div>
 
-        <Card className="xl:sticky xl:top-[5.5rem]">
-          <CardHeader className="gap-3">
-            <CardDescription>Message details</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <MailIcon className="size-5" />
-              {activeEmail?.subject || 'Select an email'}
-            </CardTitle>
-            <CardDescription>
-              Message details stay on the left, while the rendered email preview
-              now lives in a sidebar-style panel that can collapse sideways.
-            </CardDescription>
-          </CardHeader>
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px]">
+            <label className="relative block">
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value)
+                  setPage(1)
+                }}
+                placeholder="Search recipient, subject, HTML, text, or message id"
+                className="pl-9"
+              />
+            </label>
 
-          <CardContent>
-            {activeEmail ? (
-              <ResizablePanelGroup
-                orientation="horizontal"
-                className="h-[70vh] min-h-[620px] max-h-[780px] overflow-hidden rounded-lg border bg-muted/20"
+            <label className="grid gap-2">
+              <span className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
+                Page size
+              </span>
+              <NativeSelect
+                value={String(pageSize)}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value))
+                  setPage(1)
+                }}
+                className="w-full"
               >
-                <ResizablePanel defaultSize="58%" minSize="42%" className="min-w-0">
-                  <ScrollArea className="h-full">
-                    <div className="space-y-4 p-4">
-                      <div className="flex flex-wrap gap-2">
+                <NativeSelectOption value="10">10 rows</NativeSelectOption>
+                <NativeSelectOption value="25">25 rows</NativeSelectOption>
+                <NativeSelectOption value="50">50 rows</NativeSelectOption>
+              </NativeSelect>
+            </label>
+          </div>
+
+          {query.isError ? (
+            <Alert variant="destructive">
+              <WifiOffIcon />
+              <AlertTitle>Inbox query failed</AlertTitle>
+              <AlertDescription>
+                {query.error instanceof Error
+                  ? query.error.message
+                  : 'Unable to load inbox data.'}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {streamError && !query.isError ? (
+            <Alert>
+              {liveStatus === 'offline' ? <WifiOffIcon /> : <WifiIcon />}
+              <AlertTitle>Live updates need attention</AlertTitle>
+              <AlertDescription>{streamError}</AlertDescription>
+            </Alert>
+          ) : null}
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {data.emails.length > 0 ? (
+            <>
+              <Table className="min-w-[1120px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Received</TableHead>
+                    <TableHead>Recipient</TableHead>
+                    <TableHead>Subject</TableHead>
+                    <TableHead>Delivery</TableHead>
+                    <TableHead>Code</TableHead>
+                    <TableHead className="text-right">Details</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.emails.map((email) => (
+                    <TableRow
+                      key={email.id}
+                      data-state={
+                        activeEmail?.id === email.id ? 'selected' : undefined
+                      }
+                    >
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {formatAdminDate(email.receivedAt) ||
+                          'Timestamp unavailable'}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <div className="space-y-1">
+                          <div className="font-medium text-foreground">
+                            {email.recipient}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {email.reservationMailbox || 'App-managed alias'}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="max-w-[360px] whitespace-normal align-top">
+                        <div className="font-medium text-foreground">
+                          {email.subject || 'No subject captured'}
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top">
                         <StatusBadge
-                          value={activeEmail.latestCode ? 'code ready' : 'received'}
-                          tone={activeEmail.latestCode ? 'good' : 'warning'}
+                          value={email.latestCode ? 'code ready' : 'received'}
+                          tone={email.latestCode ? 'good' : 'warning'}
                         />
-                        {activeEmail.latestCode ? (
-                          <Badge variant="outline">
-                            {activeEmail.latestCodeSource || 'code'} ·{' '}
-                            {activeEmail.latestCode}
-                          </Badge>
-                        ) : null}
-                        {activeEmail.htmlBody ? (
-                          <Badge variant="outline">HTML email</Badge>
-                        ) : activeEmail.textBody ? (
-                          <Badge variant="outline">Text preview</Badge>
-                        ) : null}
-                      </div>
+                      </TableCell>
+                      <TableCell className="align-top">
+                        {email.latestCode ? (
+                          <code>{email.latestCode}</code>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">
+                            Pending
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="align-top text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            openEmailDetails(email.id)
+                          }}
+                        >
+                          Open
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
 
-                      <dl className="grid gap-3 text-sm">
-                        <DetailItem
-                          label="Recipient"
-                          value={activeEmail.recipient}
-                          code
-                        />
-                        <DetailItem
-                          label="Received"
-                          value={
-                            formatAdminDate(activeEmail.receivedAt) ||
-                            'Timestamp unavailable'
-                          }
-                        />
-                        <DetailItem
-                          label="Message ID"
-                          value={activeEmail.messageId || 'Not captured'}
-                          code
-                        />
-                        <DetailItem
-                          label="Mailbox"
-                          value={activeEmail.reservationMailbox || 'Not configured'}
-                          code
-                        />
-                        <DetailItem
-                          label="Reservation"
-                          value={activeEmail.reservationEmail || 'Not linked'}
-                          code
-                        />
-                        <DetailItem
-                          label="Expires"
-                          value={
-                            formatAdminDate(activeEmail.reservationExpiresAt) ||
-                            'Not available'
-                          }
-                        />
-                      </dl>
+              <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-muted-foreground">
+                  Showing page <strong className="text-foreground">{data.page}</strong>{' '}
+                  of{' '}
+                  <strong className="text-foreground">
+                    {Math.max(1, data.pageCount || 1)}
+                  </strong>{' '}
+                  with <strong className="text-foreground">{data.totalCount}</strong>{' '}
+                  matched emails.
+                </div>
 
-                      <Tabs
-                        key={activeEmail.id}
-                        defaultValue={getInitialContentTab(activeEmail)}
-                        className="gap-3"
-                      >
-                        <TabsList variant="line" className="w-full justify-start">
-                          <TabsTrigger value="text">Text</TabsTrigger>
-                          <TabsTrigger value="html">HTML source</TabsTrigger>
-                          <TabsTrigger value="raw">Raw payload</TabsTrigger>
-                        </TabsList>
-
-                        <TabsContent value="text">
-                          <EmailContentPanel value={activeEmail.textBody} />
-                        </TabsContent>
-
-                        <TabsContent value="html">
-                          <EmailContentPanel value={activeEmail.htmlBody} />
-                        </TabsContent>
-
-                        <TabsContent value="raw">
-                          <EmailContentPanel value={activeEmail.rawPayload} />
-                        </TabsContent>
-                      </Tabs>
-                    </div>
-                  </ScrollArea>
-                </ResizablePanel>
-
-                <ResizableHandle withHandle />
-
-                <ResizablePanel
-                  collapsible
-                  collapsedSize={56}
-                  defaultSize="42%"
-                  minSize="28%"
-                  panelRef={previewPanelRef}
-                  className="min-w-0 border-l bg-background"
-                  onResize={(size) => {
-                    setPreviewPanelCollapsed(size.inPixels <= 80)
-                  }}
-                >
-                  <RenderedEmailPreview
-                    html={activeEmail.htmlBody}
-                    text={activeEmail.textBody}
-                    collapsed={previewPanelCollapsed}
-                    onToggle={() => {
-                      if (!previewPanelRef.current) {
-                        return
-                      }
-
-                      if (previewPanelCollapsed) {
-                        previewPanelRef.current.expand()
-                        setPreviewPanelCollapsed(false)
-                        return
-                      }
-
-                      previewPanelRef.current.collapse()
-                      setPreviewPanelCollapsed(true)
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!data.hasPreviousPage || query.isPlaceholderData}
+                    onClick={() => {
+                      setPage((current) => Math.max(1, current - 1))
                     }}
-                  />
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            ) : (
-              <EmptyState
-                title="No email selected"
-                description="Choose a row from the inbox table to inspect the full message."
-              />
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                  >
+                    <ChevronLeftIcon />
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!data.hasNextPage || query.isPlaceholderData}
+                    onClick={() => {
+                      setPage((current) => current + 1)
+                    }}
+                  >
+                    Next
+                    <ChevronRightIcon />
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <EmptyState
+              title={deferredSearch ? 'No matching emails' : 'No inbound emails yet'}
+              description={
+                deferredSearch
+                  ? 'Try a broader search term or switch back to the first page.'
+                  : 'Inbound verification email will appear here as soon as it is ingested.'
+              }
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      <MessageDetailsDialog
+        email={activeEmail}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </div>
   )
 }
@@ -622,6 +479,136 @@ function MetricCard(props: {
   )
 }
 
+function MessageDetailsDialog(props: {
+  email: AdminMailInboxEmail | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const email = props.email
+  const isOpen = props.open && Boolean(email)
+
+  return (
+    <Dialog open={isOpen} onOpenChange={props.onOpenChange}>
+      {email ? (
+        <DialogContent className="grid h-[min(92vh,980px)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(1400px,calc(100%-2rem))]">
+          <DialogHeader className="gap-3 border-b px-6 py-5 pr-14">
+            <DialogDescription>Message details</DialogDescription>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <MailIcon className="size-5" />
+              {email.subject || 'No subject captured'}
+            </DialogTitle>
+            <DialogDescription className="max-w-3xl leading-6">
+              Full message metadata, captured source, and the rendered preview
+              live together here so you can inspect the email without shrinking
+              the inbox table.
+            </DialogDescription>
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge
+                value={email.latestCode ? 'code ready' : 'received'}
+                tone={email.latestCode ? 'good' : 'warning'}
+              />
+              {email.latestCode ? (
+                <Badge variant="outline">
+                  {email.latestCodeSource || 'code'} · {email.latestCode}
+                </Badge>
+              ) : null}
+              {email.htmlBody ? (
+                <Badge variant="outline">HTML email</Badge>
+              ) : email.textBody ? (
+                <Badge variant="outline">Text preview</Badge>
+              ) : (
+                <Badge variant="outline">No preview content</Badge>
+              )}
+            </div>
+          </DialogHeader>
+
+          <div className="grid min-h-0 gap-4 p-6 lg:grid-cols-[minmax(360px,0.95fr)_minmax(0,1.25fr)]">
+            <div className="min-h-0 rounded-lg border bg-muted/20">
+              <ScrollArea className="h-full">
+                <div className="space-y-4 p-4">
+                  <dl className="grid gap-3 text-sm">
+                    <DetailItem label="Recipient" value={email.recipient} code />
+                    <DetailItem
+                      label="Received"
+                      value={
+                        formatAdminDate(email.receivedAt) ||
+                        'Timestamp unavailable'
+                      }
+                    />
+                    <DetailItem
+                      label="Message ID"
+                      value={email.messageId || 'Not captured'}
+                      code
+                    />
+                    <DetailItem
+                      label="Mailbox"
+                      value={email.reservationMailbox || 'Not configured'}
+                      code
+                    />
+                    <DetailItem
+                      label="Reservation"
+                      value={email.reservationEmail || 'Not linked'}
+                      code
+                    />
+                    <DetailItem
+                      label="Expires"
+                      value={
+                        formatAdminDate(email.reservationExpiresAt) ||
+                        'Not available'
+                      }
+                    />
+                  </dl>
+
+                  <Tabs
+                    key={email.id}
+                    defaultValue={getInitialContentTab(email)}
+                    className="gap-3"
+                  >
+                    <TabsList variant="line" className="w-full justify-start">
+                      <TabsTrigger value="text">Text</TabsTrigger>
+                      <TabsTrigger value="html">HTML source</TabsTrigger>
+                      <TabsTrigger value="raw">Raw payload</TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="text">
+                      <EmailContentPanel
+                        value={email.textBody}
+                        className="h-[320px] xl:h-[420px]"
+                      />
+                    </TabsContent>
+
+                    <TabsContent value="html">
+                      <EmailContentPanel
+                        value={email.htmlBody}
+                        className="h-[320px] xl:h-[420px]"
+                      />
+                    </TabsContent>
+
+                    <TabsContent value="raw">
+                      <EmailContentPanel
+                        value={email.rawPayload}
+                        className="h-[320px] xl:h-[420px]"
+                      />
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              </ScrollArea>
+            </div>
+
+            <RenderedEmailPreview
+              html={email.htmlBody}
+              text={email.textBody}
+              className="min-h-[360px] lg:min-h-0"
+            />
+          </div>
+
+          <DialogFooter showCloseButton className="border-t px-6 py-4" />
+        </DialogContent>
+      ) : null}
+    </Dialog>
+  )
+}
+
 function DetailItem(props: { label: string; value: string; code?: boolean }) {
   return (
     <div className="grid gap-1">
@@ -638,34 +625,17 @@ function DetailItem(props: { label: string; value: string; code?: boolean }) {
 function RenderedEmailPreview(props: {
   html: string | null
   text: string | null
-  collapsed: boolean
-  onToggle: () => void
+  className?: string
 }) {
   const hasPreview = Boolean(props.html || props.text)
 
-  if (props.collapsed) {
-    return (
-      <button
-        type="button"
-        onClick={props.onToggle}
-        disabled={!hasPreview}
-        className={cn(
-          'flex h-full w-full flex-col items-center justify-center gap-4 px-2 py-4 text-center transition-colors',
-          hasPreview
-            ? 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
-            : 'cursor-not-allowed text-muted-foreground/60',
-        )}
-      >
-        <ChevronLeftIcon className="size-4 shrink-0" />
-        <span className="[writing-mode:vertical-rl] rotate-180 text-[11px] font-medium tracking-[0.22em] uppercase">
-          {hasPreview ? 'Email preview' : 'No preview'}
-        </span>
-      </button>
-    )
-  }
-
   return (
-    <div className="flex h-full min-w-0 flex-col">
+    <div
+      className={cn(
+        'flex h-full min-w-0 flex-col overflow-hidden rounded-lg border bg-background',
+        props.className,
+      )}
+    >
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <FileCodeIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -681,10 +651,11 @@ function RenderedEmailPreview(props: {
           </div>
         </div>
 
-        <Button type="button" variant="ghost" size="sm" onClick={props.onToggle}>
-          <ChevronRightIcon />
-          Collapse
-        </Button>
+        {hasPreview ? (
+          <Badge variant="outline">
+            {props.html ? 'Rendered HTML' : 'Text fallback'}
+          </Badge>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1">
@@ -711,9 +682,11 @@ function RenderedEmailPreview(props: {
   )
 }
 
-function EmailContentPanel(props: { value: string | null }) {
+function EmailContentPanel(props: { value: string | null; className?: string }) {
   return (
-    <ScrollArea className="h-[380px] rounded-lg border bg-muted/20">
+    <ScrollArea
+      className={cn('rounded-lg border bg-muted/20', props.className || 'h-[380px]')}
+    >
       <pre className="min-h-full whitespace-pre-wrap p-4 font-mono text-xs leading-6 text-foreground">
         {props.value || 'No content captured for this section.'}
       </pre>
