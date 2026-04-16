@@ -102,6 +102,32 @@ function readOidcErrorMessage(
   )
 }
 
+function normalizeDiscoveredOidcUrl(
+  endpoint: string | undefined,
+  issuer: string | undefined,
+): string | undefined {
+  if (!endpoint || !issuer) {
+    return endpoint
+  }
+
+  try {
+    const endpointUrl = new URL(endpoint)
+    const issuerUrl = new URL(issuer)
+    if (
+      endpointUrl.protocol === 'http:' &&
+      issuerUrl.protocol === 'https:' &&
+      endpointUrl.host === issuerUrl.host
+    ) {
+      endpointUrl.protocol = issuerUrl.protocol
+      return endpointUrl.toString()
+    }
+  } catch {
+    return endpoint
+  }
+
+  return endpoint
+}
+
 const DEFAULT_OIDC_BASE_PATH = '/oidc'
 const DEFAULT_TOKEN_TYPE = 'Bearer'
 const discoveryCache = new Map<string, Promise<OidcDiscoveryDocument>>()
@@ -313,8 +339,14 @@ export async function getOidcDiscovery(
 
     return {
       issuer: payload.issuer,
-      token_endpoint: payload.token_endpoint,
-      device_authorization_endpoint: payload.device_authorization_endpoint,
+      token_endpoint: normalizeDiscoveredOidcUrl(
+        payload.token_endpoint,
+        payload.issuer,
+      )!,
+      device_authorization_endpoint: normalizeDiscoveredOidcUrl(
+        payload.device_authorization_endpoint,
+        payload.issuer,
+      ),
     }
   })()
 

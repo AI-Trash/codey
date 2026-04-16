@@ -146,6 +146,37 @@ describe('app auth OIDC helpers', () => {
     })
   })
 
+  it('normalizes discovered endpoints to the issuer protocol', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          issuer: 'https://codey.example.com/oidc',
+          token_endpoint: 'http://codey.example.com/oidc/token',
+          device_authorization_endpoint:
+            'http://codey.example.com/oidc/device/auth',
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    )
+
+    await expect(
+      getOidcDiscovery({
+        baseUrl: 'https://codey.example.com',
+        oidcBasePath: '/oidc',
+      }),
+    ).resolves.toEqual({
+      issuer: 'https://codey.example.com/oidc',
+      token_endpoint: 'https://codey.example.com/oidc/token',
+      device_authorization_endpoint:
+        'https://codey.example.com/oidc/device/auth',
+    })
+  })
+
   it('reads legacy app session files through the new tokenSet shape', () => {
     const rootDir = path.join(tempRoot, 'legacy')
     setRuntimeConfig(createConfig(rootDir))

@@ -238,6 +238,7 @@ export async function getOidcProvider(): Promise<Provider> {
           keys: resolvedSnapshot.keys,
         }),
       );
+      provider.proxy = true;
       globalThis.__codeyOidcProviderState = {
         issuer: resolvedIssuer,
         jwksVersion: resolvedSnapshot.version,
