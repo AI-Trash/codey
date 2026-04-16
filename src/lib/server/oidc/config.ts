@@ -11,6 +11,7 @@ import Provider, {
   type KoaContextWithOIDC,
   type ResourceServer,
 } from "oidc-provider";
+import { m } from "#/paraglide/messages";
 import { createOidcAdapter } from "./adapter";
 import { getAppEnv } from "../env";
 import { getManagedOidcJwks } from "./jwks";
@@ -130,11 +131,11 @@ function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }):
             form,
             errorMessage:
               err && ("userCode" in err || err.name === "NoCodeError")
-                ? "The code you entered is incorrect. Try again."
+                ? m.oidc_device_error_invalid_code()
                 : err && err.name === "AbortedError"
-                  ? "The sign-in request was interrupted."
+                  ? m.oidc_device_error_interrupted()
                   : err
-                    ? "There was an error processing your request."
+                    ? m.oidc_device_error_generic()
                     : undefined,
           });
         },
@@ -150,7 +151,9 @@ function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }):
         async successSource(ctx) {
           ctx.type = "html";
           ctx.body = await renderDeviceFlowSuccess(
-            ctx.oidc.client?.clientName || ctx.oidc.client?.clientId || "the OAuth client",
+            ctx.oidc.client?.clientName ||
+              ctx.oidc.client?.clientId ||
+              m.oidc_device_client_fallback(),
           );
         },
       },

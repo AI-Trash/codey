@@ -53,67 +53,80 @@ import {
   SidebarSeparator,
   SidebarTrigger,
 } from '#/components/ui/sidebar'
+import { translateStatusLabel } from '#/lib/i18n'
 import { cn } from '#/lib/utils'
+import { m } from '#/paraglide/messages'
+import { getLocale } from '#/paraglide/runtime'
 
 type StatusTone = 'good' | 'warning' | 'danger' | 'neutral'
 
-const operationsSubNavigation = [
-  {
-    label: 'Overview',
-    to: '/admin',
-    icon: LayoutDashboardIcon,
-    matches: (pathname: string) => pathname === '/admin',
-  },
-  {
-    label: 'Mail inbox',
-    to: '/admin/emails',
-    icon: MailIcon,
-    matches: (pathname: string) => pathname === '/admin/emails',
-  },
-] as const
+function getOperationsSubNavigation() {
+  return [
+    {
+      label: m.admin_nav_overview(),
+      to: '/admin',
+      icon: LayoutDashboardIcon,
+      matches: (pathname: string) => pathname === '/admin',
+    },
+    {
+      label: m.admin_nav_mail_inbox(),
+      to: '/admin/emails',
+      icon: MailIcon,
+      matches: (pathname: string) => pathname === '/admin/emails',
+    },
+  ] as const
+}
 
-const oauthAppsSubNavigation = [
-  {
-    label: 'App registry',
-    to: '/admin/apps',
-    icon: AppWindowIcon,
-    matches: (pathname: string) =>
-      pathname === '/admin/apps' ||
-      (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
-  },
-  {
-    label: 'Register app',
-    to: '/admin/apps/new',
-    icon: PlusCircleIcon,
-    matches: (pathname: string) => pathname === '/admin/apps/new',
-  },
-] as const
+function getOauthAppsSubNavigation() {
+  return [
+    {
+      label: m.admin_nav_app_registry(),
+      to: '/admin/apps',
+      icon: AppWindowIcon,
+      matches: (pathname: string) =>
+        pathname === '/admin/apps' ||
+        (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
+    },
+    {
+      label: m.admin_nav_register_app(),
+      to: '/admin/apps/new',
+      icon: PlusCircleIcon,
+      matches: (pathname: string) => pathname === '/admin/apps/new',
+    },
+  ] as const
+}
 
-const adminNavigation = [
-  {
-    label: 'Operations',
-    to: '/admin',
-    icon: LayoutDashboardIcon,
-    matches: (pathname: string) =>
-      pathname === '/admin' || pathname === '/admin/emails',
-    children: operationsSubNavigation,
-  },
-  {
-    label: 'OAuth apps',
-    to: '/admin/apps',
-    icon: AppWindowIcon,
-    matches: (pathname: string) =>
-      pathname === '/admin/apps' ||
-      pathname === '/admin/apps/new' ||
-      (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
-    children: oauthAppsSubNavigation,
-  },
-] as const
+function getAdminNavigation() {
+  const operationsSubNavigation = getOperationsSubNavigation()
+  const oauthAppsSubNavigation = getOauthAppsSubNavigation()
+
+  return [
+    {
+      label: m.admin_nav_operations(),
+      to: '/admin',
+      icon: LayoutDashboardIcon,
+      matches: (pathname: string) =>
+        pathname === '/admin' || pathname === '/admin/emails',
+      children: operationsSubNavigation,
+    },
+    {
+      label: m.admin_nav_oauth_apps(),
+      to: '/admin/apps',
+      icon: AppWindowIcon,
+      matches: (pathname: string) =>
+        pathname === '/admin/apps' ||
+        pathname === '/admin/apps/new' ||
+        (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
+      children: oauthAppsSubNavigation,
+    },
+  ] as const
+}
 
 export function AdminShell(props: { children: ReactNode }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
+  const adminNavigation = getAdminNavigation()
 
   return (
     <SidebarProvider defaultOpen className="min-h-svh bg-muted/30">
@@ -121,15 +134,21 @@ export function AdminShell(props: { children: ReactNode }) {
         <SidebarHeader className="gap-3 p-3">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild size="lg" tooltip="Codey admin">
+              <SidebarMenuButton
+                asChild
+                size="lg"
+                tooltip={m.admin_shell_tooltip()}
+              >
                 <Link to="/admin">
                   <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                     <ShieldCheckIcon className="size-4" />
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">Codey Admin</span>
+                    <span className="truncate font-semibold">
+                      {m.admin_shell_title()}
+                    </span>
                     <span className="truncate text-xs text-muted-foreground">
-                      Sidebar + table workspace
+                      {m.admin_shell_subtitle()}
                     </span>
                   </div>
                 </Link>
@@ -142,7 +161,7 @@ export function AdminShell(props: { children: ReactNode }) {
 
         <SidebarContent>
           <SidebarGroup>
-            <SidebarGroupLabel>Console</SidebarGroupLabel>
+            <SidebarGroupLabel>{m.admin_group_console()}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {adminNavigation.map((item) => (
@@ -181,14 +200,17 @@ export function AdminShell(props: { children: ReactNode }) {
           </SidebarGroup>
 
           <SidebarGroup>
-            <SidebarGroupLabel>External</SidebarGroupLabel>
+            <SidebarGroupLabel>{m.admin_group_external()}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild tooltip="Device flow">
+                  <SidebarMenuButton
+                    asChild
+                    tooltip={m.admin_external_device_flow()}
+                  >
                     <a href="/device">
                       <MonitorSmartphoneIcon />
-                      <span>Device flow</span>
+                      <span>{m.admin_external_device_flow()}</span>
                     </a>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -200,10 +222,11 @@ export function AdminShell(props: { children: ReactNode }) {
         <SidebarFooter className="gap-3 p-3">
           <Card className="gap-3 border-dashed py-4 shadow-none">
             <CardHeader className="px-4">
-              <CardTitle className="text-sm">Layout controls</CardTitle>
+              <CardTitle className="text-sm">
+                {m.admin_layout_controls_title()}
+              </CardTitle>
               <CardDescription className="text-xs leading-5">
-                Use Ctrl/Cmd + B to collapse the sidebar and open more table
-                width.
+                {m.admin_layout_controls_description()}
               </CardDescription>
             </CardHeader>
           </Card>
@@ -215,7 +238,7 @@ export function AdminShell(props: { children: ReactNode }) {
               className="w-full justify-start"
             >
               <LogOutIcon />
-              Log out
+              {m.admin_log_out()}
             </Button>
           </form>
         </SidebarFooter>
@@ -229,7 +252,7 @@ export function AdminShell(props: { children: ReactNode }) {
           <AdminBreadcrumb pathname={pathname} />
           <div className="ml-auto flex items-center gap-2">
             <Badge variant="outline" className="hidden md:inline-flex">
-              Data-first admin
+              {m.admin_data_first_badge()}
             </Badge>
           </div>
         </header>
@@ -252,7 +275,7 @@ function AdminBreadcrumb(props: { pathname: string }) {
       <BreadcrumbList>
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
-            <Link to="/admin">Admin</Link>
+            <Link to="/admin">{m.admin_breadcrumb_root()}</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
@@ -324,7 +347,7 @@ export function StatusBadge(props: {
   tone?: StatusTone
   className?: string
 }) {
-  const value = props.value || 'Unknown'
+  const value = props.value || m.status_unknown()
   const tone = props.tone ?? getStatusTone(value)
 
   return (
@@ -336,7 +359,7 @@ export function StatusBadge(props: {
         props.className,
       )}
     >
-      {value.replaceAll('_', ' ').toLowerCase()}
+      {translateStatusLabel(value)}
     </Badge>
   )
 }
@@ -362,7 +385,7 @@ export function formatAdminDate(value: string | Date | null | undefined) {
     return null
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(getLocale(), {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date)
@@ -402,30 +425,30 @@ export function getStatusTone(status?: string | null): StatusTone {
 
 function getAdminPageLabel(pathname: string) {
   if (pathname === '/admin') {
-    return 'Operations'
+    return m.admin_nav_operations()
   }
 
   if (pathname === '/admin/apps') {
-    return 'OAuth apps'
+    return m.admin_nav_oauth_apps()
   }
 
   if (pathname === '/admin/emails') {
-    return 'Mail inbox'
+    return m.admin_nav_mail_inbox()
   }
 
   if (pathname === '/admin/apps/new') {
-    return 'Register app'
+    return m.admin_nav_register_app()
   }
 
   if (pathname.startsWith('/admin/apps/')) {
-    return 'App details'
+    return m.admin_nav_app_details()
   }
 
   if (pathname === '/admin/login') {
-    return 'Login'
+    return m.admin_nav_login()
   }
 
-  return 'Admin'
+  return m.admin_breadcrumb_root()
 }
 
 const toneClasses: Record<StatusTone, string> = {

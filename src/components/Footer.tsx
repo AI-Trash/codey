@@ -1,20 +1,21 @@
-import { Separator } from "./ui/separator";
+import { m } from '#/paraglide/messages'
 
-const footerLinks = {
-  Product: [
-    { href: "/#features", label: "Features" },
-    { href: "/#example", label: "Docs" },
-    { href: "/#process", label: "Process" },
-  ],
-  Routes: [
-    { href: "/device", label: "Device flow" },
-    { href: "/admin", label: "Admin dashboard" },
-    { href: "/about", label: "About" },
-  ],
-} as const;
+import { Separator } from './ui/separator'
 
 export default function Footer() {
-  const year = new Date().getFullYear();
+  const year = new Date().getFullYear()
+  const footerLinks = {
+    [m.footer_group_product()]: [
+      { href: '/#features', label: m.footer_link_features() },
+      { href: '/#example', label: m.footer_link_docs() },
+      { href: '/#process', label: m.footer_link_process() },
+    ],
+    [m.footer_group_routes()]: [
+      { href: '/device', label: m.footer_link_device_flow() },
+      { href: '/admin', label: m.footer_link_admin_dashboard() },
+      { href: '/about', label: m.footer_link_about() },
+    ],
+  } as const
 
   return (
     <footer className="border-t bg-background">
@@ -23,8 +24,7 @@ export default function Footer() {
           <div className="max-w-lg space-y-2">
             <p className="text-sm font-semibold text-foreground">Codey</p>
             <p className="text-sm leading-6 text-muted-foreground">
-              Shared browser shell for verification workflows, operator
-              approvals, and automation-facing delivery.
+              {m.footer_description()}
             </p>
           </div>
 
@@ -52,12 +52,9 @@ export default function Footer() {
 
         <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p className="m-0">&copy; {year} Codey</p>
-          <p className="m-0">
-            GitHub login, Cloudflare ingest, and SSE delivery in one app
-            boundary.
-          </p>
+          <p className="m-0">{m.footer_meta()}</p>
         </div>
       </div>
     </footer>
-  );
+  )
 }

@@ -8,6 +8,7 @@ import {
 } from '#/components/admin/mail-inbox'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
 import { Button } from '#/components/ui/button'
+import { m } from '#/paraglide/messages'
 
 const loadAdminMailInbox = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -64,12 +65,12 @@ function AdminMailInboxPage() {
   return (
     <>
       <AdminPageHeader
-        eyebrow="Operations"
-        title="Mail inbox"
-        description="Dedicated operator workspace for inbound verification email. Full subjects and message bodies stay readable here, and new mail is streamed into the table automatically."
+        eyebrow={m.admin_nav_operations()}
+        title={m.admin_mail_page_title()}
+        description={m.admin_mail_page_description()}
         actions={
           <Button asChild variant="outline">
-            <a href="/admin">Back to operations</a>
+            <a href="/admin">{m.admin_back_to_operations()}</a>
           </Button>
         }
       />

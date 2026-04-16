@@ -16,6 +16,7 @@ import {
 } from "../db/schema";
 import { getAppEnv } from "../env";
 import { createId } from "../security";
+import { m } from "#/paraglide/messages";
 
 type StoredJwk = Record<string, unknown>;
 type DbLike = Pick<
@@ -438,7 +439,7 @@ export async function getOidcSigningKeyStatus(): Promise<OidcSigningKeyStatus> {
   const snapshot = await getManagedOidcJwks();
   const nextRotationLabel = snapshot.nextRotationAt
     ? snapshot.nextRotationAt.toISOString()
-    : "not scheduled";
+    : m.server_oidc_rotation_not_scheduled();
   return {
     status:
       snapshot.activeKeyCount === 1
@@ -448,8 +449,15 @@ export async function getOidcSigningKeyStatus(): Promise<OidcSigningKeyStatus> {
           : "missing",
     detail:
       snapshot.activeKeyCount === 1
-        ? `DB-backed signing keys are active. Current kid: ${snapshot.activeKid}. Published keys: ${snapshot.publishedKeyCount}. Next automatic rotation: ${nextRotationLabel}.`
-        : `Expected exactly one active signing key, found ${snapshot.activeKeyCount}. Published keys: ${snapshot.publishedKeyCount}.`,
+        ? m.server_oidc_status_ready({
+            kid: snapshot.activeKid,
+            count: String(snapshot.publishedKeyCount),
+            next_rotation: nextRotationLabel,
+          })
+        : m.server_oidc_status_warning({
+            active_count: String(snapshot.activeKeyCount),
+            count: String(snapshot.publishedKeyCount),
+          }),
     activeKid: snapshot.activeKid,
     nextRotationAt: snapshot.nextRotationAt,
     publishedKeyCount: snapshot.publishedKeyCount,

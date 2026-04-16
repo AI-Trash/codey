@@ -10,6 +10,7 @@ import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { AppQueryProvider } from '../components/query-provider'
 
+import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
 import appCss from '../styles.css?url'
@@ -33,7 +34,7 @@ export const Route = createRootRoute({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'Codey | Developer verification control plane',
+        title: m.meta_app_title(),
       },
     ],
     links: [

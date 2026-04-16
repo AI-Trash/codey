@@ -2,6 +2,7 @@ import { parse as parseUrl } from "node:url";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { toFetchHandler } from "srvx/node";
 
+import { paraglideMiddleware } from "../../src/paraglide/server";
 import { getOidcProvider } from "../../src/lib/server/oidc/provider";
 import {
   completeInteraction,
@@ -144,7 +145,9 @@ export default {
     const url = resolveFetchRequestUrl(req);
 
     try {
-      return await fetchOidcHandler(req);
+      return await paraglideMiddleware(req, async ({ request }) =>
+        fetchOidcHandler(request),
+      );
     } catch (error) {
       return jsonResponse(
         {

@@ -30,6 +30,7 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { Textarea } from '#/components/ui/textarea'
+import { m } from '#/paraglide/messages'
 
 const loadDashboard = createServerFn({ method: 'GET' }).handler(async () => {
   const [{ getRequest }, { requireAdmin }, { listAdminDashboardData }] =
@@ -153,16 +154,13 @@ function AdminPage() {
     return (
       <Card className="max-w-2xl">
         <CardHeader>
-          <CardDescription>Admin</CardDescription>
-          <CardTitle>Admin sign-in required</CardTitle>
-          <CardDescription>
-            Sign in with GitHub to review operational data, manage apps, and
-            approve device sessions.
-          </CardDescription>
+          <CardDescription>{m.admin_breadcrumb_root()}</CardDescription>
+          <CardTitle>{m.admin_auth_required_title()}</CardTitle>
+          <CardDescription>{m.admin_dashboard_auth_description()}</CardDescription>
         </CardHeader>
         <CardContent>
           <Button asChild>
-            <a href="/admin/login">Go to admin login</a>
+            <a href="/admin/login">{m.admin_auth_required_cta()}</a>
           </Button>
         </CardContent>
       </Card>
@@ -183,20 +181,18 @@ function AdminPage() {
   return (
     <>
       <AdminPageHeader
-        eyebrow="Admin"
-        title="Operations"
+        eyebrow={m.admin_breadcrumb_root()}
+        title={m.admin_dashboard_title()}
         description={
           <>
-            Signed in as{' '}
+            {m.admin_dashboard_signed_in_prefix()}{' '}
             <strong className="text-foreground">
               {data.user.githubLogin ||
                 data.user.email ||
                 data.user.name ||
-                'unknown user'}
+                m.admin_dashboard_unknown_user()}
             </strong>
-            . The admin console is now organized around high-density tables so
-            device sessions, verification activity, identities, and request
-            queues stay visible.
+            . {m.admin_dashboard_description_suffix()}
           </>
         }
         meta={
@@ -208,13 +204,13 @@ function AdminPage() {
         actions={
           <>
             <Button asChild variant="outline">
-              <a href="/admin/emails">Mail inbox</a>
+              <a href="/admin/emails">{m.admin_nav_mail_inbox()}</a>
             </Button>
             <Button asChild variant="outline">
-              <a href="/admin/apps">OAuth apps</a>
+              <a href="/admin/apps">{m.admin_nav_oauth_apps()}</a>
             </Button>
             <Button asChild variant="outline">
-              <a href="/device">Device route</a>
+              <a href="/device">{m.home_entry_device_title()}</a>
             </Button>
           </>
         }
@@ -222,130 +218,155 @@ function AdminPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <AdminMetricCard
-          label="Identities"
+          label={m.admin_dashboard_metric_identities_label()}
           value={String(identitySummaries.length)}
-          description="Saved identities currently available from the local store."
+          description={m.admin_dashboard_metric_identities_description()}
         />
         <AdminMetricCard
-          label="Pending approvals"
+          label={m.admin_dashboard_metric_pending_label()}
           value={String(pendingCount)}
-          description="Device handshakes waiting for an operator decision."
+          description={m.admin_dashboard_metric_pending_description()}
         />
         <AdminMetricCard
-          label="Verification events"
+          label={m.admin_dashboard_metric_verification_label()}
           value={String(verificationActivity.length)}
-          description="Recent verification activity available for review."
+          description={m.admin_dashboard_metric_verification_description()}
         />
         <AdminMetricCard
-          label="Notifications"
+          label={m.admin_dashboard_metric_notifications_label()}
           value={String(notifications.length)}
-          description="Recent admin notifications stored for clients."
+          description={m.admin_dashboard_metric_notifications_description()}
         />
         <AdminMetricCard
-          label="Flow requests"
+          label={m.admin_dashboard_metric_requests_label()}
           value={String(flowAppRequests.length)}
-          description="App onboarding requests currently in the queue."
+          description={m.admin_dashboard_metric_requests_description()}
         />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
         <ActionCard
-          eyebrow="Manual verification code"
-          title="Inject verification code"
-          description="Add a known verification code directly when you need to unblock a flow."
+          eyebrow={m.admin_dashboard_code_kicker()}
+          title={m.admin_dashboard_code_title()}
+          description={m.admin_dashboard_code_description()}
         >
           <form
             method="post"
             action="/api/admin/verification-codes"
             className="grid gap-3"
           >
-            <LabeledInput label="Target email">
-              <Input name="email" placeholder="target@example.com" />
+            <LabeledInput label={m.admin_dashboard_target_email()}>
+              <Input
+                name="email"
+                placeholder={m.admin_dashboard_target_email_placeholder()}
+              />
             </LabeledInput>
-            <LabeledInput label="6-digit code">
-              <Input name="code" placeholder="123456" inputMode="numeric" />
+            <LabeledInput label={m.admin_dashboard_code_input_label()}>
+              <Input
+                name="code"
+                placeholder={m.admin_dashboard_code_input_placeholder()}
+                inputMode="numeric"
+              />
             </LabeledInput>
-            <Button type="submit">Inject code</Button>
+            <Button type="submit">{m.admin_dashboard_inject_code()}</Button>
           </form>
         </ActionCard>
 
         <ActionCard
-          eyebrow="Admin notification"
-          title="Create notification"
-          description="Send a browser-side message to operators or attached clients."
+          eyebrow={m.admin_dashboard_notification_kicker()}
+          title={m.admin_dashboard_notification_title()}
+          description={m.admin_dashboard_notification_description()}
         >
           <form
             method="post"
             action="/api/admin/notifications"
             className="grid gap-3"
           >
-            <LabeledInput label="Title">
-              <Input name="title" placeholder="Title" />
+            <LabeledInput label={m.admin_dashboard_notification_title_label()}>
+              <Input
+                name="title"
+                placeholder={m.admin_dashboard_notification_title_placeholder()}
+              />
             </LabeledInput>
             <div className="grid gap-3 sm:grid-cols-2">
-              <LabeledInput label="Flow type">
-                <Input name="flowType" placeholder="codex-oauth" />
+              <LabeledInput label={m.admin_dashboard_flow_type_label()}>
+                <Input
+                  name="flowType"
+                  placeholder={m.admin_dashboard_flow_type_placeholder()}
+                />
               </LabeledInput>
-              <LabeledInput label="Target">
-                <Input name="target" placeholder="all or octocat" />
+              <LabeledInput label={m.admin_dashboard_target_label()}>
+                <Input
+                  name="target"
+                  placeholder={m.admin_dashboard_target_placeholder()}
+                />
               </LabeledInput>
             </div>
-            <LabeledInput label="Message">
+            <LabeledInput label={m.admin_dashboard_message_label()}>
               <Textarea
                 name="body"
-                placeholder="Message"
+                placeholder={m.admin_dashboard_message_placeholder()}
                 className="min-h-28"
               />
             </LabeledInput>
-            <Button type="submit">Create notification</Button>
+            <Button type="submit">{m.admin_dashboard_create_notification()}</Button>
           </form>
         </ActionCard>
 
         <ActionCard
-          eyebrow="GitHub Actions flow apps"
-          title="Submit flow app request"
-          description="Queue support requests for auto-add-account coverage in flow apps."
+          eyebrow={m.admin_dashboard_request_kicker()}
+          title={m.admin_dashboard_request_title()}
+          description={m.admin_dashboard_request_description()}
         >
           <form
             method="post"
             action="/api/admin/flow-app-requests"
             className="grid gap-3"
           >
-            <LabeledInput label="App name">
-              <Input name="appName" placeholder="GitHub Actions app name" />
+            <LabeledInput label={m.admin_dashboard_app_name_label()}>
+              <Input
+                name="appName"
+                placeholder={m.admin_dashboard_app_name_placeholder()}
+              />
             </LabeledInput>
             <div className="grid gap-3 sm:grid-cols-2">
-              <LabeledInput label="Flow type">
-                <Input name="flowType" placeholder="chatgpt-register" />
+              <LabeledInput label={m.admin_dashboard_flow_type_label()}>
+                <Input
+                  name="flowType"
+                  placeholder={m.admin_dashboard_request_flow_type_placeholder()}
+                />
               </LabeledInput>
-              <LabeledInput label="Requested identity">
-                <Input name="requestedIdentity" placeholder="octocat" />
+              <LabeledInput label={m.admin_dashboard_requested_identity_label()}>
+                <Input
+                  name="requestedIdentity"
+                  placeholder={m.admin_dashboard_requested_identity_placeholder()}
+                />
               </LabeledInput>
             </div>
-            <LabeledInput label="Notes">
+            <LabeledInput label={m.admin_dashboard_notes_label()}>
               <Textarea
                 name="notes"
-                placeholder="Why this app needs auto-add-account support"
+                placeholder={m.admin_dashboard_notes_placeholder()}
                 className="min-h-28"
               />
             </LabeledInput>
-            <Button type="submit">Submit request</Button>
+            <Button type="submit">{m.admin_dashboard_submit_request()}</Button>
           </form>
         </ActionCard>
       </section>
 
       <TableCard
-        eyebrow="Config status"
-        title="Configuration status"
-        description="Readiness across OAuth, identity storage, signing keys, and flow support."
+        eyebrow={m.admin_dashboard_config_kicker()}
+        title={m.admin_dashboard_config_title()}
+        description={m.admin_dashboard_config_description()}
       >
         {configStatuses.length > 0 ? (
           <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Capability</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Detail</TableHead>
+                <TableHead>{m.admin_dashboard_table_capability()}</TableHead>
+                <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_detail()}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -367,7 +388,7 @@ function AdminPage() {
                     <StatusBadge value={item.status} />
                   </TableCell>
                   <TableCell className="whitespace-normal align-top text-sm leading-6 text-muted-foreground">
-                    {item.detail || 'Waiting for backend status detail.'}
+                    {item.detail || m.admin_dashboard_waiting_backend_detail()}
                   </TableCell>
                 </TableRow>
               ))}
@@ -375,28 +396,28 @@ function AdminPage() {
           </Table>
         ) : (
           <EmptyState
-            title="No configuration data"
-            description="Configuration readiness is not available yet."
+            title={m.admin_dashboard_config_empty_title()}
+            description={m.admin_dashboard_config_empty_description()}
           />
         )}
       </TableCard>
 
       <TableCard
-        eyebrow="Identity summaries"
-        title="Saved identities"
-        description="Review local store coverage and edit label or managed status inline."
+        eyebrow={m.admin_dashboard_identities_kicker()}
+        title={m.admin_dashboard_identities_title()}
+        description={m.admin_dashboard_identities_description()}
       >
         {identitySummaries.length > 0 ? (
           <Table className="min-w-[1200px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Identity</TableHead>
-                <TableHead>Account</TableHead>
-                <TableHead>Provider</TableHead>
-                <TableHead>Flows</TableHead>
-                <TableHead>Last seen</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Manage</TableHead>
+                <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_account()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_provider()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_flows()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_last_seen()}</TableHead>
+                <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_manage()}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -411,21 +432,24 @@ function AdminPage() {
                     </div>
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
-                    {summary.account || 'Not linked yet'}
+                    {summary.account || m.admin_dashboard_not_linked_yet()}
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
-                    {summary.provider || 'Saved identity'}
+                    {summary.provider || m.admin_dashboard_saved_identity()}
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
                     {summary.flowCount != null
-                      ? `${summary.flowCount} flows`
-                      : 'Pending'}
+                      ? m.admin_dashboard_flow_count({
+                          count: String(summary.flowCount),
+                        })
+                      : m.status_pending()}
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
-                    {formatAdminDate(summary.lastSeenAt) || 'Not captured yet'}
+                    {formatAdminDate(summary.lastSeenAt) ||
+                      m.admin_dashboard_not_captured_yet()}
                   </TableCell>
                   <TableCell className="align-top">
-                    <StatusBadge value={summary.status || 'available'} />
+                    <StatusBadge value={summary.status || 'unknown'} />
                   </TableCell>
                   <TableCell className="align-top">
                     <form
@@ -448,7 +472,7 @@ function AdminPage() {
                         defaultValue={
                           summary.label !== summary.account ? summary.label : ''
                         }
-                        placeholder={summary.account || 'Identity label'}
+                        placeholder={summary.account || m.admin_dashboard_identity_label()}
                         className="h-8"
                       />
                       <NativeSelect
@@ -458,17 +482,17 @@ function AdminPage() {
                         className="w-full min-w-[140px]"
                       >
                         <NativeSelectOption value="ACTIVE">
-                          Active
+                          {m.status_active()}
                         </NativeSelectOption>
                         <NativeSelectOption value="REVIEW">
-                          Needs review
+                          {m.status_review()}
                         </NativeSelectOption>
                         <NativeSelectOption value="ARCHIVED">
-                          Archived
+                          {m.status_archived()}
                         </NativeSelectOption>
                       </NativeSelect>
                       <Button type="submit" size="sm" variant="outline">
-                        Save
+                        {m.oauth_edit_save_settings()}
                       </Button>
                     </form>
                   </TableCell>
@@ -478,28 +502,30 @@ function AdminPage() {
           </Table>
         ) : (
           <EmptyState
-            title="No saved identities"
-            description="Capture an identity through the flows package and it will appear here."
+            title={m.admin_dashboard_identities_empty_title()}
+            description={m.admin_dashboard_identities_empty_description()}
           />
         )}
       </TableCard>
 
       <TableCard
-        eyebrow="Device flow management"
-        title="Device approvals"
-        description="Approve or deny pending device sessions without losing the surrounding queue context."
+        eyebrow={m.admin_dashboard_device_kicker()}
+        title={m.admin_dashboard_device_title()}
+        description={m.admin_dashboard_device_description()}
       >
         {deviceChallenges.length > 0 ? (
           <Table className="min-w-[1040px]">
             <TableHeader>
               <TableRow>
-                <TableHead>User code</TableHead>
-                <TableHead>Flow</TableHead>
-                <TableHead>CLI client</TableHead>
-                <TableHead>Target</TableHead>
-                <TableHead>Updated</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{m.device_info_user_code()}</TableHead>
+                <TableHead>{m.device_info_flow()}</TableHead>
+                <TableHead>{m.device_info_cli()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_target()}</TableHead>
+                <TableHead>{m.oauth_clients_table_updated()}</TableHead>
+                <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                <TableHead className="text-right">
+                  {m.oauth_clients_table_actions()}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -514,18 +540,18 @@ function AdminPage() {
                     </div>
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
-                    {challenge.flowType || 'CLI device flow'}
+                    {challenge.flowType || m.admin_dashboard_cli_device_flow()}
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
-                    {challenge.cliName || 'Unknown client'}
+                    {challenge.cliName || m.admin_dashboard_unknown_client()}
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
-                    {challenge.target || 'No explicit target'}
+                    {challenge.target || m.admin_dashboard_no_explicit_target()}
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
                     {formatAdminDate(
                       challenge.updatedAt || challenge.createdAt,
-                    ) || 'Awaiting timestamp'}
+                    ) || m.admin_dashboard_awaiting_timestamp()}
                   </TableCell>
                   <TableCell className="align-top">
                     <StatusBadge
@@ -541,7 +567,7 @@ function AdminPage() {
                           action={`/api/admin/device/${challenge.deviceCode}/approve`}
                         >
                           <Button type="submit" size="sm">
-                            Approve
+                            {m.admin_dashboard_approve()}
                           </Button>
                         </form>
                         <form
@@ -549,13 +575,13 @@ function AdminPage() {
                           action={`/api/admin/device/${challenge.deviceCode}/deny`}
                         >
                           <Button type="submit" size="sm" variant="outline">
-                            Deny
+                            {m.admin_dashboard_deny()}
                           </Button>
                         </form>
                       </div>
                     ) : (
                       <span className="text-sm text-muted-foreground">
-                        Resolved
+                        {m.status_resolved()}
                       </span>
                     )}
                   </TableCell>
@@ -565,25 +591,25 @@ function AdminPage() {
           </Table>
         ) : (
           <EmptyState
-            title="No device challenges"
-            description="Pending CLI approvals will appear here."
+            title={m.admin_dashboard_device_empty_title()}
+            description={m.admin_dashboard_device_empty_description()}
           />
         )}
       </TableCard>
 
       <TableCard
-        eyebrow="Verification activity"
-        title="Recent verification activity"
-        description="Latest verification events and mail state. Use the dedicated mail inbox for full message inspection."
+        eyebrow={m.admin_dashboard_verification_kicker()}
+        title={m.admin_dashboard_verification_title()}
+        description={m.admin_dashboard_verification_description()}
       >
         {verificationActivity.length > 0 ? (
           <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Detail</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>{m.admin_dashboard_table_title()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_detail()}</TableHead>
+                <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                <TableHead>{m.admin_dashboard_table_created()}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -601,7 +627,8 @@ function AdminPage() {
                     <StatusBadge value={item.status} />
                   </TableCell>
                   <TableCell className="align-top text-sm text-muted-foreground">
-                    {formatAdminDate(item.createdAt) || 'Timestamp unavailable'}
+                    {formatAdminDate(item.createdAt) ||
+                      m.mail_inbox_timestamp_unavailable()}
                   </TableCell>
                 </TableRow>
               ))}
@@ -609,27 +636,27 @@ function AdminPage() {
           </Table>
         ) : (
           <EmptyState
-            title="No verification activity"
-            description="Verification events will populate here as codes and emails arrive."
+            title={m.admin_dashboard_verification_empty_title()}
+            description={m.admin_dashboard_verification_empty_description()}
           />
         )}
       </TableCard>
 
       <section className="grid gap-4 2xl:grid-cols-2">
         <TableCard
-          eyebrow="Recent notifications"
-          title="Stored notifications"
-          description="Messages currently available to operators or subscribed clients."
+          eyebrow={m.admin_dashboard_notifications_kicker()}
+          title={m.admin_dashboard_notifications_title()}
+          description={m.admin_dashboard_notifications_description()}
         >
           {notifications.length > 0 ? (
             <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Flow type</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Message</TableHead>
+                  <TableHead>{m.admin_dashboard_table_title()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_target()}</TableHead>
+                  <TableHead>{m.admin_dashboard_flow_type_label()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_created()}</TableHead>
+                  <TableHead>{m.admin_dashboard_message_label()}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -641,14 +668,14 @@ function AdminPage() {
                       </div>
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
-                      {notification.target || 'all clients'}
+                      {notification.target || m.admin_dashboard_all_clients()}
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
-                      {notification.flowType || 'General'}
+                      {notification.flowType || m.status_general()}
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
                       {formatAdminDate(notification.createdAt) ||
-                        'Timestamp unavailable'}
+                        m.mail_inbox_timestamp_unavailable()}
                     </TableCell>
                     <TableCell className="max-w-[380px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
                       {notification.body}
@@ -659,28 +686,28 @@ function AdminPage() {
             </Table>
           ) : (
             <EmptyState
-              title="No notifications"
-              description="Saved notifications will appear here after creation."
+              title={m.admin_dashboard_notifications_empty_title()}
+              description={m.admin_dashboard_notifications_empty_description()}
             />
           )}
         </TableCard>
 
         <TableCard
-          eyebrow="Request queue"
-          title="Flow app requests"
-          description="Queued requests for app coverage and managed identity support."
+          eyebrow={m.admin_dashboard_requests_kicker()}
+          title={m.admin_dashboard_requests_title()}
+          description={m.admin_dashboard_requests_description()}
         >
           {flowAppRequests.length > 0 ? (
             <Table className="min-w-[980px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>App</TableHead>
-                  <TableHead>Flow type</TableHead>
-                  <TableHead>Requested identity</TableHead>
-                  <TableHead>Requested by</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Submitted</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>{m.oauth_clients_table_app()}</TableHead>
+                  <TableHead>{m.admin_dashboard_flow_type_label()}</TableHead>
+                  <TableHead>{m.admin_dashboard_requested_identity_label()}</TableHead>
+                  <TableHead>{m.admin_dashboard_requested_by_label()}</TableHead>
+                  <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                  <TableHead>{m.admin_dashboard_submitted_label()}</TableHead>
+                  <TableHead>{m.admin_dashboard_notes_label()}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -692,23 +719,24 @@ function AdminPage() {
                       </div>
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
-                      {request.flowType || 'Flow app'}
+                      {request.flowType || m.admin_dashboard_flow_app()}
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
-                      {request.requestedIdentity || 'No identity attached yet'}
+                      {request.requestedIdentity ||
+                        m.admin_dashboard_no_identity_attached()}
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
-                      {request.requestedBy || 'Unknown requester'}
+                      {request.requestedBy || m.admin_dashboard_unknown_requester()}
                     </TableCell>
                     <TableCell className="align-top">
                       <StatusBadge value={request.status || 'pending'} />
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
                       {formatAdminDate(request.createdAt) ||
-                        'Awaiting timestamp'}
+                        m.admin_dashboard_awaiting_timestamp()}
                     </TableCell>
                     <TableCell className="max-w-[320px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
-                      {request.notes || 'No notes provided.'}
+                      {request.notes || m.admin_dashboard_no_notes()}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -716,8 +744,8 @@ function AdminPage() {
             </Table>
           ) : (
             <EmptyState
-              title="No queued requests"
-              description="New flow app requests will show up here after submission."
+              title={m.admin_dashboard_requests_empty_title()}
+              description={m.admin_dashboard_requests_empty_description()}
             />
           )}
         </TableCard>
@@ -790,8 +818,8 @@ function getVerificationActivity(verification: VerificationData) {
   if (Array.isArray(verification.activity)) {
     return verification.activity.map((item) => ({
       id: item.id,
-      title: item.title || 'Verification event',
-      detail: item.detail || 'Recent verification activity was recorded.',
+      title: item.title || m.admin_dashboard_verification_event_title(),
+      detail: item.detail || m.admin_dashboard_verification_event_detail(),
       status: item.status || 'active',
       createdAt: item.createdAt,
     }))
@@ -800,7 +828,10 @@ function getVerificationActivity(verification: VerificationData) {
   const codeEvents = (verification.codes ?? []).slice(0, 3).map((code) => ({
     id: `code-${code.id}`,
     title: code.reservation.email,
-    detail: `Code ${code.code} arrived from ${code.source}.`,
+    detail: m.admin_dashboard_verification_code_detail({
+      code: code.code,
+      source: code.source,
+    }),
     status: 'received',
     createdAt: code.receivedAt,
   }))
@@ -808,7 +839,7 @@ function getVerificationActivity(verification: VerificationData) {
   const emailEvents = (verification.emails ?? []).slice(0, 3).map((email) => ({
     id: `email-${email.id}`,
     title: email.recipient,
-    detail: email.subject || 'Inbound verification email received.',
+    detail: email.subject || m.admin_dashboard_verification_email_detail(),
     status: email.verificationCode ? 'parsed' : 'received',
     createdAt: email.receivedAt,
   }))
@@ -830,18 +861,18 @@ function getConfigTone(items: ConfigStatusItem[]) {
 
 function summarizeConfigState(items: ConfigStatusItem[]) {
   if (items.length === 0) {
-    return 'Waiting for status'
+    return m.admin_dashboard_waiting_for_status()
   }
 
   if (items.every((item) => getStatusTone(item.status) === 'good')) {
-    return 'All systems ready'
+    return m.admin_dashboard_all_systems_ready()
   }
 
   if (items.some((item) => getStatusTone(item.status) === 'danger')) {
-    return 'Action required'
+    return m.admin_dashboard_action_required()
   }
 
-  return 'Needs review'
+  return m.admin_dashboard_needs_review()
 }
 
 function getChallengeTone(status: string) {

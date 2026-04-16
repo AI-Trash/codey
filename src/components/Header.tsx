@@ -1,18 +1,20 @@
-import { Link } from "@tanstack/react-router";
-import { CommandIcon } from "lucide-react";
+import { Link } from '@tanstack/react-router'
+import { CommandIcon } from 'lucide-react'
 
-import ParaglideLocaleSwitcher from "./LocaleSwitcher";
-import ThemeToggle from "./ThemeToggle";
-import { Button } from "./ui/button";
+import { m } from '#/paraglide/messages'
 
-const primaryLinks = [
-  { href: "/#features", label: "Features" },
-  { href: "/#example", label: "Docs" },
-  { href: "/device", label: "Device" },
-  { href: "/#process", label: "Process" },
-] as const;
+import ParaglideLocaleSwitcher from './LocaleSwitcher'
+import ThemeToggle from './ThemeToggle'
+import { Button } from './ui/button'
 
 export default function Header() {
+  const primaryLinks = [
+    { href: '/#features', label: m.header_nav_features() },
+    { href: '/#example', label: m.header_nav_docs() },
+    { href: '/device', label: m.header_nav_device() },
+    { href: '/#process', label: m.header_nav_process() },
+  ] as const
+
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-3 px-4">
@@ -36,12 +38,12 @@ export default function Header() {
 
         <div className="ml-auto flex items-center gap-2">
           <Button asChild size="sm" className="hidden sm:inline-flex">
-            <Link to="/admin">Open admin</Link>
+            <Link to="/admin">{m.header_open_admin()}</Link>
           </Button>
           <ParaglideLocaleSwitcher />
           <ThemeToggle />
         </div>
       </div>
     </header>
-  );
+  )
 }

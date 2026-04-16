@@ -35,6 +35,7 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { Textarea } from '#/components/ui/textarea'
+import { m } from '#/paraglide/messages'
 
 export type ManagedOAuthClient = {
   id: string
@@ -76,16 +77,17 @@ export function AdminAuthRequired() {
   return (
     <Card className="max-w-2xl">
       <CardHeader>
-        <CardDescription>Admin</CardDescription>
-        <CardTitle className="text-2xl">Admin sign-in required</CardTitle>
+        <CardDescription>{m.admin_breadcrumb_root()}</CardDescription>
+        <CardTitle className="text-2xl">
+          {m.admin_auth_required_title()}
+        </CardTitle>
         <CardDescription className="max-w-xl text-sm leading-6">
-          Sign in with GitHub to manage OAuth clients and access the operator
-          console.
+          {m.admin_auth_required_description()}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Button asChild>
-          <a href="/admin/login">Go to admin login</a>
+          <a href="/admin/login">{m.admin_auth_required_cta()}</a>
         </Button>
       </CardContent>
     </Card>
@@ -100,8 +102,8 @@ export function OAuthClientsList({
   if (!clients.length) {
     return (
       <EmptyState
-        title="No OAuth clients yet"
-        description="Create the first app to issue client credentials or support device flow."
+        title={m.oauth_clients_empty_title()}
+        description={m.oauth_clients_empty_description()}
       />
     )
   }
@@ -114,22 +116,30 @@ export function OAuthClientsList({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <Badge variant="outline">{clients.length} total</Badge>
-        <Badge variant="outline">{enabledCount} enabled</Badge>
-        <Badge variant="outline">{deviceFlowCount} device flow</Badge>
+        <Badge variant="outline">
+          {m.oauth_clients_badge_total({ count: String(clients.length) })}
+        </Badge>
+        <Badge variant="outline">
+          {m.oauth_clients_badge_enabled({ count: String(enabledCount) })}
+        </Badge>
+        <Badge variant="outline">
+          {m.oauth_clients_badge_device_flow({ count: String(deviceFlowCount) })}
+        </Badge>
       </div>
 
       <Table className="min-w-[1080px]">
         <TableHeader>
           <TableRow>
-            <TableHead>App</TableHead>
-            <TableHead>Client ID</TableHead>
-            <TableHead>Grants</TableHead>
-            <TableHead>Scopes</TableHead>
-            <TableHead>Secret</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Updated</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            <TableHead>{m.oauth_clients_table_app()}</TableHead>
+            <TableHead>{m.oauth_clients_table_client_id()}</TableHead>
+            <TableHead>{m.oauth_clients_table_grants()}</TableHead>
+            <TableHead>{m.oauth_clients_table_scopes()}</TableHead>
+            <TableHead>{m.oauth_clients_table_secret()}</TableHead>
+            <TableHead>{m.oauth_clients_table_status()}</TableHead>
+            <TableHead>{m.oauth_clients_table_updated()}</TableHead>
+            <TableHead className="text-right">
+              {m.oauth_clients_table_actions()}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -141,7 +151,7 @@ export function OAuthClientsList({
                     {client.clientName}
                   </div>
                   <p className="max-w-[320px] text-sm leading-6 text-muted-foreground">
-                    {client.description || 'No description added yet.'}
+                    {client.description || m.oauth_clients_no_description()}
                   </p>
                 </div>
               </TableCell>
@@ -174,7 +184,7 @@ export function OAuthClientsList({
                     ))
                   ) : (
                     <span className="text-sm text-muted-foreground">
-                      No scopes
+                      {m.oauth_clients_no_scopes()}
                     </span>
                   )}
                 </div>
@@ -183,9 +193,9 @@ export function OAuthClientsList({
                 <div className="space-y-1">
                   <code>{client.clientSecretPreview}...</code>
                   <p className="text-xs text-muted-foreground">
-                    Rotated{' '}
+                    {m.oauth_clients_rotated_label()}{' '}
                     {formatAdminDate(client.clientSecretUpdatedAt) ||
-                      'recently'}
+                      m.oauth_clients_recently()}
                   </p>
                 </div>
               </TableCell>
@@ -193,11 +203,13 @@ export function OAuthClientsList({
                 <StatusBadge value={client.enabled ? 'Enabled' : 'Disabled'} />
               </TableCell>
               <TableCell className="align-top text-sm text-muted-foreground">
-                {formatAdminDate(client.updatedAt) || 'Recently'}
+                {formatAdminDate(client.updatedAt) || m.oauth_clients_recently()}
               </TableCell>
               <TableCell className="align-top text-right">
                 <Button asChild size="sm">
-                  <a href={`/admin/apps/${client.id}`}>Edit app</a>
+                  <a href={`/admin/apps/${client.id}`}>
+                    {m.oauth_clients_edit_app()}
+                  </a>
                 </Button>
               </TableCell>
             </TableRow>
@@ -259,7 +271,7 @@ export function NewOAuthClientPageContent({
       setError(
         submitError instanceof Error
           ? submitError.message
-          : 'Unable to create OAuth client',
+          : m.oauth_new_error_create(),
       )
     } finally {
       setSubmitting(false)
@@ -270,18 +282,15 @@ export function NewOAuthClientPageContent({
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
       <Card>
         <CardHeader>
-          <CardDescription>Registration</CardDescription>
-          <CardTitle>Create a managed OAuth app</CardTitle>
-          <CardDescription>
-            Create the client, define the grant types, and make the supported
-            scopes explicit before handing the secret to a caller.
-          </CardDescription>
+          <CardDescription>{m.oauth_new_registration_kicker()}</CardDescription>
+          <CardTitle>{m.oauth_new_title()}</CardTitle>
+          <CardDescription>{m.oauth_new_description()}</CardDescription>
         </CardHeader>
         <CardContent>
           <OAuthClientForm
             form={form}
             submitting={submitting}
-            submitLabel="Create OAuth app"
+            submitLabel={m.oauth_new_submit()}
             supportedScopes={supportedScopes}
             error={error}
             onChange={setForm}
@@ -293,29 +302,31 @@ export function NewOAuthClientPageContent({
       <div className="grid gap-4">
         <Card>
           <CardHeader>
-            <CardDescription>Practical defaults</CardDescription>
-            <CardTitle className="text-lg">What to enable</CardTitle>
+            <CardDescription>{m.oauth_defaults_kicker()}</CardDescription>
+            <CardTitle className="text-lg">
+              {m.oauth_defaults_title()}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 text-sm leading-6 text-muted-foreground">
             <InfoBlock
-              title="Client credentials"
-              detail="Use this when the caller can safely hold a secret and does not need an operator browser step."
+              title={m.oauth_defaults_client_credentials_title()}
+              detail={m.oauth_defaults_client_credentials_detail()}
             />
             <InfoBlock
-              title="Device flow"
-              detail="Use this when a CLI or daemon needs an approval handoff into the browser."
+              title={m.oauth_defaults_device_flow_title()}
+              detail={m.oauth_defaults_device_flow_detail()}
             />
             <InfoBlock
-              title="Secret handling"
-              detail="The full secret is shown once after registration. Save it in the calling app immediately."
+              title={m.oauth_defaults_secret_title()}
+              detail={m.oauth_defaults_secret_detail()}
             />
           </CardContent>
         </Card>
 
         {created ? (
           <SecretPanel
-            title="OAuth app created"
-            body="This secret is only shown here after registration. Copy it into the calling app before leaving the page."
+            title={m.oauth_new_secret_panel_title()}
+            body={m.oauth_new_secret_panel_body()}
             clientId={created.client.clientId}
             secret={created.clientSecret}
             preview={created.client.clientSecretPreview}
@@ -323,11 +334,11 @@ export function NewOAuthClientPageContent({
               <div className="flex flex-wrap gap-2">
                 <Button asChild size="sm">
                   <a href={`/admin/apps/${created.client.id}`}>
-                    Open app settings
+                    {m.oauth_new_open_app_settings()}
                   </a>
                 </Button>
                 <Button asChild size="sm" variant="outline">
-                  <a href="/admin/apps">Back to apps</a>
+                  <a href="/admin/apps">{m.admin_back_to_apps()}</a>
                 </Button>
               </div>
             }
@@ -390,14 +401,14 @@ export function EditOAuthClientPageContent({
       setVisibleSecret(data.rotatedSecret || null)
       setSuccess(
         rotateSecret
-          ? 'OAuth app updated and secret rotated.'
-          : 'OAuth app settings saved.',
+          ? m.oauth_edit_success_rotated()
+          : m.oauth_edit_success_saved(),
       )
     } catch (saveError) {
       setError(
         saveError instanceof Error
           ? saveError.message
-          : 'Unable to update OAuth client',
+          : m.oauth_edit_error_update(),
       )
     } finally {
       setSaving(false)
@@ -422,12 +433,12 @@ export function EditOAuthClientPageContent({
       }
       setVisibleSecret(data.clientSecret || null)
       setClient(data.client)
-      setSuccess('Current client secret revealed.')
+      setSuccess(m.oauth_edit_reveal_success())
     } catch (revealError) {
       setError(
         revealError instanceof Error
           ? revealError.message
-          : 'Unable to reveal client secret',
+          : m.oauth_edit_reveal_error(),
       )
     } finally {
       setRevealing(false)
@@ -442,21 +453,18 @@ export function EditOAuthClientPageContent({
         <CardHeader className="gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <CardDescription>OAuth app settings</CardDescription>
+              <CardDescription>{m.oauth_edit_settings_kicker()}</CardDescription>
               <CardTitle>{client.clientName}</CardTitle>
             </div>
             <StatusBadge value={client.enabled ? 'Enabled' : 'Disabled'} />
           </div>
-          <CardDescription>
-            Update app metadata, adjust grants, and change secret state without
-            leaving the management view.
-          </CardDescription>
+          <CardDescription>{m.oauth_edit_settings_description()}</CardDescription>
         </CardHeader>
         <CardContent>
           <OAuthClientForm
             form={form}
             submitting={saving}
-            submitLabel="Save app settings"
+            submitLabel={m.oauth_edit_save_settings()}
             supportedScopes={supportedScopes}
             error={error}
             success={success}
@@ -468,7 +476,7 @@ export function EditOAuthClientPageContent({
           >
             <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={saving || revealing}>
-                {saving ? 'Saving...' : 'Save app settings'}
+                {saving ? m.oauth_saving() : m.oauth_edit_save_settings()}
               </Button>
               <Button
                 type="button"
@@ -478,7 +486,7 @@ export function EditOAuthClientPageContent({
                   void saveClient(true)
                 }}
               >
-                {saving ? 'Updating...' : 'Rotate secret'}
+                {saving ? m.oauth_updating() : m.oauth_edit_rotate_secret()}
               </Button>
             </div>
           </OAuthClientForm>
@@ -488,27 +496,33 @@ export function EditOAuthClientPageContent({
       <div className="grid gap-4">
         <Card>
           <CardHeader>
-            <CardDescription>Client summary</CardDescription>
-            <CardTitle className="text-lg">Current state</CardTitle>
+            <CardDescription>{m.oauth_edit_summary_kicker()}</CardDescription>
+            <CardTitle className="text-lg">
+              {m.oauth_edit_summary_title()}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <dl className="grid gap-4 text-sm text-muted-foreground">
-              <SummaryItem label="Client ID" value={client.clientId} code />
               <SummaryItem
-                label="Auth method"
+                label={m.oauth_field_client_id()}
+                value={client.clientId}
+                code
+              />
+              <SummaryItem
+                label={m.oauth_summary_auth_method()}
                 value={formatAuthMethod(client.tokenEndpointAuthMethod)}
               />
               <SummaryItem
-                label="Enabled grants"
-                value={grantSummary || 'None'}
+                label={m.oauth_summary_enabled_grants()}
+                value={grantSummary || m.oauth_none()}
               />
               <SummaryItem
-                label="Allowed scopes"
-                value={client.allowedScopes.join(', ') || 'None'}
+                label={m.oauth_summary_allowed_scopes()}
+                value={client.allowedScopes.join(', ') || m.oauth_none()}
               />
               <SummaryItem
-                label="Updated"
-                value={formatAdminDate(client.updatedAt) || 'Recently'}
+                label={m.oauth_clients_table_updated()}
+                value={formatAdminDate(client.updatedAt) || m.oauth_clients_recently()}
               />
             </dl>
           </CardContent>
@@ -516,19 +530,21 @@ export function EditOAuthClientPageContent({
 
         <Card>
           <CardHeader>
-            <CardDescription>Secret state</CardDescription>
-            <CardTitle className="text-lg">Reveal or rotate</CardTitle>
+            <CardDescription>{m.oauth_secret_state_kicker()}</CardDescription>
+            <CardTitle className="text-lg">
+              {m.oauth_secret_state_title()}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge
-                value={`Preview ${client.clientSecretPreview}`}
-                tone="good"
-              />
+              <Badge variant="outline">
+                {m.oauth_secret_preview_badge({
+                  preview: client.clientSecretPreview,
+                })}
+              </Badge>
             </div>
             <p className="text-sm leading-6 text-muted-foreground">
-              Reveal the current secret when you need to reconfigure an existing
-              caller, or rotate it to invalidate the previous one.
+              {m.oauth_secret_state_description()}
             </p>
             <Button
               type="button"
@@ -538,15 +554,17 @@ export function EditOAuthClientPageContent({
                 void revealSecret()
               }}
             >
-              {revealing ? 'Revealing...' : 'Reveal current secret'}
+              {revealing
+                ? m.oauth_revealing()
+                : m.oauth_reveal_current_secret()}
             </Button>
           </CardContent>
         </Card>
 
         {visibleSecret ? (
           <SecretPanel
-            title="Client secret"
-            body="Treat this like a password. Copy it into the calling app, then rotate it if you suspect it has leaked."
+            title={m.oauth_secret_panel_title()}
+            body={m.oauth_secret_panel_body()}
             clientId={client.clientId}
             secret={visibleSecret}
             preview={client.clientSecretPreview}
@@ -588,32 +606,32 @@ function OAuthClientForm({
 
   return (
     <form className="grid gap-5" onSubmit={onSubmit}>
-      <Field label="Client name">
+      <Field label={m.oauth_field_client_name()}>
         <Input
           value={form.clientName}
           onChange={(event) => {
             const nextValue = event.target.value
             onChange((current) => ({ ...current, clientName: nextValue }))
           }}
-          placeholder="CLI daemon"
+          placeholder={m.oauth_field_client_name_placeholder()}
           required
         />
       </Field>
 
-      <Field label="Description">
+      <Field label={m.oauth_field_description()}>
         <Textarea
           value={form.description}
           onChange={(event) => {
             const nextValue = event.target.value
             onChange((current) => ({ ...current, description: nextValue }))
           }}
-          placeholder="What this app is for"
+          placeholder={m.oauth_field_description_placeholder()}
           className="min-h-28"
         />
       </Field>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
-        <Field label="Token endpoint auth method">
+        <Field label={m.oauth_field_token_endpoint_auth_method()}>
           <NativeSelect
             value={form.tokenEndpointAuthMethod}
             onChange={(event) => {
@@ -637,8 +655,8 @@ function OAuthClientForm({
 
         <ToggleCard
           id={enabledId}
-          title="Enabled"
-          description="Disable the app without deleting its configuration."
+          title={m.oauth_toggle_enabled_title()}
+          description={m.oauth_toggle_enabled_description()}
           checked={form.enabled}
           onCheckedChange={(checked) => {
             onChange((current) => ({ ...current, enabled: checked }))
@@ -649,8 +667,8 @@ function OAuthClientForm({
       <div className="grid gap-3 lg:grid-cols-2">
         <ToggleCard
           id={clientCredentialsId}
-          title="Enable client credentials"
-          description="Allow token exchange with the app secret and no browser step."
+          title={m.oauth_toggle_client_credentials_title()}
+          description={m.oauth_toggle_client_credentials_description()}
           checked={form.clientCredentialsEnabled}
           onCheckedChange={(checked) => {
             onChange((current) => ({
@@ -662,8 +680,8 @@ function OAuthClientForm({
 
         <ToggleCard
           id={deviceFlowId}
-          title="Enable device flow"
-          description="Allow user-code sign-in flows that finish with an admin-approved browser step."
+          title={m.oauth_toggle_device_flow_title()}
+          description={m.oauth_toggle_device_flow_description()}
           checked={form.deviceFlowEnabled}
           onCheckedChange={(checked) => {
             onChange((current) => ({ ...current, deviceFlowEnabled: checked }))
@@ -672,8 +690,10 @@ function OAuthClientForm({
       </div>
 
       <Field
-        label="Allowed scopes"
-        description={`One scope per line. Supported in this app: ${supportedScopes.join(', ')}.`}
+        label={m.oauth_field_allowed_scopes()}
+        description={m.oauth_field_allowed_scopes_description({
+          scopes: supportedScopes.join(', '),
+        })}
       >
         <Textarea
           value={form.allowedScopes}
@@ -688,9 +708,9 @@ function OAuthClientForm({
 
       {!hasGrantEnabled ? (
         <Alert variant="destructive">
-          <AlertTitle>Grant type required</AlertTitle>
+          <AlertTitle>{m.oauth_grant_type_required_title()}</AlertTitle>
           <AlertDescription>
-            Enable at least one grant type before saving the OAuth app.
+            {m.oauth_grant_type_required_description()}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -707,21 +727,21 @@ function OAuthClientForm({
 
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>Unable to save</AlertTitle>
+          <AlertTitle>{m.oauth_unable_to_save_title()}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
 
       {success ? (
         <Alert>
-          <AlertTitle>Saved</AlertTitle>
+          <AlertTitle>{m.oauth_saved_title()}</AlertTitle>
           <AlertDescription>{success}</AlertDescription>
         </Alert>
       ) : null}
 
       {children || (
         <Button type="submit" disabled={submitting || !hasGrantEnabled}>
-          {submitting ? 'Saving...' : submitLabel}
+          {submitting ? m.oauth_saving() : submitLabel}
         </Button>
       )}
     </form>
@@ -748,15 +768,17 @@ function SecretPanel({
       <CardHeader className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <CardDescription>Secret preview</CardDescription>
+            <CardDescription>{m.oauth_secret_preview_kicker()}</CardDescription>
             <CardTitle className="text-lg">{title}</CardTitle>
           </div>
-          <StatusBadge value={preview} tone="good" />
+          <Badge variant="outline">
+            {m.oauth_secret_preview_badge({ preview })}
+          </Badge>
         </div>
         <CardDescription className="text-sm leading-6">{body}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <SummaryItem label="Client ID" value={clientId} code />
+        <SummaryItem label={m.oauth_field_client_id()} value={clientId} code />
         <div className="rounded-lg border bg-muted/40 p-4">
           <code className="block overflow-x-auto border-0 bg-transparent px-0 py-0 text-sm text-foreground">
             {secret}

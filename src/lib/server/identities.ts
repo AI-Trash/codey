@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { managedIdentities } from "./db/schema";
 import { createId } from "./security";
+import { m } from "#/paraglide/messages";
 
 type FlowCredentialSummary = {
   id: string;
@@ -64,7 +65,7 @@ async function readStoredFlowIdentityState(): Promise<{
       error:
         error instanceof Error
           ? error.message
-          : "Unable to read local identity store.",
+          : m.server_identity_store_read_error(),
     };
   }
 }
@@ -103,7 +104,7 @@ export async function listAdminIdentitySummaries(): Promise<{
       return {
         id: identity.id,
         label: managed?.label || identity.email,
-        provider: "ChatGPT local store",
+        provider: m.server_identity_provider(),
         account,
         flowCount: identity.credentialCount,
         lastSeenAt: managed?.updatedAt.toISOString() || identity.updatedAt,
@@ -126,7 +127,7 @@ export async function listAdminIdentitySummaries(): Promise<{
       summaries,
       storeStatus: {
         status: "missing",
-        detail: "Local identity store is not available to this app runtime.",
+        detail: m.server_identity_store_missing(),
       },
     };
   }
@@ -136,7 +137,7 @@ export async function listAdminIdentitySummaries(): Promise<{
       summaries,
       storeStatus: {
         status: "empty",
-        detail: "No locally saved ChatGPT identities have been captured yet.",
+        detail: m.server_identity_store_empty(),
         storePath: storeState.store.rootPath,
       },
     };
@@ -147,8 +148,12 @@ export async function listAdminIdentitySummaries(): Promise<{
     storeStatus: {
       status: storeState.store.encrypted ? "encrypted" : "ready",
       detail: storeState.store.encrypted
-        ? `Identity store is readable and encrypted at rest under ${storeState.store.rootPath}.`
-        : `Identity summaries are being read from ${storeState.store.rootPath}.`,
+        ? m.server_identity_store_encrypted({
+            path: storeState.store.rootPath,
+          })
+        : m.server_identity_store_ready({
+            path: storeState.store.rootPath,
+          }),
       storePath: storeState.store.rootPath,
     },
   };

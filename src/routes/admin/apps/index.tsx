@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../../../components/ui/card'
+import { m } from '#/paraglide/messages'
 
 const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
   const [{ getRequest }, { requireAdmin }, { listOAuthClients }] =
@@ -62,16 +63,16 @@ function AdminAppsListPage() {
   return (
     <>
       <AdminPageHeader
-        eyebrow="Admin apps"
-        title="Managed OAuth clients"
-        description="Register, inspect, and maintain OAuth apps that use client credentials or admin-approved device flow inside Codey."
+        eyebrow={m.admin_apps_eyebrow()}
+        title={m.admin_apps_title()}
+        description={m.admin_apps_description()}
         actions={
           <>
             <Button asChild variant="outline">
-              <a href="/admin">Back to operations</a>
+              <a href="/admin">{m.admin_back_to_operations()}</a>
             </Button>
             <Button asChild>
-              <a href="/admin/apps/new">Register app</a>
+              <a href="/admin/apps/new">{m.admin_register_app()}</a>
             </Button>
           </>
         }
@@ -79,31 +80,31 @@ function AdminAppsListPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <AdminMetricCard
-          label="Registered apps"
+          label={m.admin_apps_metric_registered_label()}
           value={String(data.clients.length)}
-          description="Managed OAuth clients available in the registry."
+          description={m.admin_apps_metric_registered_description()}
         />
         <AdminMetricCard
-          label="Enabled"
+          label={m.admin_apps_metric_enabled_label()}
           value={String(enabledCount)}
-          description="Clients currently able to mint tokens."
+          description={m.admin_apps_metric_enabled_description()}
         />
         <AdminMetricCard
-          label="Device flow"
+          label={m.admin_apps_metric_device_flow_label()}
           value={String(deviceFlowCount)}
-          description="Apps that can request browser approvals."
+          description={m.admin_apps_metric_device_flow_description()}
         />
         <AdminMetricCard
-          label="Service auth"
+          label={m.admin_apps_metric_service_auth_label()}
           value={String(serviceCount)}
-          description="Clients that support client credentials."
+          description={m.admin_apps_metric_service_auth_description()}
         />
       </section>
 
       <Card>
         <CardHeader>
-          <CardDescription>Client inventory</CardDescription>
-          <CardTitle>OAuth app registry</CardTitle>
+          <CardDescription>{m.admin_apps_inventory_kicker()}</CardDescription>
+          <CardTitle>{m.admin_apps_inventory_title()}</CardTitle>
         </CardHeader>
         <CardContent>
           <OAuthClientsList clients={data.clients} />

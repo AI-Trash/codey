@@ -1,73 +1,79 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from '@tanstack/react-router'
 
-import { Badge } from "#/components/ui/badge";
-import { Button } from "#/components/ui/button";
+import { Badge } from '#/components/ui/badge'
+import { Button } from '#/components/ui/button'
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "#/components/ui/card";
+} from '#/components/ui/card'
+import { m } from '#/paraglide/messages'
 
-export const Route = createFileRoute("/admin/login")({
+export const Route = createFileRoute('/admin/login')({
   component: AdminLoginPage,
-});
+})
+
+function getAdminCapabilities() {
+  return [
+    {
+      title: m.admin_login_capability_approve_title(),
+      detail: m.admin_login_capability_approve_detail(),
+    },
+    {
+      title: m.admin_login_capability_inspect_title(),
+      detail: m.admin_login_capability_inspect_detail(),
+    },
+    {
+      title: m.admin_login_capability_manage_title(),
+      detail: m.admin_login_capability_manage_detail(),
+    },
+  ] as const
+}
 
 function AdminLoginPage() {
+  const capabilities = getAdminCapabilities()
+
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 md:py-14">
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_380px]">
         <Card>
           <CardHeader className="space-y-4">
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">Admin login</Badge>
-              <Badge>GitHub OAuth</Badge>
+              <Badge variant="outline">{m.admin_login_badge()}</Badge>
+              <Badge>{m.admin_login_github_badge()}</Badge>
             </div>
             <div className="space-y-3">
               <CardTitle className="text-4xl tracking-tight sm:text-5xl">
-                Open the operator side of Codey.
+                {m.admin_login_title()}
               </CardTitle>
               <CardDescription className="max-w-2xl text-sm leading-7">
-                Browser sign-in is the gateway to device approvals,
-                verification oversight, saved identity review, and flow app
-                queue management.
+                {m.admin_login_description()}
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-3">
             <Button asChild>
-              <a href="/auth/github?redirectTo=/admin">Continue with GitHub</a>
+              <a href="/auth/github?redirectTo=/admin">
+                {m.admin_login_primary_cta()}
+              </a>
             </Button>
             <Button asChild variant="outline">
-              <a href="/device">View device page</a>
+              <a href="/device">{m.admin_login_secondary_cta()}</a>
             </Button>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardDescription>What you unlock</CardDescription>
-            <CardTitle className="text-xl">Admin capabilities</CardTitle>
+            <CardDescription>{m.admin_login_capabilities_kicker()}</CardDescription>
+            <CardTitle className="text-xl">
+              {m.admin_login_capabilities_title()}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {[
-              {
-                title: "Approve CLI device challenges",
-                detail:
-                  "Review pending browser handshakes and unblock flow operators quickly.",
-              },
-              {
-                title: "Inspect verification motion",
-                detail:
-                  "Scan code capture, reservations, and inbound email summaries from one page.",
-              },
-              {
-                title: "Manage account coverage",
-                detail:
-                  "See saved identities, config readiness, and GitHub Actions auto-add-account requests.",
-              },
-            ].map((item) => (
+            {capabilities.map((item) => (
               <div key={item.title} className="space-y-1 rounded-lg border bg-muted/30 p-4">
                 <p className="text-sm font-medium text-foreground">{item.title}</p>
                 <p className="text-sm leading-6 text-muted-foreground">
@@ -79,5 +85,5 @@ function AdminLoginPage() {
         </Card>
       </section>
     </main>
-  );
+  )
 }

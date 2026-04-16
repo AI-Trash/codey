@@ -1,9 +1,8 @@
 import { SunMoon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { getThemeToggleLabel, type ThemeMode } from '#/lib/i18n'
 import { Button } from './ui/button'
-
-type ThemeMode = 'light' | 'dark' | 'auto'
 
 function getInitialMode(): ThemeMode {
   if (typeof window === 'undefined') {
@@ -65,10 +64,7 @@ export default function ThemeToggle() {
     window.localStorage.setItem('theme', nextMode)
   }
 
-  const label =
-    mode === 'auto'
-      ? 'Theme mode: auto (system). Click to switch to light mode.'
-      : `Theme mode: ${mode}. Click to switch mode.`
+  const label = getThemeToggleLabel(mode)
 
   return (
     <Button

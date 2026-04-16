@@ -3,6 +3,8 @@ import "@tanstack/react-start/server-only";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { InteractionResults, KoaContextWithOIDC } from "oidc-provider";
 
+import { m } from "#/paraglide/messages";
+import { getLocalizedHtmlLang } from "#/lib/i18n";
 import { requireAdmin } from "../auth";
 import { redirect as httpRedirect } from "../http";
 import { getOidcProvider } from "./provider";
@@ -22,7 +24,7 @@ function renderPage(params: {
   body: string;
 }): string {
   return `<!DOCTYPE html>
-  <html lang="en">
+  <html lang="${escapeHtml(getLocalizedHtmlLang())}">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -146,10 +148,10 @@ export async function renderDeviceUserCodeInput(params: {
   errorMessage?: string;
 }): Promise<string> {
   return renderPage({
-    kicker: "Device authorization",
-    title: "Approve a CLI session",
+    kicker: m.oidc_interaction_kicker(),
+    title: m.oidc_interaction_input_title(),
     body: `
-      <p>Enter the user code shown in the CLI to continue the standard device authorization flow.</p>
+      <p>${escapeHtml(m.oidc_interaction_input_description())}</p>
       ${
         params.errorMessage
           ? `<div class="error">${escapeHtml(params.errorMessage)}</div>`
@@ -167,21 +169,29 @@ export async function renderDeviceUserCodeConfirm(params: {
   userCode: string;
 }): Promise<string> {
   return renderPage({
-    kicker: "Device authorization",
-    title: "Confirm device access",
+    kicker: m.oidc_interaction_kicker(),
+    title: m.oidc_interaction_confirm_title(),
     body: `
-      <p><strong>${escapeHtml(params.clientName)}</strong> is requesting device authorization.</p>
-      <p>User code: <code>${escapeHtml(params.userCode)}</code></p>
-      ${params.form.replace("[ Abort ]", "Deny device")}
+      <p>${escapeHtml(
+        m.oidc_interaction_requesting({
+          client: params.clientName,
+        }),
+      )}</p>
+      <p>${escapeHtml(m.oidc_interaction_user_code_label())}: <code>${escapeHtml(params.userCode)}</code></p>
+      ${params.form.replace("[ Abort ]", m.oidc_interaction_deny())}
     `,
   });
 }
 
 export async function renderDeviceFlowSuccess(clientName: string): Promise<string> {
   return renderPage({
-    kicker: "Device authorization",
-    title: "Authorization complete",
-    body: `<p>Device authorization completed for ${escapeHtml(clientName)}. You may close this window.</p>`,
+    kicker: m.oidc_interaction_kicker(),
+    title: m.oidc_interaction_success_title(),
+    body: `<p>${escapeHtml(
+      m.oidc_interaction_success_body({
+        client: clientName,
+      }),
+    )}</p>`,
   });
 }
 
@@ -230,20 +240,23 @@ export async function loadInteractionPage(
   const nodeContext = getProvidedNodeContext(req, res) || getNodeContext(request);
   const details = await provider.interactionDetails(nodeContext.req, nodeContext.res);
   const client = await provider.Client.find(String(details.params.client_id || ""));
-  const clientName = client?.clientName || client?.clientId || String(details.params.client_id || "OAuth client");
+  const clientName =
+    client?.clientName ||
+    client?.clientId ||
+    String(details.params.client_id || m.oidc_device_client_fallback());
 
   try {
     await requireAdmin(request);
   } catch {
     return html(
       renderPage({
-        kicker: "Device authorization",
-        title: "Admin sign-in required",
+        kicker: m.oidc_interaction_kicker(),
+        title: m.oidc_interaction_admin_required_title(),
         body: `
-          <p>Sign in with GitHub as an admin before completing this OAuth device authorization request.</p>
+          <p>${escapeHtml(m.oidc_interaction_admin_required_description())}</p>
           <div class="actions">
-            <a class="button-link" href="/auth/github?redirectTo=${escapeHtml(`/oidc/interaction/${uid}`)}"><button type="button">Continue with GitHub</button></a>
-            <a class="button-link" href="/admin/login"><button type="button" class="secondary">Open admin login</button></a>
+            <a class="button-link" href="/auth/github?redirectTo=${escapeHtml(`/oidc/interaction/${uid}`)}"><button type="button">${escapeHtml(m.oidc_interaction_continue_github())}</button></a>
+            <a class="button-link" href="/admin/login"><button type="button" class="secondary">${escapeHtml(m.oidc_interaction_open_admin())}</button></a>
           </div>
         `,
       }),
@@ -253,14 +266,18 @@ export async function loadInteractionPage(
 
   return html(
     renderPage({
-      kicker: "Device authorization",
-      title: "Confirm device access",
+      kicker: m.oidc_interaction_kicker(),
+      title: m.oidc_interaction_confirm_title(),
       body: `
-        <p><strong>${escapeHtml(clientName)}</strong> is requesting device authorization.</p>
-        <p>Prompt: <code>${escapeHtml(details.prompt.name)}</code></p>
+        <p>${escapeHtml(
+          m.oidc_interaction_requesting({
+            client: clientName,
+          }),
+        )}</p>
+        <p>${escapeHtml(m.oidc_interaction_prompt_label())}: <code>${escapeHtml(details.prompt.name)}</code></p>
         <div class="actions">
-          <form method="post" action="/oidc/interaction/${encodeURIComponent(uid)}/confirm"><button type="submit">Authorize device</button></form>
-          <form method="post" action="/oidc/interaction/${encodeURIComponent(uid)}/abort"><button type="submit" class="danger">Deny device</button></form>
+          <form method="post" action="/oidc/interaction/${encodeURIComponent(uid)}/confirm"><button type="submit">${escapeHtml(m.oidc_interaction_authorize())}</button></form>
+          <form method="post" action="/oidc/interaction/${encodeURIComponent(uid)}/abort"><button type="submit" class="danger">${escapeHtml(m.oidc_interaction_deny())}</button></form>
         </div>
       `,
     }),
@@ -303,9 +320,9 @@ export async function completeInteraction(
 export function renderInteractionComplete(): Response {
   return html(
     renderPage({
-      kicker: "Device authorization",
-      title: "Authorization complete",
-      body: "<p>The device authorization decision has been recorded. You may close this window.</p>",
+      kicker: m.oidc_interaction_kicker(),
+      title: m.oidc_interaction_success_title(),
+      body: `<p>${escapeHtml(m.oidc_interaction_complete_body())}</p>`,
     }),
   );
 }

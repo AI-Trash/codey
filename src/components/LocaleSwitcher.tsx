@@ -3,6 +3,7 @@
 // - Router example: https://github.com/TanStack/router/tree/main/examples/react/i18n-paraglide#switching-locale
 import { Languages } from 'lucide-react'
 
+import { getCurrentLocaleDisplayName, getLocaleDisplayName } from '#/lib/i18n'
 import { getLocale, locales, setLocale } from '#/paraglide/runtime'
 import { m } from '#/paraglide/messages'
 
@@ -16,7 +17,9 @@ import {
 
 export default function ParaglideLocaleSwitcher() {
   const currentLocale = getLocale()
-  const label = `${m.language_label()}. ${m.current_locale({ locale: currentLocale })}`
+  const label = `${m.language_label()}. ${m.current_locale({
+    locale: getCurrentLocaleDisplayName(),
+  })}`
 
   return (
     <DropdownMenu>
@@ -39,7 +42,7 @@ export default function ParaglideLocaleSwitcher() {
             onSelect={() => setLocale(locale)}
             className={locale === currentLocale ? 'font-semibold' : undefined}
           >
-            {locale.toUpperCase()}
+            {getLocaleDisplayName(locale)}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

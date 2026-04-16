@@ -12,6 +12,7 @@ import { listAdminIdentitySummaries } from "./identities";
 import { getOidcSigningKeyStatus } from "./oidc/jwks";
 import { listRecentVerificationActivity } from "./verification";
 import { createId } from "./security";
+import { m } from "#/paraglide/messages";
 
 interface ConfigStatusItem {
   id: string;
@@ -57,17 +58,17 @@ async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdm
     {
       id: "github-browser-oauth",
       key: "githubBrowserOAuth",
-      label: "GitHub browser OAuth",
+      label: m.server_config_github_oauth_label(),
       status: boolStatus(Boolean(env.githubClientId && env.githubClientSecret)),
       detail:
         env.githubClientId && env.githubClientSecret
-          ? "Browser admin sign-in is configured for GitHub OAuth."
-          : "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to enable browser admin sign-in.",
+          ? m.server_config_github_oauth_ready()
+          : m.server_config_github_oauth_missing(),
     },
     {
       id: "admin-policy",
       key: "adminPolicy",
-      label: "Admin access policy",
+      label: m.server_config_admin_policy_label(),
       status:
         env.adminGitHubLogins.length > 0
           ? "configured"
@@ -76,52 +77,58 @@ async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdm
             : "missing",
       detail:
         env.adminGitHubLogins.length > 0
-          ? `Admin allowlist is active for ${env.adminGitHubLogins.length} GitHub login(s).`
+          ? m.server_config_admin_policy_allowlist({
+              count: String(env.adminGitHubLogins.length),
+            })
           : adminCount > 0
-            ? `No explicit allowlist is set; ${adminCount} admin account(s) currently exist in the app database.`
-            : `No admin allowlist or bootstrapped admin account found. Current user count: ${userCount}.`,
+            ? m.server_config_admin_policy_bootstrap({
+                count: String(adminCount),
+              })
+            : m.server_config_admin_policy_missing({
+                count: String(userCount),
+              }),
     },
     {
       id: "identity-store",
       key: "identityStore",
-      label: "Saved identity store",
+      label: m.server_config_identity_store_label(),
       status: identityState.storeStatus.status,
       detail: identityState.storeStatus.detail,
     },
     {
       id: "exchange-client-credentials",
       key: "exchangeClientCredentials",
-      label: "Exchange client credentials",
-      description: "Status for the existing Exchange client_credentials flow used by flows.",
+      label: m.server_config_exchange_label(),
+      description: m.server_config_exchange_description(),
       status: boolStatus(exchangeConfigured),
       detail: exchangeConfigured
-        ? "Exchange tenant/client credentials are present for flow automation."
-        : "Exchange client_credentials are not configured in the current environment.",
+        ? m.server_config_exchange_ready()
+        : m.server_config_exchange_missing(),
     },
     {
       id: "codex-oauth",
       key: "codexOAuth",
-      label: "Codex OAuth",
-      description: "Optional local OAuth setup used by the existing simplified CLI authorization flow.",
+      label: m.server_config_codex_label(),
+      description: m.server_config_codex_description(),
       status: "ready",
       detail: codexEnvOverridesConfigured
-        ? "Codex OAuth is using local CODEX_* overrides for the OpenAI OAuth flow."
-        : "Codex OAuth uses built-in OpenAI defaults; set CODEX_* only if you need to override them.",
+        ? m.server_config_codex_overrides()
+        : m.server_config_codex_defaults(),
     },
     {
       id: "oidc-signing-keys",
       key: "oidcSigningKeys",
-      label: "OIDC signing keys",
-      description: "Signing keys are stored in Postgres, cached in-memory, and rotated automatically.",
+      label: m.server_config_oidc_label(),
+      description: m.server_config_oidc_description(),
       status: oidcSigningKeyStatus.status,
       detail: oidcSigningKeyStatus.detail,
     },
     {
       id: "flow-app-request-queue",
       key: "flowAppRequestQueue",
-      label: "Flow app request queue",
+      label: m.server_config_flow_requests_label(),
       status: "ready",
-      detail: "Admins can queue auto-add-account requests for GitHub Actions flow apps from this control plane.",
+      detail: m.server_config_flow_requests_detail(),
     },
   ];
 }

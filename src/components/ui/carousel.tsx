@@ -7,6 +7,7 @@ import useEmblaCarousel, {
 import { ArrowLeft, ArrowRight } from "lucide-react"
 
 import { cn } from "#/lib/utils"
+import { m } from "#/paraglide/messages"
 import { Button } from "#/components/ui/button"
 
 type CarouselApi = UseEmblaCarouselType[1]
@@ -196,7 +197,7 @@ function CarouselPrevious({
       {...props}
     >
       <ArrowLeft />
-      <span className="sr-only">Previous slide</span>
+      <span className="sr-only">{m.ui_previous_slide()}</span>
     </Button>
   )
 }
@@ -226,7 +227,7 @@ function CarouselNext({
       {...props}
     >
       <ArrowRight />
-      <span className="sr-only">Next slide</span>
+      <span className="sr-only">{m.ui_next_slide()}</span>
     </Button>
   )
 }

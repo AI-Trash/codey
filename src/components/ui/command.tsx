@@ -5,6 +5,7 @@ import { Command as CommandPrimitive } from "cmdk"
 import { SearchIcon } from "lucide-react"
 
 import { cn } from "#/lib/utils"
+import { m } from "#/paraglide/messages"
 import {
   Dialog,
   DialogContent,
@@ -30,8 +31,8 @@ function Command({
 }
 
 function CommandDialog({
-  title = "Command Palette",
-  description = "Search for a command to run...",
+  title = m.ui_command_palette_title(),
+  description = m.ui_command_palette_description(),
   children,
   className,
   showCloseButton = true,

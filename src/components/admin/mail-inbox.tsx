@@ -56,6 +56,7 @@ import {
 } from '#/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { cn } from '#/lib/utils'
+import { m } from '#/paraglide/messages'
 
 export type AdminMailInboxEmail = {
   id: string
@@ -174,7 +175,7 @@ export function AdminMailInbox(props: {
 
     if (typeof window.EventSource === 'undefined') {
       setLiveStatus('offline')
-      setStreamError('Current browser does not support SSE live delivery.')
+      setStreamError(m.mail_inbox_error_sse_unsupported())
       return
     }
 
@@ -199,7 +200,7 @@ export function AdminMailInbox(props: {
 
     eventSource.onerror = () => {
       setLiveStatus('reconnecting')
-      setStreamError('Live mail stream disconnected. Trying to reconnect...')
+      setStreamError(m.mail_inbox_error_stream_reconnecting())
     }
 
     eventSource.addEventListener('email', handleEmail)
@@ -224,24 +225,24 @@ export function AdminMailInbox(props: {
     <div className="space-y-4">
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="Matched emails"
+          label={m.mail_inbox_metric_matched_label()}
           value={String(data.totalCount)}
-          description="Total inbound emails matching the current mailbox search."
+          description={m.mail_inbox_metric_matched_description()}
         />
         <MetricCard
-          label="Current page"
+          label={m.mail_inbox_metric_current_page_label()}
           value={`${data.page} / ${Math.max(1, data.pageCount || 1)}`}
-          description="Paginated inbox results loaded through TanStack Query."
+          description={m.mail_inbox_metric_current_page_description()}
         />
         <MetricCard
-          label="Codes on page"
+          label={m.mail_inbox_metric_codes_label()}
           value={String(codeReadyCount)}
-          description="Messages on the current page already associated with a code."
+          description={m.mail_inbox_metric_codes_description()}
         />
         <MetricCard
-          label="HTML previews"
+          label={m.mail_inbox_metric_html_label()}
           value={String(htmlPreviewCount)}
-          description="Messages on the current page that include HTML content."
+          description={m.mail_inbox_metric_html_description()}
         />
       </section>
 
@@ -249,13 +250,10 @@ export function AdminMailInbox(props: {
         <CardHeader className="gap-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-1">
-              <CardDescription>Mailbox stream</CardDescription>
-              <CardTitle>Inbound verification mail</CardTitle>
+              <CardDescription>{m.mail_inbox_stream_kicker()}</CardDescription>
+              <CardTitle>{m.mail_inbox_stream_title()}</CardTitle>
               <CardDescription className="max-w-3xl text-sm leading-6">
-                Query-backed pagination keeps the inbox manageable, while the
-                live stream invalidates the current cache as new mail arrives.
-                Open any message in a dialog so the table stays wide and the
-                full source plus rendered preview both remain readable.
+                {m.mail_inbox_stream_description()}
               </CardDescription>
             </div>
 
@@ -265,9 +263,11 @@ export function AdminMailInbox(props: {
                 tone={getLiveStatusTone(liveStatus)}
               />
               <Badge variant="outline">
-                {query.isFetching ? 'Refreshing' : 'Synced'}
+                {query.isFetching ? m.status_refreshing() : m.status_synced()}
               </Badge>
-              <Badge variant="outline">{data.emails.length} on page</Badge>
+              <Badge variant="outline">
+                {m.mail_inbox_badge_on_page({ count: String(data.emails.length) })}
+              </Badge>
             </div>
           </div>
 
@@ -280,14 +280,14 @@ export function AdminMailInbox(props: {
                   setSearch(event.target.value)
                   setPage(1)
                 }}
-                placeholder="Search recipient, subject, HTML, text, or message id"
+                placeholder={m.mail_inbox_search_placeholder()}
                 className="pl-9"
               />
             </label>
 
             <label className="grid gap-2">
               <span className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
-                Page size
+                {m.mail_inbox_page_size_label()}
               </span>
               <NativeSelect
                 value={String(pageSize)}
@@ -297,9 +297,15 @@ export function AdminMailInbox(props: {
                 }}
                 className="w-full"
               >
-                <NativeSelectOption value="10">10 rows</NativeSelectOption>
-                <NativeSelectOption value="25">25 rows</NativeSelectOption>
-                <NativeSelectOption value="50">50 rows</NativeSelectOption>
+                <NativeSelectOption value="10">
+                  {m.mail_inbox_rows_option({ count: '10' })}
+                </NativeSelectOption>
+                <NativeSelectOption value="25">
+                  {m.mail_inbox_rows_option({ count: '25' })}
+                </NativeSelectOption>
+                <NativeSelectOption value="50">
+                  {m.mail_inbox_rows_option({ count: '50' })}
+                </NativeSelectOption>
               </NativeSelect>
             </label>
           </div>
@@ -307,11 +313,11 @@ export function AdminMailInbox(props: {
           {query.isError ? (
             <Alert variant="destructive">
               <WifiOffIcon />
-              <AlertTitle>Inbox query failed</AlertTitle>
+              <AlertTitle>{m.mail_inbox_query_failed_title()}</AlertTitle>
               <AlertDescription>
                 {query.error instanceof Error
                   ? query.error.message
-                  : 'Unable to load inbox data.'}
+                  : m.mail_inbox_query_failed_description()}
               </AlertDescription>
             </Alert>
           ) : null}
@@ -319,7 +325,7 @@ export function AdminMailInbox(props: {
           {streamError && !query.isError ? (
             <Alert>
               {liveStatus === 'offline' ? <WifiOffIcon /> : <WifiIcon />}
-              <AlertTitle>Live updates need attention</AlertTitle>
+              <AlertTitle>{m.mail_inbox_live_attention_title()}</AlertTitle>
               <AlertDescription>{streamError}</AlertDescription>
             </Alert>
           ) : null}
@@ -331,12 +337,14 @@ export function AdminMailInbox(props: {
               <Table className="min-w-[1120px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Received</TableHead>
-                    <TableHead>Recipient</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead>Delivery</TableHead>
-                    <TableHead>Code</TableHead>
-                    <TableHead className="text-right">Details</TableHead>
+                    <TableHead>{m.mail_inbox_table_received()}</TableHead>
+                    <TableHead>{m.mail_inbox_table_recipient()}</TableHead>
+                    <TableHead>{m.mail_inbox_table_subject()}</TableHead>
+                    <TableHead>{m.mail_inbox_table_delivery()}</TableHead>
+                    <TableHead>{m.mail_inbox_table_code()}</TableHead>
+                    <TableHead className="text-right">
+                      {m.mail_inbox_table_details()}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -349,7 +357,7 @@ export function AdminMailInbox(props: {
                     >
                       <TableCell className="align-top text-sm text-muted-foreground">
                         {formatAdminDate(email.receivedAt) ||
-                          'Timestamp unavailable'}
+                          m.mail_inbox_timestamp_unavailable()}
                       </TableCell>
                       <TableCell className="align-top">
                         <div className="space-y-1">
@@ -357,18 +365,18 @@ export function AdminMailInbox(props: {
                             {email.recipient}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {email.reservationMailbox || 'App-managed alias'}
+                            {email.reservationMailbox || m.mail_inbox_app_alias()}
                           </p>
                         </div>
                       </TableCell>
                       <TableCell className="max-w-[360px] whitespace-normal align-top">
                         <div className="font-medium text-foreground">
-                          {email.subject || 'No subject captured'}
+                          {email.subject || m.mail_inbox_no_subject()}
                         </div>
                       </TableCell>
                       <TableCell className="align-top">
                         <StatusBadge
-                          value={email.latestCode ? 'code ready' : 'received'}
+                          value={email.latestCode ? 'ready' : 'received'}
                           tone={email.latestCode ? 'good' : 'warning'}
                         />
                       </TableCell>
@@ -377,7 +385,7 @@ export function AdminMailInbox(props: {
                           <code>{email.latestCode}</code>
                         ) : (
                           <span className="text-sm text-muted-foreground">
-                            Pending
+                            {m.status_pending()}
                           </span>
                         )}
                       </TableCell>
@@ -390,7 +398,7 @@ export function AdminMailInbox(props: {
                             openEmailDetails(email.id)
                           }}
                         >
-                          Open
+                          {m.mail_inbox_open_button()}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -400,13 +408,11 @@ export function AdminMailInbox(props: {
 
               <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm text-muted-foreground">
-                  Showing page <strong className="text-foreground">{data.page}</strong>{' '}
-                  of{' '}
-                  <strong className="text-foreground">
-                    {Math.max(1, data.pageCount || 1)}
-                  </strong>{' '}
-                  with <strong className="text-foreground">{data.totalCount}</strong>{' '}
-                  matched emails.
+                  {m.mail_inbox_pagination_summary({
+                    page: String(data.page),
+                    total_pages: String(Math.max(1, data.pageCount || 1)),
+                    total_count: String(data.totalCount),
+                  })}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -420,7 +426,7 @@ export function AdminMailInbox(props: {
                     }}
                   >
                     <ChevronLeftIcon />
-                    Previous
+                    {m.ui_previous()}
                   </Button>
                   <Button
                     type="button"
@@ -431,7 +437,7 @@ export function AdminMailInbox(props: {
                       setPage((current) => current + 1)
                     }}
                   >
-                    Next
+                    {m.ui_next()}
                     <ChevronRightIcon />
                   </Button>
                 </div>
@@ -439,11 +445,15 @@ export function AdminMailInbox(props: {
             </>
           ) : (
             <EmptyState
-              title={deferredSearch ? 'No matching emails' : 'No inbound emails yet'}
+              title={
+                deferredSearch
+                  ? m.mail_inbox_empty_filtered_title()
+                  : m.mail_inbox_empty_title()
+              }
               description={
                 deferredSearch
-                  ? 'Try a broader search term or switch back to the first page.'
-                  : 'Inbound verification email will appear here as soon as it is ingested.'
+                  ? m.mail_inbox_empty_filtered_description()
+                  : m.mail_inbox_empty_description()
               }
             />
           )}
@@ -492,32 +502,33 @@ function MessageDetailsDialog(props: {
       {email ? (
         <DialogContent className="grid h-[min(92vh,980px)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(1400px,calc(100%-2rem))]">
           <DialogHeader className="gap-3 border-b px-6 py-5 pr-14">
-            <DialogDescription>Message details</DialogDescription>
+            <DialogDescription>{m.mail_detail_kicker()}</DialogDescription>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <MailIcon className="size-5" />
-              {email.subject || 'No subject captured'}
+              {email.subject || m.mail_inbox_no_subject()}
             </DialogTitle>
             <DialogDescription className="max-w-3xl leading-6">
-              Full message metadata, captured source, and the rendered preview
-              live together here so you can inspect the email without shrinking
-              the inbox table.
+              {m.mail_detail_description()}
             </DialogDescription>
             <div className="flex flex-wrap gap-2">
               <StatusBadge
-                value={email.latestCode ? 'code ready' : 'received'}
+                value={email.latestCode ? 'ready' : 'received'}
                 tone={email.latestCode ? 'good' : 'warning'}
               />
               {email.latestCode ? (
                 <Badge variant="outline">
-                  {email.latestCodeSource || 'code'} · {email.latestCode}
+                  {email.latestCodeSource || m.mail_detail_code_source()} ·{' '}
+                  {email.latestCode}
                 </Badge>
               ) : null}
               {email.htmlBody ? (
-                <Badge variant="outline">HTML email</Badge>
+                <Badge variant="outline">{m.mail_detail_badge_html()}</Badge>
               ) : email.textBody ? (
-                <Badge variant="outline">Text preview</Badge>
+                <Badge variant="outline">{m.mail_detail_badge_text()}</Badge>
               ) : (
-                <Badge variant="outline">No preview content</Badge>
+                <Badge variant="outline">
+                  {m.mail_detail_badge_no_preview()}
+                </Badge>
               )}
             </div>
           </DialogHeader>
@@ -527,34 +538,38 @@ function MessageDetailsDialog(props: {
               <ScrollArea className="h-full">
                 <div className="space-y-4 p-4">
                   <dl className="grid gap-3 text-sm">
-                    <DetailItem label="Recipient" value={email.recipient} code />
                     <DetailItem
-                      label="Received"
+                      label={m.mail_detail_label_recipient()}
+                      value={email.recipient}
+                      code
+                    />
+                    <DetailItem
+                      label={m.mail_detail_label_received()}
                       value={
                         formatAdminDate(email.receivedAt) ||
-                        'Timestamp unavailable'
+                        m.mail_inbox_timestamp_unavailable()
                       }
                     />
                     <DetailItem
-                      label="Message ID"
-                      value={email.messageId || 'Not captured'}
+                      label={m.mail_detail_label_message_id()}
+                      value={email.messageId || m.mail_detail_not_captured()}
                       code
                     />
                     <DetailItem
-                      label="Mailbox"
-                      value={email.reservationMailbox || 'Not configured'}
+                      label={m.mail_detail_label_mailbox()}
+                      value={email.reservationMailbox || m.mail_detail_not_configured()}
                       code
                     />
                     <DetailItem
-                      label="Reservation"
-                      value={email.reservationEmail || 'Not linked'}
+                      label={m.mail_detail_label_reservation()}
+                      value={email.reservationEmail || m.mail_detail_not_linked()}
                       code
                     />
                     <DetailItem
-                      label="Expires"
+                      label={m.mail_detail_label_expires()}
                       value={
                         formatAdminDate(email.reservationExpiresAt) ||
-                        'Not available'
+                        m.device_value_not_available()
                       }
                     />
                   </dl>
@@ -565,9 +580,15 @@ function MessageDetailsDialog(props: {
                     className="gap-3"
                   >
                     <TabsList variant="line" className="w-full justify-start">
-                      <TabsTrigger value="text">Text</TabsTrigger>
-                      <TabsTrigger value="html">HTML source</TabsTrigger>
-                      <TabsTrigger value="raw">Raw payload</TabsTrigger>
+                      <TabsTrigger value="text">
+                        {m.mail_detail_tab_text()}
+                      </TabsTrigger>
+                      <TabsTrigger value="html">
+                        {m.mail_detail_tab_html()}
+                      </TabsTrigger>
+                      <TabsTrigger value="raw">
+                        {m.mail_detail_tab_raw()}
+                      </TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="text">
@@ -640,20 +661,22 @@ function RenderedEmailPreview(props: {
         <div className="flex min-w-0 items-center gap-2">
           <FileCodeIcon className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">Email preview</div>
+            <div className="text-sm font-medium text-foreground">
+              {m.mail_preview_title()}
+            </div>
             <div className="truncate text-xs text-muted-foreground">
               {props.html
-                ? 'Rendered from the HTML body.'
+                ? m.mail_preview_html_description()
                 : props.text
-                  ? 'Showing text content because no HTML body was captured.'
-                  : 'No previewable content was captured for this message.'}
+                  ? m.mail_preview_text_description()
+                  : m.mail_preview_empty_description()}
             </div>
           </div>
         </div>
 
         {hasPreview ? (
           <Badge variant="outline">
-            {props.html ? 'Rendered HTML' : 'Text fallback'}
+            {props.html ? m.mail_preview_badge_html() : m.mail_preview_badge_text()}
           </Badge>
         ) : null}
       </div>
@@ -661,7 +684,7 @@ function RenderedEmailPreview(props: {
       <div className="min-h-0 flex-1">
         {props.html ? (
           <iframe
-            title="Rendered email preview"
+            title={m.mail_preview_iframe_title()}
             sandbox="allow-popups allow-popups-to-escape-sandbox"
             srcDoc={buildHtmlPreviewDocument(props.html)}
             className="h-full w-full bg-white"
@@ -674,7 +697,7 @@ function RenderedEmailPreview(props: {
           </ScrollArea>
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-            This message did not include previewable content.
+            {m.mail_preview_empty_panel()}
           </div>
         )}
       </div>
@@ -688,7 +711,7 @@ function EmailContentPanel(props: { value: string | null; className?: string }) 
       className={cn('rounded-lg border bg-muted/20', props.className || 'h-[380px]')}
     >
       <pre className="min-h-full whitespace-pre-wrap p-4 font-mono text-xs leading-6 text-foreground">
-        {props.value || 'No content captured for this section.'}
+        {props.value || m.mail_content_empty()}
       </pre>
     </ScrollArea>
   )
@@ -809,13 +832,13 @@ function sanitizeHtmlPreviewSource(html: string) {
 function getLiveStatusLabel(status: LiveStatus) {
   switch (status) {
     case 'live':
-      return 'live'
+      return m.status_live()
     case 'reconnecting':
-      return 'reconnecting'
+      return m.status_reconnecting()
     case 'offline':
-      return 'offline'
+      return m.status_offline()
     default:
-      return 'connecting'
+      return m.status_connecting()
   }
 }
 

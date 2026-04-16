@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../../../components/ui/card'
+import { m } from '#/paraglide/messages'
 
 const loadOAuthClient = createServerFn({ method: 'GET' })
   .inputValidator((data: { clientId: string }) => data)
@@ -75,16 +76,13 @@ function AdminAppsDetailPage() {
     return (
       <Card className="max-w-2xl">
         <CardHeader>
-          <CardDescription>Admin apps</CardDescription>
-          <CardTitle>OAuth app not found</CardTitle>
-          <CardDescription>
-            The requested managed client is missing or has been removed. Return
-            to the apps list to choose another record.
-          </CardDescription>
+          <CardDescription>{m.admin_apps_eyebrow()}</CardDescription>
+          <CardTitle>{m.admin_app_not_found_title()}</CardTitle>
+          <CardDescription>{m.admin_app_not_found_description()}</CardDescription>
         </CardHeader>
         <div className="px-6 pb-6">
           <Button asChild>
-            <a href="/admin/apps">Back to apps</a>
+            <a href="/admin/apps">{m.admin_back_to_apps()}</a>
           </Button>
         </div>
       </Card>
@@ -94,16 +92,16 @@ function AdminAppsDetailPage() {
   return (
     <>
       <AdminPageHeader
-        eyebrow="Admin apps"
+        eyebrow={m.admin_apps_eyebrow()}
         title={data.client.clientName}
-        description="Update app metadata, change grant support, reveal the stored secret when needed, or rotate it to replace the previous credential."
+        description={m.admin_app_detail_description()}
         actions={
           <>
             <Button asChild variant="outline">
-              <a href="/admin/apps">Back to apps</a>
+              <a href="/admin/apps">{m.admin_back_to_apps()}</a>
             </Button>
             <Button asChild variant="outline">
-              <a href="/admin/apps/new">Register another app</a>
+              <a href="/admin/apps/new">{m.admin_register_another_app()}</a>
             </Button>
           </>
         }

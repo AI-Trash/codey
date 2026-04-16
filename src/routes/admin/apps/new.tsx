@@ -6,6 +6,7 @@ import {
   NewOAuthClientPageContent,
 } from '../../../components/admin/oauth-clients'
 import { Button } from '../../../components/ui/button'
+import { m } from '#/paraglide/messages'
 
 const loadOAuthClientRegistration = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -54,12 +55,12 @@ function AdminAppsNewPage() {
   return (
     <>
       <AdminPageHeader
-        eyebrow="Admin apps"
-        title="Register a new OAuth app"
-        description="Create a managed client with the scopes and grant toggles your caller needs, then capture the generated secret before you leave this page."
+        eyebrow={m.admin_apps_eyebrow()}
+        title={m.admin_apps_new_title()}
+        description={m.admin_apps_new_description()}
         actions={
           <Button asChild variant="outline">
-            <a href="/admin/apps">Back to apps</a>
+            <a href="/admin/apps">{m.admin_back_to_apps()}</a>
           </Button>
         }
       />

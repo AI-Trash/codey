@@ -3,9 +3,10 @@ import { ChevronRight, MoreHorizontal } from "lucide-react"
 import { Slot } from "radix-ui"
 
 import { cn } from "#/lib/utils"
+import { m } from "#/paraglide/messages"
 
 function Breadcrumb({ ...props }: React.ComponentProps<"nav">) {
-  return <nav aria-label="breadcrumb" data-slot="breadcrumb" {...props} />
+  return <nav aria-label={m.ui_breadcrumb_label()} data-slot="breadcrumb" {...props} />
 }
 
 function BreadcrumbList({ className, ...props }: React.ComponentProps<"ol">) {
@@ -93,7 +94,7 @@ function BreadcrumbEllipsis({
       {...props}
     >
       <MoreHorizontal className="size-4" />
-      <span className="sr-only">More</span>
+      <span className="sr-only">{m.ui_more()}</span>
     </span>
   )
 }
