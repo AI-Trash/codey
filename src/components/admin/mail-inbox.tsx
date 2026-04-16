@@ -792,17 +792,20 @@ type ManualVerificationCodeFormProps = {
 
 function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const copyFeedbackTimeoutRef = useRef<number | null>(null)
   const [code, setCode] = useState(props.initialCode || '')
   const [isEditing, setIsEditing] = useState(false)
-  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>(
-    'idle',
-  )
+  const [status, setStatus] = useState<
+    'idle' | 'submitting' | 'success' | 'error'
+  >('idle')
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle')
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setCode(props.initialCode || '')
     setIsEditing(false)
     setStatus('idle')
+    setCopyStatus('idle')
     setMessage(null)
   }, [props.email, props.initialCode])
 
@@ -811,18 +814,25 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
       return
     }
 
-    inputRef.current?.focus()
-    inputRef.current?.select()
-  }, [isEditing])
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-
-    if (!isEditing) {
-      setIsEditing(true)
+    const input = inputRef.current
+    if (!input) {
       return
     }
 
+    input.focus()
+    const cursorPosition = input.value.length
+    input.setSelectionRange(cursorPosition, cursorPosition)
+  }, [isEditing])
+
+  useEffect(() => {
+    return () => {
+      if (copyFeedbackTimeoutRef.current != null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  async function submitCode() {
     setStatus('submitting')
     setMessage(null)
 
@@ -845,19 +855,46 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
     }
   }
 
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!isEditing || code.length !== 6 || status === 'submitting') {
+      return
+    }
+
+    await submitCode()
+  }
+
+  function clearCopyFeedbackTimer() {
+    if (copyFeedbackTimeoutRef.current != null) {
+      window.clearTimeout(copyFeedbackTimeoutRef.current)
+      copyFeedbackTimeoutRef.current = null
+    }
+  }
+
+  function startCopyFeedbackTimer() {
+    clearCopyFeedbackTimer()
+    copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setCopyStatus('idle')
+      copyFeedbackTimeoutRef.current = null
+    }, 1500)
+  }
+
   async function handleCopyCode() {
     if (!code || typeof navigator === 'undefined' || !navigator.clipboard) {
       setStatus('error')
+      setCopyStatus('idle')
       setMessage(m.mail_manual_code_copy_error())
       return
     }
 
     try {
       await navigator.clipboard.writeText(code)
-      setStatus('success')
-      setMessage(m.mail_manual_code_copy_success())
+      setCopyStatus('copied')
+      startCopyFeedbackTimer()
     } catch {
       setStatus('error')
+      setCopyStatus('idle')
       setMessage(m.mail_manual_code_copy_error())
     }
   }
@@ -894,19 +931,20 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
           )}
         />
         <Button
-          type={isEditing ? 'submit' : 'button'}
+          type="button"
           size="icon-sm"
           variant="outline"
           disabled={status === 'submitting' || (isEditing && code.length !== 6)}
-          onClick={
-            isEditing
-              ? undefined
-              : () => {
-                  setIsEditing(true)
-                  setStatus('idle')
-                  setMessage(null)
-                }
-          }
+          onClick={() => {
+            if (isEditing) {
+              void submitCode()
+              return
+            }
+
+            setIsEditing(true)
+            setStatus('idle')
+            setMessage(null)
+          }}
           className={cn(
             isEditing &&
               'border-emerald-500/70 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-500/60 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
@@ -938,10 +976,14 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
           onClick={() => {
             void handleCopyCode()
           }}
+          className={cn(
+            copyStatus === 'copied' &&
+              'border-emerald-500/70 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-500/60 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
+          )}
           aria-label={m.mail_manual_code_copy_button()}
           title={m.mail_manual_code_copy_button()}
         >
-          <ClipboardCopyIcon />
+          {copyStatus === 'copied' ? <CheckIcon /> : <ClipboardCopyIcon />}
         </Button>
       </div>
 
