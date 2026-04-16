@@ -253,14 +253,75 @@ async function clickAgeGateBirthdayTrigger(page: Page): Promise<boolean> {
 
     const box = await locator.boundingBox().catch(() => null)
     if (box && box.width > 0 && box.height > 0) {
-      const x = box.x + box.width / 2
-      const y = box.y + box.height / 2
-      await page.mouse.move(x, y).catch(() => undefined)
-      await sleep(60)
-      await page.mouse.down().catch(() => undefined)
-      await sleep(40)
-      await page.mouse.up().catch(() => undefined)
-      return true
+      let attempted = false
+      const positions = [
+        { xRatio: 0.18, yRatio: 0.5 },
+        { xRatio: 0.5, yRatio: 0.5 },
+        { xRatio: 0.82, yRatio: 0.5 },
+        { xRatio: 0.18, yRatio: 0.72 },
+        { xRatio: 0.5, yRatio: 0.72 },
+        { xRatio: 0.82, yRatio: 0.72 },
+      ]
+
+      for (const position of positions) {
+        const localX = Math.max(1, Math.min(box.width - 1, box.width * position.xRatio))
+        const localY = Math.max(
+          1,
+          Math.min(box.height - 1, box.height * position.yRatio),
+        )
+        const pageX = box.x + localX
+        const pageY = box.y + localY
+
+        const clicked = await locator
+          .click({
+            force: true,
+            position: {
+              x: localX,
+              y: localY,
+            },
+          })
+          .then(() => true)
+          .catch(() => false)
+        attempted = attempted || clicked
+
+        await page.mouse.move(pageX, pageY).catch(() => undefined)
+        await sleep(50)
+        await page.mouse.down().catch(() => undefined)
+        await sleep(30)
+        await page.mouse.up().catch(() => undefined)
+        attempted = true
+
+        await page
+          .evaluate(({ x, y }) => {
+            const target = document.elementFromPoint(x, y) as HTMLElement | null
+            if (!target) return false
+            target.focus?.()
+
+            for (const type of [
+              'pointerdown',
+              'mousedown',
+              'pointerup',
+              'mouseup',
+              'click',
+            ]) {
+              target.dispatchEvent(
+                new MouseEvent(type, {
+                  bubbles: true,
+                  cancelable: true,
+                  clientX: x,
+                  clientY: y,
+                }),
+              )
+            }
+
+            return true
+          }, { x: pageX, y: pageY })
+          .catch(() => false)
+
+        await sleep(80)
+      }
+
+      if (attempted) return true
     }
 
     const clicked = await locator

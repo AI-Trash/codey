@@ -202,7 +202,7 @@ describe('fillAgeGateBirthday', () => {
     page.locators['[role="spinbutton"][data-type="day"]'] = daySegment
 
     await expect(fillAgeGateBirthday(page as never)).resolves.toBe(true)
-    expect(birthdayGroup.clickCount).toBe(0)
+    expect(birthdayGroup.clickCount).toBeGreaterThan(0)
     expect(birthdayGroup.mouseUpCount).toBeGreaterThan(0)
     expect(yearSegment.text).toBe(ADULT_BIRTH_YEAR)
     expect(monthSegment.text).toBe(ADULT_BIRTH_MONTH)
@@ -220,7 +220,7 @@ describe('fillAgeGateBirthday', () => {
     page.locators['[role="group"][id$="-birthday"]'] = birthdayGroup
 
     await expect(fillAgeGateBirthday(page as never)).resolves.toBe(true)
-    expect(birthdayGroup.clickCount).toBe(0)
+    expect(birthdayGroup.clickCount).toBeGreaterThan(0)
     expect(birthdayGroup.mouseUpCount).toBeGreaterThan(0)
     expect(page.hiddenBirthdayValue).toBe(ADULT_BIRTHDAY)
   })

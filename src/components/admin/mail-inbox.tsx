@@ -32,10 +32,12 @@ import {
 import {
   EmptyState,
   formatAdminDate,
+  StatusBadge,
 } from '#/components/admin/layout'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import type { FiltersState } from '#/components/data-table-filter/core/types'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
   Card,
