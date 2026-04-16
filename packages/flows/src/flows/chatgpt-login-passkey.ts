@@ -26,8 +26,10 @@ import {
   waitForAuthenticatedSession,
   waitForLoginSurface,
   waitForPasskeyEntryReady,
+  waitForRetryOrPasskeyEntryReady,
   clickLoginEntryIfPresent,
   clickPasskeyEntry,
+  clickPasswordTimeoutRetry,
   completePasswordOrVerificationLoginFallback,
   gotoLoginEntry,
   submitLoginEmail,
@@ -193,6 +195,10 @@ async function triggerStoredPasskeyLogin(
   stored: ResolvedChatGPTIdentity,
   options: {
     virtualAuthenticator?: VirtualAuthenticatorOptions
+    onPasskeyRetry?: (
+      attempt: number,
+      trigger: 'retry' | 'passkey',
+    ) => void
   } = {},
 ): Promise<{
   method: 'passkey' | 'password' | 'verification'
@@ -288,20 +294,101 @@ async function triggerStoredPasskeyLogin(
       }
     }
 
-    const passkeyReady =
-      postEmailStep === 'passkey'
-        ? true
-        : await waitForPasskeyEntryReady(page, 20000)
-    if (!passkeyReady)
-      throw new Error(
-        'Passkey entry button did not appear on the login surface.',
-      )
-    const triggered = await clickPasskeyEntry(page)
-    if (!triggered)
-      throw new Error(
-        'Passkey entry button became visible but could not be clicked.',
-      )
-    assertionObserved = await tracker.waitForAssertion(10000)
+    let initialTrigger: 'retry' | 'passkey' = 'passkey'
+    let retryOnlyMode = false
+    if (postEmailStep === 'passkey') {
+      const conditionalAssertionObserved = await tracker.waitForAssertion(4000)
+      assertionObserved = conditionalAssertionObserved || assertionObserved
+
+      if (conditionalAssertionObserved) {
+        logStep('login_passkey_conditional_attempt_observed', {
+          email: stored.identity.email,
+        })
+        if (await waitForAuthenticatedSession(page, 5000)) {
+          const passkeyStore = await captureVirtualPasskeyStore(
+            virtualAuth.session,
+            virtualAuth.authenticatorId,
+          )
+          return {
+            method: 'passkey',
+            assertionObserved,
+            passkeyStore,
+          }
+        }
+      }
+
+      const settledTrigger = await waitForRetryOrPasskeyEntryReady(page, 4000)
+      if (settledTrigger !== 'none') {
+        initialTrigger = settledTrigger
+        retryOnlyMode = settledTrigger === 'retry'
+      }
+    } else {
+      const passkeyReady = await waitForPasskeyEntryReady(page, 20000)
+      if (!passkeyReady) {
+        throw new Error(
+          'Passkey entry button did not appear on the login surface.',
+        )
+      }
+    }
+
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      let triggered = false
+      let trigger: 'retry' | 'passkey' = initialTrigger
+
+      if (attempt === 1) {
+        triggered =
+          trigger === 'retry'
+            ? await clickPasswordTimeoutRetry(page)
+            : await clickPasskeyEntry(page)
+      } else {
+        const nextTrigger = await waitForRetryOrPasskeyEntryReady(
+          page,
+          10000,
+          !retryOnlyMode,
+        )
+        if (nextTrigger === 'none') break
+        trigger = nextTrigger
+        retryOnlyMode ||= trigger === 'retry'
+
+        options.onPasskeyRetry?.(attempt, trigger)
+        logStep('login_passkey_retry_triggered', {
+          email: stored.identity.email,
+          attempt,
+          trigger,
+        })
+        triggered =
+          trigger === 'retry'
+            ? await clickPasswordTimeoutRetry(page)
+            : await clickPasskeyEntry(page)
+      }
+
+      if (!triggered) {
+        throw new Error(
+          trigger === 'retry'
+            ? 'Passkey retry button became visible but could not be clicked.'
+            : 'Passkey entry button became visible but could not be clicked.',
+        )
+      }
+
+      assertionObserved =
+        (await tracker.waitForAssertion(10000)) || assertionObserved
+
+      if (await waitForAuthenticatedSession(page, 5000)) {
+        const passkeyStore = await captureVirtualPasskeyStore(
+          virtualAuth.session,
+          virtualAuth.authenticatorId,
+        )
+        return {
+          method: 'passkey',
+          assertionObserved,
+          passkeyStore,
+        }
+      }
+
+      if (trigger === 'retry') {
+        retryOnlyMode = true
+      }
+    }
 
     const passkeyStore = await captureVirtualPasskeyStore(
       virtualAuth.session,
@@ -322,6 +409,10 @@ export async function performStoredPasskeyLogin(
   stored: ResolvedChatGPTIdentity,
   options: {
     virtualAuthenticator?: VirtualAuthenticatorOptions
+    onPasskeyRetry?: (
+      attempt: number,
+      trigger: 'retry' | 'passkey',
+    ) => void
   } = {},
 ): Promise<{
   surface: 'authenticated' | 'email' | 'passkey'
@@ -375,6 +466,15 @@ export async function loginChatGPTWithStoredPasskey(
     })
     const passkey = await performStoredPasskeyLogin(page, stored, {
       virtualAuthenticator: options.virtualAuthenticator,
+      onPasskeyRetry: (attempt, trigger) => {
+        options.progressReporter?.({
+          message:
+            trigger === 'retry'
+              ? 'Retrying passkey login'
+              : 'Re-triggering passkey login',
+          attempt,
+        })
+      },
     })
     const surface = passkey.surface
 

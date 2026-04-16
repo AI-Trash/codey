@@ -491,6 +491,28 @@ export async function waitForPasskeyEntryReady(
   return waitForEnabledSelector(page, PASSKEY_ENTRY_SELECTORS, timeoutMs)
 }
 
+export async function waitForRetryOrPasskeyEntryReady(
+  page: Page,
+  timeoutMs = 10000,
+  allowPasskeyEntry = true,
+): Promise<'retry' | 'passkey' | 'none'> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) {
+      return 'retry'
+    }
+    if (
+      allowPasskeyEntry &&
+      (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS))
+    ) {
+      return 'passkey'
+    }
+    await sleep(250)
+  }
+
+  return 'none'
+}
+
 export async function waitForVerificationCode(params: {
   verificationProvider: VerificationProvider
   email: string

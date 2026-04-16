@@ -147,8 +147,29 @@ export const ONBOARDING_ACTION_CANDIDATES: Array<{
   {
     text: 'continue',
     selectors: [
-      { role: 'button', options: { name: /^继续$|^continue$/i } },
-      { text: /^继续$|^continue$/i },
+      {
+        role: 'button',
+        options: {
+          name: /^继续$|^continue$|^下一步$|^next$|^改为使用个人帐户继续$|^continue with personal account$/i,
+        },
+      },
+      {
+        text: /^继续$|^continue$|^下一步$|^next$|^改为使用个人帐户继续$|^continue with personal account$/i,
+      },
+    ],
+  },
+  {
+    text: 'continue-free',
+    selectors: [
+      {
+        role: 'button',
+        options: {
+          name: /继续使用免费版|continue with free|continue using the free/i,
+        },
+      },
+      {
+        text: /继续使用免费版|continue with free|continue using the free/i,
+      },
     ],
   },
   {
@@ -156,9 +177,13 @@ export const ONBOARDING_ACTION_CANDIDATES: Array<{
     selectors: [
       {
         role: 'button',
-        options: { name: /^跳过$|^skip$|^not now$|^以后再说$|^稍后$/i },
+        options: {
+          name: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
+        },
       },
-      { text: /^跳过$|^skip$|^not now$|^以后再说$|^稍后$/i },
+      {
+        text: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
+      },
     ],
   },
 ]
@@ -169,13 +194,33 @@ export const ONBOARDING_SIGNAL_SELECTORS: SelectorTarget[] = [
     options: { name: /^好的，开始吧$|^开始吧$|^get started$/i },
   },
   { text: /^好的，开始吧$|^开始吧$|^get started$/i },
-  { role: 'button', options: { name: /^继续$|^continue$/i } },
-  { text: /^继续$|^continue$/i },
   {
     role: 'button',
-    options: { name: /^跳过$|^skip$|^not now$|^以后再说$|^稍后$/i },
+    options: {
+      name: /^继续$|^continue$|^下一步$|^next$|^改为使用个人帐户继续$|^continue with personal account$/i,
+    },
   },
-  { text: /^跳过$|^skip$|^not now$|^以后再说$|^稍后$/i },
+  {
+    text: /^继续$|^continue$|^下一步$|^next$|^改为使用个人帐户继续$|^continue with personal account$/i,
+  },
+  {
+    role: 'button',
+    options: {
+      name: /继续使用免费版|continue with free|continue using the free/i,
+    },
+  },
+  {
+    text: /继续使用免费版|continue with free|continue using the free/i,
+  },
+  {
+    role: 'button',
+    options: {
+      name: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
+    },
+  },
+  {
+    text: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
+  },
 ]
 export const SECURITY_READY_SELECTORS: SelectorTarget[] = [
   '[data-testid="security-tab"]',
