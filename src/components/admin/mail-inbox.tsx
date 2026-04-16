@@ -4,19 +4,24 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import DOMPurify from 'dompurify'
 import { extract as extractLetterMail } from 'letterparser'
 import {
+  CheckIcon,
+  ClipboardCopyIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   FileCodeIcon,
+  LoaderCircleIcon,
   MailIcon,
   RefreshCcwIcon,
   RefreshCwIcon,
   RefreshCwOffIcon,
   SearchIcon,
+  SquarePenIcon,
   WifiIcon,
   WifiOffIcon,
 } from 'lucide-react'
@@ -483,21 +488,12 @@ export function AdminMailInbox(props: {
                           />
                         </TableCell>
                         <TableCell className="align-top">
-                          <div className="space-y-2">
-                            {email.latestCode ? (
-                              <code>{email.latestCode}</code>
-                            ) : (
-                              <span className="text-sm text-muted-foreground">
-                                {m.status_pending()}
-                              </span>
-                            )}
-                            <ManualVerificationCodeForm
-                              email={email.recipient}
-                              initialCode={email.latestCode}
-                              onUpdated={invalidateInboxQueries}
-                              compact
-                            />
-                          </div>
+                          <ManualVerificationCodeForm
+                            email={email.recipient}
+                            initialCode={email.latestCode}
+                            onUpdated={invalidateInboxQueries}
+                            compact
+                          />
                         </TableCell>
                         <TableCell className="align-top text-right">
                           <Button
@@ -795,7 +791,9 @@ type ManualVerificationCodeFormProps = {
 }
 
 function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
   const [code, setCode] = useState(props.initialCode || '')
+  const [isEditing, setIsEditing] = useState(false)
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>(
     'idle',
   )
@@ -803,12 +801,27 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
 
   useEffect(() => {
     setCode(props.initialCode || '')
+    setIsEditing(false)
     setStatus('idle')
     setMessage(null)
   }, [props.email, props.initialCode])
 
+  useEffect(() => {
+    if (!isEditing) {
+      return
+    }
+
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [isEditing])
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+
+    if (!isEditing) {
+      setIsEditing(true)
+      return
+    }
 
     setStatus('submitting')
     setMessage(null)
@@ -819,6 +832,7 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
         code,
       })
       await props.onUpdated?.()
+      setIsEditing(false)
       setStatus('success')
       setMessage(m.mail_manual_code_success())
     } catch (error) {
@@ -831,6 +845,23 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
     }
   }
 
+  async function handleCopyCode() {
+    if (!code || typeof navigator === 'undefined' || !navigator.clipboard) {
+      setStatus('error')
+      setMessage(m.mail_manual_code_copy_error())
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(code)
+      setStatus('success')
+      setMessage(m.mail_manual_code_copy_success())
+    } catch {
+      setStatus('error')
+      setMessage(m.mail_manual_code_copy_error())
+    }
+  }
+
   return (
     <form
       onSubmit={(event) => {
@@ -838,16 +869,12 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
       }}
       className={cn(
         'space-y-2',
-        props.compact ? 'max-w-[220px]' : 'w-full',
+        props.compact ? 'max-w-[220px]' : 'w-full max-w-[280px]',
       )}
     >
-      <div
-        className={cn(
-          'flex gap-2',
-          props.compact ? 'flex-col' : 'flex-col sm:flex-row',
-        )}
-      >
+      <div className="flex items-center gap-2">
         <Input
+          ref={inputRef}
           value={code}
           onChange={(event) => {
             setCode(event.target.value.replace(/\D/g, '').slice(0, 6))
@@ -856,23 +883,69 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
               setMessage(null)
             }
           }}
+          disabled={!isEditing || status === 'submitting'}
           inputMode="numeric"
           maxLength={6}
           placeholder={m.admin_dashboard_code_input_placeholder()}
           aria-label={m.admin_dashboard_code_input_label()}
+          className={cn(
+            'h-8 font-mono tracking-[0.28em] text-center disabled:cursor-default disabled:opacity-100 disabled:bg-muted/40 disabled:text-foreground',
+            props.compact ? 'w-[132px]' : 'w-full',
+          )}
         />
         <Button
-          type="submit"
-          size="sm"
-          disabled={status === 'submitting' || code.length !== 6}
+          type={isEditing ? 'submit' : 'button'}
+          size="icon-sm"
+          variant="outline"
+          disabled={status === 'submitting' || (isEditing && code.length !== 6)}
+          onClick={
+            isEditing
+              ? undefined
+              : () => {
+                  setIsEditing(true)
+                  setStatus('idle')
+                  setMessage(null)
+                }
+          }
+          className={cn(
+            isEditing &&
+              'border-emerald-500/70 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-500/60 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
+          )}
+          aria-label={
+            isEditing
+              ? m.mail_manual_code_update_button()
+              : m.mail_manual_code_edit_button()
+          }
+          title={
+            isEditing
+              ? m.mail_manual_code_update_button()
+              : m.mail_manual_code_edit_button()
+          }
         >
-          {status === 'submitting'
-            ? m.mail_manual_code_updating()
-            : m.mail_manual_code_update_button()}
+          {status === 'submitting' ? (
+            <LoaderCircleIcon className="animate-spin" />
+          ) : isEditing ? (
+            <CheckIcon />
+          ) : (
+            <SquarePenIcon />
+          )}
+        </Button>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="outline"
+          disabled={!code}
+          onClick={() => {
+            void handleCopyCode()
+          }}
+          aria-label={m.mail_manual_code_copy_button()}
+          title={m.mail_manual_code_copy_button()}
+        >
+          <ClipboardCopyIcon />
         </Button>
       </div>
 
-      {message ? (
+      {message && (!props.compact || status === 'error') ? (
         <p
           className={cn(
             'text-xs',
@@ -885,11 +958,7 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
         >
           {message}
         </p>
-      ) : props.compact ? null : (
-        <p className="text-xs text-muted-foreground">
-          {m.mail_manual_code_description()}
-        </p>
-      )}
+      ) : null}
     </form>
   )
 }
