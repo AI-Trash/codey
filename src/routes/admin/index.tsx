@@ -208,6 +208,9 @@ function AdminPage() {
         actions={
           <>
             <Button asChild variant="outline">
+              <a href="/admin/emails">Mail inbox</a>
+            </Button>
+            <Button asChild variant="outline">
               <a href="/admin/apps">OAuth apps</a>
             </Button>
             <Button asChild variant="outline">
@@ -571,7 +574,7 @@ function AdminPage() {
       <TableCard
         eyebrow="Verification activity"
         title="Recent verification activity"
-        description="Latest verification events, parsed codes, and inbound mail state."
+        description="Latest verification events and mail state. Use the dedicated mail inbox for full message inspection."
       >
         {verificationActivity.length > 0 ? (
           <Table className="min-w-[980px]">

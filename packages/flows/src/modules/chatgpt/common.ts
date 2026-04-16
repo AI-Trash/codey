@@ -11,11 +11,21 @@ export const CHATGPT_HOME_URL = 'https://chatgpt.com/'
 export const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login'
 export const CHATGPT_LOGIN_URL =
   'https://auth.openai.com/log-in-or-create-account'
+export const CHATGPT_OAUTH_LOGIN_URL =
+  'https://auth.openai.com/api/accounts/login'
 export const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security'
 export const ADULT_AGE = '25'
 export const PROFILE_NAME = 'Codey Test'
 export const MIN_ONBOARDING_CLICKS = 3
 export const DEFAULT_EVENT_TIMEOUT_MS = 5000
+
+export function isChatGPTLoginUrl(url: string): boolean {
+  return (
+    url.startsWith(CHATGPT_ENTRY_LOGIN_URL) ||
+    url.startsWith(CHATGPT_LOGIN_URL) ||
+    url.startsWith(CHATGPT_OAUTH_LOGIN_URL)
+  )
+}
 
 export const PASSWORD_INPUT_SELECTORS: SelectorTarget[] = [
   'input[type="password"]',

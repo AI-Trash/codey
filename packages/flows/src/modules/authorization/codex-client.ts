@@ -79,9 +79,9 @@ export function startCodexAuthorization(input: {
   redirectPath?: string
   openBrowserWindow?: boolean
 }): CodexAuthorizationStartResult {
-  const redirectHost = input.redirectHost || '127.0.0.1'
-  const redirectPort = input.redirectPort || 3000
-  const redirectPath = input.redirectPath || '/callback'
+  const redirectHost = input.redirectHost || 'localhost'
+  const redirectPort = input.redirectPort || 1455
+  const redirectPath = input.redirectPath || '/auth/callback'
   const redirectUri = `http://${redirectHost}:${redirectPort}${redirectPath}`
   const authorization = buildAuthorizationUrl({
     authorizeUrl: input.authorizeUrl,

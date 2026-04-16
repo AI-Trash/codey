@@ -9,9 +9,7 @@ import {
 } from '../webauthn/virtual-authenticator'
 import {
   CHATGPT_AUTHENTICATED_SELECTORS,
-  CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_HOME_URL,
-  CHATGPT_LOGIN_URL,
   DEFAULT_EVENT_TIMEOUT_MS,
   LOGIN_EMAIL_SELECTORS,
   LOGIN_NEXT_STEP_SELECTORS,
@@ -22,6 +20,7 @@ import {
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   SECURITY_READY_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
+  isChatGPTLoginUrl,
 } from './common'
 
 export type ChatGPTPostEmailLoginStep =
@@ -440,12 +439,8 @@ export async function waitForLoginEmailFormReady(
 
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const currentUrl = page.url()
-    const onExpectedUrl =
-      currentUrl.startsWith(CHATGPT_LOGIN_URL) ||
-      currentUrl.startsWith(CHATGPT_ENTRY_LOGIN_URL)
     const emailReady = await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS)
-    if (onExpectedUrl && emailReady) {
+    if (isChatGPTLoginUrl(page.url()) && emailReady) {
       await sleep(500)
       return true
     }
@@ -465,7 +460,7 @@ export async function waitForLoginSurface(
     if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS))
       return 'passkey'
     if (await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS)) return 'email'
-    if (page.url().startsWith(CHATGPT_LOGIN_URL)) {
+    if (isChatGPTLoginUrl(page.url())) {
       if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS))
         return 'passkey'
       if (await isAnySelectorVisible(page, LOGIN_EMAIL_SELECTORS))

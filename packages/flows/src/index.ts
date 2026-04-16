@@ -11,6 +11,7 @@ export * from './state-machine'
 export {
   createPkcePair,
   buildAuthorizationUrl,
+  createAuthorizationCallbackCapture,
   runAuthorizationCodeFlow,
   waitForAuthorizationCode,
 } from './modules/authorization/codex-authorization'

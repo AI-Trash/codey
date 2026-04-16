@@ -143,6 +143,18 @@ export interface ChatGPTLoginPasskeyFlowResult {
   machine: ChatGPTLoginPasskeyFlowSnapshot<ChatGPTLoginPasskeyFlowResult>
 }
 
+type ChatGPTLoginSurfaceStrategy = 'open-entry' | 'current-page'
+
+export interface ChatGPTStoredPasskeyLoginResult {
+  email: string
+  storedIdentity: StoredChatGPTIdentitySummary
+  surface: 'authenticated' | 'email' | 'passkey'
+  method: 'passkey' | 'password' | 'verification'
+  assertionObserved: boolean
+  passkeyStore: VirtualPasskeyStore
+  verificationCode?: string
+}
+
 export function createChatGPTLoginPasskeyMachine(): ChatGPTLoginPasskeyFlowMachine<ChatGPTLoginPasskeyFlowResult> {
   return createStateMachine<
     ChatGPTLoginPasskeyFlowState,
@@ -172,19 +184,27 @@ function transitionLoginMachine(
   })
 }
 
-async function openChatGPTLogin(
+async function reachChatGPTLoginSurface(
   page: Page,
+  surfaceStrategy: ChatGPTLoginSurfaceStrategy = 'open-entry',
 ): Promise<'authenticated' | 'email' | 'passkey'> {
-  await gotoLoginEntry(page)
-  if (await waitForAuthenticatedSession(page, 5000)) {
+  if (surfaceStrategy === 'open-entry') {
+    await gotoLoginEntry(page)
+    if (await waitForAuthenticatedSession(page, 5000)) {
+      return 'authenticated'
+    }
+
+    await clickLoginEntryIfPresent(page)
+  } else if (await waitForAuthenticatedSession(page, 5000)) {
     return 'authenticated'
   }
 
-  await clickLoginEntryIfPresent(page)
   const surface = await waitForLoginSurface(page, 15000)
   if (surface === 'unknown') {
     throw new Error(
-      'ChatGPT login entry page did not reach a supported login surface.',
+      surfaceStrategy === 'current-page'
+        ? 'Current page did not reach a supported ChatGPT login surface.'
+        : 'ChatGPT login entry page did not reach a supported login surface.',
     )
   }
   return surface
@@ -409,6 +429,7 @@ export async function performStoredPasskeyLogin(
   stored: ResolvedChatGPTIdentity,
   options: {
     virtualAuthenticator?: VirtualAuthenticatorOptions
+    surfaceStrategy?: ChatGPTLoginSurfaceStrategy
     onPasskeyRetry?: (
       attempt: number,
       trigger: 'retry' | 'passkey',
@@ -421,10 +442,44 @@ export async function performStoredPasskeyLogin(
   passkeyStore: VirtualPasskeyStore
   verificationCode?: string
 }> {
-  const surface = await openChatGPTLogin(page)
+  const surface = await reachChatGPTLoginSurface(
+    page,
+    options.surfaceStrategy,
+  )
   const passkey = await triggerStoredPasskeyLogin(page, stored, options)
   return {
     surface,
+    ...passkey,
+  }
+}
+
+// Continue an already-open ChatGPT/OpenAI login challenge without navigating away.
+export async function continueChatGPTLoginWithStoredPasskey(
+  page: Page,
+  options: FlowOptions &
+    Pick<Partial<ChatGPTLoginPasskeyFlowOptions>, 'virtualAuthenticator'> = {},
+): Promise<ChatGPTStoredPasskeyLoginResult> {
+  const stored = resolveStoredChatGPTIdentity({
+    id: options.identityId,
+    email: options.email,
+  })
+  const passkey = await performStoredPasskeyLogin(page, stored, {
+    virtualAuthenticator: options.virtualAuthenticator,
+    surfaceStrategy: 'current-page',
+    onPasskeyRetry: (attempt, trigger) => {
+      options.progressReporter?.({
+        message:
+          trigger === 'retry'
+            ? 'Retrying passkey login'
+            : 'Re-triggering passkey login',
+        attempt,
+      })
+    },
+  })
+
+  return {
+    email: stored.identity.email,
+    storedIdentity: stored.summary,
     ...passkey,
   }
 }

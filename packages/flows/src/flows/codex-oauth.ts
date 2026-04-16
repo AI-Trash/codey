@@ -28,7 +28,9 @@ import {
   type CodexTokenResponse,
 } from '../modules/authorization/codex-client'
 import { saveCodexToken } from '../modules/authorization/codex-token-store'
-import { waitForAuthorizationCode } from '../modules/authorization/codex-authorization'
+import { createAuthorizationCallbackCapture } from '../modules/authorization/codex-authorization'
+import { isChatGPTLoginUrl, waitForLoginSurface } from '../modules/chatgpt/shared'
+import { continueChatGPTLoginWithStoredPasskey } from './chatgpt-login-passkey'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
 
@@ -206,7 +208,7 @@ function getRequiredCodexConfig(): {
     !config.codex?.clientId
   ) {
     throw new Error(
-      'Codex OAuth config is required. Set CODEX_AUTHORIZE_URL, CODEX_TOKEN_URL, and CODEX_CLIENT_ID.',
+      'Codex OAuth config is incomplete. Set CODEX_AUTHORIZE_URL, CODEX_TOKEN_URL, and CODEX_CLIENT_ID only if you need to override the built-in defaults.',
     )
   }
 
@@ -269,6 +271,28 @@ function redactChannelCredentials(
   }
 }
 
+async function waitForCodexOAuthLoginSurface(
+  page: Page,
+  timeoutMs = 20000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (isChatGPTLoginUrl(page.url())) {
+      return true
+    }
+
+    const surface = await waitForLoginSurface(
+      page,
+      Math.min(1000, Math.max(1, deadline - Date.now())),
+    )
+    if (surface !== 'unknown') {
+      return true
+    }
+  }
+
+  return isChatGPTLoginUrl(page.url())
+}
+
 export async function runCodexOAuthFlow(
   page: Page,
   options: FlowOptions = {},
@@ -298,7 +322,6 @@ export async function runCodexOAuthFlow(
       parseNumberFlag(options.redirectPort, codexConfig.redirectPort) ||
       codexConfig.redirectPort ||
       3000
-    const callbackAbortController = new AbortController()
 
     transitionCodexOAuthMachine(
       machine,
@@ -307,7 +330,7 @@ export async function runCodexOAuthFlow(
       {
         channelName,
         projectId,
-        lastMessage: 'Starting local Codex PKCE OAuth',
+        lastMessage: 'Starting Codex PKCE OAuth',
       },
     )
 
@@ -321,11 +344,10 @@ export async function runCodexOAuthFlow(
       openBrowserWindow: false,
     })
 
-    const callbackPromise = waitForAuthorizationCode({
+    const callbackCapture = await createAuthorizationCallbackCapture(page, {
       host: started.redirectHost,
       port: started.redirectPort,
       path: started.redirectPath,
-      signal: callbackAbortController.signal,
     })
 
     try {
@@ -333,8 +355,8 @@ export async function runCodexOAuthFlow(
         waitUntil: 'domcontentloaded',
       })
     } catch (error) {
-      callbackAbortController.abort()
-      await callbackPromise.catch(() => undefined)
+      await callbackCapture.abort()
+      await callbackCapture.result.catch(() => undefined)
       throw error
     }
 
@@ -349,7 +371,46 @@ export async function runCodexOAuthFlow(
       },
     )
 
-    const callback = await callbackPromise
+    const nextStep = await Promise.race([
+      callbackCapture.result.then((callback) => ({
+        kind: 'callback' as const,
+        callback,
+      })),
+      waitForCodexOAuthLoginSurface(page).then((needsLogin) => ({
+        kind: needsLogin ? ('login' as const) : ('pending' as const),
+      })),
+    ])
+
+    if (nextStep.kind === 'login') {
+      transitionCodexOAuthMachine(
+        machine,
+        'waiting-for-callback',
+        'context.updated',
+        {
+          url: sanitizeUrl(page.url()),
+          redirectUri: started.redirectUri,
+          lastMessage: 'ChatGPT login required; continuing stored passkey login',
+        },
+      )
+
+      const login = await continueChatGPTLoginWithStoredPasskey(page, options)
+
+      transitionCodexOAuthMachine(
+        machine,
+        'waiting-for-callback',
+        'context.updated',
+        {
+          url: sanitizeUrl(page.url()),
+          redirectUri: started.redirectUri,
+          lastMessage: `Submitted ChatGPT ${login.method} login for ${login.email}; waiting for Codex OAuth callback`,
+        },
+      )
+    }
+
+    const callback =
+      nextStep.kind === 'callback'
+        ? nextStep.callback
+        : await callbackCapture.result
     if (!callback.code) {
       throw new Error(
         'Codex OAuth callback did not include an authorization code.',

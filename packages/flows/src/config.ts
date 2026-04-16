@@ -119,6 +119,27 @@ export interface CliRuntimeConfig extends AppConfig {
   configFile?: string
 }
 
+export const defaultCodexOAuthConfig = {
+  authorizeUrl: 'https://auth.openai.com/oauth/authorize',
+  tokenUrl: 'https://auth.openai.com/oauth/token',
+  clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
+  scope: 'openid profile email offline_access',
+  redirectHost: 'localhost',
+  redirectPort: 1455,
+  redirectPath: '/auth/callback',
+} satisfies Required<
+  Pick<
+    CodexOAuthConfig,
+    | 'authorizeUrl'
+    | 'tokenUrl'
+    | 'clientId'
+    | 'scope'
+    | 'redirectHost'
+    | 'redirectPort'
+    | 'redirectPath'
+  >
+>
+
 type PartialDeep<T> = {
   [K in keyof T]?: T[K] extends object ? PartialDeep<T[K]> : T[K]
 }
@@ -250,28 +271,21 @@ function buildDefaultConfig(): AppConfig {
           app: codeyAppConfig,
         }
       : undefined
-  const codexConfig =
-    process.env.CODEX_AUTHORIZE_URL ||
-    process.env.CODEX_TOKEN_URL ||
-    process.env.CODEX_CLIENT_ID ||
-    process.env.CODEX_CLIENT_SECRET ||
-    process.env.CODEX_SCOPE ||
-    process.env.CODEX_REDIRECT_HOST ||
-    process.env.CODEX_REDIRECT_PORT ||
-    process.env.CODEX_REDIRECT_PATH
-      ? {
-          authorizeUrl: process.env.CODEX_AUTHORIZE_URL,
-          tokenUrl: process.env.CODEX_TOKEN_URL,
-          clientId: process.env.CODEX_CLIENT_ID,
-          clientSecret: process.env.CODEX_CLIENT_SECRET,
-          scope: process.env.CODEX_SCOPE,
-          redirectHost: process.env.CODEX_REDIRECT_HOST,
-          redirectPort: process.env.CODEX_REDIRECT_PORT
-            ? Number(process.env.CODEX_REDIRECT_PORT)
-            : undefined,
-          redirectPath: process.env.CODEX_REDIRECT_PATH,
-        }
-      : undefined
+  const codexConfig: CodexOAuthConfig = {
+    authorizeUrl:
+      process.env.CODEX_AUTHORIZE_URL || defaultCodexOAuthConfig.authorizeUrl,
+    tokenUrl: process.env.CODEX_TOKEN_URL || defaultCodexOAuthConfig.tokenUrl,
+    clientId: process.env.CODEX_CLIENT_ID || defaultCodexOAuthConfig.clientId,
+    clientSecret: process.env.CODEX_CLIENT_SECRET,
+    scope: process.env.CODEX_SCOPE || defaultCodexOAuthConfig.scope,
+    redirectHost:
+      process.env.CODEX_REDIRECT_HOST || defaultCodexOAuthConfig.redirectHost,
+    redirectPort: process.env.CODEX_REDIRECT_PORT
+      ? Number(process.env.CODEX_REDIRECT_PORT)
+      : defaultCodexOAuthConfig.redirectPort,
+    redirectPath:
+      process.env.CODEX_REDIRECT_PATH || defaultCodexOAuthConfig.redirectPath,
+  }
   const axonHubConfig =
     process.env.AXONHUB_BASE_URL ||
     process.env.AXONHUB_ADMIN_EMAIL ||

@@ -42,10 +42,15 @@ async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdm
       process.env.EXCHANGE_CLIENT_ID &&
       process.env.EXCHANGE_CLIENT_SECRET,
   );
-  const codexConfigured = Boolean(
-    process.env.CODEX_AUTHORIZE_URL &&
-      process.env.CODEX_TOKEN_URL &&
-      process.env.CODEX_CLIENT_ID,
+  const codexEnvOverridesConfigured = Boolean(
+    process.env.CODEX_AUTHORIZE_URL ||
+      process.env.CODEX_TOKEN_URL ||
+      process.env.CODEX_CLIENT_ID ||
+      process.env.CODEX_CLIENT_SECRET ||
+      process.env.CODEX_SCOPE ||
+      process.env.CODEX_REDIRECT_HOST ||
+      process.env.CODEX_REDIRECT_PORT ||
+      process.env.CODEX_REDIRECT_PATH,
   );
 
   return [
@@ -98,10 +103,10 @@ async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdm
       key: "codexOAuth",
       label: "Codex OAuth",
       description: "Optional local OAuth setup used by the existing simplified CLI authorization flow.",
-      status: boolStatus(codexConfigured, "ready"),
-      detail: codexConfigured
-        ? "Codex authorize/token URLs and client ID are configured."
-        : "CODEX_AUTHORIZE_URL, CODEX_TOKEN_URL, and CODEX_CLIENT_ID are not all present.",
+      status: "ready",
+      detail: codexEnvOverridesConfigured
+        ? "Codex OAuth is using local CODEX_* overrides for the OpenAI OAuth flow."
+        : "Codex OAuth uses built-in OpenAI defaults; set CODEX_* only if you need to override them.",
     },
     {
       id: "oidc-signing-keys",

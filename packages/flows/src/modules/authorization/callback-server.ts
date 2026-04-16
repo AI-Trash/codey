@@ -22,9 +22,9 @@ export function waitForAuthorizationCode(
   options: CallbackServerOptions = {},
 ): Promise<AuthorizationCallbackPayload> {
   const {
-    host = '127.0.0.1',
-    port = 3000,
-    path = '/callback',
+    host = 'localhost',
+    port = 1455,
+    path = '/auth/callback',
     timeoutMs = 180000,
     successHtml,
     signal,

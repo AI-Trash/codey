@@ -1,10 +1,11 @@
 import '@tanstack/react-start/server-only'
-import { and, desc, eq, gte } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, inArray, or } from 'drizzle-orm'
 import { getAppEnv } from './env'
 import {
   emailIngestRecords,
   verificationCodes,
   verificationEmailReservations,
+  type EmailIngestRecordRow,
 } from './db/schema'
 import { getDb } from './db/client'
 import { createId, randomCode } from './security'
@@ -16,6 +17,129 @@ export interface VerificationEmailPayload {
   htmlBody?: string | null
   rawPayload?: string | null
   receivedAt: string
+}
+
+export interface AdminInboxEmail {
+  id: string
+  cursor: string
+  messageId: string | null
+  recipient: string
+  subject: string | null
+  textBody: string | null
+  htmlBody: string | null
+  rawPayload: string | null
+  receivedAt: string
+  createdAt: string
+  reservationId: string | null
+  reservationEmail: string | null
+  reservationMailbox: string | null
+  reservationExpiresAt: string | null
+  latestCode: string | null
+  latestCodeSource: string | null
+  latestCodeReceivedAt: string | null
+}
+
+type AdminInboxCursor = {
+  createdAt: Date
+  id: string
+}
+
+type AdminInboxCodeSummary = {
+  code: string
+  source: string
+  receivedAt: string
+}
+
+export function encodeAdminInboxCursor(params: {
+  createdAt: Date | string
+  id?: string | null
+}) {
+  const createdAt =
+    params.createdAt instanceof Date
+      ? params.createdAt
+      : new Date(params.createdAt)
+
+  return `${createdAt.toISOString()}|${params.id || ''}`
+}
+
+function decodeAdminInboxCursor(cursor?: string | null): AdminInboxCursor | null {
+  if (!cursor) return null
+
+  const separatorIndex = cursor.indexOf('|')
+  const createdAtValue =
+    separatorIndex === -1 ? cursor : cursor.slice(0, separatorIndex)
+  const createdAt = new Date(createdAtValue)
+  if (Number.isNaN(createdAt.getTime())) {
+    return null
+  }
+
+  return {
+    createdAt,
+    id: separatorIndex === -1 ? '' : cursor.slice(separatorIndex + 1),
+  }
+}
+
+async function getLatestCodeByReservationId(
+  reservationIds: string[],
+): Promise<Map<string, AdminInboxCodeSummary>> {
+  if (!reservationIds.length) {
+    return new Map()
+  }
+
+  const rows = await getDb().query.verificationCodes.findMany({
+    where: inArray(verificationCodes.reservationId, reservationIds),
+    orderBy: [desc(verificationCodes.receivedAt)],
+  })
+
+  const latestCodes = new Map<string, AdminInboxCodeSummary>()
+  for (const row of rows) {
+    if (latestCodes.has(row.reservationId)) {
+      continue
+    }
+
+    latestCodes.set(row.reservationId, {
+      code: row.code,
+      source: row.source,
+      receivedAt: row.receivedAt.toISOString(),
+    })
+  }
+
+  return latestCodes
+}
+
+function serializeAdminInboxEmail(
+  email: EmailIngestRecordRow & {
+    reservation?: {
+      id: string
+      email: string
+      mailbox: string | null
+      expiresAt: Date
+    } | null
+  },
+  latestCode?: AdminInboxCodeSummary,
+): AdminInboxEmail {
+  return {
+    id: email.id,
+    cursor: encodeAdminInboxCursor({
+      createdAt: email.createdAt,
+      id: email.id,
+    }),
+    messageId: email.messageId,
+    recipient: email.recipient,
+    subject: email.subject,
+    textBody: email.textBody,
+    htmlBody: email.htmlBody,
+    rawPayload: email.rawPayload,
+    receivedAt: email.receivedAt.toISOString(),
+    createdAt: email.createdAt.toISOString(),
+    reservationId: email.reservationId,
+    reservationEmail: email.reservation?.email || null,
+    reservationMailbox: email.reservation?.mailbox || null,
+    reservationExpiresAt: email.reservation?.expiresAt.toISOString() || null,
+    latestCode: latestCode?.code || null,
+    latestCodeSource: latestCode?.source || null,
+    latestCodeReceivedAt: latestCode?.receivedAt || null,
+  }
 }
 
 function buildReservationEmail(id: string): {
@@ -212,6 +336,71 @@ export async function ingestCloudflareEmail(params: {
     emailRecord,
     codeRecord: null,
   }
+}
+
+export async function listAdminInboxEmails(options?: { limit?: number }) {
+  const emails = await getDb().query.emailIngestRecords.findMany({
+    with: {
+      reservation: true,
+    },
+    orderBy: [desc(emailIngestRecords.createdAt), desc(emailIngestRecords.id)],
+    limit: options?.limit ?? 100,
+  })
+
+  const reservationIds = Array.from(
+    new Set(
+      emails
+        .map((email) => email.reservationId)
+        .filter((reservationId): reservationId is string => Boolean(reservationId)),
+    ),
+  )
+  const latestCodes = await getLatestCodeByReservationId(reservationIds)
+
+  return emails.map((email) =>
+    serializeAdminInboxEmail(
+      email,
+      email.reservationId ? latestCodes.get(email.reservationId) : undefined,
+    ),
+  )
+}
+
+export async function listAdminInboxEmailsAfterCursor(options?: {
+  cursor?: string | null
+  limit?: number
+}) {
+  const cursor = decodeAdminInboxCursor(options?.cursor)
+  const emails = await getDb().query.emailIngestRecords.findMany({
+    with: {
+      reservation: true,
+    },
+    where: cursor
+      ? or(
+          gt(emailIngestRecords.createdAt, cursor.createdAt),
+          and(
+            eq(emailIngestRecords.createdAt, cursor.createdAt),
+            gt(emailIngestRecords.id, cursor.id),
+          ),
+        )
+      : undefined,
+    orderBy: [asc(emailIngestRecords.createdAt), asc(emailIngestRecords.id)],
+    limit: options?.limit ?? 20,
+  })
+
+  const reservationIds = Array.from(
+    new Set(
+      emails
+        .map((email) => email.reservationId)
+        .filter((reservationId): reservationId is string => Boolean(reservationId)),
+    ),
+  )
+  const latestCodes = await getLatestCodeByReservationId(reservationIds)
+
+  return emails.map((email) =>
+    serializeAdminInboxEmail(
+      email,
+      email.reservationId ? latestCodes.get(email.reservationId) : undefined,
+    ),
+  )
 }
 
 export async function listRecentVerificationActivity() {

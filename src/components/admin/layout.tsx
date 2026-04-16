@@ -4,6 +4,7 @@ import {
   AppWindowIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  MailIcon,
   MonitorSmartphoneIcon,
   PlusCircleIcon,
   ShieldCheckIcon,
@@ -44,6 +45,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
   SidebarSeparator,
@@ -53,12 +57,29 @@ import { cn } from '#/lib/utils'
 
 type StatusTone = 'good' | 'warning' | 'danger' | 'neutral'
 
+const operationsSubNavigation = [
+  {
+    label: 'Overview',
+    to: '/admin',
+    icon: LayoutDashboardIcon,
+    matches: (pathname: string) => pathname === '/admin',
+  },
+  {
+    label: 'Mail inbox',
+    to: '/admin/emails',
+    icon: MailIcon,
+    matches: (pathname: string) => pathname === '/admin/emails',
+  },
+] as const
+
 const adminNavigation = [
   {
     label: 'Operations',
     to: '/admin',
     icon: LayoutDashboardIcon,
-    matches: (pathname: string) => pathname === '/admin',
+    matches: (pathname: string) =>
+      pathname === '/admin' || pathname === '/admin/emails',
+    children: operationsSubNavigation,
   },
   {
     label: 'OAuth apps',
@@ -123,6 +144,23 @@ export function AdminShell(props: { children: ReactNode }) {
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {item.children?.length ? (
+                      <SidebarMenuSub>
+                        {item.children.map((child) => (
+                          <SidebarMenuSubItem key={child.to}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={child.matches(pathname)}
+                            >
+                              <Link to={child.to}>
+                                <child.icon />
+                                <span>{child.label}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    ) : null}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
@@ -356,6 +394,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/apps') {
     return 'OAuth apps'
+  }
+
+  if (pathname === '/admin/emails') {
+    return 'Mail inbox'
   }
 
   if (pathname === '/admin/apps/new') {

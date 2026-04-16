@@ -433,7 +433,7 @@ withCommonOptions(
       '--record <bool>',
       'Whether to keep the browser session open after the flow completes',
     )
-    .option('--redirectPort <port>', 'Override localhost callback port')
+    .option('--redirectPort <port>', 'Override OAuth callback redirect port')
     .option(
       '--projectId <id>',
       'Optional AxonHub project context sent as X-Project-ID',

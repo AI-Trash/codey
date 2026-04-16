@@ -1,9 +1,9 @@
 import crypto from 'crypto'
-import type { Page } from 'patchright'
+import type { Page, Route } from 'patchright'
 import {
-  waitForAuthorizationCode,
+  waitForAuthorizationCode as waitForAuthorizationCodeViaServer,
   type AuthorizationCallbackPayload,
-  type CallbackServerOptions,
+  type CallbackServerOptions as AuthorizationCallbackOptions,
 } from './callback-server'
 
 export interface PkcePair {
@@ -32,9 +32,135 @@ export interface BuildAuthorizationUrlResult {
 
 export interface RunAuthorizationCodeFlowOptions {
   startUrl: string
-  callback?: CallbackServerOptions
+  callback?: AuthorizationCallbackOptions
   expectedState?: string
   afterNavigation?: (page: Page) => Promise<void>
+}
+
+export interface AuthorizationCallbackCaptureHandle {
+  result: Promise<AuthorizationCallbackPayload>
+  abort: () => Promise<void>
+}
+
+const defaultAuthorizationSuccessHtml =
+  '<html><body><h1>Authorization received</h1><p>You can close this window now.</p></body></html>'
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function normalizeCallbackPath(path = '/auth/callback'): string {
+  return path.startsWith('/') ? path : `/${path}`
+}
+
+function buildAuthorizationCallbackPayload(
+  callbackUrl: string,
+): AuthorizationCallbackPayload {
+  const url = new URL(callbackUrl)
+
+  return {
+    code: url.searchParams.get('code'),
+    state: url.searchParams.get('state'),
+    scope: url.searchParams.get('scope'),
+    rawQuery: `${url.pathname}${url.search}`,
+    callbackUrl,
+  }
+}
+
+export async function createAuthorizationCallbackCapture(
+  page: Page,
+  options: AuthorizationCallbackOptions = {},
+): Promise<AuthorizationCallbackCaptureHandle> {
+  const {
+    host = 'localhost',
+    port = 1455,
+    path = '/auth/callback',
+    timeoutMs = 180000,
+    successHtml,
+    signal,
+  } = options
+  const normalizedPath = normalizeCallbackPath(path)
+  const callbackUrlPattern = new RegExp(
+    `^http://${escapeRegExp(host)}:${port}${escapeRegExp(normalizedPath)}(?:\\?.*)?$`,
+  )
+  let settled = false
+  let cleanedUp = false
+  let timer: NodeJS.Timeout | undefined
+  let abortListener: (() => void) | undefined
+  let resolveResult!: (payload: AuthorizationCallbackPayload) => void
+  let rejectResult!: (error: Error) => void
+
+  const result = new Promise<AuthorizationCallbackPayload>((resolve, reject) => {
+    resolveResult = resolve
+    rejectResult = reject
+  })
+
+  const cleanup = async () => {
+    if (cleanedUp) return
+    cleanedUp = true
+    if (timer) {
+      clearTimeout(timer)
+    }
+    if (signal && abortListener) {
+      signal.removeEventListener('abort', abortListener)
+    }
+    await page.unroute(callbackUrlPattern, routeHandler).catch(() => undefined)
+  }
+
+  const settleWithResult = async (payload: AuthorizationCallbackPayload) => {
+    if (settled) return
+    settled = true
+    await cleanup()
+    resolveResult(payload)
+  }
+
+  const settleWithError = async (error: unknown) => {
+    if (settled) return
+    settled = true
+    await cleanup()
+    rejectResult(error instanceof Error ? error : new Error(String(error)))
+  }
+
+  const routeHandler = async (route: Route) => {
+    try {
+      const payload = buildAuthorizationCallbackPayload(route.request().url())
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        body: successHtml || defaultAuthorizationSuccessHtml,
+      })
+      await settleWithResult(payload)
+    } catch (error) {
+      await settleWithError(error)
+    }
+  }
+
+  await page.route(callbackUrlPattern, routeHandler)
+
+  abortListener = () => {
+    void settleWithError(new Error('Authorization callback wait aborted.'))
+  }
+
+  timer = setTimeout(() => {
+    void settleWithError(
+      new Error(
+        `Timed out waiting for browser callback navigation to http://${host}:${port}${normalizedPath}`,
+      ),
+    )
+  }, timeoutMs)
+
+  if (signal?.aborted) {
+    await settleWithError(new Error('Authorization callback wait aborted.'))
+  } else if (signal) {
+    signal.addEventListener('abort', abortListener, { once: true })
+  }
+
+  return {
+    result,
+    abort: async () => {
+      await settleWithError(new Error('Authorization callback wait aborted.'))
+    },
+  }
 }
 
 export function createPkcePair(): PkcePair {
@@ -98,26 +224,32 @@ export async function runAuthorizationCodeFlow(
     throw new Error('startUrl is required')
   }
 
-  const callbackPromise = waitForAuthorizationCode(callback)
-  await page.goto(startUrl, { waitUntil: 'domcontentloaded' })
+  const callbackCapture = await createAuthorizationCallbackCapture(page, callback)
 
-  if (afterNavigation) {
-    await afterNavigation(page)
-  }
+  try {
+    await page.goto(startUrl, { waitUntil: 'domcontentloaded' })
+    if (afterNavigation) {
+      await afterNavigation(page)
+    }
 
-  const result = await callbackPromise
-  if (!result.code) {
-    throw new Error(
-      `Authorization callback did not contain code: ${result.callbackUrl}`,
-    )
-  }
-  if (expectedState && result.state !== expectedState) {
-    throw new Error(
-      `Authorization state mismatch, expected "${expectedState}" got "${result.state}"`,
-    )
-  }
+    const result = await callbackCapture.result
+    if (!result.code) {
+      throw new Error(
+        `Authorization callback did not contain code: ${result.callbackUrl}`,
+      )
+    }
+    if (expectedState && result.state !== expectedState) {
+      throw new Error(
+        `Authorization state mismatch, expected "${expectedState}" got "${result.state}"`,
+      )
+    }
 
-  return result
+    return result
+  } catch (error) {
+    await callbackCapture.abort()
+    await callbackCapture.result.catch(() => undefined)
+    throw error
+  }
 }
 
-export { waitForAuthorizationCode }
+export { waitForAuthorizationCodeViaServer as waitForAuthorizationCode }

@@ -175,14 +175,20 @@ The daemon keeps an SSE connection to `/api/cli/events` and prints admin notific
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth
 ```
 
-This is a standalone flow, not a `codey auth` mode. It runs a local PKCE OAuth callback in `packages/flows`, stores the resulting Codex token under `.codey/credentials/`, signs in to AxonHub admin, and creates a Codex channel using `credentials.oauth`. CLI output redacts access tokens, refresh tokens, and passwords.
+This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, stores the resulting Codex token under `.codey/credentials/`, signs in to AxonHub admin, and creates a Codex channel using `credentials.oauth`. CLI output redacts access tokens, refresh tokens, and passwords.
 
-Required environment variables for this path:
+Built-in defaults from `axonhub` are used for Codex OAuth, so these overrides are optional:
 
 ```env
-CODEX_AUTHORIZE_URL=https://example.com/oauth/authorize
-CODEX_TOKEN_URL=https://example.com/oauth/token
-CODEX_CLIENT_ID=your-codex-client-id
+CODEX_AUTHORIZE_URL=https://auth.openai.com/oauth/authorize
+CODEX_TOKEN_URL=https://auth.openai.com/oauth/token
+CODEX_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann
+CODEX_SCOPE=openid profile email offline_access
+```
+
+Required environment variables for AxonHub channel creation:
+
+```env
 AXONHUB_BASE_URL=http://localhost:8080
 AXONHUB_ADMIN_EMAIL=admin@example.com
 AXONHUB_ADMIN_PASSWORD=replace-with-admin-password
@@ -192,10 +198,9 @@ Optional environment variables:
 
 ```env
 CODEX_CLIENT_SECRET=your-codex-client-secret
-CODEX_SCOPE=openid profile
-CODEX_REDIRECT_HOST=127.0.0.1
-CODEX_REDIRECT_PORT=3000
-CODEX_REDIRECT_PATH=/callback
+CODEX_REDIRECT_HOST=localhost
+CODEX_REDIRECT_PORT=1455
+CODEX_REDIRECT_PATH=/auth/callback
 AXONHUB_PROJECT_ID=your-axonhub-project-guid
 AXONHUB_GRAPHQL_PATH=/admin/graphql
 CODEX_CHANNEL_NAME=Codex OAuth
