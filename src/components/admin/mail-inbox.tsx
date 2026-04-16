@@ -3,10 +3,10 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import {
-  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   FileCodeIcon,
@@ -36,13 +36,13 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '#/components/ui/collapsible'
 import { Input } from '#/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from '#/components/ui/resizable'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import {
   Table,
@@ -54,6 +54,7 @@ import {
 } from '#/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { cn } from '#/lib/utils'
+import type { PanelImperativeHandle } from 'react-resizable-panels'
 
 export type AdminMailInboxEmail = {
   id: string
@@ -111,7 +112,12 @@ export function AdminMailInbox(props: {
   )
   const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting')
   const [streamError, setStreamError] = useState<string | null>(null)
-  const [htmlPreviewOpen, setHtmlPreviewOpen] = useState(false)
+  const previewPanelRef = useRef<PanelImperativeHandle | null>(null)
+  const [previewPanelCollapsed, setPreviewPanelCollapsed] = useState(
+    !Boolean(
+      props.initialPage.emails[0]?.htmlBody || props.initialPage.emails[0]?.textBody,
+    ),
+  )
   const deferredSearch = useDeferredValue(search.trim())
 
   const queryKey = useMemo(
@@ -160,8 +166,22 @@ export function AdminMailInbox(props: {
     null
 
   useEffect(() => {
-    setHtmlPreviewOpen(Boolean(activeEmail?.htmlBody || activeEmail?.textBody))
-  }, [activeEmail?.id])
+    const hasPreview = Boolean(activeEmail?.htmlBody || activeEmail?.textBody)
+
+    if (!previewPanelRef.current) {
+      setPreviewPanelCollapsed(!hasPreview)
+      return
+    }
+
+    if (hasPreview) {
+      previewPanelRef.current.expand()
+      setPreviewPanelCollapsed(false)
+      return
+    }
+
+    previewPanelRef.current.collapse()
+    setPreviewPanelCollapsed(true)
+  }, [activeEmail?.htmlBody, activeEmail?.id, activeEmail?.textBody])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -236,7 +256,7 @@ export function AdminMailInbox(props: {
         />
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_420px]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(620px,0.95fr)]">
         <Card>
           <CardHeader className="gap-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -439,94 +459,136 @@ export function AdminMailInbox(props: {
               {activeEmail?.subject || 'Select an email'}
             </CardTitle>
             <CardDescription>
-              HTML emails can be previewed in a sandboxed frame, and that
-              preview stays collapsible so the raw source remains easy to scan.
+              Message details stay on the left, while the rendered email preview
+              now lives in a sidebar-style panel that can collapse sideways.
             </CardDescription>
           </CardHeader>
 
           <CardContent>
             {activeEmail ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <StatusBadge
-                    value={activeEmail.latestCode ? 'code ready' : 'received'}
-                    tone={activeEmail.latestCode ? 'good' : 'warning'}
-                  />
-                  {activeEmail.latestCode ? (
-                    <Badge variant="outline">
-                      {activeEmail.latestCodeSource || 'code'} ·{' '}
-                      {activeEmail.latestCode}
-                    </Badge>
-                  ) : null}
-                  {activeEmail.htmlBody ? (
-                    <Badge variant="outline">HTML email</Badge>
-                  ) : null}
-                </div>
+              <ResizablePanelGroup
+                orientation="horizontal"
+                className="h-[70vh] min-h-[620px] max-h-[780px] overflow-hidden rounded-lg border bg-muted/20"
+              >
+                <ResizablePanel defaultSize="58%" minSize="42%" className="min-w-0">
+                  <ScrollArea className="h-full">
+                    <div className="space-y-4 p-4">
+                      <div className="flex flex-wrap gap-2">
+                        <StatusBadge
+                          value={activeEmail.latestCode ? 'code ready' : 'received'}
+                          tone={activeEmail.latestCode ? 'good' : 'warning'}
+                        />
+                        {activeEmail.latestCode ? (
+                          <Badge variant="outline">
+                            {activeEmail.latestCodeSource || 'code'} ·{' '}
+                            {activeEmail.latestCode}
+                          </Badge>
+                        ) : null}
+                        {activeEmail.htmlBody ? (
+                          <Badge variant="outline">HTML email</Badge>
+                        ) : activeEmail.textBody ? (
+                          <Badge variant="outline">Text preview</Badge>
+                        ) : null}
+                      </div>
 
-                <dl className="grid gap-3 text-sm">
-                  <DetailItem label="Recipient" value={activeEmail.recipient} code />
-                  <DetailItem
-                    label="Received"
-                    value={
-                      formatAdminDate(activeEmail.receivedAt) ||
-                      'Timestamp unavailable'
-                    }
-                  />
-                  <DetailItem
-                    label="Message ID"
-                    value={activeEmail.messageId || 'Not captured'}
-                    code
-                  />
-                  <DetailItem
-                    label="Mailbox"
-                    value={activeEmail.reservationMailbox || 'Not configured'}
-                    code
-                  />
-                  <DetailItem
-                    label="Reservation"
-                    value={activeEmail.reservationEmail || 'Not linked'}
-                    code
-                  />
-                  <DetailItem
-                    label="Expires"
-                    value={
-                      formatAdminDate(activeEmail.reservationExpiresAt) ||
-                      'Not available'
-                    }
-                  />
-                </dl>
+                      <dl className="grid gap-3 text-sm">
+                        <DetailItem
+                          label="Recipient"
+                          value={activeEmail.recipient}
+                          code
+                        />
+                        <DetailItem
+                          label="Received"
+                          value={
+                            formatAdminDate(activeEmail.receivedAt) ||
+                            'Timestamp unavailable'
+                          }
+                        />
+                        <DetailItem
+                          label="Message ID"
+                          value={activeEmail.messageId || 'Not captured'}
+                          code
+                        />
+                        <DetailItem
+                          label="Mailbox"
+                          value={activeEmail.reservationMailbox || 'Not configured'}
+                          code
+                        />
+                        <DetailItem
+                          label="Reservation"
+                          value={activeEmail.reservationEmail || 'Not linked'}
+                          code
+                        />
+                        <DetailItem
+                          label="Expires"
+                          value={
+                            formatAdminDate(activeEmail.reservationExpiresAt) ||
+                            'Not available'
+                          }
+                        />
+                      </dl>
 
-                <RenderedEmailPreview
-                  html={activeEmail.htmlBody}
-                  text={activeEmail.textBody}
-                  open={htmlPreviewOpen}
-                  onOpenChange={setHtmlPreviewOpen}
-                />
+                      <Tabs
+                        key={activeEmail.id}
+                        defaultValue={getInitialContentTab(activeEmail)}
+                        className="gap-3"
+                      >
+                        <TabsList variant="line" className="w-full justify-start">
+                          <TabsTrigger value="text">Text</TabsTrigger>
+                          <TabsTrigger value="html">HTML source</TabsTrigger>
+                          <TabsTrigger value="raw">Raw payload</TabsTrigger>
+                        </TabsList>
 
-                <Tabs
-                  key={activeEmail.id}
-                  defaultValue={getInitialContentTab(activeEmail)}
-                  className="gap-3"
+                        <TabsContent value="text">
+                          <EmailContentPanel value={activeEmail.textBody} />
+                        </TabsContent>
+
+                        <TabsContent value="html">
+                          <EmailContentPanel value={activeEmail.htmlBody} />
+                        </TabsContent>
+
+                        <TabsContent value="raw">
+                          <EmailContentPanel value={activeEmail.rawPayload} />
+                        </TabsContent>
+                      </Tabs>
+                    </div>
+                  </ScrollArea>
+                </ResizablePanel>
+
+                <ResizableHandle withHandle />
+
+                <ResizablePanel
+                  collapsible
+                  collapsedSize={56}
+                  defaultSize="42%"
+                  minSize="28%"
+                  panelRef={previewPanelRef}
+                  className="min-w-0 border-l bg-background"
+                  onResize={(size) => {
+                    setPreviewPanelCollapsed(size.inPixels <= 80)
+                  }}
                 >
-                  <TabsList variant="line" className="w-full justify-start">
-                    <TabsTrigger value="text">Text</TabsTrigger>
-                    <TabsTrigger value="html">HTML source</TabsTrigger>
-                    <TabsTrigger value="raw">Raw payload</TabsTrigger>
-                  </TabsList>
+                  <RenderedEmailPreview
+                    html={activeEmail.htmlBody}
+                    text={activeEmail.textBody}
+                    collapsed={previewPanelCollapsed}
+                    onToggle={() => {
+                      if (!previewPanelRef.current) {
+                        return
+                      }
 
-                  <TabsContent value="text">
-                    <EmailContentPanel value={activeEmail.textBody} />
-                  </TabsContent>
+                      if (previewPanelCollapsed) {
+                        previewPanelRef.current.expand()
+                        setPreviewPanelCollapsed(false)
+                        return
+                      }
 
-                  <TabsContent value="html">
-                    <EmailContentPanel value={activeEmail.htmlBody} />
-                  </TabsContent>
-
-                  <TabsContent value="raw">
-                    <EmailContentPanel value={activeEmail.rawPayload} />
-                  </TabsContent>
-                </Tabs>
-              </div>
+                      previewPanelRef.current.collapse()
+                      setPreviewPanelCollapsed(true)
+                    }}
+                  />
+                </ResizablePanel>
+              </ResizablePanelGroup>
             ) : (
               <EmptyState
                 title="No email selected"
@@ -576,59 +638,76 @@ function DetailItem(props: { label: string; value: string; code?: boolean }) {
 function RenderedEmailPreview(props: {
   html: string | null
   text: string | null
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  collapsed: boolean
+  onToggle: () => void
 }) {
-  return (
-    <Collapsible open={props.open} onOpenChange={props.onOpenChange}>
-      <div className="overflow-hidden rounded-lg border bg-muted/20">
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-          >
-            <div className="flex items-center gap-2">
-              <FileCodeIcon className="size-4 text-muted-foreground" />
-              <div>
-                <div className="text-sm font-medium text-foreground">
-                  Email preview
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Render the email body in a collapsible preview panel.
-                </div>
-              </div>
-            </div>
-            <ChevronDownIcon
-              className={cn(
-                'size-4 text-muted-foreground transition-transform',
-                props.open ? 'rotate-180' : undefined,
-              )}
-            />
-          </button>
-        </CollapsibleTrigger>
+  const hasPreview = Boolean(props.html || props.text)
 
-        <CollapsibleContent className="border-t">
-          {props.html ? (
-            <iframe
-              title="Rendered email preview"
-              sandbox=""
-              srcDoc={buildHtmlPreviewDocument(props.html)}
-              className="h-[360px] w-full bg-white"
-            />
-          ) : props.text ? (
-            <ScrollArea className="h-[280px] bg-background">
-              <div className="whitespace-pre-wrap p-4 text-sm leading-6 text-foreground">
-                {props.text}
-              </div>
-            </ScrollArea>
-          ) : (
-            <div className="p-4 text-sm text-muted-foreground">
-              This message did not include previewable content.
+  if (props.collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={props.onToggle}
+        disabled={!hasPreview}
+        className={cn(
+          'flex h-full w-full flex-col items-center justify-center gap-4 px-2 py-4 text-center transition-colors',
+          hasPreview
+            ? 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+            : 'cursor-not-allowed text-muted-foreground/60',
+        )}
+      >
+        <ChevronLeftIcon className="size-4 shrink-0" />
+        <span className="[writing-mode:vertical-rl] rotate-180 text-[11px] font-medium tracking-[0.22em] uppercase">
+          {hasPreview ? 'Email preview' : 'No preview'}
+        </span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex h-full min-w-0 flex-col">
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileCodeIcon className="size-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-foreground">Email preview</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {props.html
+                ? 'Rendered from the HTML body.'
+                : props.text
+                  ? 'Showing text content because no HTML body was captured.'
+                  : 'No previewable content was captured for this message.'}
             </div>
-          )}
-        </CollapsibleContent>
+          </div>
+        </div>
+
+        <Button type="button" variant="ghost" size="sm" onClick={props.onToggle}>
+          <ChevronRightIcon />
+          Collapse
+        </Button>
       </div>
-    </Collapsible>
+
+      <div className="min-h-0 flex-1">
+        {props.html ? (
+          <iframe
+            title="Rendered email preview"
+            sandbox="allow-popups allow-popups-to-escape-sandbox"
+            srcDoc={buildHtmlPreviewDocument(props.html)}
+            className="h-full w-full bg-white"
+          />
+        ) : props.text ? (
+          <ScrollArea className="h-full bg-background">
+            <div className="whitespace-pre-wrap p-4 text-sm leading-6 text-foreground">
+              {props.text}
+            </div>
+          </ScrollArea>
+        ) : (
+          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+            This message did not include previewable content.
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -682,31 +761,76 @@ function getInitialContentTab(email: AdminMailInboxEmail) {
 }
 
 function buildHtmlPreviewDocument(html: string) {
-  if (/<html[\s>]/i.test(html) || /<body[\s>]/i.test(html)) {
-    return html
-  }
+  const sanitizedHtml = sanitizeHtmlPreviewSource(html)
+  const extractedHeadStyles =
+    sanitizedHtml.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi)?.join('\n') ?? ''
+  const bodyMatch = sanitizedHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
+  const bodyContent = bodyMatch?.[1] ?? sanitizedHtml
 
   return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base target="_blank" />
+    ${extractedHeadStyles}
     <style>
+      :root {
+        color-scheme: light;
+      }
+
+      html {
+        background: #f8fafc;
+      }
+
       body {
         margin: 0;
-        padding: 16px;
+        padding: 20px;
         font-family: ui-sans-serif, system-ui, sans-serif;
-        color: #111827;
+        color: #0f172a;
         background: #ffffff;
+        overflow-wrap: anywhere;
       }
+
+      .email-preview-shell {
+        min-height: 100%;
+      }
+
       img {
         max-width: 100%;
         height: auto;
       }
+
+      table {
+        max-width: 100%;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
     </style>
   </head>
-  <body>${html}</body>
+  <body>
+    <div class="email-preview-shell">${bodyContent}</div>
+  </body>
 </html>`
+}
+
+function sanitizeHtmlPreviewSource(html: string) {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, '')
+    .replace(/<embed\b[^>]*>/gi, '')
+    .replace(/<base\b[^>]*>/gi, '')
+    .replace(/<meta\b[^>]*http-equiv=["']?refresh["']?[^>]*>/gi, '')
+    .replace(/\s(on[a-z-]+)\s*=\s*(['"]).*?\2/gi, '')
+    .replace(/\s(on[a-z-]+)\s*=\s*[^\s>]+/gi, '')
+    .replace(
+      /\s(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi,
+      ' $1=$2#$2',
+    )
 }
 
 function getLiveStatusLabel(status: LiveStatus) {
