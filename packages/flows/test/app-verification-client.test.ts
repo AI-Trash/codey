@@ -6,19 +6,7 @@ describe('AppVerificationProviderClient', () => {
     vi.restoreAllMocks()
   })
 
-  it('extracts the verification code from returned emails before trusting the server code field', async () => {
-    const htmlBody = `
-      <html>
-        <head>
-          <style>.accent { color: #480799; }</style>
-        </head>
-        <body>
-          <p>Verification code</p>
-          <div data-render-id="834211">123 456</div>
-        </body>
-      </html>
-    `
-
+  it('reads the ChatGPT code from the email subject before trusting the server code field', async () => {
     const fetchMock = vi.fn<
       Parameters<typeof fetch>,
       ReturnType<typeof fetch>
@@ -58,8 +46,8 @@ describe('AppVerificationProviderClient', () => {
             receivedAt: '2026-04-16T06:36:35.000Z',
             emails: [
               {
-                subject: 'ChatGPT verification code',
-                htmlBody,
+                subject: 'ChatGPT verification code 123456',
+                textBody: 'Body can contain anything, it is ignored.',
                 receivedAt: '2026-04-16T06:36:35.000Z',
               },
             ],
@@ -87,14 +75,9 @@ describe('AppVerificationProviderClient', () => {
         pollIntervalMs: 10,
       }),
     ).resolves.toBe('123456')
-
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
-      '/api/verification/codes',
-    )
   })
 
-  it('can resolve directly from email payloads even when the endpoint stays pending', async () => {
+  it('can resolve from the subject even when the endpoint stays pending', async () => {
     const fetchMock = vi.fn<
       Parameters<typeof fetch>,
       ReturnType<typeof fetch>
@@ -132,7 +115,8 @@ describe('AppVerificationProviderClient', () => {
             status: 'pending',
             emails: [
               {
-                textBody: 'Your verification code\n246810',
+                subject: 'ChatGPT verification code 246810',
+                textBody: 'Verification code\n999999',
                 receivedAt: '2026-04-16T06:36:35.000Z',
               },
             ],

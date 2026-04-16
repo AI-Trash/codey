@@ -16,7 +16,7 @@ import {
   readAppSession,
   saveAppSession,
 } from '../app-auth/token-store'
-import { extractVerificationCodeFromMessage } from '../chatgpt/common'
+import { extractChatGPTVerificationCodeFromSubject } from '../chatgpt/common'
 import type {
   VerificationEmailTarget,
   WaitForVerificationCodeOptions,
@@ -307,12 +307,9 @@ export class AppVerificationProviderClient {
         [VERIFICATION_READ_SCOPE],
       )
       for (const email of result.emails || []) {
-        const extractedCode = extractVerificationCodeFromMessage({
-          subject: email.subject || undefined,
-          textBody: email.textBody || undefined,
-          htmlBody: email.htmlBody || undefined,
-          rawPayload: email.rawPayload || undefined,
-        })
+        const extractedCode = extractChatGPTVerificationCodeFromSubject(
+          email.subject,
+        )
         if (extractedCode) {
           return extractedCode
         }

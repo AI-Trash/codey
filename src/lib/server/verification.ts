@@ -9,38 +9,6 @@ import {
 import { getDb } from './db/client'
 import { createId, randomCode } from './security'
 
-const VERIFICATION_CODE_TOKEN = '(\\d(?:[\\s-]?\\d){5})'
-const VERIFICATION_CONTEXT_HINT =
-  /(?:verification|one[- ]time|security|login|email)\s*code|验证码|校验码|驗證碼|otp|passcode/i
-const VERIFICATION_INLINE_PATTERNS = [
-  new RegExp(
-    `(?:verification|one[- ]time|security|login|email)\\s*code(?:\\s+is|\\s*[:：-])?\\s*${VERIFICATION_CODE_TOKEN}`,
-    'i',
-  ),
-  new RegExp(
-    `(?:code|otp|passcode)(?:\\s+is|\\s*[:：-])?\\s*${VERIFICATION_CODE_TOKEN}`,
-    'i',
-  ),
-  new RegExp(
-    `(?:验证码|校验码|驗證碼)(?:\\s*[:：-])?\\s*${VERIFICATION_CODE_TOKEN}`,
-    'i',
-  ),
-  new RegExp(
-    `${VERIFICATION_CODE_TOKEN}(?=\\s*(?:is\\s+(?:your\\s+)?)?(?:verification|one[- ]time|security|login|email)\\s*code\\b)`,
-    'i',
-  ),
-]
-const VERIFICATION_BLOCK_PATTERNS = [
-  new RegExp(
-    `(?:verification code|one[- ]time code|security code|login code|email code|验证码|校验码|驗證碼|otp|passcode)\\D{0,120}${VERIFICATION_CODE_TOKEN}`,
-    'i',
-  ),
-  new RegExp(
-    `${VERIFICATION_CODE_TOKEN}\\D{0,120}(?:verification code|one[- ]time code|security code|login code|email code|验证码|校验码|驗證碼|otp|passcode)`,
-    'i',
-  ),
-]
-
 export interface VerificationEmailPayload {
   messageId?: string | null
   subject?: string | null
@@ -48,227 +16,6 @@ export interface VerificationEmailPayload {
   htmlBody?: string | null
   rawPayload?: string | null
   receivedAt: string
-}
-
-function decodeHtmlEntities(body: string): string {
-  return body
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_match, digits: string) =>
-      String.fromCodePoint(Number(digits)),
-    )
-    .replace(/&#x([0-9a-f]+);/gi, (_match, digits: string) =>
-      String.fromCodePoint(parseInt(digits, 16)),
-    )
-}
-
-function decodeQuotedPrintable(body: string): string {
-  if (!/=([0-9A-F]{2}|\r?\n)/i.test(body)) {
-    return body
-  }
-
-  const normalized = body.replace(/=\r?\n/g, '')
-  const bytes: number[] = []
-
-  for (let index = 0; index < normalized.length; index += 1) {
-    const char = normalized[index]
-    if (
-      char === '=' &&
-      /^[0-9A-F]{2}$/i.test(normalized.slice(index + 1, index + 3))
-    ) {
-      bytes.push(parseInt(normalized.slice(index + 1, index + 3), 16))
-      index += 2
-      continue
-    }
-
-    bytes.push(...Buffer.from(char, 'utf8'))
-  }
-
-  return Buffer.from(bytes).toString('utf8')
-}
-
-function stripHtml(body: string): string {
-  return decodeHtmlEntities(
-    body
-      .replace(/<!--[\s\S]*?-->/g, ' ')
-      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-      .replace(/<(br|\/p|\/div|\/li|\/tr|\/td|\/th|\/h\d)\b[^>]*>/gi, '\n')
-      .replace(/<[^>]+>/g, ' '),
-  )
-}
-
-function normalizeVerificationText(body: string): string {
-  return body
-    .replace(/\r/g, '')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    .replace(/\u00A0/g, ' ')
-    .replace(/[ \t\f\v]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-function sanitizeCodeToken(value: string): string | null {
-  const digits = value.replace(/\D/g, '')
-  return digits.length === 6 ? digits : null
-}
-
-function collectUniqueCodes(body: string): string[] {
-  const codes = new Set<string>()
-  for (const match of body.matchAll(/\b\d{6}\b/g)) {
-    if (match[0]) {
-      codes.add(match[0])
-    }
-  }
-  return Array.from(codes)
-}
-
-function extractVerificationCodeFromText(
-  body: string,
-  options: {
-    allowLooseFallback?: boolean
-  } = {},
-): string | null {
-  const normalized = normalizeVerificationText(body)
-  if (!normalized) {
-    return null
-  }
-
-  const lines = normalized
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  for (const line of lines) {
-    for (const pattern of VERIFICATION_INLINE_PATTERNS) {
-      const match = line.match(pattern)
-      const code = sanitizeCodeToken(match?.[1] || '')
-      if (code) {
-        return code
-      }
-    }
-  }
-
-  for (let index = 0; index < lines.length - 1; index += 1) {
-    if (!VERIFICATION_CONTEXT_HINT.test(lines[index] || '')) {
-      continue
-    }
-
-    const code = sanitizeCodeToken(lines[index + 1] || '')
-    if (code) {
-      return code
-    }
-  }
-
-  const collapsed = lines.join(' ')
-  for (const pattern of VERIFICATION_BLOCK_PATTERNS) {
-    const match = collapsed.match(pattern)
-    const code = sanitizeCodeToken(match?.[1] || '')
-    if (code) {
-      return code
-    }
-  }
-
-  if (!options.allowLooseFallback) {
-    return null
-  }
-
-  const standaloneCodes = new Set<string>()
-  for (const line of lines) {
-    if (!/^\D*\d(?:[\s-]?\d){5}\D*$/.test(line)) {
-      continue
-    }
-
-    const code = sanitizeCodeToken(line)
-    if (code) {
-      standaloneCodes.add(code)
-    }
-  }
-  if (standaloneCodes.size === 1) {
-    return Array.from(standaloneCodes)[0] || null
-  }
-
-  const uniqueCodes = collectUniqueCodes(collapsed)
-  return uniqueCodes.length === 1 ? uniqueCodes[0] || null : null
-}
-
-function uniqueBodies(values: Array<string | undefined>): string[] {
-  return Array.from(
-    new Set(
-      values
-        .map((value) => normalizeVerificationText(value || ''))
-        .filter(Boolean),
-    ),
-  )
-}
-
-export function extractVerificationCode(body: string): string | null {
-  const decoded = decodeQuotedPrintable(body)
-  if (/<[a-z!/][^>]*>/i.test(decoded)) {
-    const htmlTextCode = extractVerificationCodeFromText(stripHtml(decoded), {
-      allowLooseFallback: true,
-    })
-    if (htmlTextCode) {
-      return htmlTextCode
-    }
-  }
-
-  return extractVerificationCodeFromText(
-    normalizeVerificationText(decodeHtmlEntities(decoded)),
-    {
-      allowLooseFallback: true,
-    },
-  )
-}
-
-export function extractVerificationCodeFromEmail(
-  message: Pick<
-    VerificationEmailPayload,
-    'subject' | 'textBody' | 'htmlBody' | 'rawPayload'
-  >,
-): string | null {
-  const trustedBodies = uniqueBodies([
-    message.subject || '',
-    decodeQuotedPrintable(message.textBody || ''),
-    stripHtml(decodeQuotedPrintable(message.htmlBody || '')),
-    stripHtml(decodeQuotedPrintable(message.rawPayload || '')),
-  ])
-
-  for (const body of trustedBodies) {
-    const code = extractVerificationCodeFromText(body)
-    if (code) {
-      return code
-    }
-  }
-
-  const trustedFallback = extractVerificationCodeFromText(
-    trustedBodies.join('\n'),
-    {
-      allowLooseFallback: true,
-    },
-  )
-  if (trustedFallback) {
-    return trustedFallback
-  }
-
-  const rawBodies = uniqueBodies([
-    decodeQuotedPrintable(message.htmlBody || ''),
-    decodeQuotedPrintable(message.rawPayload || ''),
-  ])
-
-  for (const body of rawBodies) {
-    const code = extractVerificationCodeFromText(body)
-    if (code) {
-      return code
-    }
-  }
-
-  return extractVerificationCodeFromText(rawBodies.join('\n'), {
-    allowLooseFallback: true,
-  })
 }
 
 function buildReservationEmail(id: string): {
@@ -371,38 +118,8 @@ export async function findVerificationCode(params: {
     receivedAt: email.receivedAt.toISOString(),
   }))
 
-  const rankedCandidates = [
-    ...codeRows.map((codeRow) => ({
-      code: codeRow.code,
-      receivedAt: codeRow.receivedAt.toISOString(),
-      priority: codeRow.source === 'MANUAL' ? 30 : 10,
-    })),
-    ...emails
-      .map((email) => {
-        const code = extractVerificationCodeFromEmail(email)
-        if (!code) {
-          return null
-        }
-        return {
-          code,
-          receivedAt: email.receivedAt,
-          priority: 20,
-        }
-      })
-      .filter((candidate): candidate is NonNullable<typeof candidate> =>
-        Boolean(candidate),
-      ),
-  ].sort((left, right) => {
-    const timeDelta =
-      new Date(right.receivedAt).getTime() - new Date(left.receivedAt).getTime()
-    if (timeDelta !== 0) {
-      return timeDelta
-    }
-    return right.priority - left.priority
-  })
-
-  const matchingCode = rankedCandidates[0]
-  if (!matchingCode) {
+  const manualCode = codeRows[0]
+  if (!manualCode) {
     return {
       reservationId: reservation.id,
       status: 'pending' as const,
@@ -413,8 +130,8 @@ export async function findVerificationCode(params: {
   return {
     reservationId: reservation.id,
     status: 'resolved' as const,
-    code: matchingCode.code,
-    receivedAt: matchingCode.receivedAt,
+    code: manualCode.code,
+    receivedAt: manualCode.receivedAt.toISOString(),
     emails,
   }
 }
