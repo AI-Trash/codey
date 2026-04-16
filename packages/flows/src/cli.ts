@@ -24,6 +24,7 @@ import {
   parseBooleanFlag,
   parseNumberFlag,
   prepareRuntimeConfig,
+  printFlowCompletionSummary,
   redactForOutput,
   shouldKeepFlowOpen,
   type AuthOptions,
@@ -36,15 +37,12 @@ import { runWithSession } from './modules/flow-cli/run-with-session'
 async function runFlowCommand(
   subcommand: string,
   options: FlowOptions,
-  config: ReturnType<typeof prepareRuntimeConfig>,
 ): Promise<void> {
   let result: unknown
-  let harPath: string | undefined
 
   await runWithSession(
     { artifactName: subcommand, context: {} },
     async (session) => {
-      harPath = session.harPath
       if (subcommand === 'chatgpt-register') {
         result = await registerChatGPT(session.page, options)
         return
@@ -75,21 +73,10 @@ async function runFlowCommand(
     { closeOnComplete: !shouldKeepFlowOpen(options) },
   )
 
-  console.log(
-    JSON.stringify(
-      {
-        command: `flow:${subcommand}`,
-        config: redactForOutput(config),
-        ...(harPath ? { harPath } : {}),
-        result,
-      },
-      null,
-      2,
-    ),
-  )
+  printFlowCompletionSummary(`flow:${subcommand}`, result)
   if (shouldKeepFlowOpen(options)) {
     console.error(
-      `Flow completed and the browser remains open because --record is enabled.${harPath ? ' HAR will be finalized when the session closes.' : ''} Press Ctrl+C to exit or close the browser window.`,
+      'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )
   }
 }
@@ -345,11 +332,8 @@ withCommonOptions(
   execute(
     (async () => {
       const resolvedOptions = applyFlowOptionDefaults(options)
-      const config = prepareRuntimeConfig(
-        'flow:chatgpt-register',
-        resolvedOptions,
-      )
-      await runFlowCommand('chatgpt-register', resolvedOptions, config)
+      prepareRuntimeConfig('flow:chatgpt-register', resolvedOptions)
+      await runFlowCommand('chatgpt-register', resolvedOptions)
     })(),
   )
 })
@@ -379,11 +363,8 @@ withCommonOptions(
   execute(
     (async () => {
       const resolvedOptions = applyFlowOptionDefaults(options)
-      const config = prepareRuntimeConfig(
-        'flow:chatgpt-login-passkey',
-        resolvedOptions,
-      )
-      await runFlowCommand('chatgpt-login-passkey', resolvedOptions, config)
+      prepareRuntimeConfig('flow:chatgpt-login-passkey', resolvedOptions)
+      await runFlowCommand('chatgpt-login-passkey', resolvedOptions)
     })(),
   )
 })
@@ -428,11 +409,8 @@ withCommonOptions(
   execute(
     (async () => {
       const resolvedOptions = applyFlowOptionDefaults(options)
-      const config = prepareRuntimeConfig(
-        'flow:chatgpt-login-invite',
-        resolvedOptions,
-      )
-      await runFlowCommand('chatgpt-login-invite', resolvedOptions, config)
+      prepareRuntimeConfig('flow:chatgpt-login-invite', resolvedOptions)
+      await runFlowCommand('chatgpt-login-invite', resolvedOptions)
     })(),
   )
 })
@@ -463,8 +441,8 @@ withCommonOptions(
   execute(
     (async () => {
       const resolvedOptions = applyFlowOptionDefaults(options)
-      const config = prepareRuntimeConfig('flow:codex-oauth', resolvedOptions)
-      await runFlowCommand('codex-oauth', resolvedOptions, config)
+      prepareRuntimeConfig('flow:codex-oauth', resolvedOptions)
+      await runFlowCommand('codex-oauth', resolvedOptions)
     })(),
   )
 })
@@ -489,8 +467,8 @@ withCommonOptions(
         har: true,
         record: true,
       })
-      const config = prepareRuntimeConfig('flow:noop', resolvedOptions)
-      await runFlowCommand('noop', resolvedOptions, config)
+      prepareRuntimeConfig('flow:noop', resolvedOptions)
+      await runFlowCommand('noop', resolvedOptions)
     })(),
   )
 })

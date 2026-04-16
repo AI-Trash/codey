@@ -2,8 +2,8 @@ import type { Page } from 'patchright'
 import { loadWorkspaceEnv } from '../../utils/env'
 import {
   applyFlowOptionDefaults,
+  printFlowCompletionSummary,
   prepareRuntimeConfig,
-  redactForOutput,
   reportError,
   type CommonOptions,
   shouldKeepFlowOpen,
@@ -33,32 +33,19 @@ export async function runSingleFileFlow<
     options,
     definition.defaultOptions,
   )
-  const config = prepareRuntimeConfig(definition.command, resolvedOptions)
+  prepareRuntimeConfig(definition.command, resolvedOptions)
   let result!: TResult
-  let harPath: string | undefined
   await runWithSession(
     { artifactName: definition.command, context: {} },
     async (session) => {
-      harPath = session.harPath
       result = await definition.run(session.page, resolvedOptions)
     },
     { closeOnComplete: !shouldKeepFlowOpen(resolvedOptions) },
   )
-  console.log(
-    JSON.stringify(
-      {
-        command: definition.command,
-        config: redactForOutput(config),
-        ...(harPath ? { harPath } : {}),
-        result,
-      },
-      null,
-      2,
-    ),
-  )
+  printFlowCompletionSummary(definition.command, result)
   if (shouldKeepFlowOpen(resolvedOptions)) {
     console.error(
-      `Flow completed and the browser remains open because --record is enabled.${harPath ? ' HAR will be finalized when the session closes.' : ''} Press Ctrl+C to exit or close the browser window.`,
+      'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )
   }
   return result

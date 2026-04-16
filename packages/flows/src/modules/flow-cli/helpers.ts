@@ -180,6 +180,150 @@ export function prepareRuntimeConfig(
   return config
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+  return value as Record<string, unknown>
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.filter((entry): entry is string => typeof entry === 'string')
+}
+
+function formatSummaryValue(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const sanitized = redactForOutput(value)
+    return typeof sanitized === 'string' && sanitized.trim() ? sanitized : undefined
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'yes' : 'no'
+  }
+
+  return undefined
+}
+
+function formatBooleanLabel(
+  value: boolean | undefined,
+  yesLabel: string,
+  noLabel: string,
+): string | undefined {
+  if (value == null) return undefined
+  return value ? yesLabel : noLabel
+}
+
+function appendSummaryLine(
+  lines: string[],
+  label: string,
+  value: unknown,
+): void {
+  const formatted = formatSummaryValue(value)
+  if (!formatted) return
+  lines.push(`${label}: ${formatted}`)
+}
+
+function formatInviteCounts(result: Record<string, unknown>): string | undefined {
+  const requested = asStringArray(result.requestedEmails)?.length
+  const invited = asStringArray(result.invitedEmails)?.length
+  const skipped = asStringArray(result.skippedEmails)?.length
+  const errored = asStringArray(result.erroredEmails)?.length
+
+  const parts = [
+    requested != null ? `requested ${requested}` : undefined,
+    invited != null ? `invited ${invited}` : undefined,
+    skipped != null ? `skipped ${skipped}` : undefined,
+    errored != null ? `errored ${errored}` : undefined,
+  ].filter((part): part is string => Boolean(part))
+
+  return parts.length ? parts.join(', ') : undefined
+}
+
+export function formatFlowCompletionSummary(
+  command: string,
+  result: unknown,
+): string {
+  const record = asRecord(result)
+  const pageName = typeof record?.pageName === 'string' ? record.pageName : ''
+  const lines = [`${command} ${pageName === 'noop' ? 'ready' : 'completed'}`]
+
+  if (!record) {
+    return lines.join('\n')
+  }
+
+  if (pageName === 'chatgpt-register') {
+    appendSummaryLine(lines, 'email', record.email)
+    appendSummaryLine(lines, 'verified', asBoolean(record.verified))
+    appendSummaryLine(
+      lines,
+      'passkey',
+      formatBooleanLabel(asBoolean(record.passkeyCreated), 'created', 'not created'),
+    )
+    appendSummaryLine(
+      lines,
+      'passkey check',
+      formatBooleanLabel(
+        asBoolean(asRecord(record.sameSessionPasskeyCheck)?.authenticated),
+        'passed',
+        'failed',
+      ),
+    )
+    appendSummaryLine(lines, 'identity', asRecord(record.storedIdentity)?.id)
+    appendSummaryLine(lines, 'page', record.url)
+    return lines.join('\n')
+  }
+
+  if (pageName === 'chatgpt-login-passkey') {
+    appendSummaryLine(lines, 'email', record.email)
+    appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))
+    appendSummaryLine(lines, 'method', record.method)
+    appendSummaryLine(lines, 'identity', asRecord(record.storedIdentity)?.id)
+    appendSummaryLine(lines, 'page', record.url)
+    return lines.join('\n')
+  }
+
+  if (pageName === 'chatgpt-login-invite') {
+    const invites = asRecord(record.invites)
+    appendSummaryLine(lines, 'email', record.email)
+    appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))
+    appendSummaryLine(lines, 'strategy', invites?.strategy)
+    appendSummaryLine(lines, 'invites', invites ? formatInviteCounts(invites) : undefined)
+    appendSummaryLine(lines, 'page', record.url)
+    return lines.join('\n')
+  }
+
+  if (pageName === 'codex-oauth') {
+    const axonHub = asRecord(record.axonHub)
+    const channel = asRecord(axonHub?.channel)
+    appendSummaryLine(lines, 'channel', channel?.name ?? channel?.id)
+    appendSummaryLine(lines, 'project', axonHub?.projectId)
+    appendSummaryLine(lines, 'redirect', record.redirectUri)
+    appendSummaryLine(lines, 'token', 'stored locally')
+    appendSummaryLine(lines, 'page', record.url)
+    return lines.join('\n')
+  }
+
+  appendSummaryLine(lines, 'page', record.url)
+  appendSummaryLine(lines, 'title', record.title)
+  return lines.join('\n')
+}
+
+export function printFlowCompletionSummary(
+  command: string,
+  result: unknown,
+): void {
+  console.log(formatFlowCompletionSummary(command, result))
+}
+
 export function reportError(error: unknown): never {
   const message = sanitizeErrorForOutput(error).message
   console.error(

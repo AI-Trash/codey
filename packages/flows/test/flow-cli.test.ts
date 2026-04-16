@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { noopFlow } from '../src/flows/noop'
 import {
   applyFlowOptionDefaults,
+  formatFlowCompletionSummary,
   shouldKeepFlowOpen,
   type FlowOptions,
 } from '../src/modules/flow-cli/helpers'
@@ -38,5 +39,94 @@ describe('flow cli helpers', () => {
       har: true,
       record: true,
     })
+  })
+
+  it('renders a compact register flow summary without machine or artifact details', () => {
+    const summary = formatFlowCompletionSummary('flow:chatgpt-register', {
+      pageName: 'chatgpt-register',
+      url: 'https://chatgpt.com/?code=secret',
+      title: 'ChatGPT',
+      email: 'person@example.com',
+      verified: true,
+      passkeyCreated: true,
+      passkeyStore: {
+        credentials: [{ id: 'cred-1' }],
+      },
+      storedIdentity: {
+        id: 'identity-123',
+        email: 'person@example.com',
+        storePath: 'C:/tmp/identity.json',
+      },
+      sameSessionPasskeyCheck: {
+        authenticated: true,
+      },
+      machine: {
+        state: 'completed',
+      },
+    })
+
+    expect(summary).toContain('flow:chatgpt-register completed')
+    expect(summary).toContain('email: person@example.com')
+    expect(summary).toContain('verified: yes')
+    expect(summary).toContain('passkey: created')
+    expect(summary).toContain('passkey check: passed')
+    expect(summary).toContain('identity: identity-123')
+    expect(summary).not.toContain('machine')
+    expect(summary).not.toContain('passkeyStore')
+    expect(summary).not.toContain('storePath')
+    expect(summary).not.toContain('code=secret')
+  })
+
+  it('renders compact invite and oauth summaries without artifact payloads', () => {
+    const inviteSummary = formatFlowCompletionSummary('flow:chatgpt-login-invite', {
+      pageName: 'chatgpt-login-invite',
+      url: 'https://chatgpt.com/admin?token=secret',
+      email: 'person@example.com',
+      authenticated: true,
+      invites: {
+        strategy: 'api',
+        requestedEmails: ['a@example.com', 'b@example.com'],
+        invitedEmails: ['a@example.com'],
+        skippedEmails: ['b@example.com'],
+        erroredEmails: [],
+      },
+      inviteInputs: {
+        inviteFilePath: 'C:/tmp/members.csv',
+      },
+    })
+
+    const oauthSummary = formatFlowCompletionSummary('flow:codex-oauth', {
+      pageName: 'codex-oauth',
+      url: 'https://app.example.com/callback?access_token=secret',
+      redirectUri: 'http://localhost:3000/callback?code=secret',
+      tokenStorePath: 'C:/tmp/token.json',
+      token: {
+        accessToken: 'secret',
+      },
+      axonHub: {
+        projectId: 'project-42',
+        channel: {
+          id: 'channel-1',
+          name: 'Codey',
+          credentials: {
+            oauth: {
+              accessToken: 'secret',
+            },
+          },
+        },
+      },
+    })
+
+    expect(inviteSummary).toContain('strategy: api')
+    expect(inviteSummary).toContain('invites: requested 2, invited 1, skipped 1, errored 0')
+    expect(inviteSummary).not.toContain('inviteFilePath')
+    expect(inviteSummary).not.toContain('token=secret')
+
+    expect(oauthSummary).toContain('channel: Codey')
+    expect(oauthSummary).toContain('project: project-42')
+    expect(oauthSummary).toContain('token: stored locally')
+    expect(oauthSummary).not.toContain('tokenStorePath')
+    expect(oauthSummary).not.toContain('accessToken')
+    expect(oauthSummary).not.toContain('code=secret')
   })
 })
