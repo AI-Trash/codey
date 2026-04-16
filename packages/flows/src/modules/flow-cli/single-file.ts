@@ -2,6 +2,7 @@ import type { Page } from 'patchright'
 import { loadWorkspaceEnv } from '../../utils/env'
 import {
   applyFlowOptionDefaults,
+  createConsoleFlowProgressReporter,
   printFlowCompletionSummary,
   prepareRuntimeConfig,
   reportError,
@@ -33,17 +34,23 @@ export async function runSingleFileFlow<
     options,
     definition.defaultOptions,
   )
+  const runtimeOptions = {
+    ...resolvedOptions,
+    progressReporter:
+      resolvedOptions.progressReporter ||
+      createConsoleFlowProgressReporter(definition.command),
+  } as TOptions
   prepareRuntimeConfig(definition.command, resolvedOptions)
   let result!: TResult
   await runWithSession(
     { artifactName: definition.command, context: {} },
     async (session) => {
-      result = await definition.run(session.page, resolvedOptions)
+      result = await definition.run(session.page, runtimeOptions)
     },
-    { closeOnComplete: !shouldKeepFlowOpen(resolvedOptions) },
+    { closeOnComplete: !shouldKeepFlowOpen(runtimeOptions) },
   )
   printFlowCompletionSummary(definition.command, result)
-  if (shouldKeepFlowOpen(resolvedOptions)) {
+  if (shouldKeepFlowOpen(runtimeOptions)) {
     console.error(
       'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )

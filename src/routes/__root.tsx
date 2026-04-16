@@ -57,7 +57,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
-      <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(13,148,136,0.18)] selection:text-[var(--sea-ink)]">
+      <body className="font-sans antialiased [overflow-wrap:anywhere]">
         {!isAdminRoute ? <Header /> : null}
         {children}
         {!isAdminRoute ? <Footer /> : null}

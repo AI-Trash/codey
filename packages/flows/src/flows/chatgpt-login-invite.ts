@@ -31,6 +31,9 @@ export async function loginChatGPTAndInviteMembers(
   page: Parameters<typeof loginChatGPTWithStoredPasskey>[0],
   options: FlowOptions = {},
 ): Promise<ChatGPTLoginInviteFlowResult> {
+  options.progressReporter?.({
+    message: 'Resolving invite targets',
+  })
   const inviteInputs = resolveInviteEmails(options)
   if (!inviteInputs.emails.length) {
     throw new Error(
@@ -39,7 +42,13 @@ export async function loginChatGPTAndInviteMembers(
   }
 
   const login = await loginChatGPTWithStoredPasskey(page, options)
+  options.progressReporter?.({
+    message: 'Inviting workspace members',
+  })
   const invites = await inviteWorkspaceMembers(page, inviteInputs.emails)
+  options.progressReporter?.({
+    message: 'Workspace invitations completed',
+  })
 
   return {
     pageName: 'chatgpt-login-invite',

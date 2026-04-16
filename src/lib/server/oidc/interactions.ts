@@ -29,14 +29,16 @@ function renderPage(params: {
       <title>${escapeHtml(params.title)}</title>
       <style>
         :root {
-          --sea-ink: #0f172a;
-          --sea-ink-soft: #475569;
-          --lagoon-deep: #0f766e;
-          --surface: #ffffff;
-          --surface-muted: #f8fafc;
-          --line: #dbe3ee;
-          --danger: #8b4040;
-          --danger-bg: rgba(155, 73, 73, 0.1);
+          --background: #fafafa;
+          --foreground: #09090b;
+          --card: #ffffff;
+          --muted: #f4f4f5;
+          --muted-foreground: #71717a;
+          --border: #e4e4e7;
+          --primary: #18181b;
+          --primary-foreground: #fafafa;
+          --destructive: #dc2626;
+          --destructive-foreground: #ffffff;
         }
         * { box-sizing: border-box; }
         body {
@@ -46,35 +48,35 @@ function renderPage(params: {
           align-items: center;
           justify-content: center;
           padding: 1.5rem;
-          background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+          background: var(--background);
           font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          color: var(--sea-ink);
+          color: var(--foreground);
         }
         main {
           width: min(44rem, 100%);
-          border: 1px solid var(--line);
-          background: var(--surface);
-          border-radius: 1.5rem;
+          border: 1px solid var(--border);
+          background: var(--card);
+          border-radius: 0.75rem;
           padding: 1.5rem;
-          box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
         }
         .kicker {
           margin: 0 0 0.5rem;
-          font-size: 0.72rem;
-          font-weight: 700;
-          letter-spacing: 0.16em;
+          font-size: 0.75rem;
+          font-weight: 600;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          color: var(--lagoon-deep);
+          color: var(--muted-foreground);
         }
         h1 {
           margin: 0;
-          font-size: clamp(2rem, 4vw, 2.6rem);
-          line-height: 1.05;
+          font-size: clamp(2rem, 4vw, 2.5rem);
+          line-height: 1.1;
         }
         p {
           margin: 0;
-          color: var(--sea-ink-soft);
-          line-height: 1.8;
+          color: var(--muted-foreground);
+          line-height: 1.7;
         }
         .stack {
           margin-top: 1.25rem;
@@ -89,33 +91,42 @@ function renderPage(params: {
         .actions > * { flex: 1 1 12rem; }
         button {
           width: 100%;
-          border-radius: 1rem;
-          border: 1px solid var(--line);
-          padding: 0.9rem 1rem;
+          border-radius: 0.5rem;
+          border: 1px solid var(--primary);
+          padding: 0.75rem 1rem;
           font: inherit;
-          font-weight: 700;
+          font-weight: 500;
           cursor: pointer;
-          background: color-mix(in oklab, var(--lagoon-deep) 10%, white);
-          color: var(--lagoon-deep);
+          background: var(--primary);
+          color: var(--primary-foreground);
         }
         .danger {
-          background: var(--danger-bg);
-          color: var(--danger);
+          border-color: var(--destructive);
+          background: var(--destructive);
+          color: var(--destructive-foreground);
         }
         .secondary {
-          background: var(--surface-muted);
-          color: var(--sea-ink);
+          border-color: var(--border);
+          background: var(--card);
+          color: var(--foreground);
         }
         a.button-link {
           display: inline-flex;
           text-decoration: none;
         }
         code {
-          border: 1px solid var(--line);
-          background: var(--surface-muted);
-          border-radius: 0.6rem;
+          border: 1px solid var(--border);
+          background: var(--muted);
+          border-radius: 0.375rem;
           padding: 0.2rem 0.5rem;
-          color: var(--sea-ink);
+          color: var(--foreground);
+        }
+        .error {
+          border: 1px solid #fecaca;
+          background: #fef2f2;
+          color: #991b1b;
+          border-radius: 0.5rem;
+          padding: 0.75rem 1rem;
         }
       </style>
     </head>

@@ -43,6 +43,7 @@ import {
   runSingleFileFlowFromCli,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
+import { attachStateMachineProgressReporter } from '../modules/flow-cli/helpers'
 import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 
 export type ChatGPTLoginPasskeyFlowKind = 'chatgpt-login-passkey'
@@ -343,26 +344,30 @@ export async function loginChatGPTWithStoredPasskey(
     Pick<Partial<ChatGPTLoginPasskeyFlowOptions>, 'virtualAuthenticator'> = {},
 ): Promise<ChatGPTLoginPasskeyFlowResult> {
   const machine = createChatGPTLoginPasskeyMachine()
+  const detachProgress = attachStateMachineProgressReporter(
+    machine,
+    options.progressReporter,
+  )
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
   })
 
-  machine.start(
-    {
-      email: stored.identity.email,
-      storedIdentity: stored.summary,
-      method: 'passkey',
-      passkeyCreated: Boolean(stored.identity.passkeyStore?.credentials.length),
-      passkeyStore: stored.identity.passkeyStore,
-      url: CHATGPT_ENTRY_LOGIN_URL,
-    },
-    {
-      source: 'loginChatGPTWithStoredPasskey',
-    },
-  )
-
   try {
+    machine.start(
+      {
+        email: stored.identity.email,
+        storedIdentity: stored.summary,
+        method: 'passkey',
+        passkeyCreated: Boolean(stored.identity.passkeyStore?.credentials.length),
+        passkeyStore: stored.identity.passkeyStore,
+        url: CHATGPT_ENTRY_LOGIN_URL,
+      },
+      {
+        source: 'loginChatGPTWithStoredPasskey',
+      },
+    )
+
     transitionLoginMachine(machine, 'opening-entry', 'chatgpt.entry.opened', {
       email: stored.identity.email,
       url: CHATGPT_ENTRY_LOGIN_URL,
@@ -524,6 +529,8 @@ export async function loginChatGPTWithStoredPasskey(
       },
     })
     throw error
+  } finally {
+    detachProgress()
   }
 }
 

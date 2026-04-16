@@ -65,6 +65,7 @@ import {
   clickPasswordTimeoutRetry,
 } from '../modules/chatgpt/shared'
 import {
+  attachStateMachineProgressReporter,
   parseBooleanFlag,
   parseNumberFlag,
   type FlowOptions,
@@ -423,6 +424,10 @@ export async function registerChatGPT(
   const config = getRuntimeConfig()
 
   const machine = createChatGPTRegistrationMachine()
+  const detachProgress = attachStateMachineProgressReporter(
+    machine,
+    options.progressReporter,
+  )
   const verificationProvider = createVerificationProvider(config)
   const { email, prefix, mailbox } =
     await verificationProvider.prepareEmailTarget()
@@ -435,21 +440,21 @@ export async function registerChatGPT(
   const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
   const startedAt = new Date().toISOString()
 
-  machine.start(
-    {
-      email,
-      prefix,
-      mailbox,
-      createPasskey,
-      passkeyCreated: false,
-      url: CHATGPT_ENTRY_LOGIN_URL,
-    },
-    {
-      source: 'registerChatGPT',
-    },
-  )
-
   try {
+    machine.start(
+      {
+        email,
+        prefix,
+        mailbox,
+        createPasskey,
+        passkeyCreated: false,
+        url: CHATGPT_ENTRY_LOGIN_URL,
+      },
+      {
+        source: 'registerChatGPT',
+      },
+    )
+
     await verificationProvider.primeInbox()
 
     transitionRegistrationMachine(
@@ -791,6 +796,8 @@ export async function registerChatGPT(
       },
     })
     throw error
+  } finally {
+    detachProgress()
   }
 }
 

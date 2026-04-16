@@ -1,72 +1,83 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute('/admin/login')({
+import { Badge } from "#/components/ui/badge";
+import { Button } from "#/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "#/components/ui/card";
+
+export const Route = createFileRoute("/admin/login")({
   component: AdminLoginPage,
-})
+});
 
 function AdminLoginPage() {
   return (
-    <main className="page-wrap px-4 py-12">
-      <section className="island-shell admin-hero rise-in rounded-[2rem] px-6 py-8 sm:px-10 sm:py-10">
-        <div className="relative z-10 grid gap-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
-          <div className="max-w-3xl">
-            <div className="mb-4 flex flex-wrap gap-2">
-              <span className="admin-chip">Admin login</span>
-              <span className="admin-status-pill" data-tone="good">
-                GitHub OAuth
-              </span>
+    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 md:py-14">
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_380px]">
+        <Card>
+          <CardHeader className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">Admin login</Badge>
+              <Badge>GitHub OAuth</Badge>
             </div>
-            <h1 className="display-title mb-4 text-4xl leading-[1.02] font-bold tracking-tight text-[var(--sea-ink)] sm:text-6xl">
-              Open the operator side of Codey.
-            </h1>
-            <p className="mb-6 max-w-2xl text-base leading-8 text-[var(--sea-ink-soft)] sm:text-lg">
-              Browser sign-in is the gateway to device approvals, verification
-              oversight, saved identity review, and flow app queue management.
-              Keep the session in GitHub, then step back into the control plane.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <a
-                href="/auth/github?redirectTo=/admin"
-                className="admin-button admin-button-primary"
-              >
-                Continue with GitHub
-              </a>
-              <a href="/device" className="admin-button admin-button-secondary">
-                View device page
-              </a>
+            <div className="space-y-3">
+              <CardTitle className="text-4xl tracking-tight sm:text-5xl">
+                Open the operator side of Codey.
+              </CardTitle>
+              <CardDescription className="max-w-2xl text-sm leading-7">
+                Browser sign-in is the gateway to device approvals,
+                verification oversight, saved identity review, and flow app
+                queue management.
+              </CardDescription>
             </div>
-          </div>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-3">
+            <Button asChild>
+              <a href="/auth/github?redirectTo=/admin">Continue with GitHub</a>
+            </Button>
+            <Button asChild variant="outline">
+              <a href="/device">View device page</a>
+            </Button>
+          </CardContent>
+        </Card>
 
-          <article className="admin-panel admin-panel-muted">
-            <p className="island-kicker mb-2">What you unlock</p>
-            <ul className="admin-list">
-              {[
-                [
-                  'Approve CLI device challenges',
-                  'Review pending browser handshakes and unblock flow operators quickly.',
-                ],
-                [
-                  'Inspect verification motion',
-                  'Scan code capture, reservations, and inbound email summaries from one page.',
-                ],
-                [
-                  'Manage account coverage',
-                  'See saved identities, config readiness, and GitHub Actions auto-add-account requests.',
-                ],
-              ].map(([title, detail]) => (
-                <li key={title} className="admin-list-item">
-                  <strong className="block text-[var(--sea-ink)]">
-                    {title}
-                  </strong>
-                  <p className="mt-2 mb-0 text-sm leading-7 text-[var(--sea-ink-soft)]">
-                    {detail}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </article>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardDescription>What you unlock</CardDescription>
+            <CardTitle className="text-xl">Admin capabilities</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {[
+              {
+                title: "Approve CLI device challenges",
+                detail:
+                  "Review pending browser handshakes and unblock flow operators quickly.",
+              },
+              {
+                title: "Inspect verification motion",
+                detail:
+                  "Scan code capture, reservations, and inbound email summaries from one page.",
+              },
+              {
+                title: "Manage account coverage",
+                detail:
+                  "See saved identities, config readiness, and GitHub Actions auto-add-account requests.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="space-y-1 rounded-lg border bg-muted/30 p-4">
+                <p className="text-sm font-medium text-foreground">{item.title}</p>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {item.detail}
+                </p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </section>
     </main>
-  )
+  );
 }

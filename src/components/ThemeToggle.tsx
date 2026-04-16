@@ -78,7 +78,7 @@ export default function ThemeToggle() {
       onClick={toggleMode}
       aria-label={label}
       title={label}
-      className="rounded-full border-[var(--chip-line)] bg-[var(--chip-bg)] text-[var(--sea-ink)] shadow-[0_8px_22px_rgba(30,90,72,0.08)] hover:-translate-y-0.5 hover:bg-[var(--chip-bg)]"
+      className="size-8"
     >
       <SunMoon aria-hidden="true" />
     </Button>

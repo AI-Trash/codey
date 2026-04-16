@@ -20,6 +20,7 @@ import {
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
 import {
   applyFlowOptionDefaults,
+  createConsoleFlowProgressReporter,
   execute,
   parseBooleanFlag,
   parseNumberFlag,
@@ -38,28 +39,34 @@ async function runFlowCommand(
   subcommand: string,
   options: FlowOptions,
 ): Promise<void> {
+  const runtimeOptions: FlowOptions = {
+    ...options,
+    progressReporter:
+      options.progressReporter ||
+      createConsoleFlowProgressReporter(`flow:${subcommand}`),
+  }
   let result: unknown
 
   await runWithSession(
     { artifactName: subcommand, context: {} },
     async (session) => {
       if (subcommand === 'chatgpt-register') {
-        result = await registerChatGPT(session.page, options)
+        result = await registerChatGPT(session.page, runtimeOptions)
         return
       }
 
       if (subcommand === 'chatgpt-login-passkey') {
-        result = await loginChatGPTWithStoredPasskey(session.page, options)
+        result = await loginChatGPTWithStoredPasskey(session.page, runtimeOptions)
         return
       }
 
       if (subcommand === 'chatgpt-login-invite') {
-        result = await loginChatGPTAndInviteMembers(session.page, options)
+        result = await loginChatGPTAndInviteMembers(session.page, runtimeOptions)
         return
       }
 
       if (subcommand === 'codex-oauth') {
-        result = await runCodexOAuthFlow(session.page, options)
+        result = await runCodexOAuthFlow(session.page, runtimeOptions)
         return
       }
 
@@ -70,11 +77,11 @@ async function runFlowCommand(
 
       throw new Error(`Unsupported flow command: ${subcommand || '(missing)'}`)
     },
-    { closeOnComplete: !shouldKeepFlowOpen(options) },
+    { closeOnComplete: !shouldKeepFlowOpen(runtimeOptions) },
   )
 
   printFlowCompletionSummary(`flow:${subcommand}`, result)
-  if (shouldKeepFlowOpen(options)) {
+  if (shouldKeepFlowOpen(runtimeOptions)) {
     console.error(
       'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )

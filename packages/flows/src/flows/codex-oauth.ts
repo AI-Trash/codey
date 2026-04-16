@@ -7,6 +7,7 @@ import type {
   StateMachineSnapshot,
 } from '../state-machine'
 import {
+  attachStateMachineProgressReporter,
   parseNumberFlag,
   sanitizeErrorForOutput,
   type FlowOptions,
@@ -275,20 +276,24 @@ export async function runCodexOAuthFlow(
   const config = getRuntimeConfig()
   const codexConfig = getRequiredCodexConfig()
   const machine = createCodexOAuthMachine()
+  const detachProgress = attachStateMachineProgressReporter(
+    machine,
+    options.progressReporter,
+  )
   const channelName = resolveChannelName(options)
   const projectId = resolveProjectId(options)
 
-  machine.start(
-    {
-      channelName,
-      projectId,
-    },
-    {
-      source: 'runCodexOAuthFlow',
-    },
-  )
-
   try {
+    machine.start(
+      {
+        channelName,
+        projectId,
+      },
+      {
+        source: 'runCodexOAuthFlow',
+      },
+    )
+
     const redirectPort =
       parseNumberFlag(options.redirectPort, codexConfig.redirectPort) ||
       codexConfig.redirectPort ||
@@ -467,6 +472,8 @@ export async function runCodexOAuthFlow(
       },
     })
     throw error
+  } finally {
+    detachProgress()
   }
 }
 

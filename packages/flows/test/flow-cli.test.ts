@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { noopFlow } from '../src/flows/noop'
 import {
   applyFlowOptionDefaults,
+  formatFlowProgressUpdate,
   formatFlowCompletionSummary,
   shouldKeepFlowOpen,
   type FlowOptions,
@@ -44,7 +45,7 @@ describe('flow cli helpers', () => {
   it('renders a compact register flow summary without machine or artifact details', () => {
     const summary = formatFlowCompletionSummary('flow:chatgpt-register', {
       pageName: 'chatgpt-register',
-      url: 'https://chatgpt.com/?code=secret',
+      url: 'https://chatgpt.com/?mfa_token=secret',
       title: 'ChatGPT',
       email: 'person@example.com',
       verified: true,
@@ -74,7 +75,8 @@ describe('flow cli helpers', () => {
     expect(summary).not.toContain('machine')
     expect(summary).not.toContain('passkeyStore')
     expect(summary).not.toContain('storePath')
-    expect(summary).not.toContain('code=secret')
+    expect(summary).not.toContain('mfa_token')
+    expect(summary).not.toContain('?')
   })
 
   it('renders compact invite and oauth summaries without artifact payloads', () => {
@@ -128,5 +130,27 @@ describe('flow cli helpers', () => {
     expect(oauthSummary).not.toContain('tokenStorePath')
     expect(oauthSummary).not.toContain('accessToken')
     expect(oauthSummary).not.toContain('code=secret')
+  })
+
+  it('formats live flow progress updates as readable one-line messages', () => {
+    const progress = formatFlowProgressUpdate('flow:chatgpt-register', {
+      status: 'running',
+      state: 'verification-polling',
+      event: 'context.updated',
+      message: 'Polling verification provider for verification code',
+      attempt: 3,
+    })
+
+    const failure = formatFlowProgressUpdate('flow:chatgpt-register', {
+      status: 'failed',
+      message: 'ChatGPT registration failed',
+      error: 'Verification code=secret was rejected',
+    })
+
+    expect(progress).toBe(
+      '[flow:chatgpt-register] Polling verification provider for verification code (attempt 3)',
+    )
+    expect(failure).toContain('ChatGPT registration failed')
+    expect(failure).toContain('Verification code=***redacted*** was rejected')
   })
 })

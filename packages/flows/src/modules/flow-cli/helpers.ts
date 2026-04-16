@@ -3,6 +3,10 @@ import {
   setRuntimeConfig,
   type CliRuntimeConfig,
 } from '../../config'
+import type {
+  MachineStatus,
+  StateMachineController,
+} from '../../state-machine'
 
 export interface CommonOptions {
   config?: string
@@ -10,6 +14,7 @@ export interface CommonOptions {
   headless?: string | boolean
   slowMo?: string | boolean
   har?: string | boolean
+  progressReporter?: FlowProgressReporter
 }
 
 export interface FlowOptions extends CommonOptions {
@@ -45,6 +50,17 @@ export interface ExchangeOptions extends CommonOptions {
 
 const REDACTED = '***redacted***'
 
+export interface FlowProgressUpdate {
+  status?: MachineStatus
+  state?: string
+  event?: string
+  message?: string
+  attempt?: number
+  error?: string
+}
+
+export type FlowProgressReporter = (update: FlowProgressUpdate) => void
+
 function sanitizeText(value: string): string {
   return value
     .replace(/\b(Bearer|bearer)\s+[A-Za-z0-9\-._~+/]+=*/g, '$1 ***redacted***')
@@ -71,6 +87,14 @@ function sanitizeUrlString(value: string): string {
   } catch {
     return value
   }
+}
+
+function sanitizeSummaryString(value: string): string {
+  if (/^https?:\/\//i.test(value.trim())) {
+    return sanitizeUrlString(value)
+  }
+
+  return sanitizeText(value)
 }
 
 function sanitizeValue(key: string, current: unknown): unknown {
@@ -198,8 +222,8 @@ function asStringArray(value: unknown): string[] | undefined {
 
 function formatSummaryValue(value: unknown): string | undefined {
   if (typeof value === 'string') {
-    const sanitized = redactForOutput(value)
-    return typeof sanitized === 'string' && sanitized.trim() ? sanitized : undefined
+    const sanitized = sanitizeSummaryString(value)
+    return sanitized.trim() ? sanitized : undefined
   }
 
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -322,6 +346,85 @@ export function printFlowCompletionSummary(
   result: unknown,
 ): void {
   console.log(formatFlowCompletionSummary(command, result))
+}
+
+export function formatFlowProgressUpdate(
+  command: string,
+  update: FlowProgressUpdate,
+): string | undefined {
+  if (update.status === 'failed' && !update.error) {
+    return undefined
+  }
+
+  let body = typeof update.message === 'string' ? sanitizeSummaryString(update.message) : undefined
+
+  if (!body && update.event && update.event !== 'machine.started') {
+    body = update.event
+  }
+
+  if (!body && update.state && update.state !== 'idle') {
+    body = update.state
+  }
+
+  if (!body) {
+    return undefined
+  }
+
+  if (typeof update.attempt === 'number' && Number.isFinite(update.attempt)) {
+    body += ` (attempt ${update.attempt})`
+  }
+
+  if (update.status === 'failed' && update.error) {
+    const error = sanitizeSummaryString(update.error)
+    if (!body.includes(error)) {
+      body += `: ${error}`
+    }
+  }
+
+  return `[${command}] ${body}`
+}
+
+export function createConsoleFlowProgressReporter(
+  command: string,
+): FlowProgressReporter {
+  let lastLine: string | undefined
+
+  return (update) => {
+    const line = formatFlowProgressUpdate(command, update)
+    if (!line || line === lastLine) {
+      return
+    }
+
+    lastLine = line
+    console.error(line)
+  }
+}
+
+export function attachStateMachineProgressReporter<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+>(
+  machine: StateMachineController<State, Context, Event>,
+  reporter?: FlowProgressReporter,
+): () => void {
+  if (!reporter) {
+    return () => {}
+  }
+
+  return machine.subscribe((snapshot) => {
+    const context = asRecord(snapshot.context)
+    reporter({
+      status: snapshot.status,
+      state: snapshot.state,
+      event: snapshot.lastEvent,
+      message:
+        typeof context?.lastMessage === 'string' ? context.lastMessage : undefined,
+      attempt:
+        typeof context?.lastAttempt === 'number' ? context.lastAttempt : undefined,
+      error: snapshot.error?.message,
+    })
+  })
 }
 
 export function reportError(error: unknown): never {
