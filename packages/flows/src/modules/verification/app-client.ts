@@ -16,6 +16,7 @@ import {
   readAppSession,
   saveAppSession,
 } from '../app-auth/token-store'
+import { extractVerificationCodeFromMessage } from '../chatgpt/common'
 import type {
   VerificationEmailTarget,
   WaitForVerificationCodeOptions,
@@ -31,6 +32,16 @@ export interface AppVerificationCodeLookupResponse {
   status: 'pending' | 'resolved'
   code?: string
   receivedAt?: string
+  emails?: AppVerificationEmailRecord[]
+}
+
+export interface AppVerificationEmailRecord {
+  messageId?: string | null
+  subject?: string | null
+  textBody?: string | null
+  htmlBody?: string | null
+  rawPayload?: string | null
+  receivedAt: string
 }
 
 export interface AppVerificationEvent {
@@ -39,6 +50,7 @@ export interface AppVerificationEvent {
   email?: string
   code?: string
   receivedAt?: string
+  emails?: AppVerificationEmailRecord[]
 }
 
 const VERIFICATION_READ_SCOPE = 'verification:read'
@@ -294,6 +306,17 @@ export class AppVerificationProviderClient {
         {},
         [VERIFICATION_READ_SCOPE],
       )
+      for (const email of result.emails || []) {
+        const extractedCode = extractVerificationCodeFromMessage({
+          subject: email.subject || undefined,
+          textBody: email.textBody || undefined,
+          htmlBody: email.htmlBody || undefined,
+          rawPayload: email.rawPayload || undefined,
+        })
+        if (extractedCode) {
+          return extractedCode
+        }
+      }
       if (result.status === 'resolved' && result.code) {
         return result.code
       }
@@ -347,6 +370,7 @@ export class AppVerificationProviderClient {
           email: params.email,
           code: payload.code,
           receivedAt: payload.receivedAt,
+          emails: payload.emails,
         }
         continue
       }
