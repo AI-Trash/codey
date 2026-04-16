@@ -8,8 +8,9 @@ FROM base AS deps
 WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY drizzle.config.ts tsconfig.json tsconfig.base.json vite.config.ts ./
+COPY drizzle.config.ts nitro.config.ts tsconfig.json tsconfig.base.json vite.config.ts ./
 COPY components.json ./
+COPY server ./server
 COPY src ./src
 COPY public ./public
 COPY messages ./messages
