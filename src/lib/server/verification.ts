@@ -1,5 +1,16 @@
 import '@tanstack/react-start/server-only'
-import { and, asc, desc, eq, gt, gte, inArray, or } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  or,
+} from 'drizzle-orm'
 import { getAppEnv } from './env'
 import {
   emailIngestRecords,
@@ -39,6 +50,17 @@ export interface AdminInboxEmail {
   latestCodeReceivedAt: string | null
 }
 
+export interface AdminInboxPage {
+  emails: AdminInboxEmail[]
+  page: number
+  pageSize: number
+  totalCount: number
+  pageCount: number
+  hasNextPage: boolean
+  hasPreviousPage: boolean
+  search: string
+}
+
 type AdminInboxCursor = {
   createdAt: Date
   id: string
@@ -48,6 +70,49 @@ type AdminInboxCodeSummary = {
   code: string
   source: string
   receivedAt: string
+}
+
+const DEFAULT_ADMIN_INBOX_PAGE_SIZE = 25
+const MAX_ADMIN_INBOX_PAGE_SIZE = 100
+
+function normalizeAdminInboxPageParams(params?: {
+  page?: number
+  pageSize?: number
+  search?: string | null
+}) {
+  const requestedPage =
+    typeof params?.page === 'number' && Number.isFinite(params.page)
+      ? Math.floor(params.page)
+      : 1
+  const requestedPageSize =
+    typeof params?.pageSize === 'number' && Number.isFinite(params.pageSize)
+      ? Math.floor(params.pageSize)
+      : DEFAULT_ADMIN_INBOX_PAGE_SIZE
+
+  return {
+    page: Math.max(1, requestedPage),
+    pageSize: Math.min(
+      MAX_ADMIN_INBOX_PAGE_SIZE,
+      Math.max(1, requestedPageSize),
+    ),
+    search: params?.search?.trim() || '',
+  }
+}
+
+function buildAdminInboxFilter(search: string) {
+  if (!search) {
+    return undefined
+  }
+
+  const pattern = `%${search}%`
+  return or(
+    ilike(emailIngestRecords.recipient, pattern),
+    ilike(emailIngestRecords.subject, pattern),
+    ilike(emailIngestRecords.textBody, pattern),
+    ilike(emailIngestRecords.htmlBody, pattern),
+    ilike(emailIngestRecords.rawPayload, pattern),
+    ilike(emailIngestRecords.messageId, pattern),
+  )
 }
 
 export function encodeAdminInboxCursor(params: {
@@ -339,29 +404,67 @@ export async function ingestCloudflareEmail(params: {
 }
 
 export async function listAdminInboxEmails(options?: { limit?: number }) {
-  const emails = await getDb().query.emailIngestRecords.findMany({
+  return (
+    await listAdminInboxEmailsPage({
+      page: 1,
+      pageSize: options?.limit ?? 100,
+    })
+  ).emails
+}
+
+export async function listAdminInboxEmailsPage(options?: {
+  page?: number
+  pageSize?: number
+  search?: string | null
+}): Promise<AdminInboxPage> {
+  const params = normalizeAdminInboxPageParams(options)
+  const filter = buildAdminInboxFilter(params.search)
+  const db = getDb()
+
+  const totalCountResult = filter
+    ? await db.select({ count: count() }).from(emailIngestRecords).where(filter)
+    : await db.select({ count: count() }).from(emailIngestRecords)
+  const totalCount = Number(totalCountResult[0]?.count ?? 0)
+  const pageCount = totalCount ? Math.ceil(totalCount / params.pageSize) : 0
+  const page = Math.min(params.page, Math.max(1, pageCount || 1))
+  const offset = (page - 1) * params.pageSize
+
+  const emails = await db.query.emailIngestRecords.findMany({
     with: {
       reservation: true,
     },
+    where: filter,
     orderBy: [desc(emailIngestRecords.createdAt), desc(emailIngestRecords.id)],
-    limit: options?.limit ?? 100,
+    limit: params.pageSize,
+    offset,
   })
 
   const reservationIds = Array.from(
     new Set(
       emails
         .map((email) => email.reservationId)
-        .filter((reservationId): reservationId is string => Boolean(reservationId)),
+        .filter(
+          (reservationId): reservationId is string => Boolean(reservationId),
+        ),
     ),
   )
   const latestCodes = await getLatestCodeByReservationId(reservationIds)
 
-  return emails.map((email) =>
-    serializeAdminInboxEmail(
-      email,
-      email.reservationId ? latestCodes.get(email.reservationId) : undefined,
+  return {
+    emails: emails.map((email) =>
+      serializeAdminInboxEmail(
+        email,
+        email.reservationId ? latestCodes.get(email.reservationId) : undefined,
+      ),
     ),
-  )
+    page,
+    pageSize: params.pageSize,
+    totalCount,
+    pageCount,
+    hasNextPage: pageCount > 0 && page < pageCount,
+    hasPreviousPage: page > 1,
+    search: params.search,
+  }
 }
 
 export async function listAdminInboxEmailsAfterCursor(options?: {

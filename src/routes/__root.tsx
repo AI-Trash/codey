@@ -8,6 +8,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import Footer from '../components/Footer'
 import Header from '../components/Header'
+import { AppQueryProvider } from '../components/query-provider'
 
 import { getLocale } from '#/paraglide/runtime'
 
@@ -58,21 +59,23 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere]">
-        {!isAdminRoute ? <Header /> : null}
-        {children}
-        {!isAdminRoute ? <Footer /> : null}
-        <TanStackDevtools
-          config={{
-            position: 'bottom-right',
-          }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
-        <Scripts />
+        <AppQueryProvider>
+          {!isAdminRoute ? <Header /> : null}
+          {children}
+          {!isAdminRoute ? <Footer /> : null}
+          <TanStackDevtools
+            config={{
+              position: 'bottom-right',
+            }}
+            plugins={[
+              {
+                name: 'Tanstack Router',
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+            ]}
+          />
+          <Scripts />
+        </AppQueryProvider>
       </body>
     </html>
   )

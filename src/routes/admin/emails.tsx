@@ -1,26 +1,25 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 
-import {
-  AdminMetricCard,
-  AdminPageHeader,
-  formatAdminDate,
-} from '#/components/admin/layout'
+import { AdminPageHeader } from '#/components/admin/layout'
 import {
   AdminMailInbox,
-  type AdminMailInboxEmail,
+  type AdminMailInboxPageData,
 } from '#/components/admin/mail-inbox'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
 import { Button } from '#/components/ui/button'
 
 const loadAdminMailInbox = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const [{ getRequest }, { requireAdmin }, { encodeAdminInboxCursor, listAdminInboxEmails }] =
-      await Promise.all([
-        import('@tanstack/react-start/server'),
-        import('../../lib/server/auth'),
-        import('../../lib/server/verification'),
-      ])
+    const [
+      { getRequest },
+      { requireAdmin },
+      { encodeAdminInboxCursor, listAdminInboxEmailsPage },
+    ] = await Promise.all([
+      import('@tanstack/react-start/server'),
+      import('../../lib/server/auth'),
+      import('../../lib/server/verification'),
+    ])
 
     const request = getRequest()
 
@@ -31,15 +30,17 @@ const loadAdminMailInbox = createServerFn({ method: 'GET' }).handler(
     }
 
     const loadedAt = new Date().toISOString()
-    const emails = (await listAdminInboxEmails({
-      limit: 100,
-    })) as AdminMailInboxEmail[]
+    const initialPage = (await listAdminInboxEmailsPage({
+      page: 1,
+      pageSize: 25,
+      search: '',
+    })) as AdminMailInboxPageData
 
     return {
       authorized: true as const,
-      emails,
+      initialPage,
       initialCursor:
-        emails[0]?.cursor ||
+        initialPage.emails[0]?.cursor ||
         encodeAdminInboxCursor({
           createdAt: loadedAt,
           id: '',
@@ -60,12 +61,6 @@ function AdminMailInboxPage() {
     return <AdminAuthRequired />
   }
 
-  const codeReadyCount = data.emails.filter((email) => email.latestCode).length
-  const linkedReservationCount = data.emails.filter(
-    (email) => email.reservationEmail,
-  ).length
-  const newestReceivedAt = formatAdminDate(data.emails[0]?.receivedAt)
-
   return (
     <>
       <AdminPageHeader
@@ -79,31 +74,8 @@ function AdminMailInboxPage() {
         }
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AdminMetricCard
-          label="Loaded emails"
-          value={String(data.emails.length)}
-          description="Newest inbound emails currently loaded into the dedicated inbox view."
-        />
-        <AdminMetricCard
-          label="Codes visible"
-          value={String(codeReadyCount)}
-          description="Loaded messages already associated with a verification code."
-        />
-        <AdminMetricCard
-          label="Reservations linked"
-          value={String(linkedReservationCount)}
-          description="Emails that still resolve to an app-managed reservation alias."
-        />
-        <AdminMetricCard
-          label="Latest delivery"
-          value={newestReceivedAt || 'Waiting'}
-          description="The most recent inbound message currently visible in the table."
-        />
-      </section>
-
       <AdminMailInbox
-        initialEmails={data.emails}
+        initialPage={data.initialPage}
         initialCursor={data.initialCursor}
       />
     </>

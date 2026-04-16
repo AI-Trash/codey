@@ -72,6 +72,23 @@ const operationsSubNavigation = [
   },
 ] as const
 
+const oauthAppsSubNavigation = [
+  {
+    label: 'App registry',
+    to: '/admin/apps',
+    icon: AppWindowIcon,
+    matches: (pathname: string) =>
+      pathname === '/admin/apps' ||
+      (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
+  },
+  {
+    label: 'Register app',
+    to: '/admin/apps/new',
+    icon: PlusCircleIcon,
+    matches: (pathname: string) => pathname === '/admin/apps/new',
+  },
+] as const
+
 const adminNavigation = [
   {
     label: 'Operations',
@@ -87,13 +104,9 @@ const adminNavigation = [
     icon: AppWindowIcon,
     matches: (pathname: string) =>
       pathname === '/admin/apps' ||
+      pathname === '/admin/apps/new' ||
       (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
-  },
-  {
-    label: 'Register app',
-    to: '/admin/apps/new',
-    icon: PlusCircleIcon,
-    matches: (pathname: string) => pathname === '/admin/apps/new',
+    children: oauthAppsSubNavigation,
   },
 ] as const
 
