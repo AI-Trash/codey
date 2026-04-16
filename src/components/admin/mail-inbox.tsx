@@ -160,7 +160,7 @@ export function AdminMailInbox(props: {
     null
 
   useEffect(() => {
-    setHtmlPreviewOpen(false)
+    setHtmlPreviewOpen(Boolean(activeEmail?.htmlBody || activeEmail?.textBody))
   }, [activeEmail?.id])
 
   useEffect(() => {
@@ -318,7 +318,7 @@ export function AdminMailInbox(props: {
           <CardContent className="space-y-4">
             {data.emails.length > 0 ? (
               <>
-                <Table className="min-w-[1180px]">
+                <Table className="min-w-[920px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Received</TableHead>
@@ -326,7 +326,6 @@ export function AdminMailInbox(props: {
                       <TableHead>Subject</TableHead>
                       <TableHead>Delivery</TableHead>
                       <TableHead>Code</TableHead>
-                      <TableHead>Preview</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -374,9 +373,6 @@ export function AdminMailInbox(props: {
                               Pending
                             </span>
                           )}
-                        </TableCell>
-                        <TableCell className="max-w-[380px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
-                          {getEmailPreview(email)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -500,6 +496,13 @@ export function AdminMailInbox(props: {
                   />
                 </dl>
 
+                <RenderedEmailPreview
+                  html={activeEmail.htmlBody}
+                  text={activeEmail.textBody}
+                  open={htmlPreviewOpen}
+                  onOpenChange={setHtmlPreviewOpen}
+                />
+
                 <Tabs
                   key={activeEmail.id}
                   defaultValue={getInitialContentTab(activeEmail)}
@@ -507,7 +510,7 @@ export function AdminMailInbox(props: {
                 >
                   <TabsList variant="line" className="w-full justify-start">
                     <TabsTrigger value="text">Text</TabsTrigger>
-                    <TabsTrigger value="html">HTML</TabsTrigger>
+                    <TabsTrigger value="html">HTML source</TabsTrigger>
                     <TabsTrigger value="raw">Raw payload</TabsTrigger>
                   </TabsList>
 
@@ -515,12 +518,7 @@ export function AdminMailInbox(props: {
                     <EmailContentPanel value={activeEmail.textBody} />
                   </TabsContent>
 
-                  <TabsContent value="html" className="space-y-3">
-                    <RenderedHtmlPreview
-                      html={activeEmail.htmlBody}
-                      open={htmlPreviewOpen}
-                      onOpenChange={setHtmlPreviewOpen}
-                    />
+                  <TabsContent value="html">
                     <EmailContentPanel value={activeEmail.htmlBody} />
                   </TabsContent>
 
@@ -575,8 +573,9 @@ function DetailItem(props: { label: string; value: string; code?: boolean }) {
   )
 }
 
-function RenderedHtmlPreview(props: {
+function RenderedEmailPreview(props: {
   html: string | null
+  text: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -592,10 +591,10 @@ function RenderedHtmlPreview(props: {
               <FileCodeIcon className="size-4 text-muted-foreground" />
               <div>
                 <div className="text-sm font-medium text-foreground">
-                  Rendered HTML preview
+                  Email preview
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Open a sandboxed preview of the HTML email body.
+                  Render the email body in a collapsible preview panel.
                 </div>
               </div>
             </div>
@@ -616,9 +615,15 @@ function RenderedHtmlPreview(props: {
               srcDoc={buildHtmlPreviewDocument(props.html)}
               className="h-[360px] w-full bg-white"
             />
+          ) : props.text ? (
+            <ScrollArea className="h-[280px] bg-background">
+              <div className="whitespace-pre-wrap p-4 text-sm leading-6 text-foreground">
+                {props.text}
+              </div>
+            </ScrollArea>
           ) : (
             <div className="p-4 text-sm text-muted-foreground">
-              This message did not include HTML content.
+              This message did not include previewable content.
             </div>
           )}
         </CollapsibleContent>
@@ -662,25 +667,6 @@ async function fetchAdminMailInboxPage(params: {
   }
 
   return (await response.json()) as AdminMailInboxPageData
-}
-
-function getEmailPreview(email: AdminMailInboxEmail) {
-  const previewSource =
-    email.textBody || email.htmlBody || email.rawPayload || email.subject || ''
-  const compactPreview = previewSource
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  if (!compactPreview) {
-    return 'No preview captured.'
-  }
-
-  return compactPreview.length > 220
-    ? `${compactPreview.slice(0, 217)}...`
-    : compactPreview
 }
 
 function getInitialContentTab(email: AdminMailInboxEmail) {
