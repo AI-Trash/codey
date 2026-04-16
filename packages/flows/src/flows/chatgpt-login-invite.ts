@@ -8,9 +8,9 @@ import {
 } from '../modules/chatgpt/workspace-invites'
 import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 import {
-  loginChatGPTWithStoredPasskey,
-  type ChatGPTLoginPasskeyFlowResult,
-} from './chatgpt-login-passkey'
+  loginChatGPT,
+  type ChatGPTLoginFlowResult,
+} from './chatgpt-login'
 import {
   runSingleFileFlowFromCli,
   type SingleFileFlowDefinition,
@@ -22,13 +22,13 @@ export interface ChatGPTLoginInviteFlowResult {
   title: string
   email: string
   authenticated: boolean
-  login: ChatGPTLoginPasskeyFlowResult
+  login: ChatGPTLoginFlowResult
   invites: ChatGPTWorkspaceInviteResult
   inviteInputs: ResolvedInviteEmails
 }
 
 export async function loginChatGPTAndInviteMembers(
-  page: Parameters<typeof loginChatGPTWithStoredPasskey>[0],
+  page: Parameters<typeof loginChatGPT>[0],
   options: FlowOptions = {},
 ): Promise<ChatGPTLoginInviteFlowResult> {
   options.progressReporter?.({
@@ -41,7 +41,7 @@ export async function loginChatGPTAndInviteMembers(
     )
   }
 
-  const login = await loginChatGPTWithStoredPasskey(page, options)
+  const login = await loginChatGPT(page, options)
   options.progressReporter?.({
     message: 'Inviting workspace members',
   })

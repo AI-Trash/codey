@@ -21,6 +21,15 @@ function readManagedIdentityStatus(
   return "ACTIVE";
 }
 
+function readRedirectTo(value: FormDataEntryValue | null): string | undefined {
+  const redirectTo = String(value || "").trim();
+  if (!redirectTo || !redirectTo.startsWith("/admin")) {
+    return undefined;
+  }
+
+  return redirectTo;
+}
+
 export const Route = createFileRoute("/api/admin/identities")({
   server: {
     handlers: {
@@ -63,7 +72,7 @@ export const Route = createFileRoute("/api/admin/identities")({
           return json({ ok: true, id: record.id });
         }
 
-        return redirect("/admin#overview");
+        return redirect(readRedirectTo(form.get("redirectTo")) || "/admin#overview");
       },
     },
   },

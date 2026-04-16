@@ -3,6 +3,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import {
   AppWindowIcon,
   ChevronsUpDownIcon,
+  FingerprintIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MailIcon,
@@ -93,6 +94,12 @@ function getOperationsSubNavigation() {
       icon: MailIcon,
       matches: (pathname: string) => pathname === '/admin/emails',
     },
+    {
+      label: m.admin_nav_identities(),
+      to: '/admin/identities',
+      icon: FingerprintIcon,
+      matches: (pathname: string) => pathname === '/admin/identities',
+    },
   ] as const
 }
 
@@ -125,7 +132,9 @@ function getAdminNavigation() {
       to: '/admin',
       icon: LayoutDashboardIcon,
       matches: (pathname: string) =>
-        pathname === '/admin' || pathname === '/admin/emails',
+        pathname === '/admin' ||
+        pathname === '/admin/emails' ||
+        pathname === '/admin/identities',
       children: operationsSubNavigation,
     },
     {
@@ -539,6 +548,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/emails') {
     return m.admin_nav_mail_inbox()
+  }
+
+  if (pathname === '/admin/identities') {
+    return m.admin_nav_identities()
   }
 
   if (pathname === '/admin/apps/new') {

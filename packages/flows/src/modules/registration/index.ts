@@ -60,7 +60,7 @@ function mergeSelectors(
 }
 
 function resolveCreatePasskey(createPasskey?: boolean): boolean {
-  return createPasskey ?? true
+  return createPasskey ?? false
 }
 
 async function openRegistration(

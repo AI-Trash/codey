@@ -4,10 +4,10 @@ export {
   createChatGPTRegistrationMachine,
 } from './flows/chatgpt-register'
 export {
-  loginChatGPTWithStoredPasskey,
-  chatgptLoginPasskeyFlow,
-  createChatGPTLoginPasskeyMachine,
-} from './flows/chatgpt-login-passkey'
+  loginChatGPT,
+  chatgptLoginFlow,
+  createChatGPTLoginMachine,
+} from './flows/chatgpt-login'
 export {
   loginChatGPTAndInviteMembers,
   chatgptLoginInviteFlow,
@@ -15,7 +15,7 @@ export {
 export { runCodexOAuthFlow, codexOAuthFlow } from './flows/codex-oauth'
 export { openNoopFlow, noopFlow } from './flows/noop'
 export type * from './flows/chatgpt-register'
-export type * from './flows/chatgpt-login-passkey'
+export type * from './flows/chatgpt-login'
 export type * from './flows/chatgpt-login-invite'
 export type * from './flows/codex-oauth'
 export type * from './flows/noop'

@@ -48,13 +48,14 @@ import {
 } from '../modules/flow-cli/single-file'
 import {
   attachStateMachineProgressReporter,
+  parseBooleanFlag,
   sanitizeErrorForOutput,
 } from '../modules/flow-cli/helpers'
 import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 
-export type ChatGPTLoginPasskeyFlowKind = 'chatgpt-login-passkey'
+export type ChatGPTLoginFlowKind = 'chatgpt-login'
 
-export type ChatGPTLoginPasskeyFlowState =
+export type ChatGPTLoginFlowState =
   | 'idle'
   | 'opening-entry'
   | 'email-step'
@@ -73,7 +74,7 @@ export type ChatGPTLoginPasskeyFlowState =
   | 'completed'
   | 'failed'
 
-export type ChatGPTLoginPasskeyFlowEvent =
+export type ChatGPTLoginFlowEvent =
   | 'machine.started'
   | 'chatgpt.entry.opened'
   | 'chatgpt.email.started'
@@ -100,8 +101,8 @@ export type ChatGPTLoginPasskeyFlowEvent =
   | 'action.started'
   | 'action.finished'
 
-export interface ChatGPTLoginPasskeyFlowContext<Result = unknown> {
-  kind: ChatGPTLoginPasskeyFlowKind
+export interface ChatGPTLoginFlowContext<Result = unknown> {
+  kind: ChatGPTLoginFlowKind
   url?: string
   title?: string
   email?: string
@@ -115,41 +116,42 @@ export interface ChatGPTLoginPasskeyFlowContext<Result = unknown> {
   result?: Result
 }
 
-export type ChatGPTLoginPasskeyFlowMachine<Result = unknown> =
+export type ChatGPTLoginFlowMachine<Result = unknown> =
   StateMachineController<
-    ChatGPTLoginPasskeyFlowState,
-    ChatGPTLoginPasskeyFlowContext<Result>,
-    ChatGPTLoginPasskeyFlowEvent
+    ChatGPTLoginFlowState,
+    ChatGPTLoginFlowContext<Result>,
+    ChatGPTLoginFlowEvent
   >
 
-export type ChatGPTLoginPasskeyFlowSnapshot<Result = unknown> =
+export type ChatGPTLoginFlowSnapshot<Result = unknown> =
   StateMachineSnapshot<
-    ChatGPTLoginPasskeyFlowState,
-    ChatGPTLoginPasskeyFlowContext<Result>,
-    ChatGPTLoginPasskeyFlowEvent
+    ChatGPTLoginFlowState,
+    ChatGPTLoginFlowContext<Result>,
+    ChatGPTLoginFlowEvent
   >
 
-export interface ChatGPTLoginPasskeyFlowOptions {
+export interface ChatGPTLoginFlowOptions {
   identityId?: string
   email?: string
+  preferPasskey?: boolean
   virtualAuthenticator?: VirtualAuthenticatorOptions
-  machine?: ChatGPTLoginPasskeyFlowMachine<ChatGPTLoginPasskeyFlowResult>
+  machine?: ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult>
 }
 
-export interface ChatGPTLoginPasskeyFlowResult {
-  pageName: 'chatgpt-login-passkey'
+export interface ChatGPTLoginFlowResult {
+  pageName: 'chatgpt-login'
   url: string
   title: string
   email: string
   method: 'passkey' | 'password' | 'verification'
   authenticated: boolean
   storedIdentity: StoredChatGPTIdentitySummary
-  machine: ChatGPTLoginPasskeyFlowSnapshot<ChatGPTLoginPasskeyFlowResult>
+  machine: ChatGPTLoginFlowSnapshot<ChatGPTLoginFlowResult>
 }
 
 type ChatGPTLoginSurfaceStrategy = 'open-entry' | 'current-page'
 
-export interface ChatGPTStoredPasskeyLoginResult {
+export interface ChatGPTStoredLoginResult {
   email: string
   storedIdentity: StoredChatGPTIdentitySummary
   surface: 'authenticated' | 'email' | 'passkey'
@@ -159,33 +161,37 @@ export interface ChatGPTStoredPasskeyLoginResult {
   verificationCode?: string
 }
 
-export function createChatGPTLoginPasskeyMachine(): ChatGPTLoginPasskeyFlowMachine<ChatGPTLoginPasskeyFlowResult> {
+export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult> {
   return createStateMachine<
-    ChatGPTLoginPasskeyFlowState,
-    ChatGPTLoginPasskeyFlowContext<ChatGPTLoginPasskeyFlowResult>,
-    ChatGPTLoginPasskeyFlowEvent
+    ChatGPTLoginFlowState,
+    ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
+    ChatGPTLoginFlowEvent
   >({
-    id: 'flow.chatgpt.login-passkey',
+    id: 'flow.chatgpt.login',
     initialState: 'idle',
     initialContext: {
-      kind: 'chatgpt-login-passkey',
+      kind: 'chatgpt-login',
     },
     historyLimit: 200,
   })
 }
 
 function transitionLoginMachine(
-  machine: ChatGPTLoginPasskeyFlowMachine<ChatGPTLoginPasskeyFlowResult>,
-  state: ChatGPTLoginPasskeyFlowState,
-  event: ChatGPTLoginPasskeyFlowEvent,
+  machine: ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult>,
+  state: ChatGPTLoginFlowState,
+  event: ChatGPTLoginFlowEvent,
   patch?: Partial<
-    ChatGPTLoginPasskeyFlowContext<ChatGPTLoginPasskeyFlowResult>
+    ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>
   >,
 ): void {
   machine.transition(state, {
     event,
     patch,
   })
+}
+
+function emptyPasskeyStore(): VirtualPasskeyStore {
+  return { credentials: [] }
 }
 
 async function reachChatGPTLoginSurface(
@@ -218,6 +224,7 @@ async function triggerStoredPasskeyLogin(
   page: Page,
   stored: ResolvedChatGPTIdentity,
   options: {
+    preferPasskey?: boolean
     virtualAuthenticator?: VirtualAuthenticatorOptions
     onPasskeyRetry?: (
       attempt: number,
@@ -230,56 +237,16 @@ async function triggerStoredPasskeyLogin(
   passkeyStore: VirtualPasskeyStore
   verificationCode?: string
 }> {
+  const preferPasskey = options.preferPasskey ?? false
   const hasPasskey = Boolean(stored.identity.passkeyStore?.credentials.length)
-  if (!hasPasskey) {
-    throw new Error(
-      `Stored identity ${stored.identity.email} does not contain a passkey credential.`,
-    )
-  }
-
-  logStep('login_passkey_store_before_import', {
-    email: stored.identity.email,
-    credentials: summarizePasskeyCredentials(stored.identity.passkeyStore),
-  })
-
-  const virtualAuth = await loadVirtualPasskeyStore(
-    page,
-    stored.identity.passkeyStore,
-    options.virtualAuthenticator,
-  )
-  virtualAuth.session.on('WebAuthn.credentialAsserted', (event) => {
-    logStep('login_passkey_credential_asserted', {
-      email: stored.identity.email,
-      credential: {
-        credentialId: event.credential.credentialId,
-        rpId: event.credential.rpId,
-        userHandle: event.credential.userHandle,
-        signCount: event.credential.signCount,
-        isResidentCredential: event.credential.isResidentCredential,
-        backupEligibility: event.credential.backupEligibility,
-        backupState: event.credential.backupState,
-        userName: event.credential.userName,
-        userDisplayName: event.credential.userDisplayName,
-      },
-    })
-  })
-
-  const importedStore = await captureVirtualPasskeyStore(
-    virtualAuth.session,
-    virtualAuth.authenticatorId,
-  )
-  const tracker = createPasskeyAssertionTracker(
-    virtualAuth.session,
-    virtualAuth.authenticatorId,
-    importedStore,
-  )
+  const fallbackStore = stored.identity.passkeyStore ?? emptyPasskeyStore()
+  let importedStore = fallbackStore
+  let tracker: ReturnType<typeof createPasskeyAssertionTracker> | undefined
 
   try {
-    let assertionObserved = false
-
     if (await waitForAuthenticatedSession(page, 5000)) {
       return {
-        method: 'passkey',
+        method: preferPasskey && hasPasskey ? 'passkey' : 'password',
         assertionObserved: false,
         passkeyStore: importedStore,
       }
@@ -312,11 +279,61 @@ async function triggerStoredPasskeyLogin(
 
     if (postEmailStep === 'authenticated') {
       return {
-        method: 'passkey',
+        method: preferPasskey && hasPasskey ? 'passkey' : 'password',
         assertionObserved: false,
         passkeyStore: importedStore,
       }
     }
+
+    if (!hasPasskey) {
+      throw new Error(
+        `Stored identity ${stored.identity.email} does not contain a passkey credential, but ChatGPT requested a passkey step.`,
+      )
+    }
+
+    if (!preferPasskey) {
+      logStep('login_passkey_used_as_last_resort', {
+        email: stored.identity.email,
+      })
+    }
+
+    logStep('login_passkey_store_before_import', {
+      email: stored.identity.email,
+      credentials: summarizePasskeyCredentials(stored.identity.passkeyStore),
+    })
+
+    const virtualAuth = await loadVirtualPasskeyStore(
+      page,
+      stored.identity.passkeyStore,
+      options.virtualAuthenticator,
+    )
+    virtualAuth.session.on('WebAuthn.credentialAsserted', (event) => {
+      logStep('login_passkey_credential_asserted', {
+        email: stored.identity.email,
+        credential: {
+          credentialId: event.credential.credentialId,
+          rpId: event.credential.rpId,
+          userHandle: event.credential.userHandle,
+          signCount: event.credential.signCount,
+          isResidentCredential: event.credential.isResidentCredential,
+          backupEligibility: event.credential.backupEligibility,
+          backupState: event.credential.backupState,
+          userName: event.credential.userName,
+          userDisplayName: event.credential.userDisplayName,
+        },
+      })
+    })
+
+    importedStore = await captureVirtualPasskeyStore(
+      virtualAuth.session,
+      virtualAuth.authenticatorId,
+    )
+    tracker = createPasskeyAssertionTracker(
+      virtualAuth.session,
+      virtualAuth.authenticatorId,
+      importedStore,
+    )
+    let assertionObserved = false
 
     let initialTrigger: 'retry' | 'passkey' = 'passkey'
     let retryOnlyMode = false
@@ -424,7 +441,7 @@ async function triggerStoredPasskeyLogin(
       passkeyStore,
     }
   } finally {
-    tracker.dispose()
+    tracker?.dispose()
   }
 }
 
@@ -432,6 +449,7 @@ export async function performStoredPasskeyLogin(
   page: Page,
   stored: ResolvedChatGPTIdentity,
   options: {
+    preferPasskey?: boolean
     virtualAuthenticator?: VirtualAuthenticatorOptions
     surfaceStrategy?: ChatGPTLoginSurfaceStrategy
     onPasskeyRetry?: (
@@ -458,16 +476,19 @@ export async function performStoredPasskeyLogin(
 }
 
 // Continue an already-open ChatGPT/OpenAI login challenge without navigating away.
-export async function continueChatGPTLoginWithStoredPasskey(
+export async function continueChatGPTLoginWithStoredIdentity(
   page: Page,
   options: FlowOptions &
-    Pick<Partial<ChatGPTLoginPasskeyFlowOptions>, 'virtualAuthenticator'> = {},
-): Promise<ChatGPTStoredPasskeyLoginResult> {
+    Pick<Partial<ChatGPTLoginFlowOptions>, 'virtualAuthenticator'> = {},
+): Promise<ChatGPTStoredLoginResult> {
+  const preferPasskey =
+    parseBooleanFlag(options.preferPasskey, false) ?? false
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
   })
   const passkey = await performStoredPasskeyLogin(page, stored, {
+    preferPasskey,
     virtualAuthenticator: options.virtualAuthenticator,
     surfaceStrategy: 'current-page',
     onPasskeyRetry: (attempt, trigger) => {
@@ -488,16 +509,18 @@ export async function continueChatGPTLoginWithStoredPasskey(
   }
 }
 
-export async function loginChatGPTWithStoredPasskey(
+export async function loginChatGPT(
   page: Page,
   options: FlowOptions &
-    Pick<Partial<ChatGPTLoginPasskeyFlowOptions>, 'virtualAuthenticator'> = {},
-): Promise<ChatGPTLoginPasskeyFlowResult> {
-  const machine = createChatGPTLoginPasskeyMachine()
+    Pick<Partial<ChatGPTLoginFlowOptions>, 'virtualAuthenticator'> = {},
+): Promise<ChatGPTLoginFlowResult> {
+  const machine = createChatGPTLoginMachine()
   const detachProgress = attachStateMachineProgressReporter(
     machine,
     options.progressReporter,
   )
+  const preferPasskey =
+    parseBooleanFlag(options.preferPasskey, false) ?? false
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
@@ -508,13 +531,13 @@ export async function loginChatGPTWithStoredPasskey(
       {
         email: stored.identity.email,
         storedIdentity: stored.summary,
-        method: 'passkey',
+        method: preferPasskey ? 'passkey' : 'password',
         passkeyCreated: Boolean(stored.identity.passkeyStore?.credentials.length),
         passkeyStore: stored.identity.passkeyStore,
         url: CHATGPT_ENTRY_LOGIN_URL,
       },
       {
-        source: 'loginChatGPTWithStoredPasskey',
+        source: 'loginChatGPT',
       },
     )
 
@@ -524,6 +547,7 @@ export async function loginChatGPTWithStoredPasskey(
       lastMessage: 'Opening ChatGPT login entry',
     })
     const passkey = await performStoredPasskeyLogin(page, stored, {
+      preferPasskey,
       virtualAuthenticator: options.virtualAuthenticator,
       onPasskeyRetry: (attempt, trigger) => {
         options.progressReporter?.({
@@ -664,7 +688,7 @@ export async function loginChatGPTWithStoredPasskey(
       })
     }
     const result = {
-      pageName: 'chatgpt-login-passkey' as const,
+      pageName: 'chatgpt-login' as const,
       url: page.url(),
       title,
       email: stored.identity.email,
@@ -672,7 +696,7 @@ export async function loginChatGPTWithStoredPasskey(
       authenticated: true,
       storedIdentity: stored.summary,
       machine:
-        undefined as unknown as ChatGPTLoginPasskeyFlowSnapshot<ChatGPTLoginPasskeyFlowResult>,
+        undefined as unknown as ChatGPTLoginFlowSnapshot<ChatGPTLoginFlowResult>,
     }
     const snapshot = machine.succeed('completed', {
       event: 'chatgpt.completed',
@@ -699,7 +723,7 @@ export async function loginChatGPTWithStoredPasskey(
         email: stored.identity.email,
         storedIdentity: stored.summary,
         url: page.url(),
-        lastMessage: 'ChatGPT passkey login failed',
+        lastMessage: 'ChatGPT login failed',
       },
     })
     throw error
@@ -708,12 +732,12 @@ export async function loginChatGPTWithStoredPasskey(
   }
 }
 
-export const chatgptLoginPasskeyFlow: SingleFileFlowDefinition<
+export const chatgptLoginFlow: SingleFileFlowDefinition<
   FlowOptions,
-  ChatGPTLoginPasskeyFlowResult
+  ChatGPTLoginFlowResult
 > = {
-  command: 'flow:chatgpt-login-passkey',
-  run: loginChatGPTWithStoredPasskey,
+  command: 'flow:chatgpt-login',
+  run: loginChatGPT,
 }
 
 if (
@@ -721,7 +745,7 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   runSingleFileFlowFromCli(
-    chatgptLoginPasskeyFlow,
+    chatgptLoginFlow,
     parseFlowCliArgs(process.argv.slice(2)),
   )
 }

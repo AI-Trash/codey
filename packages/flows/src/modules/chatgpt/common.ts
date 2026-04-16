@@ -15,6 +15,10 @@ export const CHATGPT_OAUTH_LOGIN_URL =
   'https://auth.openai.com/api/accounts/login'
 export const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security'
 export const ADULT_AGE = '25'
+export const ADULT_BIRTHDAY = '1999-01-01'
+export const ADULT_BIRTH_YEAR = '1999'
+export const ADULT_BIRTH_MONTH = '01'
+export const ADULT_BIRTH_DAY = '01'
 export const PROFILE_NAME = 'Codey Test'
 export const MIN_ONBOARDING_CLICKS = 3
 export const DEFAULT_EVENT_TIMEOUT_MS = 5000
@@ -105,18 +109,45 @@ export const LOGIN_NEXT_STEP_SELECTORS: SelectorTarget[] = [
 export const AGE_GATE_INPUT_SELECTORS: SelectorTarget[] = [
   'input[name="name"]',
   'input#_r_h_-name',
+  'input#_r_v_-name',
   'input[name="age"]',
   'input#_r_h_-age',
   'input[id*="age"]',
+  '[role="group"][id$="-birthday"]',
+  '[role="spinbutton"][data-type="year"]',
+  '[role="spinbutton"][data-type="month"]',
+  '[role="spinbutton"][data-type="day"]',
 ]
 export const AGE_GATE_NAME_SELECTORS: SelectorTarget[] = [
   'input[name="name"]',
   'input#_r_h_-name',
+  'input#_r_v_-name',
 ]
 export const AGE_GATE_AGE_SELECTORS: SelectorTarget[] = [
   'input[name="age"]',
   'input#_r_h_-age',
   'input[id*="age"]',
+]
+export const AGE_GATE_BIRTHDAY_GROUP_SELECTORS: SelectorTarget[] = [
+  '[role="group"][id$="-birthday"]',
+]
+export const AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS: SelectorTarget[] = [
+  'input[name="birthday"]',
+]
+export const AGE_GATE_BIRTH_YEAR_SELECTORS: SelectorTarget[] = [
+  '[role="spinbutton"][data-type="year"]',
+  '[role="spinbutton"][aria-label*="年"]',
+  '[role="spinbutton"][aria-label*="year" i]',
+]
+export const AGE_GATE_BIRTH_MONTH_SELECTORS: SelectorTarget[] = [
+  '[role="spinbutton"][data-type="month"]',
+  '[role="spinbutton"][aria-label*="月"]',
+  '[role="spinbutton"][aria-label*="month" i]',
+]
+export const AGE_GATE_BIRTH_DAY_SELECTORS: SelectorTarget[] = [
+  '[role="spinbutton"][data-type="day"]',
+  '[role="spinbutton"][aria-label*="日"]',
+  '[role="spinbutton"][aria-label*="day" i]',
 ]
 export const COMPLETE_ACCOUNT_SELECTORS: SelectorTarget[] = [
   {

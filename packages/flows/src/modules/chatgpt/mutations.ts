@@ -3,9 +3,18 @@ import { clickAny, clickIfPresent, typeIfPresent } from '../common/form-actions'
 import type { VerificationProvider } from '../verification'
 import { sleep } from '../../utils/wait'
 import {
+  ADULT_BIRTHDAY,
+  ADULT_BIRTH_DAY,
+  ADULT_BIRTH_MONTH,
+  ADULT_BIRTH_YEAR,
   ADULT_AGE,
   AGE_CONFIRM_SELECTORS,
   AGE_GATE_AGE_SELECTORS,
+  AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
+  AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
+  AGE_GATE_BIRTH_DAY_SELECTORS,
+  AGE_GATE_BIRTH_MONTH_SELECTORS,
+  AGE_GATE_BIRTH_YEAR_SELECTORS,
   AGE_GATE_NAME_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
@@ -30,6 +39,7 @@ import type { SelectorTarget } from '../../types'
 import { toLocator } from '../../utils/selectors'
 import {
   type ChatGPTPostEmailLoginStep,
+  waitForAnySelectorState,
   waitForLoginEmailFormReady,
   waitForLoginEmailSubmissionOutcome,
   waitForPasswordInputReady,
@@ -92,6 +102,10 @@ export async function clickPasswordTimeoutRetry(page: Page): Promise<boolean> {
   return false
 }
 
+export async function clickRetryButtonIfPresent(page: Page): Promise<boolean> {
+  return clickPasswordTimeoutRetry(page)
+}
+
 export async function typeVerificationCode(
   page: Page,
   code: string,
@@ -134,6 +148,89 @@ export async function fillAgeGateName(page: Page): Promise<boolean> {
 
 export async function fillAgeGateAge(page: Page): Promise<boolean> {
   return fillFirstAvailable(page, AGE_GATE_AGE_SELECTORS, ADULT_AGE)
+}
+
+async function setBirthdayHiddenInputValue(
+  page: Page,
+  value: string,
+): Promise<boolean> {
+  for (const selector of AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS) {
+    const updated = await page
+      .evaluate(
+        ({ selector, value: nextValue }) => {
+          const input = document.querySelector(selector) as HTMLInputElement | null
+          if (!input) return false
+          input.value = nextValue
+          input.setAttribute('value', nextValue)
+          input.dispatchEvent(new Event('input', { bubbles: true }))
+          input.dispatchEvent(new Event('change', { bubbles: true }))
+          return true
+        },
+        { selector: String(selector), value },
+      )
+      .catch(() => false)
+    if (updated) return true
+  }
+  return false
+}
+
+async function waitForBirthdayHiddenInputValue(
+  page: Page,
+  expected: string,
+  timeoutMs = 1000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const matches = await page
+      .evaluate((nextValue) => {
+        const input = document.querySelector(
+          'input[name="birthday"]',
+        ) as HTMLInputElement | null
+        return input?.value === nextValue
+      }, expected)
+      .catch(() => false)
+    if (matches) return true
+    await sleep(100)
+  }
+  return false
+}
+
+export async function fillAgeGateBirthday(page: Page): Promise<boolean> {
+  const birthdayGroupVisible = await waitForAnySelectorState(
+    page,
+    AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
+    'visible',
+    1500,
+  )
+  if (!birthdayGroupVisible) {
+    return setBirthdayHiddenInputValue(page, ADULT_BIRTHDAY)
+  }
+
+  const yearFilled = await typeIfPresent(
+    page,
+    AGE_GATE_BIRTH_YEAR_SELECTORS,
+    ADULT_BIRTH_YEAR,
+  )
+  const monthFilled = await typeIfPresent(
+    page,
+    AGE_GATE_BIRTH_MONTH_SELECTORS,
+    ADULT_BIRTH_MONTH,
+  )
+  const dayFilled = await typeIfPresent(
+    page,
+    AGE_GATE_BIRTH_DAY_SELECTORS,
+    ADULT_BIRTH_DAY,
+  )
+
+  if (!yearFilled || !monthFilled || !dayFilled) {
+    return false
+  }
+
+  if (await waitForBirthdayHiddenInputValue(page, ADULT_BIRTHDAY, 1500)) {
+    return true
+  }
+
+  return setBirthdayHiddenInputValue(page, ADULT_BIRTHDAY)
 }
 
 export async function confirmAgeDialogIfPresent(page: Page): Promise<boolean> {

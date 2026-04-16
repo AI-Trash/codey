@@ -24,6 +24,7 @@ export interface FlowOptions extends CommonOptions {
   pollIntervalMs?: string | boolean
   password?: string
   createPasskey?: string | boolean
+  preferPasskey?: string | boolean
   sameSessionPasskeyCheck?: string | boolean
   identityId?: string
   email?: string
@@ -306,7 +307,7 @@ export function formatFlowCompletionSummary(
     return lines.join('\n')
   }
 
-  if (pageName === 'chatgpt-login-passkey') {
+  if (pageName === 'chatgpt-login') {
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))
     appendSummaryLine(lines, 'method', record.method)

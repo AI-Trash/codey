@@ -29,6 +29,7 @@ import {
   clearAuthenticatedSessionState,
   clickPasswordSubmit,
   clickPasskeyEntry,
+  clickRetryButtonIfPresent,
   clickSignupEntry,
   clickRegistrationContinue,
   clickVerificationContinue,
@@ -37,6 +38,7 @@ import {
   completePasswordOrVerificationLoginFallback,
   confirmAgeDialogIfPresent,
   fillAgeGateAge,
+  fillAgeGateBirthday,
   fillAgeGateName,
   gotoSecuritySettings,
   submitLoginEmail,
@@ -61,7 +63,7 @@ import {
   DEFAULT_EVENT_TIMEOUT_MS,
   COMPLETE_ACCOUNT_SELECTORS,
   AGE_GATE_INPUT_SELECTORS,
-  AGE_GATE_AGE_SELECTORS,
+  PASSWORD_TIMEOUT_RETRY_SELECTORS,
   SECURITY_READY_SELECTORS,
   clickLoginEntryIfPresent,
   clickPasswordTimeoutRetry,
@@ -73,6 +75,7 @@ import {
   sanitizeErrorForOutput,
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
+import { sleep } from '../utils/wait'
 import {
   runSingleFileFlowFromCli,
   type SingleFileFlowDefinition,
@@ -226,6 +229,58 @@ function transitionRegistrationMachine(
   })
 }
 
+function isAboutYouUrl(url: string): boolean {
+  return /\/about-you(?:[/?#]|$)/i.test(url)
+}
+
+async function fillRegistrationAgeGateFields(
+  page: Page,
+): Promise<'birthday' | 'age' | null> {
+  await fillAgeGateName(page)
+  if (await fillAgeGateBirthday(page)) {
+    return 'birthday'
+  }
+  if (await fillAgeGateAge(page)) {
+    return 'age'
+  }
+  return null
+}
+
+async function waitForAgeGateSubmissionOutcome(
+  page: Page,
+  timeoutMs = 10000,
+): Promise<'advanced' | 'retry' | 'age-gate'> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!isAboutYouUrl(page.url())) {
+      return 'advanced'
+    }
+    const retryVisible = await waitForAnySelectorState(
+      page,
+      PASSWORD_TIMEOUT_RETRY_SELECTORS,
+      'visible',
+      250,
+    )
+    if (retryVisible) {
+      return 'retry'
+    }
+    await sleep(250)
+  }
+
+  if (!isAboutYouUrl(page.url())) {
+    return 'advanced'
+  }
+
+  return (await waitForAnySelectorState(
+    page,
+    PASSWORD_TIMEOUT_RETRY_SELECTORS,
+    'visible',
+    250,
+  ))
+    ? 'retry'
+    : 'age-gate'
+}
+
 async function completeRegistrationAgeGate(page: Page): Promise<void> {
   const ageGateReady = await waitForAnySelectorState(
     page,
@@ -237,25 +292,64 @@ async function completeRegistrationAgeGate(page: Page): Promise<void> {
     throw new Error('Age gate did not become ready.')
   }
 
-  await fillAgeGateName(page)
-  let ageFilled = await fillAgeGateAge(page)
-  if (!ageFilled) {
+  let filledMode = await fillRegistrationAgeGateFields(page)
+  if (!filledMode) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await clickCompleteAccountCreation(page)
       await waitForAnySelectorState(
         page,
-        AGE_GATE_AGE_SELECTORS,
+        AGE_GATE_INPUT_SELECTORS,
         'visible',
         DEFAULT_EVENT_TIMEOUT_MS,
       )
-      ageFilled = await fillAgeGateAge(page)
-      if (ageFilled) break
+      filledMode = await fillRegistrationAgeGateFields(page)
+      if (filledMode) break
     }
   }
 
-  await waitForEnabledSelector(page, COMPLETE_ACCOUNT_SELECTORS, 5000)
-  await clickCompleteAccountCreation(page)
-  await confirmAgeDialogIfPresent(page)
+  if (!filledMode) {
+    throw new Error('Age gate fields were visible but could not be filled.')
+  }
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await waitForEnabledSelector(page, COMPLETE_ACCOUNT_SELECTORS, 5000)
+    const submitted = await clickCompleteAccountCreation(page)
+    if (!submitted) {
+      throw new Error('Age gate submit button was not clickable.')
+    }
+    await confirmAgeDialogIfPresent(page)
+
+    const outcome = await waitForAgeGateSubmissionOutcome(page)
+    if (outcome === 'advanced') {
+      return
+    }
+
+    if (outcome === 'retry') {
+      const retried = await clickRetryButtonIfPresent(page)
+      if (!retried) {
+        throw new Error(
+          'Age gate retry button became visible but could not be clicked.',
+        )
+      }
+    }
+
+    const ageGateVisible = await waitForAnySelectorState(
+      page,
+      AGE_GATE_INPUT_SELECTORS,
+      'visible',
+      DEFAULT_EVENT_TIMEOUT_MS,
+    )
+    if (!ageGateVisible && !isAboutYouUrl(page.url())) {
+      return
+    }
+
+    filledMode = await fillRegistrationAgeGateFields(page)
+    if (!filledMode) {
+      throw new Error('Age gate fields reappeared but could not be refilled.')
+    }
+  }
+
+  throw new Error('Age gate submission did not complete successfully.')
 }
 
 async function provisionRegistrationPasskey(
@@ -435,7 +529,7 @@ export async function registerChatGPT(
   const { email, prefix, mailbox } =
     await verificationProvider.prepareEmailTarget()
   const password = options.password || buildPassword()
-  const createPasskey = parseBooleanFlag(options.createPasskey, true) ?? true
+  const createPasskey = parseBooleanFlag(options.createPasskey, false) ?? false
   const sameSessionPasskeyCheckEnabled =
     parseBooleanFlag(options.sameSessionPasskeyCheck, false) ?? false
   const verificationTimeoutMs =

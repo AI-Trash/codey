@@ -30,7 +30,7 @@ import {
 import { saveCodexToken } from '../modules/authorization/codex-token-store'
 import { createAuthorizationCallbackCapture } from '../modules/authorization/codex-authorization'
 import { isChatGPTLoginUrl, waitForLoginSurface } from '../modules/chatgpt/shared'
-import { continueChatGPTLoginWithStoredPasskey } from './chatgpt-login-passkey'
+import { continueChatGPTLoginWithStoredIdentity } from './chatgpt-login'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
 
@@ -389,11 +389,11 @@ export async function runCodexOAuthFlow(
         {
           url: sanitizeUrl(page.url()),
           redirectUri: started.redirectUri,
-          lastMessage: 'ChatGPT login required; continuing stored passkey login',
+          lastMessage: 'ChatGPT login required; continuing stored identity login',
         },
       )
 
-      const login = await continueChatGPTLoginWithStoredPasskey(page, options)
+      const login = await continueChatGPTLoginWithStoredIdentity(page, options)
 
       transitionCodexOAuthMachine(
         machine,

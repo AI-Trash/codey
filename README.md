@@ -139,7 +139,7 @@ Then open:
 
 ```bash
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000
-pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-login-passkey
+pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-login
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --projectId gid://axonhub/project/123
 ```
 

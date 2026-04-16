@@ -80,6 +80,17 @@ describe('flow cli helpers', () => {
   })
 
   it('renders compact invite and oauth summaries without artifact payloads', () => {
+    const loginSummary = formatFlowCompletionSummary('flow:chatgpt-login', {
+      pageName: 'chatgpt-login',
+      url: 'https://chatgpt.com/?token=secret',
+      email: 'person@example.com',
+      authenticated: true,
+      method: 'password',
+      storedIdentity: {
+        id: 'identity-123',
+        email: 'person@example.com',
+      },
+    })
     const inviteSummary = formatFlowCompletionSummary('flow:chatgpt-login-invite', {
       pageName: 'chatgpt-login-invite',
       url: 'https://chatgpt.com/admin?token=secret',
@@ -118,6 +129,13 @@ describe('flow cli helpers', () => {
         },
       },
     })
+
+    expect(loginSummary).toContain('flow:chatgpt-login completed')
+    expect(loginSummary).toContain('email: person@example.com')
+    expect(loginSummary).toContain('authenticated: yes')
+    expect(loginSummary).toContain('method: password')
+    expect(loginSummary).toContain('identity: identity-123')
+    expect(loginSummary).not.toContain('token=secret')
 
     expect(inviteSummary).toContain('strategy: api')
     expect(inviteSummary).toContain('invites: requested 2, invited 1, skipped 1, errored 0')

@@ -6,7 +6,7 @@ loadWorkspaceEnv()
 
 import {
   loginChatGPTAndInviteMembers,
-  loginChatGPTWithStoredPasskey,
+  loginChatGPT,
   openNoopFlow,
   registerChatGPT,
   runCodexOAuthFlow,
@@ -55,8 +55,8 @@ async function runFlowCommand(
         return
       }
 
-      if (subcommand === 'chatgpt-login-passkey') {
-        result = await loginChatGPTWithStoredPasskey(session.page, runtimeOptions)
+      if (subcommand === 'chatgpt-login') {
+        result = await loginChatGPT(session.page, runtimeOptions)
         return
       }
 
@@ -326,7 +326,7 @@ withCommonOptions(
     )
     .option(
       '--createPasskey <bool>',
-      'Whether to provision a passkey after registration',
+      'Whether to provision a passkey after registration (defaults to false)',
     )
     .option(
       '--sameSessionPasskeyCheck <bool>',
@@ -348,8 +348,8 @@ withCommonOptions(
 withCommonOptions(
   flowCli
     .command(
-      'chatgpt-login-passkey',
-      'Try to sign in to ChatGPT with a previously stored passkey identity',
+      'chatgpt-login',
+      'Sign in to ChatGPT with a previously stored identity, optionally preferring passkey',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
@@ -364,14 +364,20 @@ withCommonOptions(
       '--email <email>',
       'Stored identity email; defaults to the latest saved identity',
     )
-    .example('codey flow chatgpt-login-passkey')
-    .example('codey flow chatgpt-login-passkey --email someone@example.com'),
+    .option(
+      '--preferPasskey <bool>',
+      'Whether to prefer a stored passkey during login (defaults to false)',
+    )
+    .example('codey flow chatgpt-login')
+    .example(
+      'codey flow chatgpt-login --email someone@example.com --preferPasskey true',
+    ),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
       const resolvedOptions = applyFlowOptionDefaults(options)
-      prepareRuntimeConfig('flow:chatgpt-login-passkey', resolvedOptions)
-      await runFlowCommand('chatgpt-login-passkey', resolvedOptions)
+      prepareRuntimeConfig('flow:chatgpt-login', resolvedOptions)
+      await runFlowCommand('chatgpt-login', resolvedOptions)
     })(),
   )
 })
@@ -394,6 +400,10 @@ withCommonOptions(
     .option(
       '--email <email>',
       'Stored identity email; defaults to the latest saved identity',
+    )
+    .option(
+      '--preferPasskey <bool>',
+      'Whether to prefer a stored passkey during login (defaults to false)',
     )
     .option(
       '--inviteEmail <email>',
@@ -434,6 +444,10 @@ withCommonOptions(
       'Whether to keep the browser session open after the flow completes',
     )
     .option('--redirectPort <port>', 'Override OAuth callback redirect port')
+    .option(
+      '--preferPasskey <bool>',
+      'Whether to prefer a stored ChatGPT passkey if login is required (defaults to false)',
+    )
     .option(
       '--projectId <id>',
       'Optional AxonHub project context sent as X-Project-ID',
@@ -594,7 +608,9 @@ cli
   .example(
     'codey flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true',
   )
-  .example('codey flow chatgpt-login-passkey --email someone@example.com')
+  .example(
+    'codey flow chatgpt-login --email someone@example.com --preferPasskey true',
+  )
   .example(
     'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
   )

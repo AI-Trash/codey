@@ -128,7 +128,7 @@ export function createRegistrationMachine(
       url: config.options?.url,
       email: config.options?.email ?? null,
       organizationName: config.options?.organizationName ?? null,
-      createPasskey: config.options?.createPasskey ?? true,
+      createPasskey: config.options?.createPasskey ?? false,
     },
   )
 }

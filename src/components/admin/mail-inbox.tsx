@@ -12,6 +12,9 @@ import {
   ChevronRightIcon,
   FileCodeIcon,
   MailIcon,
+  RefreshCcwIcon,
+  RefreshCwIcon,
+  RefreshCwOffIcon,
   SearchIcon,
   WifiIcon,
   WifiOffIcon,
@@ -28,13 +31,11 @@ import {
 } from '#/components/admin/filterable-table'
 import {
   EmptyState,
-  StatusBadge,
   formatAdminDate,
 } from '#/components/admin/layout'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import type { FiltersState } from '#/components/data-table-filter/core/types'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
-import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -318,76 +319,87 @@ export function AdminMailInbox(props: {
 
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CardHeader className="shrink-0 gap-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-1">
-              <CardDescription>{m.mail_inbox_stream_kicker()}</CardDescription>
-              <div className="flex items-start gap-2">
-                <CardTitle>{m.mail_inbox_stream_title()}</CardTitle>
-                <InfoTooltip
-                  content={m.mail_inbox_stream_description()}
-                  label={m.mail_inbox_stream_title()}
-                  className="mt-0.5"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge
-                value={getLiveStatusLabel(liveStatus)}
-                tone={getLiveStatusTone(liveStatus)}
+          <div className="space-y-1">
+            <CardDescription>{m.mail_inbox_stream_kicker()}</CardDescription>
+            <div className="flex items-start gap-2">
+              <CardTitle>{m.mail_inbox_stream_title()}</CardTitle>
+              <InfoTooltip
+                content={m.mail_inbox_stream_description()}
+                label={m.mail_inbox_stream_title()}
+                className="mt-0.5"
               />
-              <Badge variant="outline">
-                {query.isFetching ? m.status_refreshing() : m.status_synced()}
-              </Badge>
-              <Badge variant="outline">
-                {m.mail_inbox_badge_on_page({
-                  count: String(data.emails.length),
-                })}
-              </Badge>
             </div>
           </div>
 
-          <div className="grid gap-3">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px]">
-              <label className="relative block">
-                <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => {
-                    setSearch(event.target.value)
-                    setPage(1)
-                  }}
-                  placeholder={m.mail_inbox_search_placeholder()}
-                  className="pl-9"
-                />
-              </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="relative block min-w-[220px] flex-[1_1_280px]">
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value)
+                  setPage(1)
+                }}
+                placeholder={m.mail_inbox_search_placeholder()}
+                className="pl-9"
+              />
+            </label>
 
-              <label className="grid gap-2">
-                <span className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
-                  {m.mail_inbox_page_size_label()}
-                </span>
-                <NativeSelect
-                  value={String(pageSize)}
-                  onChange={(event) => {
-                    setPageSize(Number(event.target.value))
-                    setPage(1)
-                  }}
-                  className="w-full"
-                >
-                  <NativeSelectOption value="10">
-                    {m.mail_inbox_rows_option({ count: '10' })}
-                  </NativeSelectOption>
-                  <NativeSelectOption value="25">
-                    {m.mail_inbox_rows_option({ count: '25' })}
-                  </NativeSelectOption>
-                  <NativeSelectOption value="50">
-                    {m.mail_inbox_rows_option({ count: '50' })}
-                  </NativeSelectOption>
-                </NativeSelect>
-              </label>
+            <div className="min-w-[280px] flex-[2_1_420px]">
+              <AdminDataTableFilterBar table={filterTable} />
             </div>
 
-            <AdminDataTableFilterBar table={filterTable} />
+            <div className="ml-auto flex items-center gap-2">
+              <NativeSelect
+                value={String(pageSize)}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value))
+                  setPage(1)
+                }}
+                className="w-[110px]"
+                aria-label={m.mail_inbox_page_size_label()}
+              >
+                <NativeSelectOption value="10">
+                  {m.mail_inbox_rows_option({ count: '10' })}
+                </NativeSelectOption>
+                <NativeSelectOption value="25">
+                  {m.mail_inbox_rows_option({ count: '25' })}
+                </NativeSelectOption>
+                <NativeSelectOption value="50">
+                  {m.mail_inbox_rows_option({ count: '50' })}
+                </NativeSelectOption>
+              </NativeSelect>
+
+              <div
+                className={cn(
+                  'inline-flex size-9 items-center justify-center rounded-md border bg-muted/20',
+                  liveStatus === 'offline' || query.isError
+                    ? 'text-destructive'
+                    : 'text-muted-foreground',
+                )}
+                aria-live="polite"
+                aria-label={getInboxRefreshStatusLabel({
+                  isFetching: query.isFetching,
+                  isError: query.isError,
+                  liveStatus,
+                })}
+                title={getInboxRefreshStatusLabel({
+                  isFetching: query.isFetching,
+                  isError: query.isError,
+                  liveStatus,
+                })}
+              >
+                {query.isError || liveStatus === 'offline' ? (
+                  <RefreshCwOffIcon className="size-4" />
+                ) : query.isFetching ||
+                    liveStatus === 'connecting' ||
+                    liveStatus === 'reconnecting' ? (
+                  <RefreshCwIcon className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCcwIcon className="size-4" />
+                )}
+              </div>
+            </div>
           </div>
 
           {query.isError ? (
@@ -1059,13 +1071,24 @@ function getLiveStatusLabel(status: LiveStatus) {
   }
 }
 
-function getLiveStatusTone(status: LiveStatus) {
-  switch (status) {
-    case 'live':
-      return 'good' as const
-    case 'offline':
-      return 'danger' as const
-    default:
-      return 'warning' as const
+function getInboxRefreshStatusLabel(params: {
+  liveStatus: LiveStatus
+  isFetching: boolean
+  isError: boolean
+}) {
+  if (params.isError || params.liveStatus === 'offline') {
+    return m.status_offline()
   }
+
+  if (
+    params.isFetching ||
+    params.liveStatus === 'connecting' ||
+    params.liveStatus === 'reconnecting'
+  ) {
+    return params.isFetching
+      ? m.status_refreshing()
+      : getLiveStatusLabel(params.liveStatus)
+  }
+
+  return getLiveStatusLabel(params.liveStatus)
 }

@@ -123,8 +123,17 @@ async function isEditableLocator(locator: Locator): Promise<boolean> {
     .evaluate((element) => {
       const candidate = element as HTMLInputElement | HTMLTextAreaElement
       const htmlElement = element as HTMLElement & { disabled?: boolean }
+      const isTextControl =
+        candidate instanceof HTMLInputElement ||
+        candidate instanceof HTMLTextAreaElement
+      const isContentEditable = htmlElement.isContentEditable
+
+      if (!isTextControl && !isContentEditable) {
+        return false
+      }
+
       return (
-        !candidate.readOnly &&
+        (!isTextControl || !candidate.readOnly) &&
         !htmlElement.disabled &&
         htmlElement.getAttribute('aria-disabled') !== 'true'
       )
@@ -185,8 +194,25 @@ async function locatorMatchesValue(
 ): Promise<boolean> {
   return locator
     .evaluate((element, expected) => {
-      const candidate = element as HTMLInputElement | HTMLTextAreaElement
-      return candidate.value === expected
+      const candidate = element as
+        | HTMLInputElement
+        | HTMLTextAreaElement
+        | HTMLElement
+
+      if (
+        candidate instanceof HTMLInputElement ||
+        candidate instanceof HTMLTextAreaElement
+      ) {
+        return candidate.value === expected
+      }
+
+      if (candidate.isContentEditable) {
+        const currentText =
+          candidate.textContent?.replace(/\s+/g, ' ').trim() || ''
+        return currentText === expected
+      }
+
+      return false
     }, value)
     .catch(() => false)
 }
