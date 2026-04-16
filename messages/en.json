@@ -496,6 +496,8 @@
   "admin_dashboard_all_systems_ready": "All systems ready",
   "admin_dashboard_action_required": "Action required",
   "admin_dashboard_needs_review": "Needs review",
+  "admin_table_filtered_empty_title": "No rows match the current filters",
+  "admin_table_filtered_empty_description": "Adjust or clear the filters to see more results.",
   "admin_dashboard_unknown_user": "Unknown user",
 
   "server_config_github_oauth_label": "GitHub browser OAuth",

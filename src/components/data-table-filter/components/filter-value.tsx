@@ -20,7 +20,6 @@ import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { isEqual } from 'date-fns'
-import { format } from 'date-fns'
 import { Ellipsis } from 'lucide-react'
 import {
   cloneElement,
@@ -44,7 +43,13 @@ import type {
 import { useDebounceCallback } from '../hooks/use-debounce-callback'
 import { take } from '../lib/array'
 import { createNumberRange } from '../lib/helpers'
-import { type Locale, t } from '../lib/i18n'
+import {
+  formatDateRangeValue,
+  formatDateValue,
+  formatSelectedCountLabel,
+  type Locale,
+  t,
+} from '../lib/i18n'
 import { DebouncedInput } from '../ui/debounced-input'
 
 interface FilterValueProps<TData, TType extends ColumnDataType> {
@@ -192,10 +197,6 @@ export function FilterValueOptionDisplay<TData>({
       </span>
     )
   }
-  const name = column.displayName.toLowerCase()
-  // TODO: Better pluralization for different languages
-  const pluralName = name.endsWith('s') ? `${name}es` : `${name}s`
-
   const hasOptionIcons = !options?.some((o) => !o.icon)
 
   return (
@@ -210,7 +211,7 @@ export function FilterValueOptionDisplay<TData>({
           )
         })}
       <span className={cn(hasOptionIcons && 'ml-1.5')}>
-        {selected.length} {pluralName}
+        {formatSelectedCountLabel(selected.length, locale)}
       </span>
     </div>
   )
@@ -242,8 +243,6 @@ export function FilterValueMultiOptionDisplay<TData>({
     )
   }
 
-  const name = column.displayName.toLowerCase()
-
   const hasOptionIcons = !options?.some((o) => !o.icon)
 
   return (
@@ -260,26 +259,9 @@ export function FilterValueMultiOptionDisplay<TData>({
           })}
         </div>
       )}
-      <span>
-        {selected.length} {name}
-      </span>
+      <span>{formatSelectedCountLabel(selected.length, locale)}</span>
     </div>
   )
-}
-
-function formatDateRange(start: Date, end: Date) {
-  const sameMonth = start.getMonth() === end.getMonth()
-  const sameYear = start.getFullYear() === end.getFullYear()
-
-  if (sameMonth && sameYear) {
-    return `${format(start, 'MMM d')} - ${format(end, 'd, yyyy')}`
-  }
-
-  if (sameYear) {
-    return `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}`
-  }
-
-  return `${format(start, 'MMM d, yyyy')} - ${format(end, 'MMM d, yyyy')}`
 }
 
 export function FilterValueDateDisplay<TData>({
@@ -292,15 +274,12 @@ export function FilterValueDateDisplay<TData>({
   if (filter.values.length === 0) return <Ellipsis className="size-4" />
   if (filter.values.length === 1) {
     const value = filter.values[0]
-
-    const formattedDateStr = format(value, 'MMM d, yyyy')
-
-    return <span>{formattedDateStr}</span>
+    return <span>{formatDateValue(value, locale)}</span>
   }
 
-  const formattedRangeStr = formatDateRange(filter.values[0], filter.values[1])
-
-  return <span>{formattedRangeStr}</span>
+  return (
+    <span>{formatDateRangeValue(filter.values[0], filter.values[1], locale)}</span>
+  )
 }
 
 export function FilterValueTextDisplay<TData>({

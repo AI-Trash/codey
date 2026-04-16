@@ -1,14 +1,23 @@
 import '@tanstack/react-start/server-only'
+import { endOfDay, startOfDay } from 'date-fns'
+import type {
+  FilterModel,
+  FiltersState,
+} from '#/components/data-table-filter/core/types'
 import {
   and,
   asc,
   count,
   desc,
   eq,
+  exists,
   gt,
   gte,
   ilike,
   inArray,
+  lt,
+  lte,
+  notExists,
   or,
 } from 'drizzle-orm'
 import { getAppEnv } from './env'
@@ -84,6 +93,7 @@ function normalizeAdminInboxPageParams(params?: {
   page?: number
   pageSize?: number
   search?: string | null
+  filters?: FiltersState
 }) {
   const requestedPage =
     typeof params?.page === 'number' && Number.isFinite(params.page)
@@ -101,10 +111,11 @@ function normalizeAdminInboxPageParams(params?: {
       Math.max(1, requestedPageSize),
     ),
     search: params?.search?.trim() || '',
+    filters: params?.filters ?? [],
   }
 }
 
-function buildAdminInboxFilter(search: string) {
+function buildAdminInboxSearchFilter(search: string) {
   if (!search) {
     return undefined
   }
@@ -117,6 +128,151 @@ function buildAdminInboxFilter(search: string) {
     ilike(emailIngestRecords.htmlBody, pattern),
     ilike(emailIngestRecords.rawPayload, pattern),
     ilike(emailIngestRecords.messageId, pattern),
+  )
+}
+
+function combineConditions(conditions: Array<unknown>) {
+  const active = conditions.filter(Boolean)
+
+  if (active.length === 0) {
+    return undefined
+  }
+
+  if (active.length === 1) {
+    return active[0]
+  }
+
+  return and(...active)
+}
+
+function buildAdminInboxDeliveryFilter(
+  db: ReturnType<typeof getDb>,
+  filter: FilterModel<'option'>,
+) {
+  const values = Array.from(
+    new Set(
+      filter.values.filter(
+        (value): value is 'ready' | 'received' =>
+          value === 'ready' || value === 'received',
+      ),
+    ),
+  )
+
+  if (values.length === 0) {
+    return undefined
+  }
+
+  const reservationHasCode = exists(
+    db
+      .select({ id: verificationCodes.id })
+      .from(verificationCodes)
+      .where(eq(verificationCodes.reservationId, emailIngestRecords.reservationId)),
+  )
+  const reservationHasNoCode = notExists(
+    db
+      .select({ id: verificationCodes.id })
+      .from(verificationCodes)
+      .where(eq(verificationCodes.reservationId, emailIngestRecords.reservationId)),
+  )
+  const positiveOperator =
+    filter.operator === 'is' || filter.operator === 'is any of'
+  const includeReady = values.includes('ready')
+  const includeReceived = values.includes('received')
+
+  if (positiveOperator) {
+    if (includeReady && includeReceived) {
+      return undefined
+    }
+
+    if (includeReady) {
+      return reservationHasCode
+    }
+
+    if (includeReceived) {
+      return reservationHasNoCode
+    }
+
+    return undefined
+  }
+
+  if (includeReady && includeReceived) {
+    return eq(emailIngestRecords.id, '__no_admin_inbox_match__')
+  }
+
+  if (includeReady) {
+    return reservationHasNoCode
+  }
+
+  if (includeReceived) {
+    return reservationHasCode
+  }
+
+  return undefined
+}
+
+function buildAdminInboxReceivedAtFilter(filter: FilterModel<'date'>) {
+  const start = filter.values[0]
+  if (!start) {
+    return undefined
+  }
+
+  const startDate = startOfDay(start)
+  const endDate = endOfDay(filter.values[1] ?? start)
+
+  switch (filter.operator) {
+    case 'is':
+      return and(
+        gte(emailIngestRecords.receivedAt, startDate),
+        lte(emailIngestRecords.receivedAt, endDate),
+      )
+    case 'is not':
+      return or(
+        lt(emailIngestRecords.receivedAt, startDate),
+        gt(emailIngestRecords.receivedAt, endDate),
+      )
+    case 'is before':
+      return lt(emailIngestRecords.receivedAt, startDate)
+    case 'is on or after':
+      return gte(emailIngestRecords.receivedAt, startDate)
+    case 'is after':
+      return gt(emailIngestRecords.receivedAt, startDate)
+    case 'is on or before':
+      return lte(emailIngestRecords.receivedAt, endDate)
+    case 'is between':
+      return and(
+        gte(emailIngestRecords.receivedAt, startDate),
+        lte(emailIngestRecords.receivedAt, endDate),
+      )
+    case 'is not between':
+      return or(
+        lt(emailIngestRecords.receivedAt, startDate),
+        gt(emailIngestRecords.receivedAt, endDate),
+      )
+    default:
+      return undefined
+  }
+}
+
+function buildAdminInboxFilters(
+  db: ReturnType<typeof getDb>,
+  filters: FiltersState,
+) {
+  return combineConditions(
+    filters.map((filter) => {
+      switch (filter.columnId) {
+        case 'delivery':
+          return buildAdminInboxDeliveryFilter(
+            db,
+            filter as FilterModel<'option'>,
+          )
+        case 'receivedAt':
+          return buildAdminInboxReceivedAtFilter(
+            filter as FilterModel<'date'>,
+          )
+        default:
+          return undefined
+      }
+    }),
   )
 }
 
@@ -471,10 +627,14 @@ export async function listAdminInboxEmailsPage(options?: {
   page?: number
   pageSize?: number
   search?: string | null
+  filters?: FiltersState
 }): Promise<AdminInboxPage> {
   const params = normalizeAdminInboxPageParams(options)
-  const filter = buildAdminInboxFilter(params.search)
   const db = getDb()
+  const filter = combineConditions([
+    buildAdminInboxSearchFilter(params.search),
+    buildAdminInboxFilters(db, params.filters),
+  ])
 
   const totalCountResult = filter
     ? await db.select({ count: count() }).from(emailIngestRecords).where(filter)

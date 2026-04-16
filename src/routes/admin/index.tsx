@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useMemo } from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
+import { CalendarIcon, HashIcon, SearchIcon, ShieldIcon } from 'lucide-react'
 
+import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
 import {
   AdminMetricCard,
   AdminPageHeader,
@@ -11,6 +13,7 @@ import {
   formatAdminDate,
   getStatusTone,
 } from '#/components/admin/layout'
+import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -30,8 +33,10 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
+import { translateStatusLabel } from '#/lib/i18n'
 import { Textarea } from '#/components/ui/textarea'
 import { m } from '#/paraglide/messages'
+import { getLocale } from '#/paraglide/runtime'
 
 const loadDashboard = createServerFn({ method: 'GET' }).handler(async () => {
   const [{ getRequest }, { requireAdmin }, { listAdminDashboardData }] =
@@ -184,6 +189,296 @@ function AdminPage() {
   const pendingCount = deviceChallenges.filter(
     (challenge) => challenge.status === 'PENDING',
   ).length
+  const locale = getLocale()
+  const configStatusColumns = useMemo(() => {
+    const dtf = createColumnConfigHelper<ConfigStatusItem>()
+    return [
+      dtf
+        .text()
+        .id('capability')
+        .accessor((item) => item.label)
+        .displayName(m.admin_dashboard_table_capability())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .option()
+        .id('status')
+        .accessor((item) => item.status)
+        .displayName(m.oauth_clients_table_status())
+        .icon(ShieldIcon)
+        .transformOptionFn((status) => ({
+          label: translateStatusLabel(status),
+          value: status,
+        }))
+        .build(),
+      dtf
+        .text()
+        .id('detail')
+        .accessor(
+          (item) => item.detail || m.admin_dashboard_waiting_backend_detail(),
+        )
+        .displayName(m.admin_dashboard_table_detail())
+        .icon(SearchIcon)
+        .build(),
+    ] as const
+  }, [locale])
+  const identityColumns = useMemo(() => {
+    const dtf = createColumnConfigHelper<IdentitySummary>()
+    return [
+      dtf
+        .text()
+        .id('identity')
+        .accessor((summary) => summary.label)
+        .displayName(m.admin_dashboard_table_identity())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('account')
+        .accessor((summary) => summary.account || m.admin_dashboard_not_linked_yet())
+        .displayName(m.admin_dashboard_table_account())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('provider')
+        .accessor(
+          (summary) => summary.provider || m.admin_dashboard_saved_identity(),
+        )
+        .displayName(m.admin_dashboard_table_provider())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .number()
+        .id('flows')
+        .accessor((summary) => summary.flowCount ?? undefined)
+        .displayName(m.admin_dashboard_table_flows())
+        .icon(HashIcon)
+        .build(),
+      dtf
+        .date()
+        .id('lastSeen')
+        .accessor((summary) => normalizeDate(summary.lastSeenAt))
+        .displayName(m.admin_dashboard_table_last_seen())
+        .icon(CalendarIcon)
+        .build(),
+      dtf
+        .option()
+        .id('status')
+        .accessor((summary) => summary.status || 'unknown')
+        .displayName(m.oauth_clients_table_status())
+        .icon(ShieldIcon)
+        .transformOptionFn((status) => ({
+          label: translateStatusLabel(status),
+          value: status,
+        }))
+        .build(),
+    ] as const
+  }, [locale])
+  const deviceChallengeColumns = useMemo(() => {
+    const dtf = createColumnConfigHelper<DeviceChallenge>()
+    return [
+      dtf
+        .text()
+        .id('userCode')
+        .accessor((challenge) => challenge.userCode)
+        .displayName(m.device_info_user_code())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('flowType')
+        .accessor(
+          (challenge) => challenge.flowType || m.admin_dashboard_cli_device_flow(),
+        )
+        .displayName(m.device_info_flow())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('cliName')
+        .accessor(
+          (challenge) => challenge.cliName || m.admin_dashboard_unknown_client(),
+        )
+        .displayName(m.device_info_cli())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('target')
+        .accessor(
+          (challenge) =>
+            challenge.target || m.admin_dashboard_no_explicit_target(),
+        )
+        .displayName(m.admin_dashboard_table_target())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .date()
+        .id('updatedAt')
+        .accessor((challenge) =>
+          normalizeDate(challenge.updatedAt || challenge.createdAt),
+        )
+        .displayName(m.oauth_clients_table_updated())
+        .icon(CalendarIcon)
+        .build(),
+      dtf
+        .option()
+        .id('status')
+        .accessor((challenge) => challenge.status)
+        .displayName(m.oauth_clients_table_status())
+        .icon(ShieldIcon)
+        .transformOptionFn((status) => ({
+          label: translateStatusLabel(status),
+          value: status,
+        }))
+        .build(),
+    ] as const
+  }, [locale])
+  const verificationActivityColumns = useMemo(() => {
+    const dtf = createColumnConfigHelper<
+      ReturnType<typeof getVerificationActivity>[number]
+    >()
+    return [
+      dtf
+        .text()
+        .id('title')
+        .accessor((item) => item.title)
+        .displayName(m.admin_dashboard_table_title())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('detail')
+        .accessor((item) => item.detail)
+        .displayName(m.admin_dashboard_table_detail())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .option()
+        .id('status')
+        .accessor((item) => item.status)
+        .displayName(m.oauth_clients_table_status())
+        .icon(ShieldIcon)
+        .transformOptionFn((status) => ({
+          label: translateStatusLabel(status),
+          value: status,
+        }))
+        .build(),
+      dtf
+        .date()
+        .id('createdAt')
+        .accessor((item) => normalizeDate(item.createdAt))
+        .displayName(m.admin_dashboard_table_created())
+        .icon(CalendarIcon)
+        .build(),
+    ] as const
+  }, [locale])
+  const notificationColumns = useMemo(() => {
+    const dtf = createColumnConfigHelper<AdminNotification>()
+    return [
+      dtf
+        .text()
+        .id('title')
+        .accessor((notification) => notification.title)
+        .displayName(m.admin_dashboard_table_title())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('target')
+        .accessor(
+          (notification) => notification.target || m.admin_dashboard_all_clients(),
+        )
+        .displayName(m.admin_dashboard_table_target())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('flowType')
+        .accessor((notification) => notification.flowType || m.status_general())
+        .displayName(m.admin_dashboard_flow_type_label())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .date()
+        .id('createdAt')
+        .accessor((notification) => normalizeDate(notification.createdAt))
+        .displayName(m.admin_dashboard_table_created())
+        .icon(CalendarIcon)
+        .build(),
+      dtf
+        .text()
+        .id('message')
+        .accessor((notification) => notification.body)
+        .displayName(m.admin_dashboard_message_label())
+        .icon(SearchIcon)
+        .build(),
+    ] as const
+  }, [locale])
+  const flowAppRequestColumns = useMemo(() => {
+    const dtf = createColumnConfigHelper<FlowAppRequest>()
+    return [
+      dtf
+        .text()
+        .id('appName')
+        .accessor((request) => request.appName)
+        .displayName(m.oauth_clients_table_app())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('flowType')
+        .accessor((request) => request.flowType || m.admin_dashboard_flow_app())
+        .displayName(m.admin_dashboard_flow_type_label())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('requestedIdentity')
+        .accessor(
+          (request) =>
+            request.requestedIdentity || m.admin_dashboard_no_identity_attached(),
+        )
+        .displayName(m.admin_dashboard_requested_identity_label())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .text()
+        .id('requestedBy')
+        .accessor(
+          (request) => request.requestedBy || m.admin_dashboard_unknown_requester(),
+        )
+        .displayName(m.admin_dashboard_requested_by_label())
+        .icon(SearchIcon)
+        .build(),
+      dtf
+        .option()
+        .id('status')
+        .accessor((request) => request.status || 'pending')
+        .displayName(m.oauth_clients_table_status())
+        .icon(ShieldIcon)
+        .transformOptionFn((status) => ({
+          label: translateStatusLabel(status),
+          value: status,
+        }))
+        .build(),
+      dtf
+        .date()
+        .id('createdAt')
+        .accessor((request) => normalizeDate(request.createdAt))
+        .displayName(m.admin_dashboard_submitted_label())
+        .icon(CalendarIcon)
+        .build(),
+      dtf
+        .text()
+        .id('notes')
+        .accessor((request) => request.notes || m.admin_dashboard_no_notes())
+        .displayName(m.admin_dashboard_notes_label())
+        .icon(SearchIcon)
+        .build(),
+    ] as const
+  }, [locale])
 
   return (
     <>
@@ -372,46 +667,53 @@ function AdminPage() {
         title={m.admin_dashboard_config_title()}
         description={m.admin_dashboard_config_description()}
       >
-        {configStatuses.length > 0 ? (
-          <Table className="min-w-[760px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>{m.admin_dashboard_table_capability()}</TableHead>
-                <TableHead>{m.oauth_clients_table_status()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_detail()}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {configStatuses.map((item, index) => (
-                <TableRow key={item.id ?? item.key ?? `${item.label}-${index}`}>
-                  <TableCell className="align-top">
-                    <div className="flex items-start gap-2">
-                      <div className="font-medium text-foreground">
-                        {item.label}
-                      </div>
-                      <InfoTooltip
-                        content={item.description}
-                        label={item.label}
-                        className="mt-0.5"
-                      />
-                    </div>
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <StatusBadge value={item.status} />
-                  </TableCell>
-                  <TableCell className="whitespace-normal align-top text-sm leading-6 text-muted-foreground">
-                    {item.detail || m.admin_dashboard_waiting_backend_detail()}
-                  </TableCell>
+        <ClientFilterableAdminTable
+          data={configStatuses}
+          columnsConfig={configStatusColumns}
+          emptyState={
+            <EmptyState
+              title={m.admin_dashboard_config_empty_title()}
+              description={m.admin_dashboard_config_empty_description()}
+            />
+          }
+          renderTable={(rows) => (
+            <Table className="min-w-[760px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{m.admin_dashboard_table_capability()}</TableHead>
+                  <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_detail()}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <EmptyState
-            title={m.admin_dashboard_config_empty_title()}
-            description={m.admin_dashboard_config_empty_description()}
-          />
-        )}
+              </TableHeader>
+              <TableBody>
+                {rows.map((item, index) => (
+                  <TableRow
+                    key={item.id ?? item.key ?? `${item.label}-${index}`}
+                  >
+                    <TableCell className="align-top">
+                      <div className="flex items-start gap-2">
+                        <div className="font-medium text-foreground">
+                          {item.label}
+                        </div>
+                        <InfoTooltip
+                          content={item.description}
+                          label={item.label}
+                          className="mt-0.5"
+                        />
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <StatusBadge value={item.status} />
+                    </TableCell>
+                    <TableCell className="whitespace-normal align-top text-sm leading-6 text-muted-foreground">
+                      {item.detail || m.admin_dashboard_waiting_backend_detail()}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        />
       </TableCard>
 
       <TableCard
@@ -419,107 +721,114 @@ function AdminPage() {
         title={m.admin_dashboard_identities_title()}
         description={m.admin_dashboard_identities_description()}
       >
-        {identitySummaries.length > 0 ? (
-          <Table className="min-w-[1200px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_account()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_provider()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_flows()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_last_seen()}</TableHead>
-                <TableHead>{m.oauth_clients_table_status()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_manage()}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {identitySummaries.map((summary) => (
-                <TableRow key={summary.id}>
-                  <TableCell className="align-top">
-                    <div className="space-y-1">
-                      <div className="font-medium text-foreground">
-                        {summary.label}
-                      </div>
-                      <code>{summary.id}</code>
-                    </div>
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {summary.account || m.admin_dashboard_not_linked_yet()}
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {summary.provider || m.admin_dashboard_saved_identity()}
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {summary.flowCount != null
-                      ? m.admin_dashboard_flow_count({
-                          count: String(summary.flowCount),
-                        })
-                      : m.status_pending()}
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {formatAdminDate(summary.lastSeenAt) ||
-                      m.admin_dashboard_not_captured_yet()}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <StatusBadge value={summary.status || 'unknown'} />
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <form
-                      method="post"
-                      action="/api/admin/identities"
-                      className="grid min-w-[320px] gap-2 md:grid-cols-[minmax(0,1fr)_160px_auto]"
-                    >
-                      <input
-                        type="hidden"
-                        name="identityId"
-                        value={summary.id}
-                      />
-                      <input
-                        type="hidden"
-                        name="email"
-                        value={summary.account || summary.label}
-                      />
-                      <Input
-                        name="label"
-                        defaultValue={
-                          summary.label !== summary.account ? summary.label : ''
-                        }
-                        placeholder={
-                          summary.account || m.admin_dashboard_identity_label()
-                        }
-                        className="h-8"
-                      />
-                      <NativeSelect
-                        name="status"
-                        defaultValue={toManagedStatus(summary.status)}
-                        size="sm"
-                        className="w-full min-w-[140px]"
-                      >
-                        <NativeSelectOption value="ACTIVE">
-                          {m.status_active()}
-                        </NativeSelectOption>
-                        <NativeSelectOption value="REVIEW">
-                          {m.status_review()}
-                        </NativeSelectOption>
-                        <NativeSelectOption value="ARCHIVED">
-                          {m.status_archived()}
-                        </NativeSelectOption>
-                      </NativeSelect>
-                      <Button type="submit" size="sm" variant="outline">
-                        {m.oauth_edit_save_settings()}
-                      </Button>
-                    </form>
-                  </TableCell>
+        <ClientFilterableAdminTable
+          data={identitySummaries}
+          columnsConfig={identityColumns}
+          emptyState={
+            <EmptyState
+              title={m.admin_dashboard_identities_empty_title()}
+              description={m.admin_dashboard_identities_empty_description()}
+            />
+          }
+          renderTable={(rows) => (
+            <Table className="min-w-[1200px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_account()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_provider()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_flows()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_last_seen()}</TableHead>
+                  <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_manage()}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <EmptyState
-            title={m.admin_dashboard_identities_empty_title()}
-            description={m.admin_dashboard_identities_empty_description()}
-          />
-        )}
+              </TableHeader>
+              <TableBody>
+                {rows.map((summary) => (
+                  <TableRow key={summary.id}>
+                    <TableCell className="align-top">
+                      <div className="space-y-1">
+                        <div className="font-medium text-foreground">
+                          {summary.label}
+                        </div>
+                        <code>{summary.id}</code>
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {summary.account || m.admin_dashboard_not_linked_yet()}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {summary.provider || m.admin_dashboard_saved_identity()}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {summary.flowCount != null
+                        ? m.admin_dashboard_flow_count({
+                            count: String(summary.flowCount),
+                          })
+                        : m.status_pending()}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {formatAdminDate(summary.lastSeenAt) ||
+                        m.admin_dashboard_not_captured_yet()}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <StatusBadge value={summary.status || 'unknown'} />
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <form
+                        method="post"
+                        action="/api/admin/identities"
+                        className="grid min-w-[320px] gap-2 md:grid-cols-[minmax(0,1fr)_160px_auto]"
+                      >
+                        <input
+                          type="hidden"
+                          name="identityId"
+                          value={summary.id}
+                        />
+                        <input
+                          type="hidden"
+                          name="email"
+                          value={summary.account || summary.label}
+                        />
+                        <Input
+                          name="label"
+                          defaultValue={
+                            summary.label !== summary.account
+                              ? summary.label
+                              : ''
+                          }
+                          placeholder={
+                            summary.account || m.admin_dashboard_identity_label()
+                          }
+                          className="h-8"
+                        />
+                        <NativeSelect
+                          name="status"
+                          defaultValue={toManagedStatus(summary.status)}
+                          size="sm"
+                          className="w-full min-w-[140px]"
+                        >
+                          <NativeSelectOption value="ACTIVE">
+                            {m.status_active()}
+                          </NativeSelectOption>
+                          <NativeSelectOption value="REVIEW">
+                            {m.status_review()}
+                          </NativeSelectOption>
+                          <NativeSelectOption value="ARCHIVED">
+                            {m.status_archived()}
+                          </NativeSelectOption>
+                        </NativeSelect>
+                        <Button type="submit" size="sm" variant="outline">
+                          {m.oauth_edit_save_settings()}
+                        </Button>
+                      </form>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        />
       </TableCard>
 
       <TableCard
@@ -527,88 +836,93 @@ function AdminPage() {
         title={m.admin_dashboard_device_title()}
         description={m.admin_dashboard_device_description()}
       >
-        {deviceChallenges.length > 0 ? (
-          <Table className="min-w-[1040px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>{m.device_info_user_code()}</TableHead>
-                <TableHead>{m.device_info_flow()}</TableHead>
-                <TableHead>{m.device_info_cli()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_target()}</TableHead>
-                <TableHead>{m.oauth_clients_table_updated()}</TableHead>
-                <TableHead>{m.oauth_clients_table_status()}</TableHead>
-                <TableHead className="text-right">
-                  {m.oauth_clients_table_actions()}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {deviceChallenges.map((challenge) => (
-                <TableRow key={challenge.id}>
-                  <TableCell className="align-top">
-                    <div className="space-y-1">
-                      <div className="font-medium text-foreground">
-                        {challenge.userCode}
-                      </div>
-                      <code>{challenge.deviceCode}</code>
-                    </div>
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {challenge.flowType || m.admin_dashboard_cli_device_flow()}
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {challenge.cliName || m.admin_dashboard_unknown_client()}
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {challenge.target || m.admin_dashboard_no_explicit_target()}
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {formatAdminDate(
-                      challenge.updatedAt || challenge.createdAt,
-                    ) || m.admin_dashboard_awaiting_timestamp()}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <StatusBadge
-                      value={challenge.status}
-                      tone={getChallengeTone(challenge.status)}
-                    />
-                  </TableCell>
-                  <TableCell className="align-top text-right">
-                    {challenge.status === 'PENDING' ? (
-                      <div className="flex justify-end gap-2">
-                        <form
-                          method="post"
-                          action={`/api/admin/device/${challenge.deviceCode}/approve`}
-                        >
-                          <Button type="submit" size="sm">
-                            {m.admin_dashboard_approve()}
-                          </Button>
-                        </form>
-                        <form
-                          method="post"
-                          action={`/api/admin/device/${challenge.deviceCode}/deny`}
-                        >
-                          <Button type="submit" size="sm" variant="outline">
-                            {m.admin_dashboard_deny()}
-                          </Button>
-                        </form>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">
-                        {m.status_resolved()}
-                      </span>
-                    )}
-                  </TableCell>
+        <ClientFilterableAdminTable
+          data={deviceChallenges}
+          columnsConfig={deviceChallengeColumns}
+          emptyState={
+            <EmptyState
+              title={m.admin_dashboard_device_empty_title()}
+              description={m.admin_dashboard_device_empty_description()}
+            />
+          }
+          renderTable={(rows) => (
+            <Table className="min-w-[1040px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{m.device_info_user_code()}</TableHead>
+                  <TableHead>{m.device_info_flow()}</TableHead>
+                  <TableHead>{m.device_info_cli()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_target()}</TableHead>
+                  <TableHead>{m.oauth_clients_table_updated()}</TableHead>
+                  <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                  <TableHead className="text-right">
+                    {m.oauth_clients_table_actions()}
+                  </TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <EmptyState
-            title={m.admin_dashboard_device_empty_title()}
-            description={m.admin_dashboard_device_empty_description()}
-          />
-        )}
+              </TableHeader>
+              <TableBody>
+                {rows.map((challenge) => (
+                  <TableRow key={challenge.id}>
+                    <TableCell className="align-top">
+                      <div className="space-y-1">
+                        <div className="font-medium text-foreground">
+                          {challenge.userCode}
+                        </div>
+                        <code>{challenge.deviceCode}</code>
+                      </div>
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {challenge.flowType || m.admin_dashboard_cli_device_flow()}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {challenge.cliName || m.admin_dashboard_unknown_client()}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {challenge.target || m.admin_dashboard_no_explicit_target()}
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {formatAdminDate(
+                        challenge.updatedAt || challenge.createdAt,
+                      ) || m.admin_dashboard_awaiting_timestamp()}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <StatusBadge
+                        value={challenge.status}
+                        tone={getChallengeTone(challenge.status)}
+                      />
+                    </TableCell>
+                    <TableCell className="align-top text-right">
+                      {challenge.status === 'PENDING' ? (
+                        <div className="flex justify-end gap-2">
+                          <form
+                            method="post"
+                            action={`/api/admin/device/${challenge.deviceCode}/approve`}
+                          >
+                            <Button type="submit" size="sm">
+                              {m.admin_dashboard_approve()}
+                            </Button>
+                          </form>
+                          <form
+                            method="post"
+                            action={`/api/admin/device/${challenge.deviceCode}/deny`}
+                          >
+                            <Button type="submit" size="sm" variant="outline">
+                              {m.admin_dashboard_deny()}
+                            </Button>
+                          </form>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          {m.status_resolved()}
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        />
       </TableCard>
 
       <TableCard
@@ -616,44 +930,49 @@ function AdminPage() {
         title={m.admin_dashboard_verification_title()}
         description={m.admin_dashboard_verification_description()}
       >
-        {verificationActivity.length > 0 ? (
-          <Table className="min-w-[980px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>{m.admin_dashboard_table_title()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_detail()}</TableHead>
-                <TableHead>{m.oauth_clients_table_status()}</TableHead>
-                <TableHead>{m.admin_dashboard_table_created()}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {verificationActivity.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="align-top">
-                    <div className="font-medium text-foreground">
-                      {item.title}
-                    </div>
-                  </TableCell>
-                  <TableCell className="max-w-[560px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
-                    {item.detail}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    <StatusBadge value={item.status} />
-                  </TableCell>
-                  <TableCell className="align-top text-sm text-muted-foreground">
-                    {formatAdminDate(item.createdAt) ||
-                      m.mail_inbox_timestamp_unavailable()}
-                  </TableCell>
+        <ClientFilterableAdminTable
+          data={verificationActivity}
+          columnsConfig={verificationActivityColumns}
+          emptyState={
+            <EmptyState
+              title={m.admin_dashboard_verification_empty_title()}
+              description={m.admin_dashboard_verification_empty_description()}
+            />
+          }
+          renderTable={(rows) => (
+            <Table className="min-w-[980px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{m.admin_dashboard_table_title()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_detail()}</TableHead>
+                  <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                  <TableHead>{m.admin_dashboard_table_created()}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <EmptyState
-            title={m.admin_dashboard_verification_empty_title()}
-            description={m.admin_dashboard_verification_empty_description()}
-          />
-        )}
+              </TableHeader>
+              <TableBody>
+                {rows.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="align-top">
+                      <div className="font-medium text-foreground">
+                        {item.title}
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-[560px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
+                      {item.detail}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      <StatusBadge value={item.status} />
+                    </TableCell>
+                    <TableCell className="align-top text-sm text-muted-foreground">
+                      {formatAdminDate(item.createdAt) ||
+                        m.mail_inbox_timestamp_unavailable()}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        />
       </TableCard>
 
       <section className="grid gap-4 2xl:grid-cols-2">
@@ -662,48 +981,53 @@ function AdminPage() {
           title={m.admin_dashboard_notifications_title()}
           description={m.admin_dashboard_notifications_description()}
         >
-          {notifications.length > 0 ? (
-            <Table className="min-w-[900px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{m.admin_dashboard_table_title()}</TableHead>
-                  <TableHead>{m.admin_dashboard_table_target()}</TableHead>
-                  <TableHead>{m.admin_dashboard_flow_type_label()}</TableHead>
-                  <TableHead>{m.admin_dashboard_table_created()}</TableHead>
-                  <TableHead>{m.admin_dashboard_message_label()}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {notifications.map((notification) => (
-                  <TableRow key={notification.id}>
-                    <TableCell className="align-top">
-                      <div className="font-medium text-foreground">
-                        {notification.title}
-                      </div>
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      {notification.target || m.admin_dashboard_all_clients()}
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      {notification.flowType || m.status_general()}
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      {formatAdminDate(notification.createdAt) ||
-                        m.mail_inbox_timestamp_unavailable()}
-                    </TableCell>
-                    <TableCell className="max-w-[380px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
-                      {notification.body}
-                    </TableCell>
+          <ClientFilterableAdminTable
+            data={notifications}
+            columnsConfig={notificationColumns}
+            emptyState={
+              <EmptyState
+                title={m.admin_dashboard_notifications_empty_title()}
+                description={m.admin_dashboard_notifications_empty_description()}
+              />
+            }
+            renderTable={(rows) => (
+              <Table className="min-w-[900px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{m.admin_dashboard_table_title()}</TableHead>
+                    <TableHead>{m.admin_dashboard_table_target()}</TableHead>
+                    <TableHead>{m.admin_dashboard_flow_type_label()}</TableHead>
+                    <TableHead>{m.admin_dashboard_table_created()}</TableHead>
+                    <TableHead>{m.admin_dashboard_message_label()}</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState
-              title={m.admin_dashboard_notifications_empty_title()}
-              description={m.admin_dashboard_notifications_empty_description()}
-            />
-          )}
+                </TableHeader>
+                <TableBody>
+                  {rows.map((notification) => (
+                    <TableRow key={notification.id}>
+                      <TableCell className="align-top">
+                        <div className="font-medium text-foreground">
+                          {notification.title}
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {notification.target || m.admin_dashboard_all_clients()}
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {notification.flowType || m.status_general()}
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {formatAdminDate(notification.createdAt) ||
+                          m.mail_inbox_timestamp_unavailable()}
+                      </TableCell>
+                      <TableCell className="max-w-[380px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
+                        {notification.body}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          />
         </TableCard>
 
         <TableCard
@@ -711,62 +1035,65 @@ function AdminPage() {
           title={m.admin_dashboard_requests_title()}
           description={m.admin_dashboard_requests_description()}
         >
-          {flowAppRequests.length > 0 ? (
-            <Table className="min-w-[980px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{m.oauth_clients_table_app()}</TableHead>
-                  <TableHead>{m.admin_dashboard_flow_type_label()}</TableHead>
-                  <TableHead>
-                    {m.admin_dashboard_requested_identity_label()}
-                  </TableHead>
-                  <TableHead>
-                    {m.admin_dashboard_requested_by_label()}
-                  </TableHead>
-                  <TableHead>{m.oauth_clients_table_status()}</TableHead>
-                  <TableHead>{m.admin_dashboard_submitted_label()}</TableHead>
-                  <TableHead>{m.admin_dashboard_notes_label()}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {flowAppRequests.map((request) => (
-                  <TableRow key={request.id}>
-                    <TableCell className="align-top">
-                      <div className="font-medium text-foreground">
-                        {request.appName}
-                      </div>
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      {request.flowType || m.admin_dashboard_flow_app()}
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      {request.requestedIdentity ||
-                        m.admin_dashboard_no_identity_attached()}
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      {request.requestedBy ||
-                        m.admin_dashboard_unknown_requester()}
-                    </TableCell>
-                    <TableCell className="align-top">
-                      <StatusBadge value={request.status || 'pending'} />
-                    </TableCell>
-                    <TableCell className="align-top text-sm text-muted-foreground">
-                      {formatAdminDate(request.createdAt) ||
-                        m.admin_dashboard_awaiting_timestamp()}
-                    </TableCell>
-                    <TableCell className="max-w-[320px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
-                      {request.notes || m.admin_dashboard_no_notes()}
-                    </TableCell>
+          <ClientFilterableAdminTable
+            data={flowAppRequests}
+            columnsConfig={flowAppRequestColumns}
+            emptyState={
+              <EmptyState
+                title={m.admin_dashboard_requests_empty_title()}
+                description={m.admin_dashboard_requests_empty_description()}
+              />
+            }
+            renderTable={(rows) => (
+              <Table className="min-w-[980px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{m.oauth_clients_table_app()}</TableHead>
+                    <TableHead>{m.admin_dashboard_flow_type_label()}</TableHead>
+                    <TableHead>
+                      {m.admin_dashboard_requested_identity_label()}
+                    </TableHead>
+                    <TableHead>{m.admin_dashboard_requested_by_label()}</TableHead>
+                    <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                    <TableHead>{m.admin_dashboard_submitted_label()}</TableHead>
+                    <TableHead>{m.admin_dashboard_notes_label()}</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState
-              title={m.admin_dashboard_requests_empty_title()}
-              description={m.admin_dashboard_requests_empty_description()}
-            />
-          )}
+                </TableHeader>
+                <TableBody>
+                  {rows.map((request) => (
+                    <TableRow key={request.id}>
+                      <TableCell className="align-top">
+                        <div className="font-medium text-foreground">
+                          {request.appName}
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {request.flowType || m.admin_dashboard_flow_app()}
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {request.requestedIdentity ||
+                          m.admin_dashboard_no_identity_attached()}
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {request.requestedBy ||
+                          m.admin_dashboard_unknown_requester()}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <StatusBadge value={request.status || 'pending'} />
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        {formatAdminDate(request.createdAt) ||
+                          m.admin_dashboard_awaiting_timestamp()}
+                      </TableCell>
+                      <TableCell className="max-w-[320px] whitespace-normal align-top text-sm leading-6 text-muted-foreground">
+                        {request.notes || m.admin_dashboard_no_notes()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          />
         </TableCard>
       </section>
     </>
@@ -934,4 +1261,13 @@ function toManagedStatus(status?: string | null) {
   }
 
   return 'ACTIVE'
+}
+
+function normalizeDate(value?: string | Date | null) {
+  if (!value) {
+    return undefined
+  }
+
+  const normalized = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(normalized.getTime()) ? undefined : normalized
 }

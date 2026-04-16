@@ -23,10 +23,16 @@ import {
 } from '@tanstack/react-query'
 
 import {
+  AdminDataTableFilterBar,
+  useAdminDataTableFilters,
+} from '#/components/admin/filterable-table'
+import {
   EmptyState,
   StatusBadge,
   formatAdminDate,
 } from '#/components/admin/layout'
+import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
+import type { FiltersState } from '#/components/data-table-filter/core/types'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
@@ -58,8 +64,10 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
+import { serializeDataTableFilters } from '#/lib/data-table-filters'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
+import { getLocale } from '#/paraglide/runtime'
 
 export type AdminMailInboxEmail = {
   id: string
@@ -107,6 +115,7 @@ function adminMailInboxQueryKey(params: {
   page: number
   pageSize: number
   search: string
+  filters: string
 }) {
   return [...adminMailInboxQueryBaseKey, params] as const
 }
@@ -119,6 +128,7 @@ export function AdminMailInbox(props: {
   const [page, setPage] = useState(props.initialPage.page)
   const [pageSize, setPageSize] = useState(props.initialPage.pageSize)
   const [search, setSearch] = useState(props.initialPage.search)
+  const [filters, setFilters] = useState<FiltersState>([])
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(
     props.initialPage.emails[0]?.id ?? null,
   )
@@ -126,10 +136,46 @@ export function AdminMailInbox(props: {
   const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting')
   const [streamError, setStreamError] = useState<string | null>(null)
   const deferredSearch = useDeferredValue(search.trim())
+  const locale = getLocale()
+  const dtf = createColumnConfigHelper<AdminMailInboxEmail>()
+  const columnsConfig = useMemo(
+    () =>
+      [
+        dtf
+          .date()
+          .id('receivedAt')
+          .accessor((email) => normalizeDate(email.receivedAt))
+          .displayName(m.mail_inbox_table_received())
+          .icon(MailIcon)
+          .build(),
+        dtf
+          .option()
+          .id('delivery')
+          .accessor((email) => (email.latestCode ? 'ready' : 'received'))
+          .displayName(m.mail_inbox_table_delivery())
+          .icon(WifiIcon)
+          .options([
+            { label: m.status_ready(), value: 'ready' },
+            { label: m.status_received(), value: 'received' },
+          ])
+          .build(),
+      ] as const,
+    [locale],
+  )
+  const serializedFilters = useMemo(
+    () => serializeDataTableFilters(filters),
+    [filters],
+  )
 
   const queryKey = useMemo(
-    () => adminMailInboxQueryKey({ page, pageSize, search: deferredSearch }),
-    [page, pageSize, deferredSearch],
+    () =>
+      adminMailInboxQueryKey({
+        page,
+        pageSize,
+        search: deferredSearch,
+        filters: serializedFilters,
+      }),
+    [page, pageSize, deferredSearch, serializedFilters],
   )
 
   const query = useQuery({
@@ -139,17 +185,26 @@ export function AdminMailInbox(props: {
         page,
         pageSize,
         search: deferredSearch,
+        filters,
       }),
     initialData:
       page === props.initialPage.page &&
       pageSize === props.initialPage.pageSize &&
-      deferredSearch === props.initialPage.search
+      deferredSearch === props.initialPage.search &&
+      filters.length === 0
         ? props.initialPage
         : undefined,
     placeholderData: keepPreviousData,
   })
 
   const data = query.data ?? props.initialPage
+  const filterTable = useAdminDataTableFilters({
+    strategy: 'server',
+    data: data.emails,
+    columnsConfig,
+    filters,
+    onFiltersChange: setFilters,
+  })
 
   useEffect(() => {
     if (data.page !== page) {
@@ -166,6 +221,10 @@ export function AdminMailInbox(props: {
       return data.emails[0]?.id ?? null
     })
   }, [data.emails])
+
+  useEffect(() => {
+    setPage(1)
+  }, [serializedFilters])
 
   const activeEmail =
     data.emails.find((email) => email.id === selectedEmailId) ||
@@ -225,6 +284,7 @@ export function AdminMailInbox(props: {
 
   const codeReadyCount = data.emails.filter((email) => email.latestCode).length
   const htmlPreviewCount = data.emails.filter((email) => email.htmlBody).length
+  const hasActiveFilters = Boolean(deferredSearch || filters.length > 0)
 
   function openEmailDetails(emailId: string) {
     setSelectedEmailId(emailId)
@@ -287,43 +347,47 @@ export function AdminMailInbox(props: {
             </div>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px]">
-            <label className="relative block">
-              <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value)
-                  setPage(1)
-                }}
-                placeholder={m.mail_inbox_search_placeholder()}
-                className="pl-9"
-              />
-            </label>
+          <div className="grid gap-3">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px]">
+              <label className="relative block">
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.target.value)
+                    setPage(1)
+                  }}
+                  placeholder={m.mail_inbox_search_placeholder()}
+                  className="pl-9"
+                />
+              </label>
 
-            <label className="grid gap-2">
-              <span className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
-                {m.mail_inbox_page_size_label()}
-              </span>
-              <NativeSelect
-                value={String(pageSize)}
-                onChange={(event) => {
-                  setPageSize(Number(event.target.value))
-                  setPage(1)
-                }}
-                className="w-full"
-              >
-                <NativeSelectOption value="10">
-                  {m.mail_inbox_rows_option({ count: '10' })}
-                </NativeSelectOption>
-                <NativeSelectOption value="25">
-                  {m.mail_inbox_rows_option({ count: '25' })}
-                </NativeSelectOption>
-                <NativeSelectOption value="50">
-                  {m.mail_inbox_rows_option({ count: '50' })}
-                </NativeSelectOption>
-              </NativeSelect>
-            </label>
+              <label className="grid gap-2">
+                <span className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
+                  {m.mail_inbox_page_size_label()}
+                </span>
+                <NativeSelect
+                  value={String(pageSize)}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value))
+                    setPage(1)
+                  }}
+                  className="w-full"
+                >
+                  <NativeSelectOption value="10">
+                    {m.mail_inbox_rows_option({ count: '10' })}
+                  </NativeSelectOption>
+                  <NativeSelectOption value="25">
+                    {m.mail_inbox_rows_option({ count: '25' })}
+                  </NativeSelectOption>
+                  <NativeSelectOption value="50">
+                    {m.mail_inbox_rows_option({ count: '50' })}
+                  </NativeSelectOption>
+                </NativeSelect>
+              </label>
+            </div>
+
+            <AdminDataTableFilterBar table={filterTable} />
           </div>
 
           {query.isError ? (
@@ -465,12 +529,12 @@ export function AdminMailInbox(props: {
           ) : (
             <EmptyState
               title={
-                deferredSearch
+                hasActiveFilters
                   ? m.mail_inbox_empty_filtered_title()
                   : m.mail_inbox_empty_title()
               }
               description={
-                deferredSearch
+                hasActiveFilters
                   ? m.mail_inbox_empty_filtered_description()
                   : m.mail_inbox_empty_description()
               }
@@ -784,6 +848,7 @@ async function fetchAdminMailInboxPage(params: {
   page: number
   pageSize: number
   search: string
+  filters: FiltersState
 }): Promise<AdminMailInboxPageData> {
   const searchParams = new URLSearchParams({
     page: String(params.page),
@@ -792,6 +857,10 @@ async function fetchAdminMailInboxPage(params: {
 
   if (params.search) {
     searchParams.set('search', params.search)
+  }
+
+  if (params.filters.length > 0) {
+    searchParams.set('filters', serializeDataTableFilters(params.filters))
   }
 
   const response = await fetch(
@@ -954,6 +1023,15 @@ function isLikelyRawEmailSource(value: string | null | undefined) {
 function normalizeEmailContent(value: string | null | undefined) {
   const normalized = value?.trim()
   return normalized ? normalized : null
+}
+
+function normalizeDate(value: string | Date | null | undefined) {
+  if (!value) {
+    return undefined
+  }
+
+  const normalized = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(normalized.getTime()) ? undefined : normalized
 }
 
 function getInitialContentTab(content: ResolvedEmailContent | null) {

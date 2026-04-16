@@ -1,5 +1,6 @@
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
+import type { Locale as DataTableFilterLocale } from '#/components/data-table-filter/lib/i18n'
 
 export type ThemeMode = 'light' | 'dark' | 'auto'
 
@@ -94,4 +95,10 @@ export function translateStatusLabel(value?: string | null) {
 
 export function getLocalizedHtmlLang(locale?: string) {
   return locale || getLocale()
+}
+
+export function getDataTableFilterLocale(
+  locale?: string,
+): DataTableFilterLocale {
+  return (locale || getLocale()) === 'zh' ? 'zh' : 'en'
 }

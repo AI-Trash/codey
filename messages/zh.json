@@ -496,6 +496,8 @@
   "admin_dashboard_all_systems_ready": "所有系统已就绪",
   "admin_dashboard_action_required": "需要处理",
   "admin_dashboard_needs_review": "需要检查",
+  "admin_table_filtered_empty_title": "没有记录匹配当前筛选条件",
+  "admin_table_filtered_empty_description": "调整或清除筛选条件后即可查看更多结果。",
   "admin_dashboard_unknown_user": "未知用户",
 
   "server_config_github_oauth_label": "GitHub 浏览器 OAuth",

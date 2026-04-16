@@ -1,18 +1,29 @@
 import {
   useEffect,
   useId,
+  useMemo,
   useState,
   type Dispatch,
   type FormEvent,
   type ReactNode,
   type SetStateAction,
 } from 'react'
+import {
+  AppWindowIcon,
+  CalendarIcon,
+  KeyRoundIcon,
+  ListIcon,
+  SearchIcon,
+  ShieldIcon,
+} from 'lucide-react'
 
+import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
 import {
   EmptyState,
   StatusBadge,
   formatAdminDate,
 } from '#/components/admin/layout'
+import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
@@ -35,9 +46,11 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
+import { translateStatusLabel } from '#/lib/i18n'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
+import { getLocale } from '#/paraglide/runtime'
 
 export type ManagedOAuthClient = {
   id: string
@@ -105,19 +118,72 @@ export function OAuthClientsList({
 }: {
   clients: ManagedOAuthClient[]
 }) {
-  if (!clients.length) {
-    return (
-      <EmptyState
-        title={m.oauth_clients_empty_title()}
-        description={m.oauth_clients_empty_description()}
-      />
-    )
-  }
-
+  const locale = getLocale()
   const enabledCount = clients.filter((client) => client.enabled).length
   const deviceFlowCount = clients.filter(
     (client) => client.deviceFlowEnabled,
   ).length
+  const dtf = createColumnConfigHelper<ManagedOAuthClient>()
+  const columnsConfig = useMemo(
+    () =>
+      [
+        dtf
+          .text()
+          .id('app')
+          .accessor((client) => client.clientName)
+          .displayName(m.oauth_clients_table_app())
+          .icon(AppWindowIcon)
+          .build(),
+        dtf
+          .text()
+          .id('clientId')
+          .accessor((client) => client.clientId)
+          .displayName(m.oauth_clients_table_client_id())
+          .icon(KeyRoundIcon)
+          .build(),
+        dtf
+          .multiOption()
+          .id('grants')
+          .accessor((client) => formatGrantList(client))
+          .displayName(m.oauth_clients_table_grants())
+          .icon(ListIcon)
+          .transformOptionFn((grant) => ({
+            label: grant,
+            value: grant,
+          }))
+          .build(),
+        dtf
+          .multiOption()
+          .id('scopes')
+          .accessor((client) => client.allowedScopes)
+          .displayName(m.oauth_clients_table_scopes())
+          .icon(SearchIcon)
+          .transformOptionFn((scope) => ({
+            label: scope,
+            value: scope,
+          }))
+          .build(),
+        dtf
+          .option()
+          .id('status')
+          .accessor((client) => (client.enabled ? 'enabled' : 'disabled'))
+          .displayName(m.oauth_clients_table_status())
+          .icon(ShieldIcon)
+          .transformOptionFn((status) => ({
+            label: translateStatusLabel(status),
+            value: status,
+          }))
+          .build(),
+        dtf
+          .date()
+          .id('updatedAt')
+          .accessor((client) => normalizeDate(client.updatedAt))
+          .displayName(m.oauth_clients_table_updated())
+          .icon(CalendarIcon)
+          .build(),
+      ] as const,
+    [locale],
+  )
 
   return (
     <div className="space-y-4">
@@ -135,96 +201,110 @@ export function OAuthClientsList({
         </Badge>
       </div>
 
-      <Table className="min-w-[1080px]">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{m.oauth_clients_table_app()}</TableHead>
-            <TableHead>{m.oauth_clients_table_client_id()}</TableHead>
-            <TableHead>{m.oauth_clients_table_grants()}</TableHead>
-            <TableHead>{m.oauth_clients_table_scopes()}</TableHead>
-            <TableHead>{m.oauth_clients_table_secret()}</TableHead>
-            <TableHead>{m.oauth_clients_table_status()}</TableHead>
-            <TableHead>{m.oauth_clients_table_updated()}</TableHead>
-            <TableHead className="text-right">
-              {m.oauth_clients_table_actions()}
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {clients.map((client) => (
-            <TableRow key={client.id}>
-              <TableCell className="whitespace-normal align-top">
-                <div className="space-y-1">
-                  <div className="font-medium text-foreground">
-                    {client.clientName}
-                  </div>
-                  <p className="max-w-[320px] text-sm leading-6 text-muted-foreground">
-                    {client.description || m.oauth_clients_no_description()}
-                  </p>
-                </div>
-              </TableCell>
-              <TableCell className="align-top">
-                <div className="space-y-1">
-                  <code className="inline-block max-w-[240px] overflow-x-auto whitespace-nowrap">
-                    {client.clientId}
-                  </code>
-                  <p className="text-xs text-muted-foreground">
-                    {formatAuthMethod(client.tokenEndpointAuthMethod)}
-                  </p>
-                </div>
-              </TableCell>
-              <TableCell className="align-top">
-                <div className="flex max-w-[200px] flex-wrap gap-1.5">
-                  {formatGrantList(client).map((grant) => (
-                    <Badge key={grant} variant="secondary">
-                      {grant}
-                    </Badge>
-                  ))}
-                </div>
-              </TableCell>
-              <TableCell className="whitespace-normal align-top">
-                <div className="flex max-w-[280px] flex-wrap gap-1.5">
-                  {client.allowedScopes.length ? (
-                    client.allowedScopes.map((scope) => (
-                      <Badge key={scope} variant="outline">
-                        {scope}
-                      </Badge>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      {m.oauth_clients_no_scopes()}
-                    </span>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell className="align-top">
-                <div className="space-y-1">
-                  <code>{client.clientSecretPreview}...</code>
-                  <p className="text-xs text-muted-foreground">
-                    {m.oauth_clients_rotated_label()}{' '}
-                    {formatAdminDate(client.clientSecretUpdatedAt) ||
+      <ClientFilterableAdminTable
+        data={clients}
+        columnsConfig={columnsConfig}
+        emptyState={
+          <EmptyState
+            title={m.oauth_clients_empty_title()}
+            description={m.oauth_clients_empty_description()}
+          />
+        }
+        renderTable={(rows) => (
+          <Table className="min-w-[1080px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>{m.oauth_clients_table_app()}</TableHead>
+                <TableHead>{m.oauth_clients_table_client_id()}</TableHead>
+                <TableHead>{m.oauth_clients_table_grants()}</TableHead>
+                <TableHead>{m.oauth_clients_table_scopes()}</TableHead>
+                <TableHead>{m.oauth_clients_table_secret()}</TableHead>
+                <TableHead>{m.oauth_clients_table_status()}</TableHead>
+                <TableHead>{m.oauth_clients_table_updated()}</TableHead>
+                <TableHead className="text-right">
+                  {m.oauth_clients_table_actions()}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((client) => (
+                <TableRow key={client.id}>
+                  <TableCell className="whitespace-normal align-top">
+                    <div className="space-y-1">
+                      <div className="font-medium text-foreground">
+                        {client.clientName}
+                      </div>
+                      <p className="max-w-[320px] text-sm leading-6 text-muted-foreground">
+                        {client.description || m.oauth_clients_no_description()}
+                      </p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="space-y-1">
+                      <code className="inline-block max-w-[240px] overflow-x-auto whitespace-nowrap">
+                        {client.clientId}
+                      </code>
+                      <p className="text-xs text-muted-foreground">
+                        {formatAuthMethod(client.tokenEndpointAuthMethod)}
+                      </p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="flex max-w-[200px] flex-wrap gap-1.5">
+                      {formatGrantList(client).map((grant) => (
+                        <Badge key={grant} variant="secondary">
+                          {grant}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell className="whitespace-normal align-top">
+                    <div className="flex max-w-[280px] flex-wrap gap-1.5">
+                      {client.allowedScopes.length ? (
+                        client.allowedScopes.map((scope) => (
+                          <Badge key={scope} variant="outline">
+                            {scope}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-sm text-muted-foreground">
+                          {m.oauth_clients_no_scopes()}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="space-y-1">
+                      <code>{client.clientSecretPreview}...</code>
+                      <p className="text-xs text-muted-foreground">
+                        {m.oauth_clients_rotated_label()}{' '}
+                        {formatAdminDate(client.clientSecretUpdatedAt) ||
+                          m.oauth_clients_recently()}
+                      </p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <StatusBadge
+                      value={client.enabled ? 'Enabled' : 'Disabled'}
+                    />
+                  </TableCell>
+                  <TableCell className="align-top text-sm text-muted-foreground">
+                    {formatAdminDate(client.updatedAt) ||
                       m.oauth_clients_recently()}
-                  </p>
-                </div>
-              </TableCell>
-              <TableCell className="align-top">
-                <StatusBadge value={client.enabled ? 'Enabled' : 'Disabled'} />
-              </TableCell>
-              <TableCell className="align-top text-sm text-muted-foreground">
-                {formatAdminDate(client.updatedAt) ||
-                  m.oauth_clients_recently()}
-              </TableCell>
-              <TableCell className="align-top text-right">
-                <Button asChild size="sm">
-                  <a href={`/admin/apps/${client.id}`}>
-                    {m.oauth_clients_edit_app()}
-                  </a>
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+                  </TableCell>
+                  <TableCell className="align-top text-right">
+                    <Button asChild size="sm">
+                      <a href={`/admin/apps/${client.id}`}>
+                        {m.oauth_clients_edit_app()}
+                      </a>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      />
     </div>
   )
 }
@@ -1040,4 +1120,13 @@ function formatGrantList(
     client.clientCredentialsEnabled ? 'client_credentials' : null,
     client.deviceFlowEnabled ? 'device_flow' : null,
   ].filter(Boolean) as string[]
+}
+
+function normalizeDate(value: string | Date | null | undefined) {
+  if (!value) {
+    return undefined
+  }
+
+  const normalized = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(normalized.getTime()) ? undefined : normalized
 }

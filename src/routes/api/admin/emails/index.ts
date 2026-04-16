@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
+import { deserializeDataTableFilters } from '../../../../lib/data-table-filters'
 import { requireAdmin } from '../../../../lib/server/auth'
 import { json, text } from '../../../../lib/server/http'
 import { listAdminInboxEmailsPage } from '../../../../lib/server/verification'
@@ -34,12 +35,16 @@ export const Route = createFileRoute('/api/admin/emails/')({
         const page = readPositiveNumber(url.searchParams.get('page'))
         const pageSize = readPositiveNumber(url.searchParams.get('pageSize'))
         const search = url.searchParams.get('search')
+        const filters = deserializeDataTableFilters(
+          url.searchParams.get('filters'),
+        )
 
         return json(
           await listAdminInboxEmailsPage({
             page,
             pageSize,
             search,
+            filters,
           }),
         )
       },
