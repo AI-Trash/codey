@@ -37,6 +37,27 @@ async function sendResponse(res: ServerResponse, response: Response): Promise<vo
   res.end(body);
 }
 
+function formatOidcHandlerError(error: unknown): {
+  error: string;
+  error_description: string;
+  detail: string;
+} {
+  const detail =
+    error instanceof Error
+      ? `${error.message}${
+          "cause" in error && error.cause instanceof Error
+            ? ` :: ${error.cause.message}`
+            : ""
+        }`
+      : String(error);
+
+  return {
+    error: "server_error",
+    error_description: detail,
+    detail,
+  };
+}
+
 async function oidcHandler(
   req: IncomingMessage,
   res: ServerResponse,
@@ -76,7 +97,8 @@ async function oidcHandler(
     nodeReq.baseUrl = "/oidc";
     req.url = mountedUrl;
     try {
-      await getOidcProvider().callback()(req, res);
+      const provider = await getOidcProvider();
+      await provider.callback()(req, res);
     } finally {
       req.url = originalUrl;
     }
@@ -86,15 +108,7 @@ async function oidcHandler(
       res.setHeader("content-type", "application/json; charset=utf-8");
       res.end(
         JSON.stringify({
-          error: true,
-          detail:
-            error instanceof Error
-              ? `${error.message}${
-                  "cause" in error && error.cause instanceof Error
-                    ? ` :: ${error.cause.message}`
-                    : ""
-                }`
-              : String(error),
+          ...formatOidcHandlerError(error),
           url: req.url || "/",
         }),
       );
@@ -134,15 +148,7 @@ export default {
     } catch (error) {
       return jsonResponse(
         {
-          error: true,
-          detail:
-            error instanceof Error
-              ? `${error.message}${
-                  "cause" in error && error.cause instanceof Error
-                    ? ` :: ${error.cause.message}`
-                    : ""
-                }`
-              : String(error),
+          ...formatOidcHandlerError(error),
           pathname: url.pathname,
         },
         500,

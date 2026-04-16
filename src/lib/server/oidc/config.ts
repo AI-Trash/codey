@@ -13,6 +13,7 @@ import Provider, {
 } from "oidc-provider";
 import { createOidcAdapter } from "./adapter";
 import { getAppEnv } from "../env";
+import { getManagedOidcJwks } from "./jwks";
 import {
   renderDeviceFlowSuccess,
   renderDeviceUserCodeConfirm,
@@ -30,17 +31,6 @@ function readIssuer(): string {
   const env = getAppEnv();
   const baseUrl = env.oauthIssuer || env.appBaseUrl || "http://localhost:3000";
   return baseUrl.endsWith("/oidc") ? baseUrl : `${baseUrl.replace(/\/$/, "")}/oidc`;
-}
-
-function requireOAuthJwks() {
-  const env = getAppEnv();
-  if (!env.oauthJwks) {
-    throw new Error(
-      "OAUTH_JWKS_JSON is required before initializing the OIDC provider",
-    );
-  }
-
-  return env.oauthJwks;
 }
 
 function readSupportedScopes(): string[] {
@@ -90,12 +80,12 @@ async function findAccount(
   };
 }
 
-function buildOidcConfiguration(): Configuration {
+function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }): Configuration {
   const env = getAppEnv();
   const resourceIndicators = getResourceIndicators();
   return {
     adapter: createOidcAdapter,
-    jwks: requireOAuthJwks(),
+    jwks,
     pkce: {
       required: () => false,
     },
@@ -197,15 +187,67 @@ function buildOidcConfiguration(): Configuration {
   };
 }
 
-let providerSingleton: Provider | undefined;
-
-export function getOidcConfiguration(): Configuration {
-  return buildOidcConfiguration();
+declare global {
+  var __codeyOidcProviderState:
+    | {
+        issuer: string;
+        jwksVersion: string;
+        provider: Provider;
+      }
+    | undefined;
+  var __codeyOidcProviderPromise: Promise<Provider> | undefined;
 }
 
-export function getOidcProvider(): Provider {
-  if (!providerSingleton) {
-    providerSingleton = new Provider(readIssuer(), buildOidcConfiguration());
+export async function getOidcConfiguration(): Promise<Configuration> {
+  const snapshot = await getManagedOidcJwks();
+  return buildOidcConfiguration({
+    keys: snapshot.keys,
+  });
+}
+
+export async function getOidcProvider(): Promise<Provider> {
+  const issuer = readIssuer();
+  const snapshot = await getManagedOidcJwks();
+  const cached = globalThis.__codeyOidcProviderState;
+  if (
+    cached &&
+    cached.issuer === issuer &&
+    cached.jwksVersion === snapshot.version
+  ) {
+    return cached.provider;
   }
-  return providerSingleton;
+
+  if (!globalThis.__codeyOidcProviderPromise) {
+    globalThis.__codeyOidcProviderPromise = (async () => {
+      const resolvedIssuer = readIssuer();
+      const resolvedSnapshot = await getManagedOidcJwks({
+        forceRefresh: true,
+      });
+      const existing = globalThis.__codeyOidcProviderState;
+      if (
+        existing &&
+        existing.issuer === resolvedIssuer &&
+        existing.jwksVersion === resolvedSnapshot.version
+      ) {
+        return existing.provider;
+      }
+
+      const provider = new Provider(
+        resolvedIssuer,
+        buildOidcConfiguration({
+          keys: resolvedSnapshot.keys,
+        }),
+      );
+      globalThis.__codeyOidcProviderState = {
+        issuer: resolvedIssuer,
+        jwksVersion: resolvedSnapshot.version,
+        provider,
+      };
+      return provider;
+    })().finally(() => {
+      globalThis.__codeyOidcProviderPromise = undefined;
+    });
+  }
+
+  return globalThis.__codeyOidcProviderPromise;
 }

@@ -82,6 +82,15 @@ CODEY_APP_EVENTS_PATH=/api/verification/events
 
 `CODEY_APP_CLIENT_SECRET` is optional. When it is present, app-backed verification uses `client_credentials`. When it is omitted, the flow will prompt for a device-code approval and cache the resulting user session under `.codey/credentials/app-session.json`.
 
+OIDC signing keys are now managed in Postgres. The app auto-generates an initial signing key on first boot, caches the published JWKS set in memory, and rotates keys automatically. Optional tuning:
+
+```env
+OAUTH_SIGNING_KEY_ROTATION_DAYS=30
+OAUTH_SIGNING_KEY_RETENTION_DAYS=7
+```
+
+`OAUTH_JWKS_JSON` is no longer required. If you already have an existing key set, you can provide it once as a migration seed and the app will import it into the database when the signing-key table is empty.
+
 Typical legacy Exchange setup:
 
 ```env
@@ -294,4 +303,5 @@ FLOW_APP_API_KEY_HEADER (optional, defaults to x-codey-flow-app-key)
 - Drizzle Kit is configured via `drizzle.config.ts`
 - generated SQL migrations live under `drizzle/`
 - PostgreSQL is the only supported runtime database
+- OIDC signing keys are stored in `oidc_signing_keys` and rotate automatically after bootstrapping
 - TanStack Router generates `src/routeTree.gen.ts` during build/dev

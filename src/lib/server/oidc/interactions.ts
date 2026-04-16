@@ -215,7 +215,7 @@ export async function loadInteractionPage(
   req?: IncomingMessage,
   res?: ServerResponse,
 ): Promise<Response> {
-  const provider = getOidcProvider();
+  const provider = await getOidcProvider();
   const nodeContext = getProvidedNodeContext(req, res) || getNodeContext(request);
   const details = await provider.interactionDetails(nodeContext.req, nodeContext.res);
   const client = await provider.Client.find(String(details.params.client_id || ""));
@@ -264,7 +264,7 @@ export async function completeInteraction(
   res?: ServerResponse,
 ): Promise<Response> {
   const admin = await requireAdmin(request);
-  const provider = getOidcProvider();
+  const provider = await getOidcProvider();
   const nodeContext = getProvidedNodeContext(req, res) || getNodeContext(request);
 
   const result: InteractionResults = aborted

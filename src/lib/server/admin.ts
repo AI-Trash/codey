@@ -9,6 +9,7 @@ import {
 import { getDb } from "./db/client";
 import { listRecentDeviceChallenges } from "./device-auth";
 import { listAdminIdentitySummaries } from "./identities";
+import { getOidcSigningKeyStatus } from "./oidc/jwks";
 import { listRecentVerificationActivity } from "./verification";
 import { createId } from "./security";
 
@@ -28,9 +29,10 @@ function boolStatus(value: boolean, success = "configured") {
 async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdminIdentitySummaries>>): Promise<ConfigStatusItem[]> {
   const env = getAppEnv();
   const db = getDb();
-  const [userCountResult, adminCountResult] = await Promise.all([
+  const [userCountResult, adminCountResult, oidcSigningKeyStatus] = await Promise.all([
     db.select({ count: count() }).from(users),
     db.select({ count: count() }).from(users).where(eq(users.role, "ADMIN")),
+    getOidcSigningKeyStatus(),
   ]);
   const userCount = Number(userCountResult[0]?.count ?? 0);
   const adminCount = Number(adminCountResult[0]?.count ?? 0);
@@ -100,6 +102,14 @@ async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdm
       detail: codexConfigured
         ? "Codex authorize/token URLs and client ID are configured."
         : "CODEX_AUTHORIZE_URL, CODEX_TOKEN_URL, and CODEX_CLIENT_ID are not all present.",
+    },
+    {
+      id: "oidc-signing-keys",
+      key: "oidcSigningKeys",
+      label: "OIDC signing keys",
+      description: "Signing keys are stored in Postgres, cached in-memory, and rotated automatically.",
+      status: oidcSigningKeyStatus.status,
+      detail: oidcSigningKeyStatus.detail,
     },
     {
       id: "flow-app-request-queue",

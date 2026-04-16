@@ -29,8 +29,10 @@ export interface OidcDeviceAuthorizationResponse {
 }
 
 interface OidcJsonErrorPayload {
-  error?: string
+  error?: string | boolean
   error_description?: string
+  detail?: string
+  message?: string
 }
 
 interface OidcDiscoveryPayload extends OidcJsonErrorPayload {
@@ -68,6 +70,36 @@ export class OidcRequestError extends Error {
     super(message)
     this.name = 'OidcRequestError'
   }
+}
+
+function firstNonEmptyText(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+
+  return undefined
+}
+
+function readOidcErrorCode(
+  payload: Pick<OidcJsonErrorPayload, 'error'>,
+): string | undefined {
+  return firstNonEmptyText(payload.error)
+}
+
+function readOidcErrorMessage(
+  payload: OidcJsonErrorPayload,
+  fallbackMessage: string,
+): string {
+  return (
+    firstNonEmptyText(
+      payload.error_description,
+      payload.detail,
+      payload.message,
+      payload.error,
+    ) || fallbackMessage
+  )
 }
 
 const DEFAULT_OIDC_BASE_PATH = '/oidc'
@@ -213,20 +245,20 @@ function buildOidcError(
   fallbackMessage: string,
 ): OidcRequestError {
   return new OidcRequestError(
-    payload.error_description || payload.error || fallbackMessage,
+    readOidcErrorMessage(payload, fallbackMessage),
     response.status,
-    payload.error,
-    payload.error_description,
+    readOidcErrorCode(payload),
+    firstNonEmptyText(
+      payload.error_description,
+      payload.detail,
+      payload.message,
+    ),
   )
 }
 
 function mapTokenSet(payload: OidcTokenPayload): OidcTokenSet {
   if (!payload.access_token) {
-    throw new Error(
-      payload.error_description ||
-        payload.error ||
-        'OIDC token exchange failed.',
-    )
+    throw new Error(readOidcErrorMessage(payload, 'OIDC token exchange failed.'))
   }
 
   const obtainedAt = new Date().toISOString()

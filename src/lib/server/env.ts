@@ -27,12 +27,14 @@ export interface AppEnv {
   cloudflareSignatureHeader: string;
   cloudflareTimestampHeader: string;
   oauthIssuer?: string;
-  oauthJwks?: {
+  oauthJwksSeed?: {
     keys: Array<Record<string, unknown>>;
   };
   oauthClientSecretEncryptionKey?: string;
   oauthAccessTokenTtlSeconds: number;
   oauthDeviceCodeTtlSeconds: number;
+  oauthSigningKeyRotationDays: number;
+  oauthSigningKeyRetentionDays: number;
   oauthDefaultResourceIndicator?: string;
   oauthSupportedScopes: string[];
 }
@@ -170,7 +172,10 @@ export function getAppEnv(): AppEnv {
     cloudflareTimestampHeader:
       process.env.CLOUDFLARE_TIMESTAMP_HEADER || "x-codey-timestamp",
     oauthIssuer: process.env.OAUTH_ISSUER,
-    oauthJwks: readOptionalJsonObject(process.env.OAUTH_JWKS_JSON, "OAUTH_JWKS_JSON"),
+    oauthJwksSeed: readOptionalJsonObject(
+      process.env.OAUTH_JWKS_JSON,
+      "OAUTH_JWKS_JSON",
+    ),
     oauthClientSecretEncryptionKey: readOptionalBase64Key(
       process.env.OAUTH_CLIENT_SECRET_ENCRYPTION_KEY,
       "OAUTH_CLIENT_SECRET_ENCRYPTION_KEY",
@@ -182,6 +187,14 @@ export function getAppEnv(): AppEnv {
     oauthDeviceCodeTtlSeconds: readNumber(
       process.env.OAUTH_DEVICE_CODE_TTL_SECONDS,
       600,
+    ),
+    oauthSigningKeyRotationDays: readNumber(
+      process.env.OAUTH_SIGNING_KEY_ROTATION_DAYS,
+      30,
+    ),
+    oauthSigningKeyRetentionDays: readNumber(
+      process.env.OAUTH_SIGNING_KEY_RETENTION_DAYS,
+      7,
     ),
     oauthDefaultResourceIndicator: process.env.OAUTH_DEFAULT_RESOURCE_INDICATOR,
     oauthSupportedScopes: readList(process.env.OAUTH_SUPPORTED_SCOPES).length

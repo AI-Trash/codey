@@ -1,9 +1,11 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildOidcDiscoveryUrl,
+  getOidcDiscovery,
+  OidcRequestError,
   resolveOidcIssuer,
 } from '../src/modules/app-auth/oidc'
 import {
@@ -80,6 +82,7 @@ describe('app auth OIDC helpers', () => {
   afterEach(() => {
     setRuntimeConfig(createConfig(tempRoot))
     clearAppSession()
+    vi.restoreAllMocks()
   })
 
   it('resolves an issuer from baseUrl and oidcBasePath', () => {
@@ -110,6 +113,37 @@ describe('app auth OIDC helpers', () => {
         oidcBasePath: '/oidc',
       }),
     ).toBe('http://localhost:3000/custom-oidc')
+  })
+
+  it('surfaces non-standard OIDC error payload details', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: true,
+          detail: 'OAUTH_JWKS_JSON is required before initializing the OIDC provider',
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    )
+
+    await expect(
+      getOidcDiscovery({
+        baseUrl: 'http://localhost:4050',
+        oidcBasePath: '/oidc',
+      }),
+    ).rejects.toMatchObject<Partial<OidcRequestError>>({
+      message:
+        'OAUTH_JWKS_JSON is required before initializing the OIDC provider',
+      status: 500,
+      error: undefined,
+      errorDescription:
+        'OAUTH_JWKS_JSON is required before initializing the OIDC provider',
+    })
   })
 
   it('reads legacy app session files through the new tokenSet shape', () => {
@@ -174,6 +208,13 @@ describe('app auth OIDC helpers', () => {
         APP_OIDC_CLIENT_SECRET: 'legacy_secret',
         VERIFICATION_APP_BASE_URL: 'http://localhost:4021',
         VERIFICATION_APP_OIDC_CLIENT_ID: 'legacy_verification_client',
+        CODEY_APP_BASE_URL: '',
+        CODEY_APP_CLIENT_ID: '',
+        CODEY_APP_CLIENT_SECRET: '',
+        CODEY_APP_RESERVE_EMAIL_PATH: '',
+        CODEY_APP_CODE_PATH: '',
+        CODEY_APP_EVENTS_PATH: '',
+        CODEY_APP_CLI_EVENTS_PATH: '',
       },
       async () => {
         const config = resolveConfig()

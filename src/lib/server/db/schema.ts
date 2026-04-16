@@ -430,6 +430,56 @@ export const oidcArtifacts = pgTable(
   ],
 );
 
+export const oidcSigningKeys = pgTable(
+  "oidc_signing_keys",
+  {
+    id: text("id").primaryKey(),
+    kid: text("kid").notNull(),
+    algorithm: text("algorithm").notNull(),
+    publicJwk: jsonb("public_jwk")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    privateJwk: jsonb("private_jwk")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    isActive: boolean("is_active").default(false).notNull(),
+    activatedAt: timestamp("activated_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    rotatesAt: timestamp("rotates_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+    retiresAt: timestamp("retires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("oidc_signing_keys_kid_unique").on(table.kid),
+    index("oidc_signing_keys_active_rotates_at_idx").on(
+      table.isActive,
+      table.rotatesAt,
+    ),
+    index("oidc_signing_keys_retires_at_idx").on(table.retiresAt),
+  ],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   deviceChallenges: many(deviceChallenges),
@@ -505,3 +555,4 @@ export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect;
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect;
 export type OAuthClientRow = typeof oauthClients.$inferSelect;
 export type OidcArtifactRow = typeof oidcArtifacts.$inferSelect;
+export type OidcSigningKeyRow = typeof oidcSigningKeys.$inferSelect;

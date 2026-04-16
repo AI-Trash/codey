@@ -42,7 +42,7 @@ function hasRequiredScopes(grantedScopes: string[], requiredScopes: string[]): b
 async function findOidcBearerToken(
   bearerToken: string,
 ): Promise<BearerTokenContext | null> {
-  const provider = getOidcProvider();
+  const provider = await getOidcProvider();
   const accessToken = await provider.AccessToken.find(bearerToken);
   if (accessToken) {
     if (!accessToken.clientId) {
