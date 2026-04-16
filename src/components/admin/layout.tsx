@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import {
   AppWindowIcon,
+  ChevronsUpDownIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MailIcon,
@@ -10,6 +11,7 @@ import {
   ShieldCheckIcon,
 } from 'lucide-react'
 
+import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar'
 import { Badge } from '#/components/ui/badge'
 import {
   Breadcrumb,
@@ -19,13 +21,20 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '#/components/ui/breadcrumb'
-import { Button } from '#/components/ui/button'
 import {
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 import {
   Empty,
   EmptyDescription,
@@ -53,6 +62,7 @@ import {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebar,
 } from '#/components/ui/sidebar'
 import { translateStatusLabel } from '#/lib/i18n'
 import { cn } from '#/lib/utils'
@@ -60,6 +70,14 @@ import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
 type StatusTone = 'good' | 'warning' | 'danger' | 'neutral'
+
+export type AdminShellUser = {
+  name: string | null
+  email: string | null
+  githubLogin: string | null
+  avatarUrl: string | null
+  role: 'ADMIN' | 'USER'
+}
 
 function getOperationsSubNavigation() {
   return [
@@ -123,7 +141,10 @@ function getAdminNavigation() {
   ] as const
 }
 
-export function AdminShell(props: { children: ReactNode }) {
+export function AdminShell(props: {
+  children: ReactNode
+  currentUser?: AdminShellUser | null
+}) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
@@ -221,33 +242,11 @@ export function AdminShell(props: { children: ReactNode }) {
           </SidebarGroup>
         </SidebarContent>
 
-        <SidebarFooter className="gap-3 p-3">
-          <Card className="gap-3 border-dashed py-4 shadow-none">
-            <CardHeader className="px-4">
-              <div className="flex items-start gap-2">
-                <CardTitle className="text-sm">
-                  {m.admin_layout_controls_title()}
-                </CardTitle>
-                <InfoTooltip
-                  content={m.admin_layout_controls_description()}
-                  label={m.admin_layout_controls_title()}
-                  className="mt-0.5"
-                />
-              </div>
-            </CardHeader>
-          </Card>
-
-          <form method="post" action="/auth/logout">
-            <Button
-              type="submit"
-              variant="outline"
-              className="w-full justify-start"
-            >
-              <LogOutIcon />
-              {m.admin_log_out()}
-            </Button>
-          </form>
-        </SidebarFooter>
+        {props.currentUser ? (
+          <SidebarFooter className="p-2">
+            <AdminUserMenu user={props.currentUser} />
+          </SidebarFooter>
+        ) : null}
         <SidebarRail />
       </Sidebar>
 
@@ -314,9 +313,17 @@ export function AdminPageHeader(props: {
   description?: ReactNode
   actions?: ReactNode
   meta?: ReactNode
+  variant?: 'card' | 'plain'
 }) {
+  const isPlain = props.variant === 'plain'
+
   return (
-    <section className="flex flex-col gap-5 rounded-xl border bg-background p-6 shadow-sm lg:flex-row lg:items-start lg:justify-between">
+    <section
+      className={cn(
+        'flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between',
+        isPlain ? 'p-0' : 'rounded-xl border bg-background p-6 shadow-sm',
+      )}
+    >
       <div className="max-w-4xl">
         {props.eyebrow ? (
           <p className="mb-2 text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
@@ -344,6 +351,74 @@ export function AdminPageHeader(props: {
         ) : null}
       </div>
     </section>
+  )
+}
+
+function AdminUserMenu(props: { user: AdminShellUser }) {
+  const { isMobile } = useSidebar()
+  const primaryLabel = getAdminUserPrimaryLabel(props.user)
+  const secondaryLabel = getAdminUserSecondaryLabel(props.user)
+
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton
+              size="lg"
+              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              tooltip={primaryLabel}
+            >
+              <Avatar className="rounded-lg" size="sm">
+                <AvatarImage src={props.user.avatarUrl || undefined} />
+                <AvatarFallback className="rounded-lg">
+                  {getAdminUserInitials(props.user)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="grid flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-semibold">{primaryLabel}</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {secondaryLabel}
+                </span>
+              </div>
+              <ChevronsUpDownIcon className="ml-auto size-4" />
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+            side={isMobile ? 'bottom' : 'right'}
+            align="end"
+            sideOffset={4}
+          >
+            <DropdownMenuLabel className="p-0 font-normal">
+              <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                <Avatar className="rounded-lg" size="sm">
+                  <AvatarImage src={props.user.avatarUrl || undefined} />
+                  <AvatarFallback className="rounded-lg">
+                    {getAdminUserInitials(props.user)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-semibold">{primaryLabel}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {secondaryLabel}
+                  </span>
+                </div>
+              </div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <form method="post" action="/auth/logout">
+              <DropdownMenuItem asChild variant="destructive">
+                <button type="submit" className="w-full">
+                  <LogOutIcon />
+                  {m.admin_log_out()}
+                </button>
+              </DropdownMenuItem>
+            </form>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
   )
 }
 
@@ -479,6 +554,47 @@ function getAdminPageLabel(pathname: string) {
   }
 
   return m.admin_breadcrumb_root()
+}
+
+function getAdminUserPrimaryLabel(user: AdminShellUser) {
+  return (
+    user.name ||
+    user.githubLogin ||
+    user.email ||
+    m.admin_sidebar_unknown_user()
+  )
+}
+
+function getAdminUserSecondaryLabel(user: AdminShellUser) {
+  const primaryLabel = getAdminUserPrimaryLabel(user)
+
+  if (user.email && user.email !== primaryLabel) {
+    return user.email
+  }
+
+  if (user.githubLogin && user.githubLogin !== primaryLabel) {
+    return `@${user.githubLogin}`
+  }
+
+  return user.role === 'ADMIN'
+    ? m.admin_sidebar_role_admin()
+    : m.admin_sidebar_role_user()
+}
+
+function getAdminUserInitials(user: AdminShellUser) {
+  const label = getAdminUserPrimaryLabel(user).trim()
+
+  if (!label) {
+    return 'AD'
+  }
+
+  const words = label.split(/[\s@._-]+/).filter(Boolean)
+
+  if (words.length >= 2) {
+    return `${words[0]?.slice(0, 1) || ''}${words[1]?.slice(0, 1) || ''}`.toUpperCase()
+  }
+
+  return label.slice(0, 2).toUpperCase()
 }
 
 const toneClasses: Record<StatusTone, string> = {

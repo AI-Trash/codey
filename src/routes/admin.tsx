@@ -1,12 +1,41 @@
 import { Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
+import { createServerFn } from '@tanstack/react-start'
 
 import { AdminShell } from '#/components/admin/layout'
 
+const loadAdminShellUser = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    const [{ getRequest }, { getSessionUser }] = await Promise.all([
+      import('@tanstack/react-start/server'),
+      import('../lib/server/auth'),
+    ])
+
+    const request = getRequest()
+    const sessionUser = await getSessionUser(request)
+
+    if (!sessionUser || sessionUser.user.role !== 'ADMIN') {
+      return null
+    }
+
+    return {
+      name: sessionUser.user.name,
+      email: sessionUser.user.email,
+      githubLogin: sessionUser.user.githubLogin,
+      avatarUrl: sessionUser.user.avatarUrl,
+      role: sessionUser.user.role,
+    }
+  },
+)
+
 export const Route = createFileRoute('/admin')({
+  loader: async () => ({
+    currentUser: await loadAdminShellUser(),
+  }),
   component: AdminLayout,
 })
 
 function AdminLayout() {
+  const data = Route.useLoaderData()
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
@@ -16,7 +45,7 @@ function AdminLayout() {
   }
 
   return (
-    <AdminShell>
+    <AdminShell currentUser={data.currentUser}>
       <Outlet />
     </AdminShell>
   )

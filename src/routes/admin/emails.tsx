@@ -68,6 +68,7 @@ function AdminMailInboxPage() {
         eyebrow={m.admin_nav_operations()}
         title={m.admin_mail_page_title()}
         description={m.admin_mail_page_description()}
+        variant="plain"
         actions={
           <Button asChild variant="outline">
             <a href="/admin">{m.admin_back_to_operations()}</a>

@@ -66,6 +66,7 @@ function AdminAppsListPage() {
         eyebrow={m.admin_apps_eyebrow()}
         title={m.admin_apps_title()}
         description={m.admin_apps_description()}
+        variant="plain"
         actions={
           <>
             <Button asChild variant="outline">

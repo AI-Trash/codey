@@ -190,6 +190,7 @@ function AdminPage() {
       <AdminPageHeader
         eyebrow={m.admin_breadcrumb_root()}
         title={m.admin_dashboard_title()}
+        variant="plain"
         description={
           <>
             {m.admin_dashboard_signed_in_prefix()}{' '}

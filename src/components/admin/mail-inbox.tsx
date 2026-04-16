@@ -5,6 +5,8 @@ import {
   useMemo,
   useState,
 } from 'react'
+import DOMPurify from 'dompurify'
+import { extract as extractLetterMail } from 'letterparser'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -91,6 +93,13 @@ export type AdminMailInboxPageData = {
 }
 
 type LiveStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
+
+type ResolvedEmailContent = {
+  htmlPreview: string | null
+  textPreview: string | null
+  htmlSource: string | null
+  textSource: string | null
+}
 
 const adminMailInboxQueryBaseKey = ['admin-mail-inbox'] as const
 
@@ -511,6 +520,10 @@ function MessageDetailsDialog(props: {
 }) {
   const email = props.email
   const isOpen = props.open && Boolean(email)
+  const resolvedContent = useMemo(
+    () => (email ? resolveEmailContent(email) : null),
+    [email],
+  )
 
   return (
     <Dialog open={isOpen} onOpenChange={props.onOpenChange}>
@@ -540,9 +553,9 @@ function MessageDetailsDialog(props: {
                   {email.latestCode}
                 </Badge>
               ) : null}
-              {email.htmlBody ? (
+              {resolvedContent?.htmlPreview ? (
                 <Badge variant="outline">{m.mail_detail_badge_html()}</Badge>
-              ) : email.textBody ? (
+              ) : resolvedContent?.textPreview ? (
                 <Badge variant="outline">{m.mail_detail_badge_text()}</Badge>
               ) : (
                 <Badge variant="outline">
@@ -600,7 +613,7 @@ function MessageDetailsDialog(props: {
 
                   <Tabs
                     key={email.id}
-                    defaultValue={getInitialContentTab(email)}
+                    defaultValue={getInitialContentTab(resolvedContent)}
                     className="gap-3"
                   >
                     <TabsList variant="line" className="w-full justify-start">
@@ -617,14 +630,14 @@ function MessageDetailsDialog(props: {
 
                     <TabsContent value="text">
                       <EmailContentPanel
-                        value={email.textBody}
+                        value={resolvedContent?.textSource ?? email.textBody}
                         className="h-[320px] xl:h-[420px]"
                       />
                     </TabsContent>
 
                     <TabsContent value="html">
                       <EmailContentPanel
-                        value={email.htmlBody}
+                        value={resolvedContent?.htmlSource ?? email.htmlBody}
                         className="h-[320px] xl:h-[420px]"
                       />
                     </TabsContent>
@@ -641,8 +654,8 @@ function MessageDetailsDialog(props: {
             </div>
 
             <RenderedEmailPreview
-              html={email.htmlBody}
-              text={email.textBody}
+              html={resolvedContent?.htmlPreview ?? null}
+              text={resolvedContent?.textPreview ?? null}
               className="min-h-[360px] lg:min-h-0"
             />
           </div>
@@ -672,7 +685,19 @@ function RenderedEmailPreview(props: {
   text: string | null
   className?: string
 }) {
+  const [isClient, setIsClient] = useState(false)
   const hasPreview = Boolean(props.html || props.text)
+  const previewDocument = useMemo(() => {
+    if (!isClient || !props.html) {
+      return null
+    }
+
+    return buildHtmlPreviewDocument(props.html)
+  }, [isClient, props.html])
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   return (
     <div
@@ -709,12 +734,18 @@ function RenderedEmailPreview(props: {
 
       <div className="min-h-0 flex-1">
         {props.html ? (
-          <iframe
-            title={m.mail_preview_iframe_title()}
-            sandbox="allow-popups allow-popups-to-escape-sandbox"
-            srcDoc={buildHtmlPreviewDocument(props.html)}
-            className="h-full w-full bg-white"
-          />
+          previewDocument ? (
+            <iframe
+              title={m.mail_preview_iframe_title()}
+              sandbox="allow-popups allow-popups-to-escape-sandbox"
+              srcDoc={previewDocument}
+              className="h-full w-full bg-white"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+              {m.ui_loading()}
+            </div>
+          )
         ) : props.text ? (
           <ScrollArea className="h-full bg-background">
             <div className="whitespace-pre-wrap p-4 text-sm leading-6 text-foreground">
@@ -779,24 +810,31 @@ async function fetchAdminMailInboxPage(params: {
   return (await response.json()) as AdminMailInboxPageData
 }
 
-function getInitialContentTab(email: AdminMailInboxEmail) {
-  if (email.textBody) {
-    return 'text'
-  }
-
-  if (email.htmlBody) {
-    return 'html'
-  }
-
-  return 'raw'
-}
-
 function buildHtmlPreviewDocument(html: string) {
-  const sanitizedHtml = sanitizeHtmlPreviewSource(html)
-  const extractedHeadStyles =
-    sanitizedHtml.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi)?.join('\n') ?? ''
-  const bodyMatch = sanitizedHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i)
-  const bodyContent = bodyMatch?.[1] ?? sanitizedHtml
+  const purify = DOMPurify(window)
+  const sanitizedHtml = purify.sanitize(html, {
+    WHOLE_DOCUMENT: true,
+    SANITIZE_DOM: true,
+    USE_PROFILES: {
+      html: true,
+    },
+  })
+  const parsedDocument = new window.DOMParser().parseFromString(
+    sanitizedHtml,
+    'text/html',
+  )
+  const extractedHeadStyles = Array.from(
+    parsedDocument.head.querySelectorAll('style'),
+  )
+    .map((element) => element.outerHTML)
+    .join('\n')
+
+  for (const link of parsedDocument.body.querySelectorAll('a[href]')) {
+    link.setAttribute('target', '_blank')
+    link.setAttribute('rel', 'noopener noreferrer')
+  }
+
+  const bodyContent = parsedDocument.body.innerHTML || sanitizedHtml
 
   return `<!doctype html>
 <html>
@@ -848,20 +886,86 @@ function buildHtmlPreviewDocument(html: string) {
 </html>`
 }
 
-function sanitizeHtmlPreviewSource(html: string) {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/<object\b[^>]*>[\s\S]*?<\/object>/gi, '')
-    .replace(/<embed\b[^>]*>/gi, '')
-    .replace(/<base\b[^>]*>/gi, '')
-    .replace(/<meta\b[^>]*http-equiv=["']?refresh["']?[^>]*>/gi, '')
-    .replace(/\s(on[a-z-]+)\s*=\s*(['"]).*?\2/gi, '')
-    .replace(/\s(on[a-z-]+)\s*=\s*[^\s>]+/gi, '')
-    .replace(
-      /\s(href|src|xlink:href)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi,
-      ' $1=$2#$2',
-    )
+function resolveEmailContent(
+  email: AdminMailInboxEmail,
+): ResolvedEmailContent {
+  const parsedContent = extractEmailContentFromRaw(email)
+  const storedHtml = normalizeEmailContent(email.htmlBody)
+  const storedText = normalizeEmailContent(email.textBody)
+  const htmlSource = storedHtml ?? parsedContent?.html ?? null
+  const textSource = parsedContent?.text ?? storedText ?? null
+  const textPreview =
+    parsedContent?.text ??
+    (isLikelyRawEmailSource(storedText) ? null : storedText)
+
+  return {
+    htmlPreview: htmlSource,
+    textPreview,
+    htmlSource,
+    textSource,
+  }
+}
+
+function extractEmailContentFromRaw(
+  email: Pick<AdminMailInboxEmail, 'rawPayload' | 'textBody'>,
+) {
+  const rawSource = getLikelyRawEmailSource(email)
+  if (!rawSource) {
+    return null
+  }
+
+  try {
+    const parsedMail = extractLetterMail(rawSource)
+    return {
+      html: normalizeEmailContent(parsedMail.html),
+      text: normalizeEmailContent(parsedMail.text),
+    }
+  } catch {
+    return null
+  }
+}
+
+function getLikelyRawEmailSource(
+  email: Pick<AdminMailInboxEmail, 'rawPayload' | 'textBody'>,
+) {
+  if (isLikelyRawEmailSource(email.rawPayload)) {
+    return email.rawPayload
+  }
+
+  if (isLikelyRawEmailSource(email.textBody)) {
+    return email.textBody
+  }
+
+  return null
+}
+
+function isLikelyRawEmailSource(value: string | null | undefined) {
+  if (!value) {
+    return false
+  }
+
+  const headerBlock = value.split(/\r?\n\r?\n/, 1)[0]
+  const headerCount =
+    headerBlock.match(/^[A-Za-z0-9-]+:\s.*$/gm)?.length ?? 0
+
+  return headerCount >= 2
+}
+
+function normalizeEmailContent(value: string | null | undefined) {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
+}
+
+function getInitialContentTab(content: ResolvedEmailContent | null) {
+  if (content?.htmlSource) {
+    return 'html'
+  }
+
+  if (content?.textSource) {
+    return 'text'
+  }
+
+  return 'raw'
 }
 
 function getLiveStatusLabel(status: LiveStatus) {

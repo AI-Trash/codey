@@ -58,6 +58,7 @@ function AdminAppsNewPage() {
         eyebrow={m.admin_apps_eyebrow()}
         title={m.admin_apps_new_title()}
         description={m.admin_apps_new_description()}
+        variant="plain"
         actions={
           <Button asChild variant="outline">
             <a href="/admin/apps">{m.admin_back_to_apps()}</a>
