@@ -1,19 +1,10 @@
+import { extractVerificationCodeFromText } from "../../../src/lib/shared/verification-code";
+
 export interface Env {
   CODEY_INGEST_URL: string;
   CODEY_WEBHOOK_SECRET: string;
   CODEY_SIGNATURE_HEADER?: string;
   CODEY_TIMESTAMP_HEADER?: string;
-}
-
-function extractVerificationCode(body: string): string | null {
-  const normalized = body.replace(/&nbsp;/gi, " ").replace(/\s+/g, " ");
-  const contextualMatch = normalized.match(
-    /(?:code|验证码|verification code|one-time code|security code)\D{0,20}(\d{6})/i,
-  );
-  if (contextualMatch?.[1]) return contextualMatch[1];
-  const fallback = normalized.match(/\b(\d{6})\b/);
-  if (fallback?.[1]) return fallback[1];
-  return null;
 }
 
 async function hmacSha256(secret: string, payload: string): Promise<string> {
@@ -46,7 +37,7 @@ export default {
       rawPayload: raw,
       messageId: message.headers.get("message-id") || undefined,
       receivedAt: timestamp,
-      extractedCode: extractVerificationCode(raw),
+      extractedCode: extractVerificationCodeFromText(raw),
     });
     const signature = await hmacSha256(
       env.CODEY_WEBHOOK_SECRET,

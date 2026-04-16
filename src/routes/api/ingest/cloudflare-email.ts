@@ -10,6 +10,7 @@ interface CloudflareEmailPayload {
   textBody?: string;
   htmlBody?: string;
   rawPayload?: string;
+  extractedCode?: string;
   messageId?: string;
   receivedAt?: string;
 }
@@ -47,6 +48,7 @@ export const Route = createFileRoute("/api/ingest/cloudflare-email")({
           textBody: payload.textBody,
           htmlBody: payload.htmlBody,
           rawPayload: payload.rawPayload || rawBody,
+          extractedCode: payload.extractedCode,
           messageId: payload.messageId,
           receivedAt: payload.receivedAt,
         });

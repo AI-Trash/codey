@@ -20,6 +20,7 @@ import {
 } from './db/schema'
 import { getDb } from './db/client'
 import { createId, randomCode } from './security'
+import { extractVerificationCodeFromText } from '../shared/verification-code'
 
 export interface VerificationEmailPayload {
   messageId?: string | null
@@ -369,6 +370,7 @@ export async function ingestCloudflareEmail(params: {
   textBody?: string
   htmlBody?: string
   rawPayload?: string
+  extractedCode?: string
   messageId?: string
   receivedAt?: string
 }) {
@@ -380,6 +382,11 @@ export async function ingestCloudflareEmail(params: {
   const receivedAt = params.receivedAt
     ? new Date(params.receivedAt)
     : new Date()
+  const extractedCode =
+    params.extractedCode ||
+    extractVerificationCodeFromText(params.textBody) ||
+    extractVerificationCodeFromText(params.htmlBody) ||
+    extractVerificationCodeFromText(params.rawPayload)
 
   const [emailRecord] = await db
     .insert(emailIngestRecords)
@@ -392,14 +399,38 @@ export async function ingestCloudflareEmail(params: {
       textBody: params.textBody,
       htmlBody: params.htmlBody,
       rawPayload: params.rawPayload,
-      verificationCode: null,
+      verificationCode: extractedCode,
       receivedAt,
     })
     .returning()
 
+  let codeRecord = null
+  if (reservation?.id && extractedCode) {
+    const insertedCode = await db
+      .insert(verificationCodes)
+      .values({
+        id: createId(),
+        reservationId: reservation.id,
+        code: extractedCode,
+        source: 'CLOUDFLARE_EMAIL',
+        messageId: params.messageId,
+        receivedAt,
+      })
+      .onConflictDoNothing({
+        target: [
+          verificationCodes.reservationId,
+          verificationCodes.code,
+          verificationCodes.receivedAt,
+        ],
+      })
+      .returning()
+
+    codeRecord = insertedCode[0] || null
+  }
+
   return {
     emailRecord,
-    codeRecord: null,
+    codeRecord,
   }
 }
 

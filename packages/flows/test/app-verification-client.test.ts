@@ -145,4 +145,142 @@ describe('AppVerificationProviderClient', () => {
       }),
     ).resolves.toBe('246810')
   })
+
+  it('falls back to the English email body when the subject does not contain the code', async () => {
+    const fetchMock = vi.fn<
+      Parameters<typeof fetch>,
+      ReturnType<typeof fetch>
+    >()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4313/oidc',
+            token_endpoint: 'http://localhost:4313/oidc/token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'token-123',
+            token_type: 'Bearer',
+            scope: 'verification:read',
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'pending',
+            emails: [
+              {
+                subject: 'Finish signing in to ChatGPT',
+                textBody: 'Use verification code 112233 to continue.',
+                receivedAt: '2026-04-16T06:36:35.000Z',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new AppVerificationProviderClient({
+      baseUrl: 'http://localhost:4313',
+      clientId: 'codey_client',
+      clientSecret: 'codey_secret',
+    })
+
+    await expect(
+      client.waitForVerificationCode({
+        email: 'codey+otp@example.com',
+        startedAt: '2026-04-16T06:36:30.000Z',
+        timeoutMs: 1000,
+        pollIntervalMs: 10,
+      }),
+    ).resolves.toBe('112233')
+  })
+
+  it('falls back to a trailing Chinese code when the message is still pending', async () => {
+    const fetchMock = vi.fn<
+      Parameters<typeof fetch>,
+      ReturnType<typeof fetch>
+    >()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4314/oidc',
+            token_endpoint: 'http://localhost:4314/oidc/token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'token-123',
+            token_type: 'Bearer',
+            scope: 'verification:read',
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'pending',
+            emails: [
+              {
+                subject: 'ChatGPT 安全验证',
+                textBody: '欢迎使用 ChatGPT\n请在页面输入以下验证码\n445566',
+                receivedAt: '2026-04-16T06:36:35.000Z',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new AppVerificationProviderClient({
+      baseUrl: 'http://localhost:4314',
+      clientId: 'codey_client',
+      clientSecret: 'codey_secret',
+    })
+
+    await expect(
+      client.waitForVerificationCode({
+        email: 'codey+otp@example.com',
+        startedAt: '2026-04-16T06:36:30.000Z',
+        timeoutMs: 1000,
+        pollIntervalMs: 10,
+      }),
+    ).resolves.toBe('445566')
+  })
 })

@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import type { ExchangeConfig } from '../../config'
 import { sleep } from '../../utils/wait'
-import { extractChatGPTVerificationCodeFromSubject } from '../chatgpt/common'
+import { extractChatGPTVerificationCodeFromEmail } from '../chatgpt/common'
 import { ExchangeClient } from '../exchange'
 import type {
   VerificationEmailTarget,
@@ -83,7 +83,11 @@ export class ExchangeVerificationProvider implements VerificationProvider {
         ? targetedMessages
         : messages) {
         const detail = await this.client.getMessage(message.id)
-        const code = extractChatGPTVerificationCodeFromSubject(detail.subject)
+        const code = extractChatGPTVerificationCodeFromEmail({
+          subject: detail.subject,
+          textBody: detail.bodyPreview,
+          htmlBody: detail.body,
+        })
         if (code) return code
       }
 
