@@ -12,6 +12,7 @@ import {
   AGE_GATE_AGE_SELECTORS,
   AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
   AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
+  AGE_GATE_BIRTHDAY_TRIGGER_SELECTORS,
   AGE_GATE_BIRTH_DAY_SELECTORS,
   AGE_GATE_BIRTH_MONTH_SELECTORS,
   AGE_GATE_BIRTH_YEAR_SELECTORS,
@@ -40,6 +41,7 @@ import { toLocator } from '../../utils/selectors'
 import {
   type ChatGPTPostEmailLoginStep,
   waitForAnySelectorState,
+  waitForEditableSelector,
   waitForLoginEmailFormReady,
   waitForLoginEmailSubmissionOutcome,
   waitForPasswordInputReady,
@@ -195,6 +197,82 @@ async function waitForBirthdayHiddenInputValue(
   return false
 }
 
+async function waitForBirthdaySegmentsReady(
+  page: Page,
+  timeoutMs = 1500,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+
+  const yearReady = await waitForEditableSelector(
+    page,
+    AGE_GATE_BIRTH_YEAR_SELECTORS,
+    Math.max(1, deadline - Date.now()),
+  )
+  if (!yearReady) return false
+
+  const monthReady = await waitForEditableSelector(
+    page,
+    AGE_GATE_BIRTH_MONTH_SELECTORS,
+    Math.max(1, deadline - Date.now()),
+  )
+  if (!monthReady) return false
+
+  return waitForEditableSelector(
+    page,
+    AGE_GATE_BIRTH_DAY_SELECTORS,
+    Math.max(1, deadline - Date.now()),
+  )
+}
+
+async function revealAgeGateBirthdaySegments(page: Page): Promise<boolean> {
+  if (await waitForBirthdaySegmentsReady(page, 300)) {
+    return true
+  }
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const clicked = await clickAgeGateBirthdayTrigger(page)
+    if (!clicked) break
+
+    if (await waitForBirthdaySegmentsReady(page, 1200)) {
+      return true
+    }
+
+    await sleep(150)
+  }
+
+  return waitForBirthdaySegmentsReady(page, 300)
+}
+
+async function clickAgeGateBirthdayTrigger(page: Page): Promise<boolean> {
+  for (const selector of AGE_GATE_BIRTHDAY_TRIGGER_SELECTORS) {
+    const locator = toLocator(page, selector).first()
+    const visible = await locator.isVisible().catch(() => false)
+    if (!visible) continue
+
+    await locator.scrollIntoViewIfNeeded().catch(() => undefined)
+
+    const box = await locator.boundingBox().catch(() => null)
+    if (box && box.width > 0 && box.height > 0) {
+      const x = box.x + box.width / 2
+      const y = box.y + box.height / 2
+      await page.mouse.move(x, y).catch(() => undefined)
+      await sleep(60)
+      await page.mouse.down().catch(() => undefined)
+      await sleep(40)
+      await page.mouse.up().catch(() => undefined)
+      return true
+    }
+
+    const clicked = await locator
+      .click({ force: true })
+      .then(() => true)
+      .catch(() => false)
+    if (clicked) return true
+  }
+
+  return false
+}
+
 export async function fillAgeGateBirthday(page: Page): Promise<boolean> {
   const birthdayGroupVisible = await waitForAnySelectorState(
     page,
@@ -203,6 +281,11 @@ export async function fillAgeGateBirthday(page: Page): Promise<boolean> {
     1500,
   )
   if (!birthdayGroupVisible) {
+    return setBirthdayHiddenInputValue(page, ADULT_BIRTHDAY)
+  }
+
+  const birthdaySegmentsReady = await revealAgeGateBirthdaySegments(page)
+  if (!birthdaySegmentsReady) {
     return setBirthdayHiddenInputValue(page, ADULT_BIRTHDAY)
   }
 
@@ -223,7 +306,7 @@ export async function fillAgeGateBirthday(page: Page): Promise<boolean> {
   )
 
   if (!yearFilled || !monthFilled || !dayFilled) {
-    return false
+    return setBirthdayHiddenInputValue(page, ADULT_BIRTHDAY)
   }
 
   if (await waitForBirthdayHiddenInputValue(page, ADULT_BIRTHDAY, 1500)) {

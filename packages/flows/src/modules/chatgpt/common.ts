@@ -131,6 +131,11 @@ export const AGE_GATE_AGE_SELECTORS: SelectorTarget[] = [
 export const AGE_GATE_BIRTHDAY_GROUP_SELECTORS: SelectorTarget[] = [
   '[role="group"][id$="-birthday"]',
 ]
+export const AGE_GATE_BIRTHDAY_TRIGGER_SELECTORS: SelectorTarget[] = [
+  '[role="group"][id$="-birthday"]',
+  { text: /生日日期|birth date|birthday/i },
+  { text: /年\s*\/\s*月\s*\/\s*日|year\s*\/\s*month\s*\/\s*day/i },
+]
 export const AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS: SelectorTarget[] = [
   'input[name="birthday"]',
 ]

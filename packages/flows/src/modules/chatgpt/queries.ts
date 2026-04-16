@@ -13,6 +13,7 @@ import {
   DEFAULT_EVENT_TIMEOUT_MS,
   LOGIN_EMAIL_SELECTORS,
   LOGIN_NEXT_STEP_SELECTORS,
+  MIN_ONBOARDING_CLICKS,
   ONBOARDING_SIGNAL_SELECTORS,
   PASSKEY_ENTRY_SELECTORS,
   PASSWORD_INPUT_SELECTORS,
@@ -372,7 +373,7 @@ export async function waitUntilChatGPTHomeReady(
       continue
     }
 
-    if (profileReady && onboardingClicks >= 3) {
+    if (profileReady && onboardingClicks >= MIN_ONBOARDING_CLICKS) {
       idleAfterMinimum += 1
       if (idleAfterMinimum >= 2) return true
       await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)

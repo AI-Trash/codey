@@ -369,13 +369,6 @@ async function provisionRegistrationPasskey(
     options.passkeyStore,
     options.virtualAuthenticator,
   )
-  const homeReady = await waitUntilChatGPTHomeReady(
-    page,
-    clickOnboardingAction,
-    20,
-  )
-  if (!homeReady)
-    return { passkeyCreated: false, homeReady, securityAttemptCount: 0 }
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await gotoSecuritySettings(page)
@@ -409,12 +402,12 @@ async function provisionRegistrationPasskey(
     return {
       passkeyCreated,
       passkeyStore: passkeyCreated ? passkeyStore : undefined,
-      homeReady,
+      homeReady: true,
       securityAttemptCount: attempt + 1,
     }
   }
 
-  return { passkeyCreated: false, homeReady, securityAttemptCount: 10 }
+  return { passkeyCreated: false, homeReady: true, securityAttemptCount: 10 }
 }
 
 async function runSameSessionPasskeyCheck(
@@ -740,13 +733,43 @@ export async function registerChatGPT(
         lastMessage: 'Age gate completed',
       },
     )
+    transitionRegistrationMachine(
+      machine,
+      'post-signup-home',
+      'chatgpt.home.waiting',
+      {
+        url: page.url(),
+        lastMessage: 'Waiting for ChatGPT home and onboarding completion',
+      },
+    )
+    const homeReady = await waitUntilChatGPTHomeReady(
+      page,
+      clickOnboardingAction,
+      20,
+    )
+    transitionRegistrationMachine(
+      machine,
+      'post-signup-home',
+      'context.updated',
+      {
+        url: page.url(),
+        lastMessage: homeReady
+          ? 'ChatGPT home ready'
+          : 'ChatGPT home did not become ready after signup',
+      },
+    )
+    if (!homeReady) {
+      throw new Error(
+        'ChatGPT home did not become ready after signup onboarding.',
+      )
+    }
 
     const passkeyPromise =
       createPasskey === false
         ? {
             passkeyCreated: false as const,
             passkeyStore: undefined,
-            homeReady: false,
+            homeReady,
             securityAttemptCount: 0,
           }
         : (() => {
@@ -767,17 +790,6 @@ export async function registerChatGPT(
     const resolvedPasskey = await passkeyPromise
 
     if (createPasskey) {
-      transitionRegistrationMachine(
-        machine,
-        'post-signup-home',
-        'chatgpt.home.waiting',
-        {
-          url: page.url(),
-          lastMessage: resolvedPasskey.homeReady
-            ? 'ChatGPT home ready'
-            : 'ChatGPT home not ready yet',
-        },
-      )
       if (resolvedPasskey.securityAttemptCount > 0) {
         transitionRegistrationMachine(
           machine,
