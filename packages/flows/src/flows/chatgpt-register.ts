@@ -16,6 +16,7 @@ import type {
 } from '../state-machine'
 import { loadVirtualPasskeyStore } from '../modules/webauthn/virtual-authenticator'
 import { getRuntimeConfig } from '../config'
+import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
 import {
   createVerificationProvider,
   type VerificationProvider,
@@ -46,6 +47,7 @@ import {
   waitForAnySelectorState,
   waitForAuthenticatedSession,
   waitForEnabledSelector,
+  waitForLoginEmailFormReady,
   waitForLoginSurface,
   waitForPasskeyEntryReady,
   waitForPostEmailLoginStep,
@@ -68,6 +70,7 @@ import {
   attachStateMachineProgressReporter,
   parseBooleanFlag,
   parseNumberFlag,
+  sanitizeErrorForOutput,
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
 import {
@@ -476,9 +479,20 @@ export async function registerChatGPT(
       {
         email,
         url: page.url(),
-        lastMessage: 'Typing registration email',
+        lastMessage: 'Waiting for registration email step',
       },
     )
+    const registrationFormReady = await waitForLoginEmailFormReady(page, 20000)
+    if (!registrationFormReady) {
+      throw new Error(
+        'ChatGPT sign-up page did not finish rendering a stable email form.',
+      )
+    }
+    transitionRegistrationMachine(machine, 'email-step', 'context.updated', {
+      email,
+      url: page.url(),
+      lastMessage: 'Typing registration email',
+    })
     const emailTyped = await typeRegistrationEmail(page, email)
     if (!emailTyped) {
       throw new Error(
@@ -506,50 +520,65 @@ export async function registerChatGPT(
         lastMessage: 'Registration email submitted',
       },
     )
-    transitionRegistrationMachine(
-      machine,
-      'password-step',
-      'chatgpt.password.started',
-      {
-        url: page.url(),
-        lastMessage: 'Waiting for password step',
-      },
-    )
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      await waitForPasswordInputReady(page, 10000)
-      const passwordTyped = await typePassword(page, password)
-      if (!passwordTyped) {
-        throw new Error(
-          'ChatGPT password field was visible but could not be typed into.',
-        )
-      }
-      await waitForEnabledSelector(
-        page,
-        [
-          'button[type="submit"]',
-          { role: 'button', options: { name: /继续|continue|注册|create/i } },
-          { text: /继续|continue|注册|create/i },
-        ],
-        5000,
+    const postEmailStep = await waitForPostEmailLoginStep(page, 20000)
+    if (postEmailStep === 'password') {
+      transitionRegistrationMachine(
+        machine,
+        'password-step',
+        'chatgpt.password.started',
+        {
+          url: page.url(),
+          lastMessage: 'Waiting for password step',
+        },
       )
-      await clickPasswordSubmit(page)
-      const outcome = await waitForPasswordSubmissionOutcome(page)
-      if (outcome === 'verification' || outcome === 'unknown') break
-      const retried = await clickPasswordTimeoutRetry(page)
-      if (!retried) {
-        throw new Error(
-          'Password submission timed out and retry button was not clickable.',
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const passwordReady = await waitForPasswordInputReady(page, 10000)
+        if (!passwordReady) {
+          throw new Error('ChatGPT password step did not become ready.')
+        }
+        const passwordTyped = await typePassword(page, password)
+        if (!passwordTyped) {
+          throw new Error(
+            'ChatGPT password field was visible but could not be typed into.',
+          )
+        }
+        await waitForEnabledSelector(
+          page,
+          [
+            'button[type="submit"]',
+            { role: 'button', options: { name: /继续|continue|注册|create/i } },
+            { text: /继续|continue|注册|create/i },
+          ],
+          5000,
         )
+        await clickPasswordSubmit(page)
+        const outcome = await waitForPasswordSubmissionOutcome(page)
+        if (outcome === 'verification' || outcome === 'unknown') break
+        const retried = await clickPasswordTimeoutRetry(page)
+        if (!retried) {
+          throw new Error(
+            'Password submission timed out and retry button was not clickable.',
+          )
+        }
       }
+    } else if (postEmailStep !== 'verification') {
+      throw new Error(
+        'ChatGPT registration did not reach a supported post-email step.',
+      )
     }
 
     transitionRegistrationMachine(
       machine,
       'verification-polling',
-      'chatgpt.password.submitted',
+      postEmailStep === 'password'
+        ? 'chatgpt.password.submitted'
+        : 'context.updated',
       {
         url: page.url(),
-        lastMessage: 'Waiting for verification email',
+        lastMessage:
+          postEmailStep === 'password'
+            ? 'Waiting for verification email'
+            : 'Registration requested email verification',
       },
     )
 
@@ -744,6 +773,21 @@ export async function registerChatGPT(
       passkeyCreated: resolvedPasskey.passkeyCreated,
       passkeyStore: resolvedPasskey.passkeyStore,
     }).summary
+    try {
+      const syncedIdentity = await syncManagedIdentityToCodeyApp({
+        identityId: storedIdentity.id,
+        email: storedIdentity.email,
+      })
+      if (syncedIdentity) {
+        options.progressReporter?.({
+          message: 'Synced ChatGPT identity to Codey app',
+        })
+      }
+    } catch (error) {
+      options.progressReporter?.({
+        message: `Codey app identity sync failed: ${sanitizeErrorForOutput(error).message}`,
+      })
+    }
 
     const title = await page.title()
     const result = {

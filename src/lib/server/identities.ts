@@ -82,6 +82,50 @@ function mapManagedStatus(status?: string | null, encrypted?: boolean) {
   return encrypted ? "encrypted" : "active";
 }
 
+function buildStoredIdentitySummary(
+  identity: FlowCredentialSummary,
+  managed?: {
+    label: string | null;
+    status: string;
+    updatedAt: Date;
+  },
+): AdminIdentitySummary {
+  return {
+    id: identity.id,
+    label: managed?.label || identity.email,
+    provider: m.server_identity_provider(),
+    account: identity.email,
+    flowCount: identity.credentialCount,
+    lastSeenAt: managed?.updatedAt.toISOString() || identity.updatedAt,
+    status: mapManagedStatus(managed?.status, identity.encrypted),
+  } satisfies AdminIdentitySummary;
+}
+
+function buildManagedIdentitySummary(row: {
+  identityId: string;
+  email: string;
+  label: string | null;
+  status: string;
+  updatedAt: Date;
+}): AdminIdentitySummary {
+  return {
+    id: row.identityId,
+    label: row.label || row.email,
+    provider: m.server_identity_provider(),
+    account: row.email,
+    flowCount: 0,
+    lastSeenAt: row.updatedAt.toISOString(),
+    status: mapManagedStatus(row.status, false),
+  } satisfies AdminIdentitySummary;
+}
+
+function compareSummaryLastSeenAt(
+  left: Pick<AdminIdentitySummary, "lastSeenAt">,
+  right: Pick<AdminIdentitySummary, "lastSeenAt">,
+) {
+  return String(right.lastSeenAt || "").localeCompare(String(left.lastSeenAt || ""));
+}
+
 export async function listAdminIdentitySummaries(): Promise<{
   summaries: AdminIdentitySummary[];
   storeStatus: IdentityStoreStatus;
@@ -94,23 +138,16 @@ export async function listAdminIdentitySummaries(): Promise<{
   const managedByIdentityId = new Map(
     managedIdentityRows.map((row) => [row.identityId, row]),
   );
+  const storedIdentityIds = new Set(storeState.identities.map((identity) => identity.id));
 
-  const summaries = storeState.identities
-    .slice()
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .map((identity) => {
-      const managed = managedByIdentityId.get(identity.id);
-      const account = identity.email;
-      return {
-        id: identity.id,
-        label: managed?.label || identity.email,
-        provider: m.server_identity_provider(),
-        account,
-        flowCount: identity.credentialCount,
-        lastSeenAt: managed?.updatedAt.toISOString() || identity.updatedAt,
-        status: mapManagedStatus(managed?.status, identity.encrypted),
-      } satisfies AdminIdentitySummary;
-    });
+  const summaries = [
+    ...storeState.identities.map((identity) =>
+      buildStoredIdentitySummary(identity, managedByIdentityId.get(identity.id)),
+    ),
+    ...managedIdentityRows
+      .filter((row) => !storedIdentityIds.has(row.identityId))
+      .map((row) => buildManagedIdentitySummary(row)),
+  ].sort(compareSummaryLastSeenAt);
 
   if (storeState.error) {
     return {
@@ -204,4 +241,49 @@ export async function upsertManagedIdentity(params: {
   }
 
   return record;
+}
+
+export async function syncManagedIdentity(params: {
+  identityId: string;
+  email: string;
+  label?: string;
+}) {
+  const identityId = params.identityId.trim();
+  const email = params.email.trim().toLowerCase();
+  const label = params.label?.trim() || null;
+  const existing = await getDb().query.managedIdentities.findFirst({
+    where: eq(managedIdentities.identityId, identityId),
+  });
+
+  if (existing) {
+    const [record] = await getDb()
+      .update(managedIdentities)
+      .set({
+        email,
+        updatedAt: new Date(),
+      })
+      .where(eq(managedIdentities.identityId, identityId))
+      .returning();
+
+    if (record) {
+      return record;
+    }
+  }
+
+  const [created] = await getDb()
+    .insert(managedIdentities)
+    .values({
+      id: createId(),
+      identityId,
+      email,
+      label,
+      status: "ACTIVE",
+    })
+    .returning();
+
+  if (!created) {
+    throw new Error("Unable to sync managed identity");
+  }
+
+  return created;
 }

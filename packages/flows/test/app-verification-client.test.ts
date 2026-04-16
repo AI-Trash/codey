@@ -283,4 +283,81 @@ describe('AppVerificationProviderClient', () => {
       }),
     ).resolves.toBe('445566')
   })
+
+  it('can sync a managed identity to the Codey app', async () => {
+    const fetchMock = vi.fn<
+      Parameters<typeof fetch>,
+      ReturnType<typeof fetch>
+    >()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4315/oidc',
+            token_endpoint: 'http://localhost:4315/oidc/token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'token-123',
+            token_type: 'Bearer',
+            scope: 'verification:read verification:reserve',
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            id: 'managed-identity-123',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new AppVerificationProviderClient({
+      baseUrl: 'http://localhost:4315',
+      clientId: 'codey_client',
+      clientSecret: 'codey_secret',
+    })
+
+    await expect(
+      client.upsertManagedIdentity({
+        identityId: 'identity-123',
+        email: 'user@example.com',
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: 'managed-identity-123',
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:4315/api/managed-identities',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          identityId: 'identity-123',
+          email: 'user@example.com',
+          label: undefined,
+        }),
+      }),
+    )
+  })
 })

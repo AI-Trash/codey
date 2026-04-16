@@ -2,6 +2,7 @@ import type { Page } from 'patchright'
 import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
 import { createStateMachine } from '../state-machine'
+import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
 import {
   resolveStoredChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
@@ -45,7 +46,10 @@ import {
   runSingleFileFlowFromCli,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
-import { attachStateMachineProgressReporter } from '../modules/flow-cli/helpers'
+import {
+  attachStateMachineProgressReporter,
+  sanitizeErrorForOutput,
+} from '../modules/flow-cli/helpers'
 import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 
 export type ChatGPTLoginPasskeyFlowKind = 'chatgpt-login-passkey'
@@ -644,6 +648,21 @@ export async function loginChatGPTWithStoredPasskey(
     }
 
     const title = await page.title()
+    try {
+      const syncedIdentity = await syncManagedIdentityToCodeyApp({
+        identityId: stored.summary.id,
+        email: stored.summary.email,
+      })
+      if (syncedIdentity) {
+        options.progressReporter?.({
+          message: 'Synced ChatGPT identity to Codey app',
+        })
+      }
+    } catch (error) {
+      options.progressReporter?.({
+        message: `Codey app identity sync failed: ${sanitizeErrorForOutput(error).message}`,
+      })
+    }
     const result = {
       pageName: 'chatgpt-login-passkey' as const,
       url: page.url(),

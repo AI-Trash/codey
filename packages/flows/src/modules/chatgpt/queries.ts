@@ -99,6 +99,41 @@ export async function hasEnabledSelector(
   return false
 }
 
+export async function isLocatorEditable(locator: Locator): Promise<boolean> {
+  return locator
+    .evaluate((element) => {
+      const candidate = element as HTMLInputElement | HTMLTextAreaElement
+      const htmlElement = element as HTMLElement & { disabled?: boolean }
+      const style = window.getComputedStyle(htmlElement)
+      const rect = htmlElement.getBoundingClientRect()
+      return (
+        htmlElement.isConnected &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        Number(style.opacity || '1') > 0 &&
+        rect.width > 0 &&
+        rect.height > 0 &&
+        !candidate.readOnly &&
+        !htmlElement.disabled &&
+        htmlElement.getAttribute('aria-disabled') !== 'true'
+      )
+    })
+    .catch(async () => locator.isEditable().catch(() => false))
+}
+
+export async function hasEditableSelector(
+  page: Page,
+  selectors: SelectorTarget[],
+): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = toLocator(page, selector).first()
+    const visible = await locator.isVisible().catch(() => false)
+    if (!visible) continue
+    if (await isLocatorEditable(locator)) return true
+  }
+  return false
+}
+
 export async function isAnySelectorVisible(
   page: Page,
   selectors: SelectorTarget[],
@@ -166,6 +201,28 @@ export async function waitForEnabledSelector(
   }
 
   return hasEnabledSelector(page, selectors)
+}
+
+export async function waitForEditableSelector(
+  page: Page,
+  selectors: SelectorTarget[],
+  timeoutMs = 5000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const remainingMs = Math.max(1, deadline - Date.now())
+    const visible = await waitForAnySelectorState(
+      page,
+      selectors,
+      'visible',
+      remainingMs,
+    )
+    if (!visible) break
+    if (await hasEditableSelector(page, selectors)) return true
+    await sleep(Math.min(200, Math.max(1, deadline - Date.now())))
+  }
+
+  return hasEditableSelector(page, selectors)
 }
 
 export async function isProfileReady(page: Page): Promise<boolean> {
@@ -439,7 +496,7 @@ export async function waitForLoginEmailFormReady(
 
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const emailReady = await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS)
+    const emailReady = await hasEditableSelector(page, LOGIN_EMAIL_SELECTORS)
     if (isChatGPTLoginUrl(page.url()) && emailReady) {
       await sleep(500)
       return true
@@ -540,22 +597,16 @@ export async function waitForPasswordInputReady(
   page: Page,
   timeoutMs = 10000,
 ): Promise<boolean> {
-  return waitForAnySelectorState(
-    page,
-    PASSWORD_INPUT_SELECTORS,
-    'visible',
-    timeoutMs,
-  )
+  return waitForEditableSelector(page, PASSWORD_INPUT_SELECTORS, timeoutMs)
 }
 
 export async function waitForVerificationCodeInputReady(
   page: Page,
   timeoutMs = 10000,
 ): Promise<boolean> {
-  return waitForAnySelectorState(
+  return waitForEditableSelector(
     page,
     VERIFICATION_CODE_INPUT_SELECTORS,
-    'visible',
     timeoutMs,
   )
 }

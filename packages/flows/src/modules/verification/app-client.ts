@@ -55,6 +55,15 @@ export interface AppVerificationEvent {
 
 const VERIFICATION_READ_SCOPE = 'verification:read'
 const VERIFICATION_RESERVE_SCOPE = 'verification:reserve'
+const VERIFICATION_APP_SCOPES = [
+  VERIFICATION_READ_SCOPE,
+  VERIFICATION_RESERVE_SCOPE,
+] as const
+
+export interface AppManagedIdentitySyncResponse {
+  ok: boolean
+  id: string
+}
 
 function parseScopeList(value: string | undefined): string[] {
   if (!value) {
@@ -279,7 +288,7 @@ export class AppVerificationProviderClient {
       {
         method: 'POST',
       },
-      [VERIFICATION_RESERVE_SCOPE],
+      [...VERIFICATION_APP_SCOPES],
     )
   }
 
@@ -304,7 +313,7 @@ export class AppVerificationProviderClient {
       const result = await this.getJson<AppVerificationCodeLookupResponse>(
         codeUrl,
         {},
-        [VERIFICATION_READ_SCOPE],
+        [...VERIFICATION_APP_SCOPES],
       )
       for (const email of result.emails || []) {
         const extractedCode = extractChatGPTVerificationCodeFromEmail({
@@ -352,7 +361,7 @@ export class AppVerificationProviderClient {
           Accept: 'text/event-stream',
         },
       },
-      [VERIFICATION_READ_SCOPE],
+      [...VERIFICATION_APP_SCOPES],
     )
 
     if (!response.ok) {
@@ -380,5 +389,27 @@ export class AppVerificationProviderClient {
         email: params.email,
       }
     }
+  }
+
+  async upsertManagedIdentity(input: {
+    identityId: string
+    email: string
+    label?: string
+  }): Promise<AppManagedIdentitySyncResponse> {
+    return this.getJson<AppManagedIdentitySyncResponse>(
+      this.buildUrl('/api/managed-identities'),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          identityId: input.identityId,
+          email: input.email,
+          label: input.label,
+        }),
+      },
+      [VERIFICATION_RESERVE_SCOPE],
+    )
   }
 }

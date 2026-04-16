@@ -54,8 +54,12 @@ export const PASSWORD_TIMEOUT_RETRY_SELECTORS: SelectorTarget[] = [
   'button[data-dd-action-name="Try again"]',
 ]
 export const REGISTRATION_EMAIL_SELECTORS: SelectorTarget[] = [
+  'input[id$="-email"]',
   'input#email',
   'input[name="email"]',
+  'input[type="email"]',
+  { label: /电子邮件地址|email address|email/i },
+  { placeholder: /电子邮件地址|email address|email/i },
 ]
 export const REGISTRATION_CONTINUE_SELECTORS: SelectorTarget[] = [
   'button[type="submit"]',

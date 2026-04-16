@@ -26,29 +26,28 @@ export async function typeIfPresent(
   value?: string,
 ) {
   if (value == null) return false
-  const locator = await resolveEditableLocator(page, selector)
-  if (!locator) return false
 
   const nextValue = String(value)
-
-  if (await fillEditableLocator(locator, nextValue)) {
-    return true
-  }
-
-  await locator.click({ delay: randomBetween(60, 140) }).catch(() => undefined)
-  await locator.fill('')
-  await sleep(randomBetween(120, 240))
-
-  for (const char of nextValue) {
-    await locator.pressSequentially(char, { delay: randomBetween(45, 110) })
-    if (Math.random() < 0.18) {
-      await sleep(randomBetween(90, 260))
+  const deadline = Date.now() + 3000
+  while (Date.now() < deadline) {
+    const locator = await resolveEditableLocator(page, selector)
+    if (!locator) {
+      await sleep(Math.min(200, Math.max(1, deadline - Date.now())))
+      continue
     }
+
+    if (await fillEditableLocator(locator, nextValue)) {
+      return true
+    }
+
+    if (await typeEditableLocator(locator, nextValue)) {
+      return true
+    }
+
+    await sleep(Math.min(200, Math.max(1, deadline - Date.now())))
   }
 
-  await sleep(randomBetween(80, 180))
-  await locator.blur().catch(() => undefined)
-  return true
+  return false
 }
 
 export async function clickIfPresent(
@@ -142,12 +141,7 @@ async function fillEditableLocator(
     await locator.fill(value)
     await sleep(20)
 
-    const matches = await locator
-      .evaluate((element, expected) => {
-        const candidate = element as HTMLInputElement | HTMLTextAreaElement
-        return candidate.value === expected
-      }, value)
-      .catch(() => false)
+    const matches = await locatorMatchesValue(locator, value)
 
     if (!matches) return false
 
@@ -156,6 +150,45 @@ async function fillEditableLocator(
   } catch {
     return false
   }
+}
+
+async function typeEditableLocator(
+  locator: Locator,
+  value: string,
+): Promise<boolean> {
+  try {
+    await locator.click({ delay: randomBetween(60, 140) }).catch(
+      () => undefined,
+    )
+    await locator.fill('')
+    await sleep(randomBetween(120, 240))
+
+    for (const char of value) {
+      await locator.pressSequentially(char, { delay: randomBetween(45, 110) })
+      if (Math.random() < 0.18) {
+        await sleep(randomBetween(90, 260))
+      }
+    }
+
+    await sleep(randomBetween(80, 180))
+    const matches = await locatorMatchesValue(locator, value)
+    await locator.blur().catch(() => undefined)
+    return matches
+  } catch {
+    return false
+  }
+}
+
+async function locatorMatchesValue(
+  locator: Locator,
+  value: string,
+): Promise<boolean> {
+  return locator
+    .evaluate((element, expected) => {
+      const candidate = element as HTMLInputElement | HTMLTextAreaElement
+      return candidate.value === expected
+    }, value)
+    .catch(() => false)
 }
 
 function randomBetween(min: number, max: number): number {
