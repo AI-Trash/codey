@@ -485,7 +485,7 @@ function MetricCard(props: {
   description: string
 }) {
   return (
-    <Card className="gap-0 py-0">
+    <Card>
       <CardHeader className="gap-2">
         <div className="flex items-center gap-2">
           <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
