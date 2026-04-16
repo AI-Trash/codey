@@ -676,6 +676,7 @@ export async function loginChatGPT(
       const syncedIdentity = await syncManagedIdentityToCodeyApp({
         identityId: stored.summary.id,
         email: stored.summary.email,
+        credentialCount: stored.summary.credentialCount,
       })
       if (syncedIdentity) {
         options.progressReporter?.({

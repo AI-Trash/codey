@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   boolean,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -306,7 +307,14 @@ export const managedIdentities = pgTable(
     identityId: text("identity_id").notNull(),
     email: text("email").notNull(),
     label: text("label"),
+    credentialCount: integer("credential_count").default(0).notNull(),
     status: managedIdentityStatusEnum("status").default("ACTIVE").notNull(),
+    lastSeenAt: timestamp("last_seen_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
     createdAt: timestamp("created_at", {
       withTimezone: true,
       mode: "date",

@@ -146,6 +146,78 @@ describe('AppVerificationProviderClient', () => {
     ).resolves.toBe('246810')
   })
 
+  it('prefers a manually updated server code over stale email content', async () => {
+    const fetchMock = vi.fn<
+      Parameters<typeof fetch>,
+      ReturnType<typeof fetch>
+    >()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4316/oidc',
+            token_endpoint: 'http://localhost:4316/oidc/token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'token-123',
+            token_type: 'Bearer',
+            scope: 'verification:read',
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'resolved',
+            code: '654321',
+            source: 'MANUAL',
+            receivedAt: '2026-04-16T06:36:40.000Z',
+            emails: [
+              {
+                subject: 'ChatGPT verification code 123456',
+                htmlBody: '<p>Your verification code is <strong>123456</strong>.</p>',
+                receivedAt: '2026-04-16T06:36:35.000Z',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new AppVerificationProviderClient({
+      baseUrl: 'http://localhost:4316',
+      clientId: 'codey_client',
+      clientSecret: 'codey_secret',
+    })
+
+    await expect(
+      client.waitForVerificationCode({
+        email: 'codey+otp@example.com',
+        startedAt: '2026-04-16T06:36:30.000Z',
+        timeoutMs: 1000,
+        pollIntervalMs: 10,
+      }),
+    ).resolves.toBe('654321')
+  })
+
   it('falls back to the English email body when the subject does not contain the code', async () => {
     const fetchMock = vi.fn<
       Parameters<typeof fetch>,
@@ -341,6 +413,7 @@ describe('AppVerificationProviderClient', () => {
       client.upsertManagedIdentity({
         identityId: 'identity-123',
         email: 'user@example.com',
+        credentialCount: 1,
       }),
     ).resolves.toEqual({
       ok: true,
@@ -356,6 +429,7 @@ describe('AppVerificationProviderClient', () => {
           identityId: 'identity-123',
           email: 'user@example.com',
           label: undefined,
+          credentialCount: 1,
         }),
       }),
     )

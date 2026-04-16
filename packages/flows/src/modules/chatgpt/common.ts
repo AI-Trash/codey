@@ -502,8 +502,7 @@ export function extractChatGPTVerificationCodeFromEmail(message: {
 }): string | null {
   return (
     extractChatGPTVerificationCodeFromSubject(message.subject) ||
-    extractChatGPTVerificationCodeFromBody(message.textBody) ||
     extractChatGPTVerificationCodeFromBody(message.htmlBody) ||
-    extractChatGPTVerificationCodeFromBody(message.rawBody)
+    extractChatGPTVerificationCodeFromBody(message.textBody)
   )
 }

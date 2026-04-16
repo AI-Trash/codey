@@ -210,7 +210,7 @@ describe('fillAgeGateBirthday', () => {
     expect(page.hiddenBirthdayValue).toBe(ADULT_BIRTHDAY)
   })
 
-  it('falls back to the hidden birthday input if segments never reveal', async () => {
+  it('returns false when the birthday control is visible but cannot be revealed', async () => {
     const page = new FakePage()
     const birthdayGroup = new FakeLocator(page, {
       visible: true,
@@ -219,9 +219,16 @@ describe('fillAgeGateBirthday', () => {
 
     page.locators['[role="group"][id$="-birthday"]'] = birthdayGroup
 
-    await expect(fillAgeGateBirthday(page as never)).resolves.toBe(true)
+    await expect(fillAgeGateBirthday(page as never)).resolves.toBe(false)
     expect(birthdayGroup.clickCount).toBeGreaterThan(0)
     expect(birthdayGroup.mouseUpCount).toBeGreaterThan(0)
+    expect(page.hiddenBirthdayValue).toBe('')
+  })
+
+  it('falls back to the hidden birthday input when the visible birthday control is absent', async () => {
+    const page = new FakePage()
+
+    await expect(fillAgeGateBirthday(page as never)).resolves.toBe(true)
     expect(page.hiddenBirthdayValue).toBe(ADULT_BIRTHDAY)
   })
 })

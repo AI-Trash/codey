@@ -1,4 +1,5 @@
 import {
+  type FormEvent,
   startTransition,
   useDeferredValue,
   useEffect,
@@ -288,6 +289,11 @@ export function AdminMailInbox(props: {
   const codeReadyCount = data.emails.filter((email) => email.latestCode).length
   const htmlPreviewCount = data.emails.filter((email) => email.htmlBody).length
   const hasActiveFilters = Boolean(deferredSearch || filters.length > 0)
+  const invalidateInboxQueries = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: adminMailInboxQueryBaseKey,
+    })
+  }
 
   function openEmailDetails(emailId: string) {
     setSelectedEmailId(emailId)
@@ -477,13 +483,21 @@ export function AdminMailInbox(props: {
                           />
                         </TableCell>
                         <TableCell className="align-top">
-                          {email.latestCode ? (
-                            <code>{email.latestCode}</code>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              {m.status_pending()}
-                            </span>
-                          )}
+                          <div className="space-y-2">
+                            {email.latestCode ? (
+                              <code>{email.latestCode}</code>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">
+                                {m.status_pending()}
+                              </span>
+                            )}
+                            <ManualVerificationCodeForm
+                              email={email.recipient}
+                              initialCode={email.latestCode}
+                              onUpdated={invalidateInboxQueries}
+                              compact
+                            />
+                          </div>
                         </TableCell>
                         <TableCell className="align-top text-right">
                           <Button
@@ -561,6 +575,7 @@ export function AdminMailInbox(props: {
         email={activeEmail}
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
+        onCodeUpdated={invalidateInboxQueries}
       />
     </div>
   )
@@ -595,6 +610,7 @@ function MessageDetailsDialog(props: {
   email: AdminMailInboxEmail | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCodeUpdated?: () => Promise<void> | void
 }) {
   const email = props.email
   const isOpen = props.open && Boolean(email)
@@ -606,7 +622,17 @@ function MessageDetailsDialog(props: {
   return (
     <Dialog open={isOpen} onOpenChange={props.onOpenChange}>
       {email ? (
-        <DialogContent className="grid h-[min(92vh,980px)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(1400px,calc(100%-2rem))]">
+        <DialogContent
+          className="grid h-[min(92vh,980px)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(1400px,calc(100%-2rem))]"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault()
+            const dialog = event.currentTarget as HTMLElement | null
+            const closeButton = dialog?.querySelector<HTMLElement>(
+              '[data-slot="dialog-close"]',
+            )
+            closeButton?.focus()
+          }}
+        >
           <DialogHeader className="gap-3 border-b px-6 py-5 pr-14">
             <DialogDescription>{m.mail_detail_kicker()}</DialogDescription>
             <div className="flex items-start gap-2">
@@ -689,6 +715,22 @@ function MessageDetailsDialog(props: {
                     />
                   </dl>
 
+                  <div className="space-y-3 rounded-lg border bg-background p-4">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-foreground">
+                        {m.mail_manual_code_section_title()}
+                      </div>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {m.mail_manual_code_description()}
+                      </p>
+                    </div>
+                    <ManualVerificationCodeForm
+                      email={email.recipient}
+                      initialCode={email.latestCode}
+                      onUpdated={props.onCodeUpdated}
+                    />
+                  </div>
+
                   <Tabs
                     key={email.id}
                     defaultValue={getInitialContentTab(resolvedContent)}
@@ -742,6 +784,113 @@ function MessageDetailsDialog(props: {
         </DialogContent>
       ) : null}
     </Dialog>
+  )
+}
+
+type ManualVerificationCodeFormProps = {
+  email: string
+  initialCode?: string | null
+  onUpdated?: () => Promise<void> | void
+  compact?: boolean
+}
+
+function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
+  const [code, setCode] = useState(props.initialCode || '')
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>(
+    'idle',
+  )
+  const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    setCode(props.initialCode || '')
+    setStatus('idle')
+    setMessage(null)
+  }, [props.email, props.initialCode])
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    setStatus('submitting')
+    setMessage(null)
+
+    try {
+      await submitAdminVerificationCode({
+        email: props.email,
+        code,
+      })
+      await props.onUpdated?.()
+      setStatus('success')
+      setMessage(m.mail_manual_code_success())
+    } catch (error) {
+      setStatus('error')
+      setMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : m.mail_manual_code_error(),
+      )
+    }
+  }
+
+  return (
+    <form
+      onSubmit={(event) => {
+        void handleSubmit(event)
+      }}
+      className={cn(
+        'space-y-2',
+        props.compact ? 'max-w-[220px]' : 'w-full',
+      )}
+    >
+      <div
+        className={cn(
+          'flex gap-2',
+          props.compact ? 'flex-col' : 'flex-col sm:flex-row',
+        )}
+      >
+        <Input
+          value={code}
+          onChange={(event) => {
+            setCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+            if (status !== 'idle') {
+              setStatus('idle')
+              setMessage(null)
+            }
+          }}
+          inputMode="numeric"
+          maxLength={6}
+          placeholder={m.admin_dashboard_code_input_placeholder()}
+          aria-label={m.admin_dashboard_code_input_label()}
+        />
+        <Button
+          type="submit"
+          size="sm"
+          disabled={status === 'submitting' || code.length !== 6}
+        >
+          {status === 'submitting'
+            ? m.mail_manual_code_updating()
+            : m.mail_manual_code_update_button()}
+        </Button>
+      </div>
+
+      {message ? (
+        <p
+          className={cn(
+            'text-xs',
+            status === 'error'
+              ? 'text-destructive'
+              : status === 'success'
+                ? 'text-emerald-600'
+                : 'text-muted-foreground',
+          )}
+        >
+          {message}
+        </p>
+      ) : props.compact ? null : (
+        <p className="text-xs text-muted-foreground">
+          {m.mail_manual_code_description()}
+        </p>
+      )}
+    </form>
   )
 }
 
@@ -891,6 +1040,29 @@ async function fetchAdminMailInboxPage(params: {
   }
 
   return (await response.json()) as AdminMailInboxPageData
+}
+
+async function submitAdminVerificationCode(params: {
+  email: string
+  code: string
+}) {
+  const form = new FormData()
+  form.set('email', params.email)
+  form.set('code', params.code)
+
+  const response = await fetch('/api/admin/verification-codes', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+    },
+    body: form,
+  })
+
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+
+  return (await response.json()) as { ok: true; id: string }
 }
 
 function buildHtmlPreviewDocument(html: string) {

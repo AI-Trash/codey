@@ -9,6 +9,7 @@ interface ManagedIdentitySyncBody {
   identityId?: string;
   email?: string;
   label?: string;
+  credentialCount?: number;
 }
 
 export const Route = createFileRoute("/api/managed-identities")({
@@ -29,15 +30,26 @@ export const Route = createFileRoute("/api/managed-identities")({
         const body = await readJsonBody<ManagedIdentitySyncBody>(request);
         const identityId = String(body.identityId || "").trim();
         const email = String(body.email || "").trim().toLowerCase();
+        const credentialCount =
+          body.credentialCount === undefined || body.credentialCount === null
+            ? undefined
+            : Number(body.credentialCount);
 
         if (!identityId || !email) {
           return text("identityId and email are required", 400);
+        }
+        if (
+          credentialCount !== undefined &&
+          (!Number.isInteger(credentialCount) || credentialCount < 0)
+        ) {
+          return text("credentialCount must be a non-negative integer", 400);
         }
 
         const record = await syncManagedIdentity({
           identityId,
           email,
           label: String(body.label || "").trim() || undefined,
+          credentialCount,
         });
 
         return json({ ok: true, id: record.id });

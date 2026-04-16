@@ -31,8 +31,19 @@ export interface AppVerificationCodeLookupResponse {
   reservationId?: string
   status: 'pending' | 'resolved'
   code?: string
+  source?: string
   receivedAt?: string
   emails?: AppVerificationEmailRecord[]
+}
+
+export interface AppVerificationCodeStreamResponse {
+  id: string
+  cursor: string
+  reservationId: string
+  email: string
+  code: string
+  source: string
+  receivedAt: string
 }
 
 export interface AppVerificationEmailRecord {
@@ -49,7 +60,9 @@ export interface AppVerificationEvent {
   reservationId?: string
   email?: string
   code?: string
+  source?: string
   receivedAt?: string
+  cursor?: string
   emails?: AppVerificationEmailRecord[]
 }
 
@@ -315,12 +328,18 @@ export class AppVerificationProviderClient {
         {},
         [...VERIFICATION_APP_SCOPES],
       )
+      if (
+        result.status === 'resolved' &&
+        result.code &&
+        result.source === 'MANUAL'
+      ) {
+        return result.code
+      }
       for (const email of result.emails || []) {
         const extractedCode = extractChatGPTVerificationCodeFromEmail({
           subject: email.subject,
           textBody: email.textBody,
           htmlBody: email.htmlBody,
-          rawBody: email.rawPayload,
         })
         if (extractedCode) {
           return extractedCode
@@ -346,6 +365,7 @@ export class AppVerificationProviderClient {
   async *streamVerificationEvents(params: {
     email: string
     startedAt: string
+    signal?: AbortSignal
   }): AsyncGenerator<AppVerificationEvent, void, void> {
     const eventsUrl = new URL(
       this.buildUrl(
@@ -357,6 +377,7 @@ export class AppVerificationProviderClient {
     const response = await this.fetchWithAuthorization(
       eventsUrl,
       {
+        signal: params.signal,
         headers: {
           Accept: 'text/event-stream',
         },
@@ -370,16 +391,15 @@ export class AppVerificationProviderClient {
 
     for await (const event of streamSse(response)) {
       if (event.event === 'verification_code' && event.data) {
-        const payload = JSON.parse(
-          event.data,
-        ) as AppVerificationCodeLookupResponse
+        const payload = JSON.parse(event.data) as AppVerificationCodeStreamResponse
         yield {
           type: 'verification_code',
           reservationId: payload.reservationId,
-          email: params.email,
+          email: payload.email,
           code: payload.code,
+          source: payload.source,
           receivedAt: payload.receivedAt,
-          emails: payload.emails,
+          cursor: payload.cursor,
         }
         continue
       }
@@ -395,6 +415,7 @@ export class AppVerificationProviderClient {
     identityId: string
     email: string
     label?: string
+    credentialCount?: number
   }): Promise<AppManagedIdentitySyncResponse> {
     return this.getJson<AppManagedIdentitySyncResponse>(
       this.buildUrl('/api/managed-identities'),
@@ -407,6 +428,7 @@ export class AppVerificationProviderClient {
           identityId: input.identityId,
           email: input.email,
           label: input.label,
+          credentialCount: input.credentialCount,
         }),
       },
       [VERIFICATION_RESERVE_SCOPE],

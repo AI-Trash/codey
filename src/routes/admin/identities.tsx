@@ -57,8 +57,7 @@ const loadAdminIdentities = createServerFn({ method: 'GET' }).handler(
     const identityState = await listAdminIdentitySummaries()
     return {
       authorized: true as const,
-      identitySummaries: identityState.summaries,
-      storeStatus: identityState.storeStatus,
+      identitySummaries: identityState,
     }
   },
 )
@@ -78,12 +77,6 @@ type IdentitySummary = {
   status?: string | null
 }
 
-type IdentityStoreStatus = {
-  status: string
-  detail: string
-  storePath?: string
-}
-
 function AdminIdentitiesPage() {
   const data = Route.useLoaderData()
 
@@ -92,7 +85,6 @@ function AdminIdentitiesPage() {
   }
 
   const identitySummaries = data.identitySummaries as IdentitySummary[]
-  const storeStatus = data.storeStatus as IdentityStoreStatus
   const locale = getLocale()
 
   const activeCount = identitySummaries.filter(
@@ -195,36 +187,6 @@ function AdminIdentitiesPage() {
           description={m.admin_identity_metric_archived_description()}
         />
       </section>
-
-      <Card>
-        <CardHeader>
-          <CardDescription>{m.admin_identity_store_kicker()}</CardDescription>
-          <div className="flex items-start gap-2">
-            <CardTitle>{m.admin_identity_store_title()}</CardTitle>
-            <InfoTooltip
-              content={m.admin_identity_store_description()}
-              label={m.admin_identity_store_title()}
-              className="mt-0.5"
-            />
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-2">
-            <StatusBadge value={storeStatus.status} />
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-              {storeStatus.detail}
-            </p>
-          </div>
-          <div className="min-w-0 max-w-xl space-y-1 text-sm">
-            <div className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
-              {m.admin_identity_store_path_label()}
-            </div>
-            <code className="block overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted/40 px-3 py-2 text-xs text-foreground">
-              {storeStatus.storePath || m.device_value_not_available()}
-            </code>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card className="min-h-0 flex-1">
         <CardHeader>

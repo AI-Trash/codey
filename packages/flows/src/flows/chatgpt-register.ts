@@ -59,6 +59,7 @@ import {
   waitUntilChatGPTHomeReady,
   waitForVerificationCodeInputReady,
   waitForVerificationCode,
+  waitForVerificationCodeUpdatesAfterSubmit,
   isSecuritySettingsReady,
   DEFAULT_EVENT_TIMEOUT_MS,
   COMPLETE_ACCOUNT_SELECTORS,
@@ -710,13 +711,36 @@ export async function registerChatGPT(
     await waitForVerificationCodeInputReady(page, 10000)
     await typeVerificationCode(page, verificationCode)
     await clickVerificationContinue(page)
+    const submittedVerificationCode =
+      await waitForVerificationCodeUpdatesAfterSubmit(page, {
+        verificationProvider,
+        email,
+        startedAt,
+        timeoutMs: verificationTimeoutMs,
+        currentCode: verificationCode,
+        onCodeUpdate: (event) => {
+          transitionRegistrationMachine(
+            machine,
+            'verification-code-entry',
+            'context.updated',
+            {
+              verificationCode: event.code,
+              url: page.url(),
+              lastMessage:
+                event.source === 'MANUAL'
+                  ? 'Received a manual verification code update and resubmitted it'
+                  : 'Received an updated verification code and resubmitted it',
+            },
+          )
+        },
+      })
 
     transitionRegistrationMachine(
       machine,
       'age-gate',
       'chatgpt.verification.submitted',
       {
-        verificationCode,
+        verificationCode: submittedVerificationCode,
         url: page.url(),
         lastMessage: 'Verification code submitted',
       },
@@ -883,6 +907,7 @@ export async function registerChatGPT(
       const syncedIdentity = await syncManagedIdentityToCodeyApp({
         identityId: storedIdentity.id,
         email: storedIdentity.email,
+        credentialCount: storedIdentity.credentialCount,
       })
       if (syncedIdentity) {
         options.progressReporter?.({
@@ -902,7 +927,7 @@ export async function registerChatGPT(
       title,
       email,
       prefix,
-      verificationCode,
+      verificationCode: submittedVerificationCode,
       verified: true,
       registration: {
         ...registration,
@@ -922,7 +947,7 @@ export async function registerChatGPT(
       patch: {
         email,
         prefix,
-        verificationCode,
+        verificationCode: submittedVerificationCode,
         passkeyCreated: resolvedPasskey.passkeyCreated,
         passkeyStore: resolvedPasskey.passkeyStore,
         storedIdentity,

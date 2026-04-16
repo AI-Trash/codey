@@ -14,6 +14,15 @@ export interface WaitForVerificationCodeOptions {
   onPollAttempt?: (attempt: number) => void
 }
 
+export interface VerificationCodeStreamEvent {
+  reservationId?: string
+  email?: string
+  code?: string
+  source?: string
+  receivedAt?: string
+  cursor?: string
+}
+
 export interface VerificationProvider {
   readonly kind: VerificationProviderKind
   prepareEmailTarget():
@@ -23,4 +32,11 @@ export interface VerificationProvider {
   waitForVerificationCode(
     options: WaitForVerificationCodeOptions,
   ): Promise<string>
+  streamVerificationEvents?(
+    params: {
+      email: string
+      startedAt: string
+      signal?: AbortSignal
+    },
+  ): AsyncGenerator<VerificationCodeStreamEvent, void, void>
 }

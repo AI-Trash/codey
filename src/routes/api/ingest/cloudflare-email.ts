@@ -47,7 +47,7 @@ export const Route = createFileRoute("/api/ingest/cloudflare-email")({
           subject: payload.subject,
           textBody: payload.textBody,
           htmlBody: payload.htmlBody,
-          rawPayload: payload.rawPayload || rawBody,
+          rawPayload: payload.rawPayload,
           extractedCode: payload.extractedCode,
           messageId: payload.messageId,
           receivedAt: payload.receivedAt,

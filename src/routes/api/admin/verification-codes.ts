@@ -23,7 +23,15 @@ export const Route = createFileRoute("/api/admin/verification-codes")({
           return text("email and code are required", 400);
         }
 
-        const record = await createManualVerificationCode({ email, code });
+        let record;
+        try {
+          record = await createManualVerificationCode({ email, code });
+        } catch (error) {
+          return text(
+            error instanceof Error ? error.message : "Invalid verification code",
+            400,
+          );
+        }
         const accept = request.headers.get("accept") || "";
         if (accept.includes("application/json")) {
           return json({ ok: true, id: record.id }, 201);

@@ -81,6 +81,7 @@ export async function syncManagedIdentityToCodeyApp(input: {
   identityId: string
   email: string
   label?: string
+  credentialCount?: number
 }): Promise<{ ok: boolean; id: string } | null> {
   const config = resolveCodeyAppConfig()
   if (!hasReusableCodeyAppAccess(config)) {
@@ -92,5 +93,6 @@ export async function syncManagedIdentityToCodeyApp(input: {
     identityId: input.identityId.trim(),
     email: input.email.trim().toLowerCase(),
     label: input.label?.trim() || undefined,
+    credentialCount: input.credentialCount,
   })
 }

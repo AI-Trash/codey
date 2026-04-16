@@ -1,6 +1,7 @@
 import { AppVerificationProviderClient } from './app-client'
 import type {
   VerificationEmailTarget,
+  VerificationCodeStreamEvent,
   VerificationProvider,
   WaitForVerificationCodeOptions,
 } from './types'
@@ -20,5 +21,13 @@ export class AppVerificationProvider implements VerificationProvider {
     options: WaitForVerificationCodeOptions,
   ): Promise<string> {
     return this.client.waitForVerificationCode(options)
+  }
+
+  streamVerificationEvents(params: {
+    email: string
+    startedAt: string
+    signal?: AbortSignal
+  }): AsyncGenerator<VerificationCodeStreamEvent, void, void> {
+    return this.client.streamVerificationEvents(params)
   }
 }

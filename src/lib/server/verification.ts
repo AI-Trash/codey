@@ -1,5 +1,6 @@
 import '@tanstack/react-start/server-only'
 import { endOfDay, startOfDay } from 'date-fns'
+import { extract as extractLetterMail } from 'letterparser'
 import type {
   FilterModel,
   FiltersState,
@@ -15,6 +16,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNull,
   lt,
   lte,
   notExists,
@@ -31,6 +33,7 @@ import {
   hasAdminInboxEmailSubscribers,
   publishAdminInboxEmailEvent,
 } from './admin-inbox-events'
+import { publishVerificationCodeEvent } from './verification-events'
 import { getDb } from './db/client'
 import { createId, randomCode } from './security'
 import { extractVerificationCodeFromText } from '../shared/verification-code'
@@ -75,8 +78,23 @@ export interface AdminInboxPage {
   search: string
 }
 
+export interface VerificationCodeEvent {
+  id: string
+  cursor: string
+  reservationId: string
+  email: string
+  code: string
+  source: string
+  receivedAt: string
+}
+
 type AdminInboxCursor = {
   createdAt: Date
+  id: string
+}
+
+type VerificationCodeCursor = {
+  receivedAt: Date
   id: string
 }
 
@@ -396,6 +414,131 @@ function buildReservationEmail(id: string): {
   }
 }
 
+function normalizeStoredEmailContent(value: string | null | undefined) {
+  const normalized = value?.trim()
+  return normalized ? normalized : undefined
+}
+
+function normalizeManualVerificationCodeInput(value: string) {
+  const normalized = value.replace(/[０-９]/g, (character) =>
+    String.fromCharCode(character.charCodeAt(0) - 0xfee0),
+  )
+  const digits = normalized.replace(/\D/g, '')
+
+  if (digits.length !== 6) {
+    throw new Error('Verification code must contain exactly 6 digits.')
+  }
+
+  return digits
+}
+
+function isLikelyRawEmailSource(value: string | null | undefined) {
+  if (!value) {
+    return false
+  }
+
+  const headerBlock = value.split(/\r?\n\r?\n/, 1)[0]
+  const headerCount =
+    headerBlock.match(/^[A-Za-z0-9-]+:\s.*$/gm)?.length ?? 0
+
+  return headerCount >= 2
+}
+
+function parseEmailBodiesFromRawPayload(rawPayload: string | null | undefined) {
+  const rawSource = normalizeStoredEmailContent(rawPayload)
+  if (!rawSource || !isLikelyRawEmailSource(rawSource)) {
+    return null
+  }
+
+  try {
+    const parsedMail = extractLetterMail(rawSource)
+    return {
+      htmlBody: normalizeStoredEmailContent(parsedMail.html),
+      textBody: normalizeStoredEmailContent(parsedMail.text),
+    }
+  } catch {
+    return null
+  }
+}
+
+function resolveVerificationEmailBodies(params: {
+  textBody?: string | null
+  htmlBody?: string | null
+  rawPayload?: string | null
+}) {
+  const parsedBodies = parseEmailBodiesFromRawPayload(params.rawPayload)
+  const normalizedHtml = normalizeStoredEmailContent(params.htmlBody)
+  const normalizedText = normalizeStoredEmailContent(params.textBody)
+
+  return {
+    htmlBody: normalizedHtml || parsedBodies?.htmlBody,
+    textBody:
+      normalizedText && !isLikelyRawEmailSource(normalizedText)
+        ? normalizedText
+        : parsedBodies?.textBody,
+  }
+}
+
+export function encodeVerificationCodeCursor(params: {
+  receivedAt: Date | string
+  id: string
+}) {
+  const receivedAt =
+    params.receivedAt instanceof Date
+      ? params.receivedAt
+      : new Date(params.receivedAt)
+
+  return `${receivedAt.toISOString()}|${params.id}`
+}
+
+function decodeVerificationCodeCursor(
+  cursor?: string | null,
+): VerificationCodeCursor | null {
+  if (!cursor) {
+    return null
+  }
+
+  const separatorIndex = cursor.indexOf('|')
+  const receivedAtValue =
+    separatorIndex === -1 ? cursor : cursor.slice(0, separatorIndex)
+  const receivedAt = new Date(receivedAtValue)
+  if (Number.isNaN(receivedAt.getTime())) {
+    return null
+  }
+
+  return {
+    receivedAt,
+    id: separatorIndex === -1 ? '' : cursor.slice(separatorIndex + 1),
+  }
+}
+
+function serializeVerificationCodeEvent(params: {
+  id: string
+  reservationId: string
+  email: string
+  code: string
+  source: string
+  receivedAt: Date | string
+}): VerificationCodeEvent {
+  const receivedAt =
+    params.receivedAt instanceof Date
+      ? params.receivedAt
+      : new Date(params.receivedAt)
+
+  return {
+    id: params.id,
+    cursor: encodeVerificationCodeCursor({
+      receivedAt,
+      id: params.id,
+    }),
+    reservationId: params.reservationId,
+    email: params.email,
+    code: params.code,
+    source: params.source,
+    receivedAt: receivedAt.toISOString(),
+  }
+}
+
 export async function reserveVerificationEmailTarget() {
   const env = getAppEnv()
   const expiresAt = new Date(
@@ -483,6 +626,7 @@ export async function findVerificationCode(params: {
     reservationId: reservation.id,
     status: 'resolved' as const,
     code: manualCode.code,
+    source: manualCode.source,
     receivedAt: manualCode.receivedAt.toISOString(),
     emails,
   }
@@ -493,11 +637,13 @@ export async function createManualVerificationCode(params: {
   code: string
 }) {
   const db = getDb()
+  const normalizedEmail = params.email.trim()
+  const normalizedCode = normalizeManualVerificationCodeInput(params.code)
   const inserted = await db
     .insert(verificationEmailReservations)
     .values({
       id: createId(),
-      email: params.email,
+      email: normalizedEmail,
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     })
     .onConflictDoNothing({ target: verificationEmailReservations.email })
@@ -506,22 +652,45 @@ export async function createManualVerificationCode(params: {
   const reservation =
     inserted[0] ||
     (await db.query.verificationEmailReservations.findFirst({
-      where: eq(verificationEmailReservations.email, params.email),
+      where: eq(verificationEmailReservations.email, normalizedEmail),
     }))
 
   if (!reservation) {
     throw new Error('Unable to create verification reservation')
   }
 
+  await db
+    .update(emailIngestRecords)
+    .set({
+      reservationId: reservation.id,
+    })
+    .where(
+      and(
+        eq(emailIngestRecords.recipient, reservation.email),
+        isNull(emailIngestRecords.reservationId),
+      ),
+    )
+
   const [record] = await db
     .insert(verificationCodes)
     .values({
       id: createId(),
       reservationId: reservation.id,
-      code: params.code,
+      code: normalizedCode,
       source: 'MANUAL',
     })
     .returning()
+
+  publishVerificationCodeEvent(
+    serializeVerificationCodeEvent({
+      id: record.id,
+      reservationId: reservation.id,
+      email: reservation.email,
+      code: record.code,
+      source: record.source,
+      receivedAt: record.receivedAt,
+    }),
+  )
 
   return record
 }
@@ -540,15 +709,19 @@ export async function ingestCloudflareEmail(params: {
   const reservation = await db.query.verificationEmailReservations.findFirst({
     where: eq(verificationEmailReservations.email, params.recipient),
   })
+  const resolvedBodies = resolveVerificationEmailBodies({
+    textBody: params.textBody,
+    htmlBody: params.htmlBody,
+    rawPayload: params.rawPayload,
+  })
 
   const receivedAt = params.receivedAt
     ? new Date(params.receivedAt)
     : new Date()
   const extractedCode =
-    params.extractedCode ||
-    extractVerificationCodeFromText(params.textBody) ||
-    extractVerificationCodeFromText(params.htmlBody) ||
-    extractVerificationCodeFromText(params.rawPayload)
+    extractVerificationCodeFromText(resolvedBodies.htmlBody) ||
+    extractVerificationCodeFromText(resolvedBodies.textBody) ||
+    params.extractedCode
 
   const [emailRecord] = await db
     .insert(emailIngestRecords)
@@ -558,8 +731,8 @@ export async function ingestCloudflareEmail(params: {
       messageId: params.messageId,
       recipient: params.recipient,
       subject: params.subject,
-      textBody: params.textBody,
-      htmlBody: params.htmlBody,
+      textBody: resolvedBodies.textBody,
+      htmlBody: resolvedBodies.htmlBody,
       rawPayload: params.rawPayload,
       verificationCode: extractedCode,
       receivedAt,
@@ -588,6 +761,19 @@ export async function ingestCloudflareEmail(params: {
       .returning()
 
     codeRecord = insertedCode[0] || null
+  }
+
+  if (codeRecord && reservation) {
+    publishVerificationCodeEvent(
+      serializeVerificationCodeEvent({
+        id: codeRecord.id,
+        reservationId: reservation.id,
+        email: reservation.email,
+        code: codeRecord.code,
+        source: codeRecord.source,
+        receivedAt: codeRecord.receivedAt,
+      }),
+    )
   }
 
   if (hasAdminInboxEmailSubscribers()) {
@@ -720,6 +906,53 @@ export async function listAdminInboxEmailsAfterCursor(options?: {
       email,
       email.reservationId ? latestCodes.get(email.reservationId) : undefined,
     ),
+  )
+}
+
+export async function listVerificationCodeEventsAfterCursor(options: {
+  email: string
+  startedAt: string
+  cursor?: string | null
+  limit?: number
+}) {
+  const reservation =
+    await getDb().query.verificationEmailReservations.findFirst({
+      where: eq(verificationEmailReservations.email, options.email),
+    })
+  if (!reservation) {
+    return [] as VerificationCodeEvent[]
+  }
+
+  const startedAt = new Date(options.startedAt)
+  const since = Number.isNaN(startedAt.getTime()) ? new Date(0) : startedAt
+  const cursor = decodeVerificationCodeCursor(options.cursor)
+  const rows = await getDb().query.verificationCodes.findMany({
+    where: combineConditions([
+      eq(verificationCodes.reservationId, reservation.id),
+      gte(verificationCodes.receivedAt, since),
+      cursor
+        ? or(
+            gt(verificationCodes.receivedAt, cursor.receivedAt),
+            and(
+              eq(verificationCodes.receivedAt, cursor.receivedAt),
+              gt(verificationCodes.id, cursor.id),
+            ),
+          )
+        : undefined,
+    ]),
+    orderBy: [asc(verificationCodes.receivedAt), asc(verificationCodes.id)],
+    limit: options.limit ?? 20,
+  })
+
+  return rows.map((row) =>
+    serializeVerificationCodeEvent({
+      id: row.id,
+      reservationId: reservation.id,
+      email: reservation.email,
+      code: row.code,
+      source: row.source,
+      receivedAt: row.receivedAt,
+    }),
   )
 }
 

@@ -13,7 +13,6 @@ import {
   DEFAULT_EVENT_TIMEOUT_MS,
   LOGIN_EMAIL_SELECTORS,
   LOGIN_NEXT_STEP_SELECTORS,
-  MIN_ONBOARDING_CLICKS,
   ONBOARDING_SIGNAL_SELECTORS,
   PASSKEY_ENTRY_SELECTORS,
   PASSWORD_INPUT_SELECTORS,
@@ -289,6 +288,10 @@ export async function waitForHomeInteractionSignal(
   page: Page,
   timeoutMs = 10000,
 ): Promise<boolean> {
+  if (await isAnySelectorVisible(page, CHATGPT_AUTHENTICATED_SELECTORS)) {
+    return true
+  }
+
   const waiters: Array<Promise<void>> = []
 
   if (!isChatGPTHomeUrl(page.url())) {
@@ -306,6 +309,17 @@ export async function waitForHomeInteractionSignal(
       }),
     )
   }
+
+  waiters.push(
+    waitForAnySelectorState(
+      page,
+      CHATGPT_AUTHENTICATED_SELECTORS,
+      'visible',
+      timeoutMs,
+    ).then((ready) => {
+      if (!ready) throw new Error('authenticated home signal not ready')
+    }),
+  )
 
   waiters.push(
     waitForAnySelectorState(
@@ -352,34 +366,49 @@ export async function waitUntilChatGPTHomeReady(
   clickOnboardingAction: (page: Page) => Promise<string | null>,
   rounds = 20,
 ): Promise<boolean> {
+  let sawOnboarding = false
   let onboardingClicks = 0
-  let idleAfterMinimum = 0
+  let authenticatedIdleRounds = 0
   for (let round = 0; round < rounds; round += 1) {
     const url = page.url()
     const onChatGPT = isChatGPTHomeUrl(url)
-    const profileReady = await isProfileReady(page)
 
     if (!onChatGPT) {
-      idleAfterMinimum = 0
+      authenticatedIdleRounds = 0
       await waitForHomeInteractionSignal(page, 10000)
       continue
     }
 
+    const onboardingVisible = await isAnySelectorVisible(
+      page,
+      ONBOARDING_SIGNAL_SELECTORS,
+    )
+    if (onboardingVisible) sawOnboarding = true
+
     const action = await clickOnboardingAction(page)
     if (action) {
+      sawOnboarding = true
       onboardingClicks += 1
-      idleAfterMinimum = 0
+      authenticatedIdleRounds = 0
       await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
       continue
     }
 
-    if (profileReady && onboardingClicks >= MIN_ONBOARDING_CLICKS) {
-      idleAfterMinimum += 1
-      if (idleAfterMinimum >= 2) return true
+    if (onboardingVisible) {
+      authenticatedIdleRounds = 0
       await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
       continue
     }
 
+    const authenticated = await waitForAuthenticatedSession(page, 250)
+    if (authenticated && (!sawOnboarding || onboardingClicks > 0)) {
+      authenticatedIdleRounds += 1
+      if (authenticatedIdleRounds >= 2) return true
+      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
+      continue
+    }
+
+    authenticatedIdleRounds = 0
     await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
   }
 

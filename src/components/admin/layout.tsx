@@ -269,11 +269,6 @@ export function AdminShell(props: {
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 h-4" />
           <AdminBreadcrumb pathname={pathname} />
-          <div className="ml-auto flex items-center gap-2">
-            <Badge variant="outline" className="hidden md:inline-flex">
-              {m.admin_data_first_badge()}
-            </Badge>
-          </div>
         </header>
 
         <main

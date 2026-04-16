@@ -82,6 +82,8 @@ CODEY_APP_EVENTS_PATH=/api/verification/events
 
 `CODEY_APP_CLIENT_SECRET` is optional. When it is present, app-backed verification uses `client_credentials`. When it is omitted, the flow will prompt for a device-code approval and cache the resulting user session under `.codey/credentials/app-session.json`.
 
+Managed identity summaries shown in the admin UI are stored in Postgres. Flow-local ChatGPT credential files under `.codey/credentials/` remain unchanged and are still used only by the local automation CLI.
+
 OIDC signing keys are now managed in Postgres. The app auto-generates an initial signing key on first boot, caches the published JWKS set in memory, and rotates keys automatically. Optional tuning:
 
 ```env

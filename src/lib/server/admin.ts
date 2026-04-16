@@ -27,7 +27,7 @@ function boolStatus(value: boolean, success = "configured") {
   return value ? success : "missing";
 }
 
-async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdminIdentitySummaries>>): Promise<ConfigStatusItem[]> {
+async function listConfigStatus(): Promise<ConfigStatusItem[]> {
   const env = getAppEnv();
   const db = getDb();
   const [userCountResult, adminCountResult, oidcSigningKeyStatus] = await Promise.all([
@@ -89,13 +89,6 @@ async function listConfigStatus(identityState: Awaited<ReturnType<typeof listAdm
               }),
     },
     {
-      id: "identity-store",
-      key: "identityStore",
-      label: m.server_config_identity_store_label(),
-      status: identityState.storeStatus.status,
-      detail: identityState.storeStatus.detail,
-    },
-    {
       id: "exchange-client-credentials",
       key: "exchangeClientCredentials",
       label: m.server_config_exchange_label(),
@@ -138,7 +131,7 @@ export async function listAdminDashboardData() {
     notifications,
     deviceChallenges,
     verification,
-    identityState,
+    identitySummaries,
     flowAppRequests,
   ] = await Promise.all([
     getDb().query.adminNotifications.findMany({
@@ -154,7 +147,7 @@ export async function listAdminDashboardData() {
     }),
   ]);
 
-  const configStatus = await listConfigStatus(identityState);
+  const configStatus = await listConfigStatus();
 
   return {
     notifications,
@@ -169,7 +162,7 @@ export async function listAdminDashboardData() {
         challenge.createdAt,
     })),
     verification,
-    identitySummaries: identityState.summaries,
+    identitySummaries,
     flowAppRequests,
     configStatus,
   };

@@ -1,6 +1,9 @@
 import type { Page } from 'patchright'
 import { clickAny, clickIfPresent, typeIfPresent } from '../common/form-actions'
-import type { VerificationProvider } from '../verification'
+import type {
+  VerificationCodeStreamEvent,
+  VerificationProvider,
+} from '../verification'
 import { sleep } from '../../utils/wait'
 import {
   ADULT_BIRTHDAY,
@@ -126,6 +129,106 @@ export async function clickVerificationContinue(page: Page): Promise<boolean> {
     { text: /继续|continue|verify|验证/i },
     'button[type="submit"]',
   ])
+}
+
+export async function waitForVerificationCodeUpdatesAfterSubmit(
+  page: Page,
+  options: {
+    verificationProvider: VerificationProvider
+    email: string
+    startedAt: string
+    timeoutMs: number
+    currentCode: string
+    onCodeUpdate?: (event: VerificationCodeStreamEvent) => void
+  },
+): Promise<string> {
+  if (!options.verificationProvider.streamVerificationEvents) {
+    return options.currentCode
+  }
+
+  const deadline = Date.now() + options.timeoutMs
+  const streamStartedAt = new Date().toISOString()
+  const abortController = new AbortController()
+  const iterator = options.verificationProvider
+    .streamVerificationEvents({
+      email: options.email,
+      startedAt: options.startedAt,
+      signal: abortController.signal,
+    })
+    [Symbol.asyncIterator]()
+  let currentCode = options.currentCode
+  let nextEventPromise = iterator.next()
+
+  try {
+    while (Date.now() < deadline) {
+      const verificationReady = await waitForVerificationCodeInputReady(
+        page,
+        750,
+      )
+      if (!verificationReady) {
+        return currentCode
+      }
+
+      const remainingMs = Math.max(1, deadline - Date.now())
+      const result = await Promise.race([
+        nextEventPromise.then((value) => ({
+          kind: 'event' as const,
+          value,
+        })),
+        sleep(Math.min(1000, remainingMs)).then(() => ({
+          kind: 'tick' as const,
+        })),
+      ])
+
+      if (result.kind === 'tick') {
+        continue
+      }
+
+      nextEventPromise = iterator.next()
+
+      if (result.value.done) {
+        break
+      }
+
+      const event = result.value.value
+      if (event.type !== 'verification_code' || !event.code) {
+        continue
+      }
+
+      const shouldResubmitSameManualCode =
+        event.source === 'MANUAL' &&
+        event.code === currentCode &&
+        Boolean(event.receivedAt) &&
+        event.receivedAt > streamStartedAt
+      const shouldSubmitNewCode =
+        event.code !== currentCode || shouldResubmitSameManualCode
+      if (!shouldSubmitNewCode) {
+        continue
+      }
+
+      const inputReady = await waitForVerificationCodeInputReady(page, 5000)
+      if (!inputReady) {
+        return currentCode
+      }
+
+      await typeVerificationCode(page, event.code)
+      await clickVerificationContinue(page)
+      currentCode = event.code
+      options.onCodeUpdate?.(event)
+    }
+  } finally {
+    abortController.abort()
+    await iterator.return?.().catch(() => undefined)
+  }
+
+  const verificationReady = await waitForVerificationCodeInputReady(page, 1000)
+  if (verificationReady) {
+    throw new Error(
+      'Verification step is still waiting for a new code after the latest submission.',
+    )
+  }
+
+  return currentCode
 }
 
 async function fillFirstAvailable(
@@ -347,7 +450,7 @@ export async function fillAgeGateBirthday(page: Page): Promise<boolean> {
 
   const birthdaySegmentsReady = await revealAgeGateBirthdaySegments(page)
   if (!birthdaySegmentsReady) {
-    return setBirthdayHiddenInputValue(page, ADULT_BIRTHDAY)
+    return false
   }
 
   const yearFilled = await typeIfPresent(
@@ -367,7 +470,7 @@ export async function fillAgeGateBirthday(page: Page): Promise<boolean> {
   )
 
   if (!yearFilled || !monthFilled || !dayFilled) {
-    return setBirthdayHiddenInputValue(page, ADULT_BIRTHDAY)
+    return false
   }
 
   if (await waitForBirthdayHiddenInputValue(page, ADULT_BIRTHDAY, 1500)) {
@@ -534,7 +637,13 @@ export async function completePasswordOrVerificationLoginFallback(
     })
     await typeVerificationCode(page, verificationCode)
     await clickVerificationContinue(page)
-    return verificationCode
+    return waitForVerificationCodeUpdatesAfterSubmit(page, {
+      verificationProvider: await requireVerificationProvider(),
+      email: options.email,
+      startedAt: options.startedAt,
+      timeoutMs: options.verificationTimeoutMs ?? 180000,
+      currentCode: verificationCode,
+    })
   }
 
   if (options.step === 'verification') {
