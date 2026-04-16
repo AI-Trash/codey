@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import {
@@ -155,8 +156,14 @@ function AdminPage() {
       <Card className="max-w-2xl">
         <CardHeader>
           <CardDescription>{m.admin_breadcrumb_root()}</CardDescription>
-          <CardTitle>{m.admin_auth_required_title()}</CardTitle>
-          <CardDescription>{m.admin_dashboard_auth_description()}</CardDescription>
+          <div className="flex items-start gap-2">
+            <CardTitle>{m.admin_auth_required_title()}</CardTitle>
+            <InfoTooltip
+              content={m.admin_dashboard_auth_description()}
+              label={m.admin_auth_required_title()}
+              className="mt-0.5"
+            />
+          </div>
         </CardHeader>
         <CardContent>
           <Button asChild>
@@ -309,7 +316,9 @@ function AdminPage() {
                 className="min-h-28"
               />
             </LabeledInput>
-            <Button type="submit">{m.admin_dashboard_create_notification()}</Button>
+            <Button type="submit">
+              {m.admin_dashboard_create_notification()}
+            </Button>
           </form>
         </ActionCard>
 
@@ -336,7 +345,9 @@ function AdminPage() {
                   placeholder={m.admin_dashboard_request_flow_type_placeholder()}
                 />
               </LabeledInput>
-              <LabeledInput label={m.admin_dashboard_requested_identity_label()}>
+              <LabeledInput
+                label={m.admin_dashboard_requested_identity_label()}
+              >
                 <Input
                   name="requestedIdentity"
                   placeholder={m.admin_dashboard_requested_identity_placeholder()}
@@ -373,15 +384,15 @@ function AdminPage() {
               {configStatuses.map((item, index) => (
                 <TableRow key={item.id ?? item.key ?? `${item.label}-${index}`}>
                   <TableCell className="align-top">
-                    <div className="space-y-1">
+                    <div className="flex items-start gap-2">
                       <div className="font-medium text-foreground">
                         {item.label}
                       </div>
-                      {item.description ? (
-                        <p className="max-w-[280px] text-sm leading-6 text-muted-foreground">
-                          {item.description}
-                        </p>
-                      ) : null}
+                      <InfoTooltip
+                        content={item.description}
+                        label={item.label}
+                        className="mt-0.5"
+                      />
                     </div>
                   </TableCell>
                   <TableCell className="align-top">
@@ -472,7 +483,9 @@ function AdminPage() {
                         defaultValue={
                           summary.label !== summary.account ? summary.label : ''
                         }
-                        placeholder={summary.account || m.admin_dashboard_identity_label()}
+                        placeholder={
+                          summary.account || m.admin_dashboard_identity_label()
+                        }
                         className="h-8"
                       />
                       <NativeSelect
@@ -703,8 +716,12 @@ function AdminPage() {
                 <TableRow>
                   <TableHead>{m.oauth_clients_table_app()}</TableHead>
                   <TableHead>{m.admin_dashboard_flow_type_label()}</TableHead>
-                  <TableHead>{m.admin_dashboard_requested_identity_label()}</TableHead>
-                  <TableHead>{m.admin_dashboard_requested_by_label()}</TableHead>
+                  <TableHead>
+                    {m.admin_dashboard_requested_identity_label()}
+                  </TableHead>
+                  <TableHead>
+                    {m.admin_dashboard_requested_by_label()}
+                  </TableHead>
                   <TableHead>{m.oauth_clients_table_status()}</TableHead>
                   <TableHead>{m.admin_dashboard_submitted_label()}</TableHead>
                   <TableHead>{m.admin_dashboard_notes_label()}</TableHead>
@@ -726,7 +743,8 @@ function AdminPage() {
                         m.admin_dashboard_no_identity_attached()}
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
-                      {request.requestedBy || m.admin_dashboard_unknown_requester()}
+                      {request.requestedBy ||
+                        m.admin_dashboard_unknown_requester()}
                     </TableCell>
                     <TableCell className="align-top">
                       <StatusBadge value={request.status || 'pending'} />
@@ -764,8 +782,14 @@ function TableCard(props: {
     <Card>
       <CardHeader>
         <CardDescription>{props.eyebrow}</CardDescription>
-        <CardTitle>{props.title}</CardTitle>
-        <CardDescription>{props.description}</CardDescription>
+        <div className="flex items-start gap-2">
+          <CardTitle>{props.title}</CardTitle>
+          <InfoTooltip
+            content={props.description}
+            label={props.title}
+            className="mt-0.5"
+          />
+        </div>
       </CardHeader>
       <CardContent>{props.children}</CardContent>
     </Card>
@@ -782,8 +806,14 @@ function ActionCard(props: {
     <Card>
       <CardHeader>
         <CardDescription>{props.eyebrow}</CardDescription>
-        <CardTitle className="text-lg">{props.title}</CardTitle>
-        <CardDescription>{props.description}</CardDescription>
+        <div className="flex items-start gap-2">
+          <CardTitle className="text-lg">{props.title}</CardTitle>
+          <InfoTooltip
+            content={props.description}
+            label={props.title}
+            className="mt-0.5"
+          />
+        </div>
       </CardHeader>
       <CardContent>{props.children}</CardContent>
     </Card>

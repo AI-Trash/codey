@@ -11,15 +11,15 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
 import { m } from '#/paraglide/messages'
 
 const loadChallenge = createServerFn({ method: 'GET' })
   .inputValidator((data: { userCode?: string }) => data)
   .handler(async ({ data }) => {
-    const { getDeviceChallengeByUserCode } = await import(
-      '../lib/server/device-auth'
-    )
+    const { getDeviceChallengeByUserCode } =
+      await import('../lib/server/device-auth')
     if (!data.userCode) {
       return null
     }
@@ -61,10 +61,14 @@ function DevicePage() {
       <Card>
         <CardHeader>
           <CardDescription>{m.device_kicker()}</CardDescription>
-          <CardTitle className="text-3xl">{m.device_title()}</CardTitle>
-          <CardDescription className="max-w-2xl text-sm leading-6">
-            {m.device_description()}
-          </CardDescription>
+          <div className="flex items-start gap-2">
+            <CardTitle className="text-3xl">{m.device_title()}</CardTitle>
+            <InfoTooltip
+              content={m.device_description()}
+              label={m.device_title()}
+              className="mt-1"
+            />
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <form
@@ -162,18 +166,16 @@ function DevicePage() {
   )
 }
 
-function Info(props: {
-  label: string
-  value: ReactNode
-  strong?: boolean
-}) {
+function Info(props: { label: string; value: ReactNode; strong?: boolean }) {
   return (
     <div className="space-y-1">
       <p className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
         {props.label}
       </p>
       <div
-        className={props.strong ? 'font-semibold text-foreground' : 'text-foreground'}
+        className={
+          props.strong ? 'font-semibold text-foreground' : 'text-foreground'
+        }
       >
         {props.value}
       </div>

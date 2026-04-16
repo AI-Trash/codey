@@ -63,7 +63,7 @@ function AdminMailInboxPage() {
   }
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <AdminPageHeader
         eyebrow={m.admin_nav_operations()}
         title={m.admin_mail_page_title()}
@@ -79,6 +79,6 @@ function AdminMailInboxPage() {
         initialPage={data.initialPage}
         initialCursor={data.initialCursor}
       />
-    </>
+    </div>
   )
 }

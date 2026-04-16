@@ -24,6 +24,7 @@ import {
   CardTitle,
 } from '#/components/ui/card'
 import { Checkbox } from '#/components/ui/checkbox'
+import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import {
@@ -35,6 +36,7 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { Textarea } from '#/components/ui/textarea'
+import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 
 export type ManagedOAuthClient = {
@@ -78,12 +80,16 @@ export function AdminAuthRequired() {
     <Card className="max-w-2xl">
       <CardHeader>
         <CardDescription>{m.admin_breadcrumb_root()}</CardDescription>
-        <CardTitle className="text-2xl">
-          {m.admin_auth_required_title()}
-        </CardTitle>
-        <CardDescription className="max-w-xl text-sm leading-6">
-          {m.admin_auth_required_description()}
-        </CardDescription>
+        <div className="flex items-start gap-2">
+          <CardTitle className="text-2xl">
+            {m.admin_auth_required_title()}
+          </CardTitle>
+          <InfoTooltip
+            content={m.admin_auth_required_description()}
+            label={m.admin_auth_required_title()}
+            className="mt-0.5"
+          />
+        </div>
       </CardHeader>
       <CardContent>
         <Button asChild>
@@ -123,7 +129,9 @@ export function OAuthClientsList({
           {m.oauth_clients_badge_enabled({ count: String(enabledCount) })}
         </Badge>
         <Badge variant="outline">
-          {m.oauth_clients_badge_device_flow({ count: String(deviceFlowCount) })}
+          {m.oauth_clients_badge_device_flow({
+            count: String(deviceFlowCount),
+          })}
         </Badge>
       </div>
 
@@ -203,7 +211,8 @@ export function OAuthClientsList({
                 <StatusBadge value={client.enabled ? 'Enabled' : 'Disabled'} />
               </TableCell>
               <TableCell className="align-top text-sm text-muted-foreground">
-                {formatAdminDate(client.updatedAt) || m.oauth_clients_recently()}
+                {formatAdminDate(client.updatedAt) ||
+                  m.oauth_clients_recently()}
               </TableCell>
               <TableCell className="align-top text-right">
                 <Button asChild size="sm">
@@ -283,8 +292,14 @@ export function NewOAuthClientPageContent({
       <Card>
         <CardHeader>
           <CardDescription>{m.oauth_new_registration_kicker()}</CardDescription>
-          <CardTitle>{m.oauth_new_title()}</CardTitle>
-          <CardDescription>{m.oauth_new_description()}</CardDescription>
+          <div className="flex items-start gap-2">
+            <CardTitle>{m.oauth_new_title()}</CardTitle>
+            <InfoTooltip
+              content={m.oauth_new_description()}
+              label={m.oauth_new_title()}
+              className="mt-0.5"
+            />
+          </div>
         </CardHeader>
         <CardContent>
           <OAuthClientForm
@@ -292,6 +307,7 @@ export function NewOAuthClientPageContent({
             submitting={submitting}
             submitLabel={m.oauth_new_submit()}
             supportedScopes={supportedScopes}
+            allowedScopesInputMode="tags"
             error={error}
             onChange={setForm}
             onSubmit={handleSubmit}
@@ -452,13 +468,21 @@ export function EditOAuthClientPageContent({
       <Card>
         <CardHeader className="gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardDescription>{m.oauth_edit_settings_kicker()}</CardDescription>
-              <CardTitle>{client.clientName}</CardTitle>
+            <div className="space-y-1">
+              <CardDescription>
+                {m.oauth_edit_settings_kicker()}
+              </CardDescription>
+              <div className="flex items-start gap-2">
+                <CardTitle>{client.clientName}</CardTitle>
+                <InfoTooltip
+                  content={m.oauth_edit_settings_description()}
+                  label={client.clientName}
+                  className="mt-0.5"
+                />
+              </div>
             </div>
             <StatusBadge value={client.enabled ? 'Enabled' : 'Disabled'} />
           </div>
-          <CardDescription>{m.oauth_edit_settings_description()}</CardDescription>
         </CardHeader>
         <CardContent>
           <OAuthClientForm
@@ -522,7 +546,10 @@ export function EditOAuthClientPageContent({
               />
               <SummaryItem
                 label={m.oauth_clients_table_updated()}
-                value={formatAdminDate(client.updatedAt) || m.oauth_clients_recently()}
+                value={
+                  formatAdminDate(client.updatedAt) ||
+                  m.oauth_clients_recently()
+                }
               />
             </dl>
           </CardContent>
@@ -531,9 +558,16 @@ export function EditOAuthClientPageContent({
         <Card>
           <CardHeader>
             <CardDescription>{m.oauth_secret_state_kicker()}</CardDescription>
-            <CardTitle className="text-lg">
-              {m.oauth_secret_state_title()}
-            </CardTitle>
+            <div className="flex items-start gap-2">
+              <CardTitle className="text-lg">
+                {m.oauth_secret_state_title()}
+              </CardTitle>
+              <InfoTooltip
+                content={m.oauth_secret_state_description()}
+                label={m.oauth_secret_state_title()}
+                className="mt-0.5"
+              />
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -543,9 +577,6 @@ export function EditOAuthClientPageContent({
                 })}
               </Badge>
             </div>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {m.oauth_secret_state_description()}
-            </p>
             <Button
               type="button"
               variant="outline"
@@ -582,6 +613,7 @@ function OAuthClientForm({
   submitting,
   submitLabel,
   supportedScopes,
+  allowedScopesInputMode = 'text',
   error,
   success,
   children,
@@ -592,6 +624,7 @@ function OAuthClientForm({
   submitting: boolean
   submitLabel: string
   supportedScopes: string[]
+  allowedScopesInputMode?: 'text' | 'tags'
   error?: string | null
   success?: string | null
   children?: ReactNode
@@ -603,6 +636,7 @@ function OAuthClientForm({
   const parsedScopes = parseScopes(form.allowedScopes)
   const hasGrantEnabled =
     form.clientCredentialsEnabled || form.deviceFlowEnabled
+  const usesScopeTagSelector = allowedScopesInputMode === 'tags'
 
   return (
     <form className="grid gap-5" onSubmit={onSubmit}>
@@ -691,19 +725,36 @@ function OAuthClientForm({
 
       <Field
         label={m.oauth_field_allowed_scopes()}
-        description={m.oauth_field_allowed_scopes_description({
-          scopes: supportedScopes.join(', '),
-        })}
+        description={
+          usesScopeTagSelector
+            ? undefined
+            : m.oauth_field_allowed_scopes_description({
+                scopes: supportedScopes.join(', '),
+              })
+        }
       >
-        <Textarea
-          value={form.allowedScopes}
-          onChange={(event) => {
-            const nextValue = event.target.value
-            onChange((current) => ({ ...current, allowedScopes: nextValue }))
-          }}
-          placeholder={supportedScopes.join('\n')}
-          className="min-h-32"
-        />
+        {usesScopeTagSelector ? (
+          <ScopeTagSelector
+            supportedScopes={supportedScopes}
+            value={parsedScopes}
+            onChange={(nextScopes) => {
+              onChange((current) => ({
+                ...current,
+                allowedScopes: nextScopes.join('\n'),
+              }))
+            }}
+          />
+        ) : (
+          <Textarea
+            value={form.allowedScopes}
+            onChange={(event) => {
+              const nextValue = event.target.value
+              onChange((current) => ({ ...current, allowedScopes: nextValue }))
+            }}
+            placeholder={supportedScopes.join('\n')}
+            className="min-h-32"
+          />
+        )}
       </Field>
 
       {!hasGrantEnabled ? (
@@ -715,7 +766,7 @@ function OAuthClientForm({
         </Alert>
       ) : null}
 
-      {parsedScopes.length ? (
+      {parsedScopes.length && !usesScopeTagSelector ? (
         <div className="flex flex-wrap gap-1.5">
           {parsedScopes.map((scope) => (
             <Badge key={scope} variant="outline">
@@ -748,6 +799,53 @@ function OAuthClientForm({
   )
 }
 
+function ScopeTagSelector({
+  supportedScopes,
+  value,
+  onChange,
+}: {
+  supportedScopes: string[]
+  value: string[]
+  onChange: (nextScopes: string[]) => void
+}) {
+  const selectedScopes = new Set(value)
+
+  return (
+    <div className="flex min-h-11 flex-wrap gap-2 rounded-md border border-input bg-transparent p-2.5 shadow-xs">
+      {supportedScopes.map((scope) => {
+        const selected = selectedScopes.has(scope)
+
+        return (
+          <Badge
+            asChild
+            key={scope}
+            variant={selected ? 'default' : 'outline'}
+            className={cn(
+              'px-3 py-1 text-sm',
+              selected
+                ? 'shadow-xs'
+                : 'hover:bg-accent hover:text-accent-foreground',
+            )}
+          >
+            <button
+              type="button"
+              aria-pressed={selected}
+              onClick={() => {
+                const nextScopes = supportedScopes.filter((item) =>
+                  item === scope ? !selected : selectedScopes.has(item),
+                )
+                onChange(nextScopes)
+              }}
+            >
+              {scope}
+            </button>
+          </Badge>
+        )
+      })}
+    </div>
+  )
+}
+
 function SecretPanel({
   title,
   body,
@@ -767,15 +865,17 @@ function SecretPanel({
     <Card>
       <CardHeader className="gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="space-y-1">
             <CardDescription>{m.oauth_secret_preview_kicker()}</CardDescription>
-            <CardTitle className="text-lg">{title}</CardTitle>
+            <div className="flex items-start gap-2">
+              <CardTitle className="text-lg">{title}</CardTitle>
+              <InfoTooltip content={body} label={title} className="mt-0.5" />
+            </div>
           </div>
           <Badge variant="outline">
             {m.oauth_secret_preview_badge({ preview })}
           </Badge>
         </div>
-        <CardDescription className="text-sm leading-6">{body}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <SummaryItem label={m.oauth_field_client_id()} value={clientId} code />
@@ -797,13 +897,18 @@ function Field(props: {
 }) {
   return (
     <label className="grid gap-2">
-      <span className="text-sm font-medium text-foreground">{props.label}</span>
-      {props.children}
-      {props.description ? (
-        <span className="text-xs leading-5 text-muted-foreground">
-          {props.description}
+      <span className="flex items-center gap-2">
+        <span className="text-sm font-medium text-foreground">
+          {props.label}
         </span>
-      ) : null}
+        <InfoTooltip
+          content={props.description}
+          label={props.label}
+          className="size-4"
+          iconClassName="size-3"
+        />
+      </span>
+      {props.children}
     </label>
   )
 }
@@ -825,14 +930,19 @@ function ToggleCard(props: {
         }}
         className="mt-0.5"
       />
-      <label htmlFor={props.id} className="grid gap-1">
-        <span className="text-sm font-medium text-foreground">
+      <div className="flex items-start gap-2">
+        <label
+          htmlFor={props.id}
+          className="text-sm font-medium text-foreground"
+        >
           {props.title}
-        </span>
-        <span className="text-sm leading-6 text-muted-foreground">
-          {props.description}
-        </span>
-      </label>
+        </label>
+        <InfoTooltip
+          content={props.description}
+          label={props.title}
+          className="mt-0.5"
+        />
+      </div>
     </div>
   )
 }
@@ -858,9 +968,13 @@ function SummaryItem(props: { label: string; value: string; code?: boolean }) {
 
 function InfoBlock(props: { title: string; detail: string }) {
   return (
-    <div className="space-y-1">
+    <div className="flex items-start gap-2">
       <div className="font-medium text-foreground">{props.title}</div>
-      <p className="m-0">{props.detail}</p>
+      <InfoTooltip
+        content={props.detail}
+        label={props.title}
+        className="mt-0.5"
+      />
     </div>
   )
 }

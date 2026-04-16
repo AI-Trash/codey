@@ -1,5 +1,6 @@
 import { m } from '#/paraglide/messages'
 
+import { InfoTooltip } from './ui/info-tooltip'
 import { Separator } from './ui/separator'
 
 export default function Footer() {
@@ -21,11 +22,16 @@ export default function Footer() {
     <footer className="border-t bg-background">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-10">
         <div className="flex flex-col gap-8 lg:flex-row lg:justify-between">
-          <div className="max-w-lg space-y-2">
-            <p className="text-sm font-semibold text-foreground">Codey</p>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {m.footer_description()}
-            </p>
+          <div className="max-w-lg">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold text-foreground">Codey</p>
+              <InfoTooltip
+                content={m.footer_description()}
+                label="Codey"
+                className="size-4"
+                iconClassName="size-3"
+              />
+            </div>
           </div>
 
           <div className="grid gap-8 sm:grid-cols-2">

@@ -2,11 +2,11 @@ import { createFileRoute } from '@tanstack/react-router'
 
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { m } from '#/paraglide/messages'
 
 export const Route = createFileRoute('/about')({
@@ -19,13 +19,15 @@ function About() {
       <Card className="w-full">
         <CardHeader>
           <CardDescription>{m.about_kicker()}</CardDescription>
-          <CardTitle className="text-3xl">{m.about_title()}</CardTitle>
+          <div className="flex items-start gap-2">
+            <CardTitle className="text-3xl">{m.about_title()}</CardTitle>
+            <InfoTooltip
+              content={m.about_description()}
+              label={m.about_title()}
+              className="mt-1"
+            />
+          </div>
         </CardHeader>
-        <CardContent>
-          <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
-            {m.about_description()}
-          </p>
-        </CardContent>
       </Card>
     </main>
   )

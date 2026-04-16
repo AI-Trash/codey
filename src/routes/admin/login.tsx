@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { m } from '#/paraglide/messages'
 
 export const Route = createFileRoute('/admin/login')({
@@ -45,12 +46,16 @@ function AdminLoginPage() {
               <Badge>{m.admin_login_github_badge()}</Badge>
             </div>
             <div className="space-y-3">
-              <CardTitle className="text-4xl tracking-tight sm:text-5xl">
-                {m.admin_login_title()}
-              </CardTitle>
-              <CardDescription className="max-w-2xl text-sm leading-7">
-                {m.admin_login_description()}
-              </CardDescription>
+              <div className="flex items-start gap-2">
+                <CardTitle className="text-4xl tracking-tight sm:text-5xl">
+                  {m.admin_login_title()}
+                </CardTitle>
+                <InfoTooltip
+                  content={m.admin_login_description()}
+                  label={m.admin_login_title()}
+                  className="mt-1.5"
+                />
+              </div>
             </div>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-3">
@@ -67,18 +72,29 @@ function AdminLoginPage() {
 
         <Card>
           <CardHeader>
-            <CardDescription>{m.admin_login_capabilities_kicker()}</CardDescription>
+            <CardDescription>
+              {m.admin_login_capabilities_kicker()}
+            </CardDescription>
             <CardTitle className="text-xl">
               {m.admin_login_capabilities_title()}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {capabilities.map((item) => (
-              <div key={item.title} className="space-y-1 rounded-lg border bg-muted/30 p-4">
-                <p className="text-sm font-medium text-foreground">{item.title}</p>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  {item.detail}
-                </p>
+              <div
+                key={item.title}
+                className="rounded-lg border bg-muted/30 p-4"
+              >
+                <div className="flex items-start gap-2">
+                  <p className="text-sm font-medium text-foreground">
+                    {item.title}
+                  </p>
+                  <InfoTooltip
+                    content={item.detail}
+                    label={item.title}
+                    className="mt-0.5"
+                  />
+                </div>
               </div>
             ))}
           </CardContent>

@@ -20,6 +20,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { m } from '#/paraglide/messages'
 
 export const Route = createFileRoute('/')({ component: App })
@@ -143,13 +144,15 @@ function App() {
       <section className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_380px] lg:items-start">
         <div className="space-y-6">
           <Badge variant="outline">{m.home_badge()}</Badge>
-          <div className="space-y-4">
+          <div className="flex items-start gap-3">
             <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
               {m.home_title()}
             </h1>
-            <p className="max-w-3xl text-base leading-7 text-muted-foreground sm:text-lg">
-              {m.home_description()}
-            </p>
+            <InfoTooltip
+              content={m.home_description()}
+              label={m.home_title()}
+              className="mt-1.5 size-6 sm:mt-2"
+            />
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -204,10 +207,14 @@ function App() {
                   <card.icon className="size-5" />
                 </div>
                 <div className="space-y-2">
-                  <CardTitle className="text-lg">{card.title}</CardTitle>
-                  <CardDescription className="text-sm leading-6">
-                    {card.description}
-                  </CardDescription>
+                  <div className="flex items-start gap-2">
+                    <CardTitle className="text-lg">{card.title}</CardTitle>
+                    <InfoTooltip
+                      content={card.description}
+                      label={card.title}
+                      className="mt-0.5"
+                    />
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -230,12 +237,16 @@ function App() {
         <Card>
           <CardHeader>
             <CardDescription>{m.home_example_kicker()}</CardDescription>
-            <CardTitle className="text-2xl">
-              {m.home_example_title()}
-            </CardTitle>
-            <CardDescription className="text-sm leading-6">
-              {m.home_example_description()}
-            </CardDescription>
+            <div className="flex items-start gap-2">
+              <CardTitle className="text-2xl">
+                {m.home_example_title()}
+              </CardTitle>
+              <InfoTooltip
+                content={m.home_example_description()}
+                label={m.home_example_title()}
+                className="mt-1"
+              />
+            </div>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-3">
             <Button asChild>
@@ -255,7 +266,9 @@ function App() {
               <CardTitle className="font-mono text-base">
                 POST /api/verification/email-reservations
               </CardTitle>
-              <CardDescription>{m.home_example_request_label()}</CardDescription>
+              <CardDescription>
+                {m.home_example_request_label()}
+              </CardDescription>
             </div>
             <Button
               type="button"
@@ -293,17 +306,22 @@ function App() {
             <Card key={metric.label}>
               <CardHeader>
                 <div className="flex items-center justify-between gap-3">
-                  <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
-                    {metric.label}
-                  </CardDescription>
+                  <div className="flex items-center gap-2">
+                    <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
+                      {metric.label}
+                    </CardDescription>
+                    <InfoTooltip
+                      content={metric.detail}
+                      label={metric.label}
+                      className="size-4"
+                      iconClassName="size-3"
+                    />
+                  </div>
                   <Badge variant="secondary">{metric.badge}</Badge>
                 </div>
                 <CardTitle className="font-mono text-2xl">
                   {metric.value}
                 </CardTitle>
-                <CardDescription className="text-sm leading-6">
-                  {metric.detail}
-                </CardDescription>
               </CardHeader>
             </Card>
           ))}
@@ -327,10 +345,14 @@ function App() {
                   </div>
                   <Badge variant="outline">{step.badge}</Badge>
                 </div>
-                <CardTitle className="text-lg">{step.title}</CardTitle>
-                <CardDescription className="text-sm leading-6">
-                  {step.description}
-                </CardDescription>
+                <div className="flex items-start gap-2">
+                  <CardTitle className="text-lg">{step.title}</CardTitle>
+                  <InfoTooltip
+                    content={step.description}
+                    label={step.title}
+                    className="mt-0.5"
+                  />
+                </div>
               </CardHeader>
             </Card>
           ))}
@@ -341,10 +363,14 @@ function App() {
         <Card>
           <CardHeader>
             <CardDescription>{m.home_start_kicker()}</CardDescription>
-            <CardTitle className="text-2xl">{m.home_start_title()}</CardTitle>
-            <CardDescription className="max-w-2xl text-sm leading-6">
-              {m.home_start_description()}
-            </CardDescription>
+            <div className="flex items-start gap-2">
+              <CardTitle className="text-2xl">{m.home_start_title()}</CardTitle>
+              <InfoTooltip
+                content={m.home_start_description()}
+                label={m.home_start_title()}
+                className="mt-1"
+              />
+            </div>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-3">
             <Button asChild>
@@ -370,23 +396,31 @@ function SectionHeader(props: {
   return (
     <div className="space-y-2">
       <Badge variant="outline">{props.badge}</Badge>
-      <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-        {props.title}
-      </h2>
-      {props.description ? (
-        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-          {props.description}
-        </p>
-      ) : null}
+      <div className="flex items-start gap-2">
+        <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          {props.title}
+        </h2>
+        <InfoTooltip
+          content={props.description}
+          label={props.title}
+          className="mt-1"
+        />
+      </div>
     </div>
   )
 }
 
 function InfoRow(props: { title: string; detail: string }) {
   return (
-    <div className="space-y-1 rounded-lg border bg-muted/30 p-4">
-      <p className="text-sm font-medium text-foreground">{props.title}</p>
-      <p className="text-sm leading-6 text-muted-foreground">{props.detail}</p>
+    <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="flex items-start gap-2">
+        <p className="text-sm font-medium text-foreground">{props.title}</p>
+        <InfoTooltip
+          content={props.detail}
+          label={props.title}
+          className="mt-0.5"
+        />
+      </div>
     </div>
   )
 }

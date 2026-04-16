@@ -2,8 +2,26 @@ import { createFileRoute } from '@tanstack/react-router'
 
 import { requireAdmin } from '../../../../lib/server/auth'
 import { text } from '../../../../lib/server/http'
-import { createPollingSseResponse } from '../../../../lib/server/sse'
+import { subscribeAdminInboxEmailEvents } from '../../../../lib/server/admin-inbox-events'
+import { createSubscriptionSseResponse } from '../../../../lib/server/sse'
 import { listAdminInboxEmailsAfterCursor } from '../../../../lib/server/verification'
+
+const ADMIN_INBOX_BACKLOG_BATCH_SIZE = 100
+
+function compareAdminInboxCursor(left: string, right: string) {
+  const [leftCreatedAt, leftId = ''] = left.split('|')
+  const [rightCreatedAt, rightId = ''] = right.split('|')
+
+  if (leftCreatedAt < rightCreatedAt) {
+    return -1
+  }
+
+  if (leftCreatedAt > rightCreatedAt) {
+    return 1
+  }
+
+  return leftId.localeCompare(rightId)
+}
 
 export const Route = createFileRoute('/api/admin/emails/events')({
   server: {
@@ -24,27 +42,85 @@ export const Route = createFileRoute('/api/admin/emails/events')({
           url.searchParams.get('after') ||
           null
 
-        return createPollingSseResponse({
-          intervalMs: 2000,
-          timeoutMs: 120000,
-          loadEvent: async () => {
-            const nextEmail = (
-              await listAdminInboxEmailsAfterCursor({
-                cursor,
-                limit: 1,
-              })
-            )[0]
+        return createSubscriptionSseResponse({
+          request,
+          subscribe: async ({ send }) => {
+            const pendingEmails = [] as Awaited<
+              ReturnType<typeof listAdminInboxEmailsAfterCursor>
+            >
+            let backlogReady = false
 
-            if (!nextEmail) {
-              return null
+            const sendEmail = (
+              email: Awaited<
+                ReturnType<typeof listAdminInboxEmailsAfterCursor>
+              >[number],
+            ) => {
+              if (
+                cursor &&
+                compareAdminInboxCursor(email.cursor, cursor) <= 0
+              ) {
+                return
+              }
+
+              cursor = email.cursor
+
+              send({
+                id: email.cursor,
+                event: 'email',
+                data: email,
+              })
             }
 
-            cursor = nextEmail.cursor
+            const flushPendingEmails = () => {
+              pendingEmails
+                .sort((left, right) =>
+                  compareAdminInboxCursor(left.cursor, right.cursor),
+                )
+                .forEach(sendEmail)
 
-            return {
-              id: nextEmail.cursor,
-              event: 'email',
-              data: nextEmail,
+              pendingEmails.length = 0
+            }
+
+            const unsubscribe = subscribeAdminInboxEmailEvents((email) => {
+              if (!backlogReady) {
+                pendingEmails.push(email)
+                return
+              }
+
+              sendEmail(email)
+            })
+
+            try {
+              while (true) {
+                const backlogEmails = await listAdminInboxEmailsAfterCursor({
+                  cursor,
+                  limit: ADMIN_INBOX_BACKLOG_BATCH_SIZE,
+                })
+
+                if (!backlogEmails.length) {
+                  break
+                }
+
+                for (const email of backlogEmails) {
+                  sendEmail(email)
+                }
+
+                if (backlogEmails.length < ADMIN_INBOX_BACKLOG_BATCH_SIZE) {
+                  break
+                }
+              }
+            } catch (error) {
+              unsubscribe()
+              throw error
+            }
+
+            backlogReady = true
+            flushPendingEmails()
+
+            return () => {
+              backlogReady = true
+              pendingEmails.length = 0
+              unsubscribe()
             }
           },
         })

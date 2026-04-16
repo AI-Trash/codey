@@ -18,6 +18,10 @@ import {
   verificationEmailReservations,
   type EmailIngestRecordRow,
 } from './db/schema'
+import {
+  hasAdminInboxEmailSubscribers,
+  publishAdminInboxEmailEvent,
+} from './admin-inbox-events'
 import { getDb } from './db/client'
 import { createId, randomCode } from './security'
 import { extractVerificationCodeFromText } from '../shared/verification-code'
@@ -128,7 +132,9 @@ export function encodeAdminInboxCursor(params: {
   return `${createdAt.toISOString()}|${params.id || ''}`
 }
 
-function decodeAdminInboxCursor(cursor?: string | null): AdminInboxCursor | null {
+function decodeAdminInboxCursor(
+  cursor?: string | null,
+): AdminInboxCursor | null {
   if (!cursor) return null
 
   const separatorIndex = cursor.indexOf('|')
@@ -428,6 +434,24 @@ export async function ingestCloudflareEmail(params: {
     codeRecord = insertedCode[0] || null
   }
 
+  if (hasAdminInboxEmailSubscribers()) {
+    const latestCode = reservation?.id
+      ? (await getLatestCodeByReservationId([reservation.id])).get(
+          reservation.id,
+        )
+      : undefined
+
+    publishAdminInboxEmailEvent(
+      serializeAdminInboxEmail(
+        {
+          ...emailRecord,
+          reservation,
+        },
+        latestCode,
+      ),
+    )
+  }
+
   return {
     emailRecord,
     codeRecord,
@@ -474,8 +498,8 @@ export async function listAdminInboxEmailsPage(options?: {
     new Set(
       emails
         .map((email) => email.reservationId)
-        .filter(
-          (reservationId): reservationId is string => Boolean(reservationId),
+        .filter((reservationId): reservationId is string =>
+          Boolean(reservationId),
         ),
     ),
   )
@@ -524,7 +548,9 @@ export async function listAdminInboxEmailsAfterCursor(options?: {
     new Set(
       emails
         .map((email) => email.reservationId)
-        .filter((reservationId): reservationId is string => Boolean(reservationId)),
+        .filter((reservationId): reservationId is string =>
+          Boolean(reservationId),
+        ),
     ),
   )
   const latestCodes = await getLatestCodeByReservationId(reservationIds)

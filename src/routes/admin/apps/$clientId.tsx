@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '../../../components/ui/card'
+import { InfoTooltip } from '../../../components/ui/info-tooltip'
 import { m } from '#/paraglide/messages'
 
 const loadOAuthClient = createServerFn({ method: 'GET' })
@@ -77,8 +78,14 @@ function AdminAppsDetailPage() {
       <Card className="max-w-2xl">
         <CardHeader>
           <CardDescription>{m.admin_apps_eyebrow()}</CardDescription>
-          <CardTitle>{m.admin_app_not_found_title()}</CardTitle>
-          <CardDescription>{m.admin_app_not_found_description()}</CardDescription>
+          <div className="flex items-start gap-2">
+            <CardTitle>{m.admin_app_not_found_title()}</CardTitle>
+            <InfoTooltip
+              content={m.admin_app_not_found_description()}
+              label={m.admin_app_not_found_title()}
+              className="mt-0.5"
+            />
+          </div>
         </CardHeader>
         <div className="px-6 pb-6">
           <Button asChild>

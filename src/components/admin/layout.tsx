@@ -32,6 +32,7 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '#/components/ui/empty'
+import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Separator } from '#/components/ui/separator'
 import {
   Sidebar,
@@ -127,6 +128,7 @@ export function AdminShell(props: { children: ReactNode }) {
     select: (state) => state.location.pathname,
   })
   const adminNavigation = getAdminNavigation()
+  const isMailInboxRoute = pathname === '/admin/emails'
 
   return (
     <SidebarProvider defaultOpen className="min-h-svh bg-muted/30">
@@ -222,12 +224,16 @@ export function AdminShell(props: { children: ReactNode }) {
         <SidebarFooter className="gap-3 p-3">
           <Card className="gap-3 border-dashed py-4 shadow-none">
             <CardHeader className="px-4">
-              <CardTitle className="text-sm">
-                {m.admin_layout_controls_title()}
-              </CardTitle>
-              <CardDescription className="text-xs leading-5">
-                {m.admin_layout_controls_description()}
-              </CardDescription>
+              <div className="flex items-start gap-2">
+                <CardTitle className="text-sm">
+                  {m.admin_layout_controls_title()}
+                </CardTitle>
+                <InfoTooltip
+                  content={m.admin_layout_controls_description()}
+                  label={m.admin_layout_controls_title()}
+                  className="mt-0.5"
+                />
+              </div>
             </CardHeader>
           </Card>
 
@@ -245,7 +251,12 @@ export function AdminShell(props: { children: ReactNode }) {
         <SidebarRail />
       </Sidebar>
 
-      <SidebarInset className="min-h-svh">
+      <SidebarInset
+        className={cn(
+          'min-h-svh',
+          isMailInboxRoute && 'lg:h-svh lg:overflow-hidden',
+        )}
+      >
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur md:px-6">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 h-4" />
@@ -257,8 +268,18 @@ export function AdminShell(props: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex flex-1 flex-col p-4 md:p-6">
-          <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
+        <main
+          className={cn(
+            'flex flex-1 flex-col p-4 md:p-6',
+            isMailInboxRoute && 'lg:min-h-0 lg:overflow-hidden',
+          )}
+        >
+          <div
+            className={cn(
+              'mx-auto flex w-full max-w-[1600px] flex-col gap-6',
+              isMailInboxRoute && 'lg:min-h-0 lg:flex-1',
+            )}
+          >
             {props.children}
           </div>
         </main>
@@ -290,7 +311,7 @@ function AdminBreadcrumb(props: { pathname: string }) {
 export function AdminPageHeader(props: {
   eyebrow?: string
   title: string
-  description: ReactNode
+  description?: ReactNode
   actions?: ReactNode
   meta?: ReactNode
 }) {
@@ -302,11 +323,15 @@ export function AdminPageHeader(props: {
             {props.eyebrow}
           </p>
         ) : null}
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-          {props.title}
-        </h1>
-        <div className="mt-3 text-sm leading-7 text-muted-foreground">
-          {props.description}
+        <div className="flex items-start gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+            {props.title}
+          </h1>
+          <InfoTooltip
+            content={props.description}
+            label={props.title}
+            className="mt-1.5"
+          />
         </div>
       </div>
 
@@ -330,13 +355,18 @@ export function AdminMetricCard(props: {
   return (
     <Card className="gap-0 py-0">
       <CardHeader className="gap-2">
-        <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
-          {props.label}
-        </CardDescription>
+        <div className="flex items-center gap-2">
+          <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
+            {props.label}
+          </CardDescription>
+          <InfoTooltip
+            content={props.description}
+            label={props.label}
+            className="size-4"
+            iconClassName="size-3"
+          />
+        </div>
         <CardTitle className="text-3xl">{props.value}</CardTitle>
-        <CardDescription className="text-sm leading-6">
-          {props.description}
-        </CardDescription>
       </CardHeader>
     </Card>
   )

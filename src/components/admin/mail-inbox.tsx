@@ -43,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '#/components/ui/dialog'
+import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import { ScrollArea } from '#/components/ui/scroll-area'
@@ -222,8 +223,8 @@ export function AdminMailInbox(props: {
   }
 
   return (
-    <div className="space-y-4">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <section className="grid shrink-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label={m.mail_inbox_metric_matched_label()}
           value={String(data.totalCount)}
@@ -246,15 +247,19 @@ export function AdminMailInbox(props: {
         />
       </section>
 
-      <Card>
-        <CardHeader className="gap-4">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <CardHeader className="shrink-0 gap-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-1">
               <CardDescription>{m.mail_inbox_stream_kicker()}</CardDescription>
-              <CardTitle>{m.mail_inbox_stream_title()}</CardTitle>
-              <CardDescription className="max-w-3xl text-sm leading-6">
-                {m.mail_inbox_stream_description()}
-              </CardDescription>
+              <div className="flex items-start gap-2">
+                <CardTitle>{m.mail_inbox_stream_title()}</CardTitle>
+                <InfoTooltip
+                  content={m.mail_inbox_stream_description()}
+                  label={m.mail_inbox_stream_title()}
+                  className="mt-0.5"
+                />
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -266,7 +271,9 @@ export function AdminMailInbox(props: {
                 {query.isFetching ? m.status_refreshing() : m.status_synced()}
               </Badge>
               <Badge variant="outline">
-                {m.mail_inbox_badge_on_page({ count: String(data.emails.length) })}
+                {m.mail_inbox_badge_on_page({
+                  count: String(data.emails.length),
+                })}
               </Badge>
             </div>
           </div>
@@ -331,80 +338,83 @@ export function AdminMailInbox(props: {
           ) : null}
         </CardHeader>
 
-        <CardContent className="space-y-4">
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
           {data.emails.length > 0 ? (
-            <>
-              <Table className="min-w-[1120px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{m.mail_inbox_table_received()}</TableHead>
-                    <TableHead>{m.mail_inbox_table_recipient()}</TableHead>
-                    <TableHead>{m.mail_inbox_table_subject()}</TableHead>
-                    <TableHead>{m.mail_inbox_table_delivery()}</TableHead>
-                    <TableHead>{m.mail_inbox_table_code()}</TableHead>
-                    <TableHead className="text-right">
-                      {m.mail_inbox_table_details()}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.emails.map((email) => (
-                    <TableRow
-                      key={email.id}
-                      data-state={
-                        activeEmail?.id === email.id ? 'selected' : undefined
-                      }
-                    >
-                      <TableCell className="align-top text-sm text-muted-foreground">
-                        {formatAdminDate(email.receivedAt) ||
-                          m.mail_inbox_timestamp_unavailable()}
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <div className="space-y-1">
-                          <div className="font-medium text-foreground">
-                            {email.recipient}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {email.reservationMailbox || m.mail_inbox_app_alias()}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="max-w-[360px] whitespace-normal align-top">
-                        <div className="font-medium text-foreground">
-                          {email.subject || m.mail_inbox_no_subject()}
-                        </div>
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <StatusBadge
-                          value={email.latestCode ? 'ready' : 'received'}
-                          tone={email.latestCode ? 'good' : 'warning'}
-                        />
-                      </TableCell>
-                      <TableCell className="align-top">
-                        {email.latestCode ? (
-                          <code>{email.latestCode}</code>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">
-                            {m.status_pending()}
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="align-top text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            openEmailDetails(email.id)
-                          }}
-                        >
-                          {m.mail_inbox_open_button()}
-                        </Button>
-                      </TableCell>
+            <div className="flex min-h-0 flex-1 flex-col gap-4">
+              <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
+                <Table className="min-w-[1120px]">
+                  <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card [&_th]:shadow-[0_1px_0_hsl(var(--border))]">
+                    <TableRow>
+                      <TableHead>{m.mail_inbox_table_received()}</TableHead>
+                      <TableHead>{m.mail_inbox_table_recipient()}</TableHead>
+                      <TableHead>{m.mail_inbox_table_subject()}</TableHead>
+                      <TableHead>{m.mail_inbox_table_delivery()}</TableHead>
+                      <TableHead>{m.mail_inbox_table_code()}</TableHead>
+                      <TableHead className="text-right">
+                        {m.mail_inbox_table_details()}
+                      </TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {data.emails.map((email) => (
+                      <TableRow
+                        key={email.id}
+                        data-state={
+                          activeEmail?.id === email.id ? 'selected' : undefined
+                        }
+                      >
+                        <TableCell className="align-top text-sm text-muted-foreground">
+                          {formatAdminDate(email.receivedAt) ||
+                            m.mail_inbox_timestamp_unavailable()}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <div className="space-y-1">
+                            <div className="font-medium text-foreground">
+                              {email.recipient}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {email.reservationMailbox ||
+                                m.mail_inbox_app_alias()}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-[360px] whitespace-normal align-top">
+                          <div className="font-medium text-foreground">
+                            {email.subject || m.mail_inbox_no_subject()}
+                          </div>
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <StatusBadge
+                            value={email.latestCode ? 'ready' : 'received'}
+                            tone={email.latestCode ? 'good' : 'warning'}
+                          />
+                        </TableCell>
+                        <TableCell className="align-top">
+                          {email.latestCode ? (
+                            <code>{email.latestCode}</code>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              {m.status_pending()}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="align-top text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              openEmailDetails(email.id)
+                            }}
+                          >
+                            {m.mail_inbox_open_button()}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
               <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm text-muted-foreground">
@@ -442,7 +452,7 @@ export function AdminMailInbox(props: {
                   </Button>
                 </div>
               </div>
-            </>
+            </div>
           ) : (
             <EmptyState
               title={
@@ -477,13 +487,18 @@ function MetricCard(props: {
   return (
     <Card className="gap-0 py-0">
       <CardHeader className="gap-2">
-        <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
-          {props.label}
-        </CardDescription>
+        <div className="flex items-center gap-2">
+          <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
+            {props.label}
+          </CardDescription>
+          <InfoTooltip
+            content={props.description}
+            label={props.label}
+            className="size-4"
+            iconClassName="size-3"
+          />
+        </div>
         <CardTitle className="text-3xl">{props.value}</CardTitle>
-        <CardDescription className="text-sm leading-6">
-          {props.description}
-        </CardDescription>
       </CardHeader>
     </Card>
   )
@@ -503,13 +518,17 @@ function MessageDetailsDialog(props: {
         <DialogContent className="grid h-[min(92vh,980px)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(1400px,calc(100%-2rem))]">
           <DialogHeader className="gap-3 border-b px-6 py-5 pr-14">
             <DialogDescription>{m.mail_detail_kicker()}</DialogDescription>
-            <DialogTitle className="flex items-center gap-2 text-xl">
-              <MailIcon className="size-5" />
-              {email.subject || m.mail_inbox_no_subject()}
-            </DialogTitle>
-            <DialogDescription className="max-w-3xl leading-6">
-              {m.mail_detail_description()}
-            </DialogDescription>
+            <div className="flex items-start gap-2">
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <MailIcon className="size-5" />
+                {email.subject || m.mail_inbox_no_subject()}
+              </DialogTitle>
+              <InfoTooltip
+                content={m.mail_detail_description()}
+                label={email.subject || m.mail_inbox_no_subject()}
+                className="mt-0.5"
+              />
+            </div>
             <div className="flex flex-wrap gap-2">
               <StatusBadge
                 value={email.latestCode ? 'ready' : 'received'}
@@ -557,12 +576,17 @@ function MessageDetailsDialog(props: {
                     />
                     <DetailItem
                       label={m.mail_detail_label_mailbox()}
-                      value={email.reservationMailbox || m.mail_detail_not_configured()}
+                      value={
+                        email.reservationMailbox ||
+                        m.mail_detail_not_configured()
+                      }
                       code
                     />
                     <DetailItem
                       label={m.mail_detail_label_reservation()}
-                      value={email.reservationEmail || m.mail_detail_not_linked()}
+                      value={
+                        email.reservationEmail || m.mail_detail_not_linked()
+                      }
                       code
                     />
                     <DetailItem
@@ -676,7 +700,9 @@ function RenderedEmailPreview(props: {
 
         {hasPreview ? (
           <Badge variant="outline">
-            {props.html ? m.mail_preview_badge_html() : m.mail_preview_badge_text()}
+            {props.html
+              ? m.mail_preview_badge_html()
+              : m.mail_preview_badge_text()}
           </Badge>
         ) : null}
       </div>
@@ -705,10 +731,16 @@ function RenderedEmailPreview(props: {
   )
 }
 
-function EmailContentPanel(props: { value: string | null; className?: string }) {
+function EmailContentPanel(props: {
+  value: string | null
+  className?: string
+}) {
   return (
     <ScrollArea
-      className={cn('rounded-lg border bg-muted/20', props.className || 'h-[380px]')}
+      className={cn(
+        'rounded-lg border bg-muted/20',
+        props.className || 'h-[380px]',
+      )}
     >
       <pre className="min-h-full whitespace-pre-wrap p-4 font-mono text-xs leading-6 text-foreground">
         {props.value || m.mail_content_empty()}
@@ -731,11 +763,14 @@ async function fetchAdminMailInboxPage(params: {
     searchParams.set('search', params.search)
   }
 
-  const response = await fetch(`/api/admin/emails/?${searchParams.toString()}`, {
-    headers: {
-      accept: 'application/json',
+  const response = await fetch(
+    `/api/admin/emails/?${searchParams.toString()}`,
+    {
+      headers: {
+        accept: 'application/json',
+      },
     },
-  })
+  )
 
   if (!response.ok) {
     throw new Error(await response.text())
