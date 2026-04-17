@@ -61,6 +61,7 @@ import {
   gotoLoginEntry,
   waitForAnySelectorState,
   waitForAuthenticatedSession,
+  getAgeGateFieldCandidates,
   waitForEnabledSelector,
   waitForLoginEmailFormReady,
   waitForLoginSurface,
@@ -679,8 +680,8 @@ async function sendRegistrationMachine(
   })
 }
 
-function isAboutYouUrl(url: string): boolean {
-  return /\/about-you(?:[/?#]|$)/i.test(url)
+async function isRegistrationAgeGateActive(page: Page): Promise<boolean> {
+  return (await getAgeGateFieldCandidates(page)).length > 0
 }
 
 function isRecoverableRegistrationBranchEntryError(error: unknown): boolean {
@@ -923,9 +924,6 @@ async function waitForAgeGateSubmissionOutcome(
 ): Promise<'advanced' | 'retry' | 'age-gate'> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (!isAboutYouUrl(page.url())) {
-      return 'advanced'
-    }
     const retryVisible = await waitForAnySelectorState(
       page,
       PASSWORD_TIMEOUT_RETRY_SELECTORS,
@@ -935,10 +933,13 @@ async function waitForAgeGateSubmissionOutcome(
     if (retryVisible) {
       return 'retry'
     }
+    if (!(await isRegistrationAgeGateActive(page))) {
+      return 'advanced'
+    }
     await sleep(250)
   }
 
-  if (!isAboutYouUrl(page.url())) {
+  if (!(await isRegistrationAgeGateActive(page))) {
     return 'advanced'
   }
 
@@ -1023,7 +1024,7 @@ async function completeRegistrationAgeGate(
       'visible',
       DEFAULT_EVENT_TIMEOUT_MS,
     )
-    if (!ageGateVisible && !isAboutYouUrl(page.url())) {
+    if (!ageGateVisible && !(await isRegistrationAgeGateActive(page))) {
       return
     }
 

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const getRuntimeConfig = vi.fn()
-const waitForLoginSurface = vi.fn()
+const waitForLoginEntrySurface = vi.fn()
+const clickLoginEntryIfPresent = vi.fn()
 const continueChatGPTLoginWithStoredIdentity = vi.fn()
 const createAuthorizationCallbackCapture = vi.fn()
 const startCodexAuthorization = vi.fn()
@@ -17,7 +18,8 @@ vi.mock('../src/config', () => ({
 }))
 
 vi.mock('../src/modules/chatgpt/shared', () => ({
-  waitForLoginSurface,
+  clickLoginEntryIfPresent,
+  waitForLoginEntrySurface,
 }))
 
 vi.mock('../src/flows/chatgpt-login', () => ({
@@ -148,11 +150,12 @@ describe('runCodexOAuthFlow', () => {
       abort: vi.fn().mockResolvedValue(undefined),
     })
 
-    waitForLoginSurface.mockImplementation(
+    waitForLoginEntrySurface.mockImplementation(
       async (_page: unknown, timeoutMs: number) => {
         return timeoutMs >= 180000 ? 'email' : 'unknown'
       },
     )
+    clickLoginEntryIfPresent.mockResolvedValue(true)
 
     continueChatGPTLoginWithStoredIdentity.mockImplementation(
       async (
@@ -214,7 +217,7 @@ describe('runCodexOAuthFlow', () => {
         timeoutMs: 180000,
       }),
     )
-    expect(waitForLoginSurface).toHaveBeenCalledWith(page, 180000)
+    expect(waitForLoginEntrySurface).toHaveBeenCalledWith(page, 180000)
     expect(continueChatGPTLoginWithStoredIdentity).toHaveBeenCalledOnce()
     expect(exchangeCodexAuthorizationCode).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -239,6 +242,102 @@ describe('runCodexOAuthFlow', () => {
         (entry) =>
           entry.event === 'codex.oauth.retry.requested' &&
           entry.to === 'retrying',
+      ),
+    ).toBe(true)
+  })
+
+  it('clicks the login entry surface before continuing stored-identity login', async () => {
+    let currentUrl = 'https://chatgpt.com/auth/login'
+    let resolveCallback!: (value: {
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }) => void
+
+    const callbackResult = new Promise<{
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }>((resolve) => {
+      resolveCallback = resolve
+    })
+
+    createAuthorizationCallbackCapture.mockResolvedValue({
+      result: callbackResult,
+      abort: vi.fn().mockResolvedValue(undefined),
+    })
+
+    waitForLoginEntrySurface.mockImplementation(
+      async (_page: unknown, timeoutMs: number) => {
+        return timeoutMs >= 180000 ? 'login' : 'email'
+      },
+    )
+    clickLoginEntryIfPresent.mockImplementation(async () => {
+      currentUrl = 'https://auth.openai.com/log-in-or-create-account'
+      return true
+    })
+
+    continueChatGPTLoginWithStoredIdentity.mockImplementation(async () => {
+      currentUrl =
+        'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
+      resolveCallback({
+        code: 'oauth-code',
+        state: 'oauth-state',
+        callbackUrl: currentUrl,
+        rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
+      })
+
+      return {
+        email: 'person@example.com',
+        storedIdentity: {
+          id: 'identity-123',
+          email: 'person@example.com',
+        },
+        surface: 'email',
+        method: 'password',
+        assertionObserved: false,
+        passkeyStore: { credentials: [] },
+      }
+    })
+
+    exchangeCodexAuthorizationCode.mockResolvedValue({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      expiresIn: 3600,
+      scope: 'openid profile email offline_access',
+      tokenType: 'Bearer',
+      createdAt: '2026-04-17T00:00:00.000Z',
+    })
+
+    const page = {
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url
+      }),
+      url: vi.fn(() => currentUrl),
+      title: vi.fn(async () => 'Authorization received'),
+    } as never
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    const result = await runCodexOAuthFlow(page, {})
+
+    expect(clickLoginEntryIfPresent).toHaveBeenCalledOnce()
+    expect(waitForLoginEntrySurface).toHaveBeenNthCalledWith(1, page, 180000)
+    expect(waitForLoginEntrySurface).toHaveBeenNthCalledWith(2, page, 15000)
+    expect(continueChatGPTLoginWithStoredIdentity).toHaveBeenCalledOnce()
+    expect(
+      result.machine.history.some(
+        (entry) =>
+          entry.event === 'codex.oauth.surface.ready' &&
+          entry.to === 'login-entry',
+      ),
+    ).toBe(true)
+    expect(
+      result.machine.history.some(
+        (entry) =>
+          entry.event === 'codex.oauth.surface.ready' &&
+          entry.to === 'email-step',
       ),
     ).toBe(true)
   })

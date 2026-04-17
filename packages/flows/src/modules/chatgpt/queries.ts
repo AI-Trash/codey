@@ -16,6 +16,7 @@ import {
   DEFAULT_EVENT_TIMEOUT_MS,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
+  LOGIN_ENTRY_SELECTORS,
   LOGIN_NEXT_STEP_SELECTORS,
   ONBOARDING_SIGNAL_SELECTORS,
   PASSKEY_ENTRY_SELECTORS,
@@ -26,7 +27,6 @@ import {
   SECURITY_READY_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
-  isChatGPTLoginUrl,
 } from './common'
 
 export type ChatGPTPostEmailLoginStep =
@@ -39,6 +39,13 @@ export type ChatGPTPostEmailLoginStep =
 
 export type ChatGPTLoginSurface =
   | 'authenticated'
+  | 'email'
+  | 'passkey'
+  | 'unknown'
+
+export type ChatGPTLoginEntrySurface =
+  | 'authenticated'
+  | 'login'
   | 'email'
   | 'passkey'
   | 'unknown'
@@ -57,6 +64,18 @@ export function isChatGPTHomeUrl(url: string): boolean {
   return (
     /^https:\/\/chatgpt\.com\/?(#.*)?$/i.test(url) ||
     url.startsWith(CHATGPT_HOME_URL)
+  )
+}
+
+async function isLoginEmailFieldReady(page: Page): Promise<boolean> {
+  return hasEditableSelector(page, LOGIN_EMAIL_SELECTORS)
+}
+
+async function hasVisibleLoginAction(page: Page): Promise<boolean> {
+  return (
+    (await isAnySelectorVisible(page, LOGIN_CONTINUE_SELECTORS)) ||
+    (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) ||
+    (await isAnySelectorVisible(page, LOGIN_ENTRY_SELECTORS))
   )
 }
 
@@ -250,7 +269,10 @@ export async function waitForEditableSelector(
 
 export async function isProfileReady(page: Page): Promise<boolean> {
   const locator = page.locator('[data-testid="accounts-profile-button"]')
-  const count = await locator.count().catch(() => 0)
+  const count =
+    typeof (locator as { count?: () => Promise<number> }).count === 'function'
+      ? await locator.count().catch(() => 0)
+      : undefined
   if (count === 0) return false
   const visible = await locator
     .first()
@@ -317,14 +339,6 @@ export async function waitForHomeInteractionSignal(
 
   const waiters: Array<Promise<void>> = []
 
-  if (!isChatGPTHomeUrl(page.url())) {
-    waiters.push(
-      waitForUrlMatch(page, isChatGPTHomeUrl, timeoutMs).then((ready) => {
-        if (!ready) throw new Error('chatgpt home url not ready')
-      }),
-    )
-  }
-
   if (!(await isProfileReady(page))) {
     waiters.push(
       waitForProfileReady(page, timeoutMs).then((ready) => {
@@ -390,15 +404,6 @@ export async function waitUntilChatGPTHomeReady(
   let onboardingClicks = 0
   let authenticatedIdleRounds = 0
   for (let round = 0; round < rounds; round += 1) {
-    const url = page.url()
-    const onChatGPT = isChatGPTHomeUrl(url)
-
-    if (!onChatGPT) {
-      authenticatedIdleRounds = 0
-      await waitForHomeInteractionSignal(page, 10000)
-      continue
-    }
-
     const onboardingVisible = await isAnySelectorVisible(
       page,
       ONBOARDING_SIGNAL_SELECTORS,
@@ -624,7 +629,7 @@ export async function waitForAuthenticatedSession(
     timeoutMs,
   )
   if (ready) return true
-  return isChatGPTHomeUrl(page.url()) && (await isProfileReady(page))
+  return isProfileReady(page)
 }
 
 export async function getRegistrationEntryCandidates(
@@ -710,6 +715,7 @@ export async function waitForLoginEmailFormReady(
 ): Promise<boolean> {
   const formSelectors: SelectorTarget[] = [
     'form[action="/log-in-or-create-account"]',
+    ...LOGIN_CONTINUE_SELECTORS,
     ...LOGIN_EMAIL_SELECTORS,
   ]
   const visible = await waitForAnySelectorState(
@@ -722,15 +728,15 @@ export async function waitForLoginEmailFormReady(
 
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    const emailReady = await hasEditableSelector(page, LOGIN_EMAIL_SELECTORS)
-    if (isChatGPTLoginUrl(page.url()) && emailReady) {
+    const emailReady = await isLoginEmailFieldReady(page)
+    if (emailReady) {
       await sleep(500)
       return true
     }
     await sleep(200)
   }
 
-  return false
+  return isLoginEmailFieldReady(page)
 }
 
 export async function getLoginSurfaceCandidates(
@@ -744,19 +750,78 @@ export async function getLoginSurfaceCandidates(
   if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) {
     pushUniqueCandidate(candidates, 'passkey')
   }
-  if (await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS)) {
+  if (await isLoginEmailFieldReady(page)) {
     pushUniqueCandidate(candidates, 'email')
   }
-  if (isChatGPTLoginUrl(page.url())) {
-    if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) {
-      pushUniqueCandidate(candidates, 'passkey')
-    }
-    if (await isAnySelectorVisible(page, LOGIN_EMAIL_SELECTORS)) {
-      pushUniqueCandidate(candidates, 'email')
-    }
+  if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'passkey')
+  }
+  if (
+    candidates.length === 0 &&
+    (await isLoginEmailFieldReady(page)) &&
+    (await hasVisibleLoginAction(page))
+  ) {
+    pushUniqueCandidate(candidates, 'email')
   }
 
   return candidates
+}
+
+export async function getLoginEntryCandidates(
+  page: Page,
+): Promise<Exclude<ChatGPTLoginEntrySurface, 'unknown'>[]> {
+  const candidates: Exclude<ChatGPTLoginEntrySurface, 'unknown'>[] = []
+
+  if (await waitForAuthenticatedSession(page, 500)) {
+    pushUniqueCandidate(candidates, 'authenticated')
+  }
+  if (await hasEnabledSelector(page, LOGIN_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'login')
+  }
+  if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'passkey')
+  }
+  if (await isLoginEmailFieldReady(page)) {
+    pushUniqueCandidate(candidates, 'email')
+  }
+  if (await isAnySelectorVisible(page, LOGIN_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'login')
+  }
+  if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'passkey')
+  }
+  if (
+    candidates.length === 0 &&
+    (await isLoginEmailFieldReady(page)) &&
+    (await hasVisibleLoginAction(page))
+  ) {
+    pushUniqueCandidate(candidates, 'email')
+  }
+
+  return candidates
+}
+
+export async function waitForLoginEntryCandidates(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<Exclude<ChatGPTLoginEntrySurface, 'unknown'>[]> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const candidates = await getLoginEntryCandidates(page)
+    if (candidates.length > 0) {
+      return candidates
+    }
+    await sleep(250)
+  }
+
+  return getLoginEntryCandidates(page)
+}
+
+export async function waitForLoginEntrySurface(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<ChatGPTLoginEntrySurface> {
+  return (await waitForLoginEntryCandidates(page, timeoutMs))[0] ?? 'unknown'
 }
 
 export async function waitForLoginSurfaceCandidates(

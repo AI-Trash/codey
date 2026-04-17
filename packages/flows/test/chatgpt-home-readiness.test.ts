@@ -115,6 +115,21 @@ describe('waitUntilChatGPTHomeReady', () => {
     ).resolves.toBe(true)
   })
 
+  it('treats authenticated DOM signals as ready even when the URL is not the ChatGPT home URL', async () => {
+    const page = new FakePage(
+      [
+        {
+          '[data-testid="composer-root"]': true,
+        },
+      ],
+      'https://example.com/not-home',
+    )
+
+    await expect(
+      waitUntilChatGPTHomeReady(page as never, async () => null, 3),
+    ).resolves.toBe(true)
+  })
+
   it('waits for onboarding dismissal before reporting the home as ready', async () => {
     const page = new FakePage([
       {

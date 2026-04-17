@@ -11,6 +11,7 @@ export const CHATGPT_HOME_URL = 'https://chatgpt.com/'
 export const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login'
 export const CHATGPT_LOGIN_URL =
   'https://auth.openai.com/log-in-or-create-account'
+export const CHATGPT_LOGIN_V2_URL = 'https://auth.openai.com/log-in'
 export const CHATGPT_OAUTH_LOGIN_URL =
   'https://auth.openai.com/api/accounts/login'
 export const CHATGPT_OAUTH_AUTHORIZE_URL =
@@ -29,6 +30,7 @@ export function isChatGPTLoginUrl(url: string): boolean {
   return (
     url.startsWith(CHATGPT_ENTRY_LOGIN_URL) ||
     url.startsWith(CHATGPT_LOGIN_URL) ||
+    url.startsWith(CHATGPT_LOGIN_V2_URL) ||
     url.startsWith(CHATGPT_OAUTH_LOGIN_URL) ||
     url.startsWith(CHATGPT_OAUTH_AUTHORIZE_URL)
   )

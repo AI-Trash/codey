@@ -12,6 +12,7 @@ describe('isChatGPTLoginUrl', () => {
 
   it('matches the standard ChatGPT login entry pages', () => {
     expect(isChatGPTLoginUrl('https://chatgpt.com/auth/login')).toBe(true)
+    expect(isChatGPTLoginUrl('https://auth.openai.com/log-in')).toBe(true)
     expect(
       isChatGPTLoginUrl(
         'https://auth.openai.com/log-in-or-create-account?login=1',

@@ -2,12 +2,15 @@ import type { Page } from 'patchright'
 import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
 import {
+  assignContextFromInput,
   composeStateMachineConfig,
+  createGuardedCaseTransitions,
   createPatchTransitionMap,
   createRetryTransition,
   createSelfPatchTransitionMap,
   createStateMachine,
   defineStateMachineFragment,
+  GuardedBranchError,
   runGuardedBranches,
 } from '../state-machine'
 import type {
@@ -37,14 +40,24 @@ import {
 } from '../modules/authorization/codex-client'
 import { saveCodexToken } from '../modules/authorization/codex-token-store'
 import { createAuthorizationCallbackCapture } from '../modules/authorization/codex-authorization'
-import { waitForLoginSurface } from '../modules/chatgpt/shared'
-import { continueChatGPTLoginWithStoredIdentity } from './chatgpt-login'
+import {
+  clickLoginEntryIfPresent,
+  type ChatGPTLoginEntrySurface,
+  waitForLoginEntrySurface,
+} from '../modules/chatgpt/shared'
+import {
+  continueChatGPTLoginWithStoredIdentity,
+  type ChatGPTStoredLoginResult,
+} from './chatgpt-login'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
 
 export type CodexOAuthFlowState =
   | 'idle'
   | 'starting-oauth'
+  | 'login-entry'
+  | 'email-step'
+  | 'passkey-step'
   | 'waiting-for-callback'
   | 'retrying'
   | 'exchanging-token'
@@ -57,6 +70,8 @@ export type CodexOAuthFlowState =
 export type CodexOAuthFlowEvent =
   | 'machine.started'
   | 'codex.oauth.started'
+  | 'codex.oauth.surface.ready'
+  | 'codex.oauth.login.continuation.completed'
   | 'codex.oauth.callback.received'
   | 'codex.oauth.token.exchanged'
   | 'codex.oauth.token.persisted'
@@ -117,11 +132,14 @@ export interface CodexOAuthFlowContext<Result = unknown> {
   kind: CodexOAuthFlowKind
   url?: string
   title?: string
+  email?: string
   redirectUri?: string
   authorizationUrl?: string
   tokenStorePath?: string
   channelName?: string
   projectId?: string
+  surface?: Exclude<ChatGPTLoginEntrySurface, 'unknown'>
+  method?: 'password' | 'passkey' | 'verification'
   retryCount?: number
   retryReason?: string
   retryFromState?: CodexOAuthFlowState
@@ -156,7 +174,32 @@ export interface CodexOAuthFlowResult {
   machine: CodexOAuthFlowSnapshot<CodexOAuthFlowResult>
 }
 
+type CodexOAuthLoginSurface = Exclude<ChatGPTLoginEntrySurface, 'unknown'>
+
+interface CodexOAuthSurfaceInput<Result = unknown> {
+  surface: CodexOAuthLoginSurface
+  url: string
+  patch?: Partial<CodexOAuthFlowContext<Result>>
+}
+
+interface CodexOAuthLoginContinuationInput<Result = unknown> {
+  surface: Extract<CodexOAuthLoginSurface, 'email' | 'passkey'>
+  email: string
+  method: 'password' | 'passkey' | 'verification'
+  url: string
+  patch?: Partial<CodexOAuthFlowContext<Result>>
+}
+
+interface CodexOAuthCallbackPayload {
+  code: string | null
+  state: string | null
+  scope?: string | null
+  callbackUrl: string
+  rawQuery: string
+}
+
 const CODEX_OAUTH_BROWSER_HANDOFF_TIMEOUT_MS = 180000
+const CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS = 15000
 
 const codexOAuthEventTargets = {
   'codex.oauth.started': 'starting-oauth',
@@ -172,6 +215,140 @@ const codexOAuthMutableContextEvents = [
   'action.started',
   'action.finished',
 ] as const satisfies CodexOAuthFlowEvent[]
+
+function isCodexOAuthSurfaceInput<Result>(
+  value: unknown,
+): value is CodexOAuthSurfaceInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<CodexOAuthSurfaceInput<Result>>
+  return (
+    typeof candidate.surface === 'string' && typeof candidate.url === 'string'
+  )
+}
+
+function isCodexOAuthLoginContinuationInput<Result>(
+  value: unknown,
+): value is CodexOAuthLoginContinuationInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<CodexOAuthLoginContinuationInput<Result>>
+  return (
+    typeof candidate.surface === 'string' &&
+    typeof candidate.email === 'string' &&
+    typeof candidate.method === 'string' &&
+    typeof candidate.url === 'string'
+  )
+}
+
+function createCodexOAuthSurfaceTransitions<Result>() {
+  const assignSurfaceContext = (
+    lastMessage: string,
+    extras: Partial<CodexOAuthFlowContext<Result>> = {},
+  ) =>
+    assignContextFromInput<
+      CodexOAuthFlowState,
+      CodexOAuthFlowContext<Result>,
+      CodexOAuthFlowEvent,
+      CodexOAuthSurfaceInput<Result>
+    >(isCodexOAuthSurfaceInput, (_context, { input }) => ({
+      ...input.patch,
+      ...extras,
+      surface: input.surface,
+      url: input.url,
+      lastMessage,
+    }))
+
+  return createGuardedCaseTransitions<
+    CodexOAuthFlowState,
+    CodexOAuthFlowContext<Result>,
+    CodexOAuthFlowEvent,
+    CodexOAuthSurfaceInput<Result>
+  >({
+    isInput: isCodexOAuthSurfaceInput,
+    cases: [
+      {
+        priority: 40,
+        when: ({ input }) => input.surface === 'authenticated',
+        target: 'waiting-for-callback',
+        actions: assignSurfaceContext(
+          'OpenAI session detected; waiting for Codex OAuth callback',
+        ),
+      },
+      {
+        priority: 30,
+        when: ({ input }) => input.surface === 'login',
+        target: 'login-entry',
+        actions: assignSurfaceContext('OpenAI login entry detected'),
+      },
+      {
+        priority: 20,
+        when: ({ input }) => input.surface === 'email',
+        target: 'email-step',
+        actions: assignSurfaceContext('OpenAI email login surface ready'),
+      },
+      {
+        priority: 10,
+        when: ({ input }) => input.surface === 'passkey',
+        target: 'passkey-step',
+        actions: assignSurfaceContext('OpenAI passkey login surface ready'),
+      },
+    ],
+  })
+}
+
+function createCodexOAuthLoginContinuationTransitions<Result>() {
+  return createGuardedCaseTransitions<
+    CodexOAuthFlowState,
+    CodexOAuthFlowContext<Result>,
+    CodexOAuthFlowEvent,
+    CodexOAuthLoginContinuationInput<Result>
+  >({
+    isInput: isCodexOAuthLoginContinuationInput,
+    cases: [
+      {
+        priority: 20,
+        when: ({ input }) => input.surface === 'email',
+        target: 'waiting-for-callback',
+        actions: assignContextFromInput<
+          CodexOAuthFlowState,
+          CodexOAuthFlowContext<Result>,
+          CodexOAuthFlowEvent,
+          CodexOAuthLoginContinuationInput<Result>
+        >(isCodexOAuthLoginContinuationInput, (_context, { input }) => ({
+          ...input.patch,
+          email: input.email,
+          method: input.method,
+          surface: input.surface,
+          url: input.url,
+          lastMessage: `Submitted ChatGPT ${input.method} login for ${input.email}; waiting for Codex OAuth callback`,
+        })),
+      },
+      {
+        priority: 10,
+        when: ({ input }) => input.surface === 'passkey',
+        target: 'waiting-for-callback',
+        actions: assignContextFromInput<
+          CodexOAuthFlowState,
+          CodexOAuthFlowContext<Result>,
+          CodexOAuthFlowEvent,
+          CodexOAuthLoginContinuationInput<Result>
+        >(isCodexOAuthLoginContinuationInput, (_context, { input }) => ({
+          ...input.patch,
+          email: input.email,
+          method: input.method,
+          surface: input.surface,
+          url: input.url,
+          lastMessage: `Submitted ChatGPT ${input.method} login for ${input.email}; waiting for Codex OAuth callback`,
+        })),
+      },
+    ],
+  })
+}
 
 function createCodexOAuthLifecycleFragment<Result>() {
   return defineStateMachineFragment<
@@ -202,6 +379,20 @@ function createCodexOAuthLifecycleFragment<Result>() {
   })
 }
 
+function createCodexOAuthSurfaceFragment<Result>() {
+  return defineStateMachineFragment<
+    CodexOAuthFlowState,
+    CodexOAuthFlowContext<Result>,
+    CodexOAuthFlowEvent
+  >({
+    on: {
+      'codex.oauth.surface.ready': createCodexOAuthSurfaceTransitions<Result>(),
+      'codex.oauth.login.continuation.completed':
+        createCodexOAuthLoginContinuationTransitions<Result>(),
+    },
+  })
+}
+
 export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowResult> {
   return createStateMachine<
     CodexOAuthFlowState,
@@ -218,6 +409,7 @@ export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowR
         historyLimit: 100,
       },
       createCodexOAuthLifecycleFragment<CodexOAuthFlowResult>(),
+      createCodexOAuthSurfaceFragment<CodexOAuthFlowResult>(),
     ),
   )
 }
@@ -339,8 +531,342 @@ function redactChannelCredentials(
 async function waitForCodexOAuthLoginSurface(
   page: Page,
   timeoutMs = CODEX_OAUTH_BROWSER_HANDOFF_TIMEOUT_MS,
-): Promise<'authenticated' | 'email' | 'passkey' | 'unknown'> {
-  return waitForLoginSurface(page, timeoutMs)
+): Promise<ChatGPTLoginEntrySurface> {
+  return waitForLoginEntrySurface(page, timeoutMs)
+}
+
+function buildCodexOAuthRetryCallbacks(
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  page: Page,
+  redirectUri: string,
+) {
+  return {
+    onEmailRetry: async (_attempt: number, reason: 'retry' | 'timeout') => {
+      await machine.send('codex.oauth.retry.requested', {
+        reason: `email:${reason}`,
+        message:
+          reason === 'retry'
+            ? 'Retrying OpenAI email submission during Codex OAuth'
+            : 'Retrying timed out OpenAI email submission during Codex OAuth',
+        patch: {
+          url: sanitizeUrl(page.url()),
+          redirectUri,
+        },
+      })
+    },
+    onPasskeyRetry: async (_attempt: number, trigger: 'retry' | 'passkey') => {
+      await machine.send('codex.oauth.retry.requested', {
+        reason: `passkey:${trigger}`,
+        message:
+          trigger === 'retry'
+            ? 'Retrying OpenAI passkey challenge during Codex OAuth'
+            : 'Re-triggering OpenAI passkey challenge during Codex OAuth',
+        patch: {
+          url: sanitizeUrl(page.url()),
+          redirectUri,
+        },
+      })
+    },
+  }
+}
+
+async function sendCodexOAuthSurfaceReady(
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  page: Page,
+  surface: CodexOAuthLoginSurface,
+  redirectUri: string,
+): Promise<void> {
+  await machine.send('codex.oauth.surface.ready', {
+    surface,
+    url: sanitizeUrl(page.url()),
+    patch: {
+      redirectUri,
+    },
+  })
+}
+
+async function continueCodexOAuthStoredLogin(
+  page: Page,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  options: FlowOptions,
+  surface: Extract<CodexOAuthLoginSurface, 'email' | 'passkey'>,
+  redirectUri: string,
+): Promise<ChatGPTStoredLoginResult> {
+  await sendCodexOAuthMachine(
+    machine,
+    surface === 'passkey' ? 'passkey-step' : 'email-step',
+    'context.updated',
+    {
+      url: sanitizeUrl(page.url()),
+      redirectUri,
+      lastMessage: 'ChatGPT login required; continuing stored identity login',
+    },
+  )
+
+  const login = await continueChatGPTLoginWithStoredIdentity(page, {
+    ...options,
+    ...buildCodexOAuthRetryCallbacks(machine, page, redirectUri),
+  })
+
+  await machine.send('codex.oauth.login.continuation.completed', {
+    surface,
+    email: login.email,
+    method: login.method,
+    url: sanitizeUrl(page.url()),
+    patch: {
+      redirectUri,
+    },
+  })
+
+  return login
+}
+
+function wrapRecoverableCodexOAuthBranchError<Branch extends string>(
+  branch: Branch,
+  error: unknown,
+): GuardedBranchError<Branch> {
+  if (error instanceof GuardedBranchError) {
+    return error as GuardedBranchError<Branch>
+  }
+
+  return new GuardedBranchError(
+    branch,
+    error instanceof Error ? error.message : String(error),
+    {
+      cause: error,
+      recoverable: true,
+    },
+  )
+}
+
+async function resolveCodexOAuthAfterLoginEntry(
+  page: Page,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  options: FlowOptions,
+  redirectUri: string,
+  waitForCallback: Promise<CodexOAuthCallbackPayload>,
+): Promise<CodexOAuthCallbackPayload> {
+  const surface = await waitForCodexOAuthLoginSurface(
+    page,
+    CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
+  )
+  if (surface === 'unknown' || surface === 'login') {
+    throw new GuardedBranchError(
+      'login',
+      'OpenAI login entry did not advance to an authenticated, email, or passkey surface.',
+    )
+  }
+
+  await sendCodexOAuthSurfaceReady(machine, page, surface, redirectUri)
+
+  return (
+    await runGuardedBranches<
+      CodexOAuthFlowContext<CodexOAuthFlowResult>,
+      {
+        surface: Extract<
+          CodexOAuthLoginSurface,
+          'authenticated' | 'email' | 'passkey'
+        >
+      },
+      CodexOAuthCallbackPayload,
+      'authenticated' | 'email' | 'passkey'
+    >(
+      [
+        {
+          branch: 'authenticated' as const,
+          priority: 30,
+          guard: ({ input }) => input.surface === 'authenticated',
+          run: async () => waitForCallback,
+        },
+        {
+          branch: 'email' as const,
+          priority: 20,
+          guard: ({ input }) => input.surface === 'email',
+          run: async () => {
+            await continueCodexOAuthStoredLogin(
+              page,
+              machine,
+              options,
+              'email',
+              redirectUri,
+            )
+            return waitForCallback
+          },
+        },
+        {
+          branch: 'passkey' as const,
+          priority: 10,
+          guard: ({ input }) => input.surface === 'passkey',
+          run: async () => {
+            await continueCodexOAuthStoredLogin(
+              page,
+              machine,
+              options,
+              'passkey',
+              redirectUri,
+            )
+            return waitForCallback
+          },
+        },
+      ],
+      {
+        context: machine.getSnapshot().context,
+        input: {
+          surface,
+        },
+        onFallback: async ({ branch, error }) => {
+          await machine.send('codex.oauth.retry.requested', {
+            reason: `login-entry:${branch}`,
+            message: `Retrying Codex OAuth login entry after ${branch} branch failed`,
+            patch: {
+              url: sanitizeUrl(page.url()),
+              redirectUri,
+              lastMessage: error.message,
+            },
+          })
+        },
+      },
+    )
+  ).result
+}
+
+async function resolveCodexOAuthNextStep(
+  page: Page,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  options: FlowOptions,
+  redirectUri: string,
+  nextStep:
+    | { kind: 'callback'; callback: CodexOAuthCallbackPayload }
+    | { kind: 'surface'; surface: ChatGPTLoginEntrySurface },
+  waitForCallback: Promise<CodexOAuthCallbackPayload>,
+): Promise<CodexOAuthCallbackPayload> {
+  return (
+    await runGuardedBranches<
+      CodexOAuthFlowContext<CodexOAuthFlowResult>,
+      typeof nextStep,
+      CodexOAuthCallbackPayload,
+      'callback' | 'authenticated' | 'login' | 'email' | 'passkey'
+    >(
+      [
+        {
+          branch: 'callback' as const,
+          priority: 60,
+          guard: ({ input }) => input.kind === 'callback',
+          run: async ({ input }) => {
+            if (input.kind !== 'callback') {
+              throw new Error('Codex OAuth callback was not ready yet.')
+            }
+            return input.callback
+          },
+        },
+        {
+          branch: 'authenticated' as const,
+          priority: 50,
+          guard: ({ input }) =>
+            input.kind === 'surface' && input.surface === 'authenticated',
+          run: async () => {
+            await sendCodexOAuthSurfaceReady(
+              machine,
+              page,
+              'authenticated',
+              redirectUri,
+            )
+            return waitForCallback
+          },
+        },
+        {
+          branch: 'login' as const,
+          priority: 40,
+          guard: ({ input }) =>
+            input.kind === 'surface' && input.surface === 'login',
+          run: async () => {
+            await sendCodexOAuthSurfaceReady(
+              machine,
+              page,
+              'login',
+              redirectUri,
+            )
+            try {
+              if (!(await clickLoginEntryIfPresent(page))) {
+                throw new Error(
+                  'OpenAI login entry button became visible but could not be clicked.',
+                )
+              }
+            } catch (error) {
+              throw wrapRecoverableCodexOAuthBranchError('login', error)
+            }
+
+            return resolveCodexOAuthAfterLoginEntry(
+              page,
+              machine,
+              options,
+              redirectUri,
+              waitForCallback,
+            )
+          },
+        },
+        {
+          branch: 'email' as const,
+          priority: 30,
+          guard: ({ input }) =>
+            input.kind === 'surface' && input.surface === 'email',
+          run: async () => {
+            await sendCodexOAuthSurfaceReady(
+              machine,
+              page,
+              'email',
+              redirectUri,
+            )
+            await continueCodexOAuthStoredLogin(
+              page,
+              machine,
+              options,
+              'email',
+              redirectUri,
+            )
+            return waitForCallback
+          },
+        },
+        {
+          branch: 'passkey' as const,
+          priority: 20,
+          guard: ({ input }) =>
+            input.kind === 'surface' && input.surface === 'passkey',
+          run: async () => {
+            await sendCodexOAuthSurfaceReady(
+              machine,
+              page,
+              'passkey',
+              redirectUri,
+            )
+            await continueCodexOAuthStoredLogin(
+              page,
+              machine,
+              options,
+              'passkey',
+              redirectUri,
+            )
+            return waitForCallback
+          },
+        },
+      ],
+      {
+        context: machine.getSnapshot().context,
+        input: nextStep,
+        onFallback: async ({ branch, error }) => {
+          await machine.send('codex.oauth.retry.requested', {
+            reason: `surface:${branch}`,
+            message: `Retrying Codex OAuth ${branch} surface after branch entry failed`,
+            patch: {
+              url: sanitizeUrl(page.url()),
+              redirectUri,
+              lastMessage: error.message,
+            },
+          })
+        },
+      },
+    )
+  ).result
 }
 
 export async function runCodexOAuthFlow(
@@ -411,19 +937,17 @@ export async function runCodexOAuthFlow(
       throw error
     }
 
-    await sendCodexOAuthMachine(
-      machine,
-      'waiting-for-callback',
-      'context.updated',
-      {
-        url: sanitizeUrl(page.url()),
-        redirectUri: started.redirectUri,
-        lastMessage: 'Waiting for Codex OAuth callback',
-      },
-    )
+    await sendCodexOAuthMachine(machine, 'starting-oauth', 'context.updated', {
+      authorizationUrl: sanitizeUrl(started.authorizationUrl),
+      url: sanitizeUrl(page.url()),
+      redirectUri: started.redirectUri,
+      lastMessage: 'Waiting for Codex OAuth callback or login surface',
+    })
 
+    const waitForCallback =
+      callbackCapture.result as Promise<CodexOAuthCallbackPayload>
     const nextStep = await Promise.race([
-      callbackCapture.result.then((callback) => ({
+      waitForCallback.then((callback) => ({
         kind: 'callback' as const,
         callback,
       })),
@@ -433,174 +957,20 @@ export async function runCodexOAuthFlow(
       })),
     ])
 
-    const callback = (
-      await runGuardedBranches(
-        [
-          {
-            branch: 'callback' as const,
-            priority: 60,
-            guard: ({ input }) => input.nextStep.kind === 'callback',
-            run: async ({ input }) => {
-              if (input.nextStep.kind !== 'callback') {
-                throw new Error('Codex OAuth callback was not ready yet.')
-              }
-              return input.nextStep.callback
-            },
-          },
-          {
-            branch: 'authenticated' as const,
-            priority: 50,
-            guard: ({ input }) =>
-              input.nextStep.kind === 'surface' &&
-              input.nextStep.surface === 'authenticated',
-            run: async () => {
-              await sendCodexOAuthMachine(
-                machine,
-                'waiting-for-callback',
-                'context.updated',
-                {
-                  url: sanitizeUrl(page.url()),
-                  redirectUri: started.redirectUri,
-                  lastMessage:
-                    'OpenAI session detected; waiting for Codex OAuth callback',
-                },
-              )
-              return callbackCapture.result
-            },
-          },
-          {
-            branch: 'email' as const,
-            priority: 40,
-            guard: ({ input }) =>
-              input.nextStep.kind === 'surface' &&
-              input.nextStep.surface === 'email',
-            run: async () => {
-              await sendCodexOAuthMachine(
-                machine,
-                'waiting-for-callback',
-                'context.updated',
-                {
-                  url: sanitizeUrl(page.url()),
-                  redirectUri: started.redirectUri,
-                  lastMessage:
-                    'ChatGPT login required; continuing stored identity login',
-                },
-              )
-
-              const login = await continueChatGPTLoginWithStoredIdentity(page, {
-                ...options,
-                onEmailRetry: async (_attempt, reason) => {
-                  await machine.send('codex.oauth.retry.requested', {
-                    reason: `email:${reason}`,
-                    message:
-                      reason === 'retry'
-                        ? 'Retrying OpenAI email submission during Codex OAuth'
-                        : 'Retrying timed out OpenAI email submission during Codex OAuth',
-                    patch: {
-                      url: sanitizeUrl(page.url()),
-                      redirectUri: started.redirectUri,
-                    },
-                  })
-                },
-                onPasskeyRetry: async (_attempt, trigger) => {
-                  await machine.send('codex.oauth.retry.requested', {
-                    reason: `passkey:${trigger}`,
-                    message:
-                      trigger === 'retry'
-                        ? 'Retrying OpenAI passkey challenge during Codex OAuth'
-                        : 'Re-triggering OpenAI passkey challenge during Codex OAuth',
-                    patch: {
-                      url: sanitizeUrl(page.url()),
-                      redirectUri: started.redirectUri,
-                    },
-                  })
-                },
-              })
-
-              await sendCodexOAuthMachine(
-                machine,
-                'waiting-for-callback',
-                'context.updated',
-                {
-                  url: sanitizeUrl(page.url()),
-                  redirectUri: started.redirectUri,
-                  lastMessage: `Submitted ChatGPT ${login.method} login for ${login.email}; waiting for Codex OAuth callback`,
-                },
-              )
-              return callbackCapture.result
-            },
-          },
-          {
-            branch: 'passkey' as const,
-            priority: 30,
-            guard: ({ input }) =>
-              input.nextStep.kind === 'surface' &&
-              input.nextStep.surface === 'passkey',
-            run: async () => {
-              await sendCodexOAuthMachine(
-                machine,
-                'waiting-for-callback',
-                'context.updated',
-                {
-                  url: sanitizeUrl(page.url()),
-                  redirectUri: started.redirectUri,
-                  lastMessage:
-                    'ChatGPT login required; continuing stored identity login',
-                },
-              )
-
-              const login = await continueChatGPTLoginWithStoredIdentity(page, {
-                ...options,
-                onEmailRetry: async (_attempt, reason) => {
-                  await machine.send('codex.oauth.retry.requested', {
-                    reason: `email:${reason}`,
-                    message:
-                      reason === 'retry'
-                        ? 'Retrying OpenAI email submission during Codex OAuth'
-                        : 'Retrying timed out OpenAI email submission during Codex OAuth',
-                    patch: {
-                      url: sanitizeUrl(page.url()),
-                      redirectUri: started.redirectUri,
-                    },
-                  })
-                },
-                onPasskeyRetry: async (_attempt, trigger) => {
-                  await machine.send('codex.oauth.retry.requested', {
-                    reason: `passkey:${trigger}`,
-                    message:
-                      trigger === 'retry'
-                        ? 'Retrying OpenAI passkey challenge during Codex OAuth'
-                        : 'Re-triggering OpenAI passkey challenge during Codex OAuth',
-                    patch: {
-                      url: sanitizeUrl(page.url()),
-                      redirectUri: started.redirectUri,
-                    },
-                  })
-                },
-              })
-
-              await sendCodexOAuthMachine(
-                machine,
-                'waiting-for-callback',
-                'context.updated',
-                {
-                  url: sanitizeUrl(page.url()),
-                  redirectUri: started.redirectUri,
-                  lastMessage: `Submitted ChatGPT ${login.method} login for ${login.email}; waiting for Codex OAuth callback`,
-                },
-              )
-              return callbackCapture.result
-            },
-          },
-        ],
-        {
-          context: machine.getSnapshot().context,
-          input: {
-            nextStep,
-          },
-        },
+    if (nextStep.kind === 'surface' && nextStep.surface === 'unknown') {
+      throw new Error(
+        'Codex OAuth page did not reach a supported login or callback surface.',
       )
-    ).result
+    }
+
+    const callback = await resolveCodexOAuthNextStep(
+      page,
+      machine,
+      options,
+      started.redirectUri,
+      nextStep,
+      waitForCallback,
+    )
     if (!callback.code) {
       throw new Error(
         'Codex OAuth callback did not include an authorization code.',

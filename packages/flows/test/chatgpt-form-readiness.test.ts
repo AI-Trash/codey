@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { waitForEditableSelector } from '../src/modules/chatgpt/queries'
+import {
+  getLoginEntryCandidates,
+  waitForEditableSelector,
+  waitForLoginEmailFormReady,
+} from '../src/modules/chatgpt/queries'
 
 class FakeLocator {
   editableChecks = 0
 
   constructor(
     private readonly options: {
+      count?: number
       visible?: boolean
       editableSequence?: boolean[]
     } = {},
@@ -29,6 +34,10 @@ class FakeLocator {
     return this.options.visible ?? false
   }
 
+  async count(): Promise<number> {
+    return this.options.count ?? ((this.options.visible ?? false) ? 1 : 0)
+  }
+
   async evaluate(): Promise<boolean> {
     this.editableChecks += 1
     const sequence = this.options.editableSequence ?? [false]
@@ -46,10 +55,17 @@ class FakePage {
     editableSequence: [false],
   })
 
-  constructor(private readonly locators: Record<string, FakeLocator>) {}
+  constructor(
+    private readonly locators: Record<string, FakeLocator>,
+    private readonly currentUrl = 'https://auth.openai.com/log-in-or-create-account',
+  ) {}
 
   locator(selector: string): FakeLocator {
     return this.locators[selector] ?? this.hiddenLocator
+  }
+
+  url(): string {
+    return this.currentUrl
   }
 
   getByRole(): FakeLocator {
@@ -101,5 +117,43 @@ describe('waitForEditableSelector', () => {
     await expect(
       waitForEditableSelector(page as never, ['input#email'], 150),
     ).resolves.toBe(false)
+  })
+
+  it('treats the new /log-in page as a valid email login surface', async () => {
+    const emailLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const page = new FakePage(
+      {
+        'input#email': emailLocator,
+      },
+      'https://auth.openai.com/log-in',
+    )
+
+    await expect(waitForLoginEmailFormReady(page as never, 300)).resolves.toBe(
+      true,
+    )
+  })
+
+  it('detects an email login candidate from DOM signals even when the URL is unrelated', async () => {
+    const emailLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const continueLocator = new FakeLocator({
+      visible: true,
+    })
+    const page = new FakePage(
+      {
+        'input#email': emailLocator,
+        'button[type="submit"]': continueLocator,
+      },
+      'https://example.com/not-a-login-url',
+    )
+
+    await expect(getLoginEntryCandidates(page as never)).resolves.toContain(
+      'email',
+    )
   })
 })
