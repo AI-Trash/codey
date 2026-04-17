@@ -140,12 +140,30 @@ function resolveFetchRequestUrl(req: Request): URL {
   return new URL(rawUrl, `${protocol}://${host}`);
 }
 
+function shouldUseParaglideForOidcRequest(req: Request): boolean {
+  if (req.method !== "GET") {
+    return false;
+  }
+
+  const destination = req.headers.get("sec-fetch-dest");
+  if (destination === "document") {
+    return true;
+  }
+
+  const accept = req.headers.get("accept") || "";
+  return accept.includes("text/html");
+}
+
 export default {
   async fetch(req: Request): Promise<Response> {
     const url = resolveFetchRequestUrl(req);
 
     try {
-      // Keep Paraglide locale context, but preserve the original Node-backed request for OIDC POST bodies.
+      if (!shouldUseParaglideForOidcRequest(req)) {
+        return await fetchOidcHandler(req);
+      }
+
+      // Locale-aware interaction pages still need Paraglide context, but only for HTML GET requests.
       return await paraglideMiddleware(req, async () => fetchOidcHandler(req));
     } catch (error) {
       return jsonResponse(
