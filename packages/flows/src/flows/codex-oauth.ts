@@ -5,6 +5,7 @@ import {
   assignContextFromInput,
   composeStateMachineConfig,
   createGuardedCaseTransitions,
+  createOpenAIAddPhoneFailureFragment,
   createPatchTransitionMap,
   createRetryTransition,
   createSelfPatchTransitionMap,
@@ -60,6 +61,7 @@ export type CodexOAuthFlowState =
   | 'passkey-step'
   | 'waiting-for-callback'
   | 'retrying'
+  | 'add-phone-required'
   | 'exchanging-token'
   | 'persisting-token'
   | 'signing-in-admin'
@@ -214,6 +216,19 @@ const codexOAuthMutableContextEvents = [
   'context.updated',
   'action.started',
   'action.finished',
+] as const satisfies CodexOAuthFlowEvent[]
+
+const codexOAuthAddPhoneGuardEvents = [
+  'codex.oauth.started',
+  'codex.oauth.surface.ready',
+  'codex.oauth.login.continuation.completed',
+  'codex.oauth.callback.received',
+  'codex.oauth.token.exchanged',
+  'codex.oauth.token.persisted',
+  'codex.oauth.retry.requested',
+  'axonhub.admin.signin.started',
+  'axonhub.admin.signin.completed',
+  ...codexOAuthMutableContextEvents,
 ] as const satisfies CodexOAuthFlowEvent[]
 
 function isCodexOAuthSurfaceInput<Result>(
@@ -393,6 +408,17 @@ function createCodexOAuthSurfaceFragment<Result>() {
   })
 }
 
+function createCodexOAuthAddPhoneFailureFragment<Result>() {
+  return createOpenAIAddPhoneFailureFragment<
+    CodexOAuthFlowState,
+    CodexOAuthFlowContext<Result>,
+    CodexOAuthFlowEvent
+  >({
+    events: codexOAuthAddPhoneGuardEvents,
+    target: 'add-phone-required',
+  })
+}
+
 export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowResult> {
   return createStateMachine<
     CodexOAuthFlowState,
@@ -409,6 +435,7 @@ export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowR
         historyLimit: 100,
       },
       createCodexOAuthLifecycleFragment<CodexOAuthFlowResult>(),
+      createCodexOAuthAddPhoneFailureFragment<CodexOAuthFlowResult>(),
       createCodexOAuthSurfaceFragment<CodexOAuthFlowResult>(),
     ),
   )

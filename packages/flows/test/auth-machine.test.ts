@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { OPENAI_ADD_PHONE_ERROR_MESSAGE } from '../src/state-machine'
 import {
   createLoginMachine,
   resolveAuthMethod,
@@ -100,6 +101,34 @@ describe('auth machine', () => {
         lastAttempt: 1,
         lastMessage: 'Retrying login email submission',
         url: 'https://auth.openai.com/oauth/authorize',
+      },
+    })
+  })
+
+  it('fails immediately when the flow is redirected to the add-phone page', async () => {
+    const machine = createLoginMachine({
+      options: {
+        email: 'person@example.com',
+      },
+    })
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await expect(
+      machine.send('context.updated', {
+        patch: {
+          url: 'https://auth.openai.com/add-phone',
+        },
+      }),
+    ).rejects.toThrow(OPENAI_ADD_PHONE_ERROR_MESSAGE)
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'add-phone-required',
+      context: {
+        url: 'https://auth.openai.com/add-phone',
+        lastMessage: OPENAI_ADD_PHONE_ERROR_MESSAGE,
       },
     })
   })

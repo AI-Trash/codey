@@ -5,6 +5,7 @@ import {
   assignContextFromInput,
   composeStateMachineConfig,
   createGuardedCaseTransitions,
+  createOpenAIAddPhoneFailureFragment,
   createPatchTransitionMap,
   createRetryTransition,
   createSelfPatchTransitionMap,
@@ -117,6 +118,7 @@ export type ChatGPTRegistrationFlowState =
   | 'login-surface'
   | 'passkey-login'
   | 'retrying'
+  | 'add-phone-required'
   | 'authenticated'
   | 'completed'
   | 'failed'
@@ -341,6 +343,31 @@ const chatgptRegistrationMutableContextEvents = [
   'context.updated',
   'action.started',
   'action.finished',
+] as const satisfies ChatGPTRegistrationFlowEvent[]
+
+const chatgptRegistrationAddPhoneGuardEvents = [
+  'chatgpt.entry.opened',
+  'chatgpt.email.started',
+  'chatgpt.email.submitted',
+  'chatgpt.password.started',
+  'chatgpt.password.submitted',
+  'chatgpt.verification.polling',
+  'chatgpt.verification.code-found',
+  'chatgpt.verification.submitted',
+  'chatgpt.age-gate.started',
+  'chatgpt.age-gate.outcome',
+  'chatgpt.age-gate.completed',
+  'chatgpt.home.waiting',
+  'chatgpt.security.started',
+  'chatgpt.passkey.provisioning',
+  'chatgpt.identity.persisting',
+  'chatgpt.same-session-passkey-check.started',
+  'chatgpt.same-session-passkey-check.completed',
+  'chatgpt.login.surface.ready',
+  'chatgpt.passkey.login.started',
+  'chatgpt.retry.requested',
+  'chatgpt.authenticated',
+  ...chatgptRegistrationMutableContextEvents,
 ] as const satisfies ChatGPTRegistrationFlowEvent[]
 
 function createChatGPTRegistrationEmailSubmittedTransitions<Result>() {
@@ -643,6 +670,17 @@ function createChatGPTRegistrationAgeGateFragment<Result>() {
   })
 }
 
+function createChatGPTRegistrationAddPhoneFailureFragment<Result>() {
+  return createOpenAIAddPhoneFailureFragment<
+    ChatGPTRegistrationFlowState,
+    ChatGPTRegistrationFlowContext<Result>,
+    ChatGPTRegistrationFlowEvent
+  >({
+    events: chatgptRegistrationAddPhoneGuardEvents,
+    target: 'add-phone-required',
+  })
+}
+
 export function createChatGPTRegistrationMachine(): ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult> {
   return createStateMachine<
     ChatGPTRegistrationFlowState,
@@ -659,6 +697,7 @@ export function createChatGPTRegistrationMachine(): ChatGPTRegistrationFlowMachi
         historyLimit: 200,
       },
       createChatGPTRegistrationLifecycleFragment<ChatGPTRegistrationFlowResult>(),
+      createChatGPTRegistrationAddPhoneFailureFragment<ChatGPTRegistrationFlowResult>(),
       createChatGPTRegistrationLoginSurfaceFragment<ChatGPTRegistrationFlowResult>(),
       createChatGPTRegistrationPostEmailFragment<ChatGPTRegistrationFlowResult>(),
       createChatGPTRegistrationAgeGateFragment<ChatGPTRegistrationFlowResult>(),

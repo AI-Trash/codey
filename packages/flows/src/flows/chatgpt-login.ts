@@ -5,6 +5,7 @@ import {
   assignContextFromInput,
   composeStateMachineConfig,
   createGuardedCaseTransitions,
+  createOpenAIAddPhoneFailureFragment,
   createPatchTransitionMap,
   createRetryTransition,
   createSelfPatchTransitionMap,
@@ -85,6 +86,7 @@ export type ChatGPTLoginFlowState =
   | 'login-surface'
   | 'passkey-login'
   | 'retrying'
+  | 'add-phone-required'
   | 'authenticated'
   | 'completed'
   | 'failed'
@@ -243,6 +245,30 @@ const chatgptLoginMutableContextEvents = [
   'action.finished',
 ] as const satisfies ChatGPTLoginFlowEvent[]
 
+const chatgptLoginAddPhoneGuardEvents = [
+  'chatgpt.entry.opened',
+  'chatgpt.email.started',
+  'chatgpt.email.submitted',
+  'chatgpt.password.started',
+  'chatgpt.password.submitted',
+  'chatgpt.verification.polling',
+  'chatgpt.verification.code-found',
+  'chatgpt.verification.submitted',
+  'chatgpt.age-gate.started',
+  'chatgpt.age-gate.completed',
+  'chatgpt.home.waiting',
+  'chatgpt.security.started',
+  'chatgpt.passkey.provisioning',
+  'chatgpt.identity.persisting',
+  'chatgpt.same-session-passkey-check.started',
+  'chatgpt.same-session-passkey-check.completed',
+  'chatgpt.login.surface.ready',
+  'chatgpt.passkey.login.started',
+  'chatgpt.retry.requested',
+  'chatgpt.authenticated',
+  ...chatgptLoginMutableContextEvents,
+] as const satisfies ChatGPTLoginFlowEvent[]
+
 function createChatGPTLoginEmailSubmittedTransitions<Result>() {
   const assignPostEmailContext = (
     lastMessage: string,
@@ -371,6 +397,17 @@ function createChatGPTLoginPostEmailFragment<Result>() {
   })
 }
 
+function createChatGPTLoginAddPhoneFailureFragment<Result>() {
+  return createOpenAIAddPhoneFailureFragment<
+    ChatGPTLoginFlowState,
+    ChatGPTLoginFlowContext<Result>,
+    ChatGPTLoginFlowEvent
+  >({
+    events: chatgptLoginAddPhoneGuardEvents,
+    target: 'add-phone-required',
+  })
+}
+
 export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult> {
   return createStateMachine<
     ChatGPTLoginFlowState,
@@ -387,6 +424,7 @@ export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLogi
         historyLimit: 200,
       },
       createChatGPTLoginLifecycleFragment<ChatGPTLoginFlowResult>(),
+      createChatGPTLoginAddPhoneFailureFragment<ChatGPTLoginFlowResult>(),
       createChatGPTLoginPostEmailFragment<ChatGPTLoginFlowResult>(),
     ),
   )

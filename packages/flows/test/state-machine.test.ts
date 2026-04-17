@@ -8,6 +8,7 @@ import {
   defineStateMachineFragment,
   GuardedBranchError,
   runGuardedBranches,
+  type StateMachineRaisedErrorArgs,
 } from '../src/state-machine'
 
 describe('state machine', () => {
@@ -165,7 +166,14 @@ describe('state machine', () => {
             log: [],
           },
         },
-        defineStateMachineFragment({
+        defineStateMachineFragment<
+          'idle' | 'preferred' | 'fallback',
+          {
+            log: string[]
+            mode?: 'preferred' | 'fallback'
+          },
+          'advance'
+        >({
           states: {
             idle: {
               exitActions: assignContext((context) => ({
@@ -174,9 +182,24 @@ describe('state machine', () => {
             },
           },
         }),
-        defineStateMachineFragment({
+        defineStateMachineFragment<
+          'idle' | 'preferred' | 'fallback',
+          {
+            log: string[]
+            mode?: 'preferred' | 'fallback'
+          },
+          'advance'
+        >({
           on: {
-            advance: createGuardedCaseTransitions({
+            advance: createGuardedCaseTransitions<
+              'idle' | 'preferred' | 'fallback',
+              {
+                log: string[]
+                mode?: 'preferred' | 'fallback'
+              },
+              'advance',
+              AdvanceInput
+            >({
               isInput: isAdvanceInput,
               cases: [
                 {
@@ -202,11 +225,18 @@ describe('state machine', () => {
                     }),
                   ),
                 },
-              ],
-            }),
+            ],
+          }),
+        },
+      }),
+        defineStateMachineFragment<
+          'idle' | 'preferred' | 'fallback',
+          {
+            log: string[]
+            mode?: 'preferred' | 'fallback'
           },
-        }),
-        defineStateMachineFragment({
+          'advance'
+        >({
           states: {
             preferred: {
               entryActions: assignContext((context) => ({
@@ -236,5 +266,53 @@ describe('state machine', () => {
       'transition-preferred',
       'entry-preferred',
     ])
+  })
+
+  it('commits a raised error state before throwing', async () => {
+    const machine = createStateMachine<
+      'idle' | 'fatal',
+      {
+        url?: string
+      },
+      'explode'
+    >({
+      id: 'raised.machine',
+      initialState: 'idle',
+      initialContext: {},
+      on: {
+        explode: {
+          target: 'fatal',
+          actions: assignContext<'idle' | 'fatal', { url?: string }, 'explode'>(
+            () => ({
+            url: 'https://auth.openai.com/add-phone',
+            }),
+          ),
+        },
+      },
+      states: {
+        fatal: {
+          raise: (
+            args: StateMachineRaisedErrorArgs<
+              'idle' | 'fatal',
+              { url?: string },
+              'explode'
+            >,
+          ) => new Error(`fatal:${args.context.url ?? 'unknown'}`),
+        },
+      },
+    })
+
+    machine.start()
+
+    await expect(machine.send('explode')).rejects.toThrow(
+      'fatal:https://auth.openai.com/add-phone',
+    )
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'fatal',
+      context: {
+        url: 'https://auth.openai.com/add-phone',
+      },
+    })
   })
 })

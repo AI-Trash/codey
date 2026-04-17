@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createChatGPTRegistrationMachine } from '../src/flows/chatgpt-register'
+import { OPENAI_ADD_PHONE_ERROR_MESSAGE } from '../src/state-machine'
 
 describe('chatgpt registration machine', () => {
   it('selects guarded entry surfaces for direct email and legacy signup flows', async () => {
@@ -162,6 +163,39 @@ describe('chatgpt registration machine', () => {
         lastAttempt: 1,
         lastMessage: 'Retrying registration email submission',
         url: 'https://auth.openai.com/oauth/authorize',
+      },
+    })
+  })
+
+  it('moves into the add-phone failure state from any registration step', async () => {
+    const machine = createChatGPTRegistrationMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.email.started', {
+      target: 'email-step',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    await expect(
+      machine.send('chatgpt.retry.requested', {
+        reason: 'registration:add-phone',
+        patch: {
+          url: 'https://auth.openai.com/add-phone',
+        },
+      }),
+    ).rejects.toThrow(OPENAI_ADD_PHONE_ERROR_MESSAGE)
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'add-phone-required',
+      context: {
+        email: 'person@example.com',
+        url: 'https://auth.openai.com/add-phone',
+        lastMessage: OPENAI_ADD_PHONE_ERROR_MESSAGE,
       },
     })
   })

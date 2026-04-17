@@ -158,6 +158,28 @@ export type StateMachineAction<
   MaybePromise<StateMachineActionResult<Context>>
 >
 
+export interface StateMachineRaisedErrorArgs<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+> {
+  context: Context
+  event: Event
+  from: State
+  to: State
+  snapshot: StateMachineSnapshot<State, Context, Event>
+  transition: StateMachineResolvedTransition<State, Context, Event>
+}
+
+export type StateMachineRaisedErrorFactory<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+> = BivariantCallback<
+  [StateMachineRaisedErrorArgs<State, Context, Event>],
+  unknown
+>
+
 export interface StateMachineTransitionDefinition<
   State extends string,
   Context extends object,
@@ -214,6 +236,7 @@ export interface StateMachineStateConfig<
   exitActions?:
     | StateMachineAction<State, Context, Event>
     | Array<StateMachineAction<State, Context, Event>>
+  raise?: unknown | StateMachineRaisedErrorFactory<State, Context, Event>
 }
 
 export interface StateMachineController<
@@ -274,6 +297,26 @@ function serializeError(error: unknown): StateMachineError {
     name: 'Error',
     message: typeof error === 'string' ? error : JSON.stringify(error),
   }
+}
+
+function resolveRaisedError<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  raised:
+    | unknown
+    | StateMachineRaisedErrorFactory<State, Context, Event>,
+  args: StateMachineRaisedErrorArgs<State, Context, Event>,
+): unknown {
+  const error =
+    typeof raised === 'function'
+      ? (
+          raised as StateMachineRaisedErrorFactory<State, Context, Event>
+        )(args)
+      : raised
+
+  return typeof error === 'string' ? new Error(error) : error
 }
 
 function resolveContextPatch<Context extends object>(
@@ -759,7 +802,7 @@ export function createStateMachine<
         )
       }
 
-      return commit(selected.target, {
+      const committedSnapshot = commit(selected.target, {
         ...options,
         event,
         status: nextStatus,
@@ -767,6 +810,19 @@ export function createStateMachine<
         replaceContext: nextContext,
         meta: mergedMeta,
       })
+
+      if (reenter && nextStateConfig?.raise) {
+        throw resolveRaisedError(nextStateConfig.raise, {
+          context: committedSnapshot.context,
+          event,
+          from: snapshot.state,
+          to: selected.target,
+          snapshot: committedSnapshot,
+          transition: selected,
+        })
+      }
+
+      return committedSnapshot
     },
     succeed(nextState, options) {
       return commit(nextState, {
@@ -1099,6 +1155,139 @@ export function createSelfPatchTransitionMap<
   return transitions
 }
 
+export interface UrlTrackingStateMachineContext {
+  url?: string
+  lastMessage?: string
+}
+
+function getRecordValue(value: unknown, key: string): unknown {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  return (value as Record<string, unknown>)[key]
+}
+
+function getRecordStringValue(value: unknown, key: string): string | undefined {
+  const candidate = getRecordValue(value, key)
+  return typeof candidate === 'string' ? candidate : undefined
+}
+
+export function resolveStateMachineUrlCandidate<
+  Context extends UrlTrackingStateMachineContext,
+>(input: unknown, context: Context): string | undefined {
+  return (
+    getRecordStringValue(input, 'url') ??
+    getRecordStringValue(getRecordValue(input, 'patch'), 'url') ??
+    context.url
+  )
+}
+
+function normalizeStateMachineUrl(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return trimmed
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '') || '/'
+    return `${parsed.origin}${normalizedPath}`
+  } catch {
+    return trimmed.replace(/\/+$/, '')
+  }
+}
+
+export function matchesStateMachineUrlCandidate(
+  candidate: string | undefined,
+  expectedUrl: string,
+): boolean {
+  if (!candidate) {
+    return false
+  }
+
+  return (
+    normalizeStateMachineUrl(candidate) ===
+    normalizeStateMachineUrl(expectedUrl)
+  )
+}
+
+export const OPENAI_ADD_PHONE_URL = 'https://auth.openai.com/add-phone'
+export const OPENAI_ADD_PHONE_ERROR_MESSAGE =
+  'OpenAI required adding a phone number, which this flow does not support.'
+
+export function createUrlGuardFailureFragment<
+  State extends string,
+  Context extends object & UrlTrackingStateMachineContext,
+  Event extends string = string,
+>(options: {
+  events: readonly Event[]
+  target: State
+  url: string
+  message: string
+  priority?: number
+  error?:
+    | string
+    | Error
+    | StateMachineRaisedErrorFactory<State, Context, Event>
+}): StateMachineFragment<State, Context, Event> {
+  const on = options.events.reduce<
+    Partial<Record<Event, StateMachineTransitionDefinition<State, Context, Event>>>
+  >((transitions, event) => {
+    transitions[event] = {
+      priority: options.priority ?? 1000,
+      target: options.target,
+      guard: ({ input, context }) =>
+        matchesStateMachineUrlCandidate(
+          resolveStateMachineUrlCandidate(input, context),
+          options.url,
+        ),
+      actions: assignContext<State, Context, Event>((context, { input }) => {
+        const url = resolveStateMachineUrlCandidate(input, context)
+        return {
+          ...(url ? { url } : {}),
+          lastMessage: options.message,
+        } as Partial<Context>
+      }),
+    }
+    return transitions
+  }, {})
+
+  return defineStateMachineFragment<State, Context, Event>({
+    on,
+    states: {
+      [options.target]: {
+        raise: (args: StateMachineRaisedErrorArgs<State, Context, Event>) =>
+          resolveRaisedError(
+            options.error ??
+              ((args.context.lastMessage as string | undefined) ??
+                options.message),
+            args,
+          ),
+      },
+    } as StateMachineConfig<State, Context, Event>['states'],
+  })
+}
+
+export function createOpenAIAddPhoneFailureFragment<
+  State extends string,
+  Context extends object & UrlTrackingStateMachineContext,
+  Event extends string = string,
+>(options: {
+  events: readonly Event[]
+  target: State
+  priority?: number
+  message?: string
+}): StateMachineFragment<State, Context, Event> {
+  return createUrlGuardFailureFragment<State, Context, Event>({
+    events: options.events,
+    target: options.target,
+    url: OPENAI_ADD_PHONE_URL,
+    priority: options.priority,
+    message: options.message ?? OPENAI_ADD_PHONE_ERROR_MESSAGE,
+  })
+}
+
 export interface RetryableStateMachineContext<State extends string> {
   retryCount?: number
   retryReason?: string
@@ -1148,7 +1337,7 @@ export function createRetryTransition<
           retryFromState: from,
           lastAttempt: nextAttempt,
           lastMessage: retryInput?.message ?? options.defaultMessage,
-        }
+        } as Partial<Context>
       },
     ),
   }

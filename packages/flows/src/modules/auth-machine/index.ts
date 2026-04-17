@@ -4,6 +4,7 @@ import {
   assignContextFromInput,
   composeStateMachineConfig,
   createGuardedCaseTransitions,
+  createOpenAIAddPhoneFailureFragment,
   createPatchTransitionMap,
   createRetryTransition,
   createSelfPatchTransitionMap,
@@ -24,6 +25,7 @@ export type AuthMachineState =
   | 'opening'
   | 'ready'
   | 'retrying'
+  | 'add-phone-required'
   | 'typing-email'
   | 'typing-password'
   | 'typing-organization'
@@ -141,6 +143,26 @@ const authMutableContextEvents = [
   'action.finished',
 ] as const satisfies AuthMachineEvent[]
 
+const authAddPhoneGuardEvents = [
+  'action.started',
+  'auth.opened',
+  'auth.ready',
+  'auth.retry.requested',
+  'auth.email.typed',
+  'auth.password.typed',
+  'auth.organization.typed',
+  'auth.remember-me.checked',
+  'auth.method.resolved',
+  'auth.passkey.chosen',
+  'auth.passkey.prompted',
+  'auth.submitted',
+  'auth.after-submit.started',
+  'auth.after-submit.finished',
+  'auth.passkey.capture.started',
+  'auth.passkey.capture.finished',
+  ...authMutableContextEvents,
+] as const satisfies AuthMachineEvent[]
+
 function createAuthLifecycleFragment<Result>() {
   return defineStateMachineFragment<
     AuthMachineState,
@@ -223,6 +245,17 @@ function createAuthMethodResolutionFragment<Result>() {
   })
 }
 
+function createAuthAddPhoneFailureFragment<Result>() {
+  return createOpenAIAddPhoneFailureFragment<
+    AuthMachineState,
+    AuthMachineContext<Result>,
+    AuthMachineEvent
+  >({
+    events: authAddPhoneGuardEvents,
+    target: 'add-phone-required',
+  })
+}
+
 function buildBaseMachine<Result>(
   kind: AuthMachineKind,
   id: string,
@@ -243,6 +276,7 @@ function buildBaseMachine<Result>(
         } as AuthMachineContext<Result>,
       },
       createAuthLifecycleFragment<Result>(),
+      createAuthAddPhoneFailureFragment<Result>(),
       createAuthMethodResolutionFragment<Result>(),
     ),
   )
