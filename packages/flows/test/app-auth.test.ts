@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildOidcDiscoveryUrl,
   getOidcDiscovery,
-  OidcRequestError,
   resolveOidcIssuer,
 } from '../src/modules/app-auth/oidc'
 import {
@@ -137,7 +136,7 @@ describe('app auth OIDC helpers', () => {
         baseUrl: 'http://localhost:4050',
         oidcBasePath: '/oidc',
       }),
-    ).rejects.toMatchObject<Partial<OidcRequestError>>({
+    ).rejects.toMatchObject({
       message:
         'OAUTH_JWKS_JSON is required before initializing the OIDC provider',
       status: 500,

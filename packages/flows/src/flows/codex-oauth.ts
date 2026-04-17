@@ -2,10 +2,13 @@ import type { Page } from 'patchright'
 import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
 import {
-  assignContext,
+  composeStateMachineConfig,
+  createPatchTransitionMap,
+  createRetryTransition,
+  createSelfPatchTransitionMap,
   createStateMachine,
+  defineStateMachineFragment,
   runGuardedBranches,
-  type StateMachineTransitionDefinition,
 } from '../state-machine'
 import type {
   StateMachineController,
@@ -155,87 +158,48 @@ export interface CodexOAuthFlowResult {
 
 const CODEX_OAUTH_BROWSER_HANDOFF_TIMEOUT_MS = 180000
 
-interface CodexOAuthMachineEventInput<Result = unknown> {
-  target?: CodexOAuthFlowState
-  patch?: Partial<CodexOAuthFlowContext<Result>>
-}
+const codexOAuthEventTargets = {
+  'codex.oauth.started': 'starting-oauth',
+  'codex.oauth.callback.received': 'exchanging-token',
+  'codex.oauth.token.exchanged': 'persisting-token',
+  'codex.oauth.token.persisted': 'persisting-token',
+  'axonhub.admin.signin.started': 'signing-in-admin',
+  'axonhub.admin.signin.completed': 'creating-channel',
+} as const satisfies Partial<Record<CodexOAuthFlowEvent, CodexOAuthFlowState>>
 
-interface CodexOAuthRetryInput<Result = unknown> {
-  patch?: Partial<CodexOAuthFlowContext<Result>>
-  reason?: string
-  message?: string
-}
+const codexOAuthMutableContextEvents = [
+  'context.updated',
+  'action.started',
+  'action.finished',
+] as const satisfies CodexOAuthFlowEvent[]
 
-function isCodexOAuthMachineEventInput<Result>(
-  value: unknown,
-): value is CodexOAuthMachineEventInput<Result> {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-
-  return 'patch' in value || 'target' in value
-}
-
-function isCodexOAuthRetryInput<Result>(
-  value: unknown,
-): value is CodexOAuthRetryInput<Result> {
-  return Boolean(value && typeof value === 'object')
-}
-
-function createCodexOAuthEventTransition<Result>(
-  defaultTarget: CodexOAuthFlowState,
-): StateMachineTransitionDefinition<
-  CodexOAuthFlowState,
-  CodexOAuthFlowContext<Result>,
-  CodexOAuthFlowEvent
-> {
-  return {
-    target: ({ input }) =>
-      isCodexOAuthMachineEventInput<Result>(input)
-        ? (input.target ?? defaultTarget)
-        : defaultTarget,
-    actions: assignContext<
-      CodexOAuthFlowState,
-      CodexOAuthFlowContext<Result>,
-      CodexOAuthFlowEvent,
-      CodexOAuthMachineEventInput<Result>
-    >((_context, { input }) =>
-      isCodexOAuthMachineEventInput<Result>(input) ? (input.patch ?? {}) : {},
-    ),
-  }
-}
-
-function createCodexOAuthRetryTransition<
-  Result,
->(): StateMachineTransitionDefinition<
-  CodexOAuthFlowState,
-  CodexOAuthFlowContext<Result>,
-  CodexOAuthFlowEvent
-> {
-  return {
-    priority: 100,
-    target: 'retrying',
-    actions: assignContext<
-      CodexOAuthFlowState,
-      CodexOAuthFlowContext<Result>,
-      CodexOAuthFlowEvent,
-      CodexOAuthRetryInput<Result>
-    >((context, { input, from }) => {
-      const retryInput = isCodexOAuthRetryInput<Result>(input)
-        ? input
-        : undefined
-      const nextAttempt = (context.retryCount ?? 0) + 1
-      return {
-        ...retryInput?.patch,
-        retryCount: nextAttempt,
-        retryReason: retryInput?.reason ?? context.retryReason,
-        retryFromState: from,
-        lastAttempt: nextAttempt,
-        lastMessage:
-          retryInput?.message ?? 'Retrying Codex OAuth login handoff',
-      }
-    }),
-  }
+function createCodexOAuthLifecycleFragment<Result>() {
+  return defineStateMachineFragment<
+    CodexOAuthFlowState,
+    CodexOAuthFlowContext<Result>,
+    CodexOAuthFlowEvent
+  >({
+    on: {
+      ...createPatchTransitionMap<
+        CodexOAuthFlowState,
+        CodexOAuthFlowContext<Result>,
+        CodexOAuthFlowEvent
+      >(codexOAuthEventTargets),
+      'codex.oauth.retry.requested': createRetryTransition<
+        CodexOAuthFlowState,
+        CodexOAuthFlowContext<Result>,
+        CodexOAuthFlowEvent
+      >({
+        target: 'retrying',
+        defaultMessage: 'Retrying Codex OAuth login handoff',
+      }),
+      ...createSelfPatchTransitionMap<
+        CodexOAuthFlowState,
+        CodexOAuthFlowContext<Result>,
+        CodexOAuthFlowEvent
+      >([...codexOAuthMutableContextEvents]),
+    },
+  })
 }
 
 export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowResult> {
@@ -243,88 +207,19 @@ export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowR
     CodexOAuthFlowState,
     CodexOAuthFlowContext<CodexOAuthFlowResult>,
     CodexOAuthFlowEvent
-  >({
-    id: 'flow.codex.oauth',
-    initialState: 'idle',
-    initialContext: {
-      kind: 'codex-oauth',
-    },
-    historyLimit: 100,
-    on: {
-      'codex.oauth.started':
-        createCodexOAuthEventTransition<CodexOAuthFlowResult>('starting-oauth'),
-      'codex.oauth.callback.received':
-        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
-          'exchanging-token',
-        ),
-      'codex.oauth.token.exchanged':
-        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
-          'persisting-token',
-        ),
-      'codex.oauth.token.persisted':
-        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
-          'persisting-token',
-        ),
-      'codex.oauth.retry.requested':
-        createCodexOAuthRetryTransition<CodexOAuthFlowResult>(),
-      'axonhub.admin.signin.started':
-        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
-          'signing-in-admin',
-        ),
-      'axonhub.admin.signin.completed':
-        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
-          'creating-channel',
-        ),
-      'context.updated': {
-        target: ({ from, input }) =>
-          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
-            ? (input.target ?? from)
-            : from,
-        actions: assignContext<
-          CodexOAuthFlowState,
-          CodexOAuthFlowContext<CodexOAuthFlowResult>,
-          CodexOAuthFlowEvent,
-          CodexOAuthMachineEventInput<CodexOAuthFlowResult>
-        >((_context, { input }) =>
-          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
-            ? (input.patch ?? {})
-            : {},
-        ),
+  >(
+    composeStateMachineConfig(
+      {
+        id: 'flow.codex.oauth',
+        initialState: 'idle',
+        initialContext: {
+          kind: 'codex-oauth',
+        },
+        historyLimit: 100,
       },
-      'action.started': {
-        target: ({ from, input }) =>
-          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
-            ? (input.target ?? from)
-            : from,
-        actions: assignContext<
-          CodexOAuthFlowState,
-          CodexOAuthFlowContext<CodexOAuthFlowResult>,
-          CodexOAuthFlowEvent,
-          CodexOAuthMachineEventInput<CodexOAuthFlowResult>
-        >((_context, { input }) =>
-          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
-            ? (input.patch ?? {})
-            : {},
-        ),
-      },
-      'action.finished': {
-        target: ({ from, input }) =>
-          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
-            ? (input.target ?? from)
-            : from,
-        actions: assignContext<
-          CodexOAuthFlowState,
-          CodexOAuthFlowContext<CodexOAuthFlowResult>,
-          CodexOAuthFlowEvent,
-          CodexOAuthMachineEventInput<CodexOAuthFlowResult>
-        >((_context, { input }) =>
-          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
-            ? (input.patch ?? {})
-            : {},
-        ),
-      },
-    },
-  })
+      createCodexOAuthLifecycleFragment<CodexOAuthFlowResult>(),
+    ),
+  )
 }
 
 async function sendCodexOAuthMachine(
@@ -545,7 +440,12 @@ export async function runCodexOAuthFlow(
             branch: 'callback' as const,
             priority: 60,
             guard: ({ input }) => input.nextStep.kind === 'callback',
-            run: async () => nextStep.callback,
+            run: async ({ input }) => {
+              if (input.nextStep.kind !== 'callback') {
+                throw new Error('Codex OAuth callback was not ready yet.')
+              }
+              return input.nextStep.callback
+            },
           },
           {
             branch: 'authenticated' as const,

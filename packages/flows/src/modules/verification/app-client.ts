@@ -18,6 +18,7 @@ import {
 } from '../app-auth/token-store'
 import { extractChatGPTVerificationCodeFromEmail } from '../chatgpt/common'
 import type {
+  VerificationCodeStreamEvent,
   VerificationEmailTarget,
   WaitForVerificationCodeOptions,
 } from './types'
@@ -55,16 +56,7 @@ export interface AppVerificationEmailRecord {
   receivedAt: string
 }
 
-export interface AppVerificationEvent {
-  type: 'keepalive' | 'verification_code'
-  reservationId?: string
-  email?: string
-  code?: string
-  source?: string
-  receivedAt?: string
-  cursor?: string
-  emails?: AppVerificationEmailRecord[]
-}
+export type AppVerificationEvent = VerificationCodeStreamEvent
 
 const VERIFICATION_READ_SCOPE = 'verification:read'
 const VERIFICATION_RESERVE_SCOPE = 'verification:reserve'

@@ -14,14 +14,26 @@ export interface WaitForVerificationCodeOptions {
   onPollAttempt?: (attempt: number) => void | Promise<void>
 }
 
-export interface VerificationCodeStreamEvent {
+export interface VerificationCodeKeepaliveEvent {
+  type: 'keepalive'
   reservationId?: string
   email?: string
-  code?: string
-  source?: string
-  receivedAt?: string
   cursor?: string
 }
+
+export interface VerificationCodeUpdateEvent {
+  type: 'verification_code'
+  reservationId?: string
+  email?: string
+  code: string
+  source: string
+  receivedAt: string
+  cursor?: string
+}
+
+export type VerificationCodeStreamEvent =
+  | VerificationCodeKeepaliveEvent
+  | VerificationCodeUpdateEvent
 
 export interface VerificationProvider {
   readonly kind: VerificationProviderKind

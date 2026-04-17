@@ -42,6 +42,10 @@ export interface StateMachineSnapshot<
 
 type MaybePromise<T> = T | Promise<T>
 
+type BivariantCallback<Args extends unknown[], Return> = {
+  bivarianceHack(...args: Args): Return
+}['bivarianceHack']
+
 export type StateMachineContextPatch<Context extends object> =
   | Partial<Context>
   | ((context: Context) => Partial<Context> | Context)
@@ -118,9 +122,10 @@ export type StateMachineTransitionGuard<
   Context extends object,
   Event extends string = string,
   Input = unknown,
-> = (
-  args: StateMachineTransitionGuardArgs<State, Context, Event, Input>,
-) => MaybePromise<boolean>
+> = BivariantCallback<
+  [StateMachineTransitionGuardArgs<State, Context, Event, Input>],
+  MaybePromise<boolean>
+>
 
 export interface StateMachineActionArgs<
   State extends string,
@@ -148,9 +153,10 @@ export type StateMachineAction<
   Context extends object,
   Event extends string = string,
   Input = unknown,
-> = (
-  args: StateMachineActionArgs<State, Context, Event, Input>,
-) => MaybePromise<StateMachineActionResult<Context>>
+> = BivariantCallback<
+  [StateMachineActionArgs<State, Context, Event, Input>],
+  MaybePromise<StateMachineActionResult<Context>>
+>
 
 export interface StateMachineTransitionDefinition<
   State extends string,
@@ -787,4 +793,417 @@ export function createStateMachine<
   }
 
   return controller
+}
+
+export interface StateMachineFragment<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+> {
+  on?: StateMachineConfig<State, Context, Event>['on']
+  states?: StateMachineConfig<State, Context, Event>['states']
+}
+
+export function defineStateMachineFragment<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+>(
+  fragment: StateMachineFragment<State, Context, Event>,
+): StateMachineFragment<State, Context, Event> {
+  return fragment
+}
+
+function mergeDefinitionCollections<T>(left?: T | T[], right?: T | T[]) {
+  const merged = [...normalizeArray(left), ...normalizeArray(right)]
+  if (merged.length === 0) {
+    return undefined
+  }
+
+  return merged.length === 1 ? merged[0] : merged
+}
+
+function mergeTransitionMaps<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  left?: StateMachineConfig<State, Context, Event>['on'],
+  right?: StateMachineConfig<State, Context, Event>['on'],
+): StateMachineConfig<State, Context, Event>['on'] {
+  if (!left) return right ? { ...right } : undefined
+  if (!right) return { ...left }
+
+  const merged: NonNullable<StateMachineConfig<State, Context, Event>['on']> = {
+    ...left,
+  }
+
+  for (const [event, definition] of Object.entries(right) as Array<
+    [
+      Event,
+      (
+        | StateMachineTransitionDefinition<State, Context, Event>
+        | StateMachineTransitionDefinition<State, Context, Event>[]
+      ),
+    ]
+  >) {
+    merged[event] = mergeDefinitionCollections(merged[event], definition)
+  }
+
+  return merged
+}
+
+function mergeStateConfigs<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  left?: StateMachineStateConfig<State, Context, Event>,
+  right?: StateMachineStateConfig<State, Context, Event>,
+): StateMachineStateConfig<State, Context, Event> | undefined {
+  if (!left) return right ? { ...right } : undefined
+  if (!right) return { ...left }
+
+  return {
+    ...left,
+    ...right,
+    on: mergeTransitionMaps(left.on, right.on),
+    entryActions: mergeDefinitionCollections(
+      left.entryActions,
+      right.entryActions,
+    ),
+    exitActions: mergeDefinitionCollections(
+      left.exitActions,
+      right.exitActions,
+    ),
+  }
+}
+
+function mergeStates<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  left?: StateMachineConfig<State, Context, Event>['states'],
+  right?: StateMachineConfig<State, Context, Event>['states'],
+): StateMachineConfig<State, Context, Event>['states'] {
+  if (!left) return right ? { ...right } : undefined
+  if (!right) return { ...left }
+
+  const merged: NonNullable<
+    StateMachineConfig<State, Context, Event>['states']
+  > = {
+    ...left,
+  }
+
+  for (const [state, definition] of Object.entries(right) as Array<
+    [State, StateMachineStateConfig<State, Context, Event>]
+  >) {
+    merged[state] = mergeStateConfigs(merged[state], definition)
+  }
+
+  return merged
+}
+
+export function composeStateMachineConfig<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+>(
+  baseConfig: StateMachineConfig<State, Context, Event>,
+  ...fragments: Array<StateMachineFragment<State, Context, Event>>
+): StateMachineConfig<State, Context, Event> {
+  let nextConfig: StateMachineConfig<State, Context, Event> = {
+    ...baseConfig,
+    on: baseConfig.on ? { ...baseConfig.on } : undefined,
+    states: baseConfig.states ? { ...baseConfig.states } : undefined,
+  }
+
+  for (const fragment of fragments) {
+    nextConfig = {
+      ...nextConfig,
+      on: mergeTransitionMaps(nextConfig.on, fragment.on),
+      states: mergeStates(nextConfig.states, fragment.states),
+    }
+  }
+
+  return nextConfig
+}
+
+export interface StateMachinePatchInput<
+  State extends string,
+  Context extends object,
+> {
+  target?: State
+  patch?: Partial<Context>
+}
+
+export function isStateMachinePatchInput<
+  State extends string,
+  Context extends object,
+>(value: unknown): value is StateMachinePatchInput<State, Context> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return 'patch' in value || 'target' in value
+}
+
+export function assignContextFromInput<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+  Input = unknown,
+>(
+  isInput: (value: unknown) => value is Input,
+  patch: (
+    context: Context,
+    args: StateMachineActionArgs<State, Context, Event, Input>,
+  ) => Partial<Context> | Context,
+  fallback: Partial<Context> | Context = {},
+): StateMachineAction<State, Context, Event> {
+  return assignContext<State, Context, Event>((context, args) => {
+    if (!isInput(args.input)) {
+      return fallback
+    }
+
+    return patch(context, {
+      ...args,
+      input: args.input,
+    } as StateMachineActionArgs<State, Context, Event, Input>)
+  })
+}
+
+export function createPatchTransition<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+  Input extends StateMachinePatchInput<State, Context> = StateMachinePatchInput<
+    State,
+    Context
+  >,
+>(
+  defaultTarget: State,
+  options: {
+    isInput?: (value: unknown) => value is Input
+  } = {},
+): StateMachineTransitionDefinition<State, Context, Event> {
+  const matchesInput = (options.isInput ??
+    isStateMachinePatchInput<State, Context>) as (
+    value: unknown,
+  ) => value is Input
+
+  return {
+    target: ({ input }) =>
+      matchesInput(input) ? (input.target ?? defaultTarget) : defaultTarget,
+    actions: assignContextFromInput<
+      State,
+      Context,
+      Event,
+      StateMachinePatchInput<State, Context>
+    >(matchesInput, (_context, { input }) => input.patch ?? {}),
+  }
+}
+
+export function createSelfPatchTransition<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+  Input extends StateMachinePatchInput<State, Context> = StateMachinePatchInput<
+    State,
+    Context
+  >,
+>(
+  options: {
+    isInput?: (value: unknown) => value is Input
+  } = {},
+): StateMachineTransitionDefinition<State, Context, Event> {
+  const matchesInput = (options.isInput ??
+    isStateMachinePatchInput<State, Context>) as (
+    value: unknown,
+  ) => value is Input
+
+  return {
+    target: ({ from, input }) =>
+      matchesInput(input) ? (input.target ?? from) : from,
+    actions: assignContextFromInput<
+      State,
+      Context,
+      Event,
+      StateMachinePatchInput<State, Context>
+    >(matchesInput, (_context, { input }) => input.patch ?? {}),
+  }
+}
+
+export function createPatchTransitionMap<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+  Input extends StateMachinePatchInput<State, Context> = StateMachinePatchInput<
+    State,
+    Context
+  >,
+>(
+  targets: Partial<Record<Event, State>>,
+  options: {
+    isInput?: (value: unknown) => value is Input
+  } = {},
+): Partial<
+  Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+> {
+  const transitions: Partial<
+    Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+  > = {}
+
+  for (const [event, target] of Object.entries(targets) as Array<
+    [Event, State]
+  >) {
+    transitions[event] = createPatchTransition<State, Context, Event, Input>(
+      target,
+      options,
+    )
+  }
+
+  return transitions
+}
+
+export function createSelfPatchTransitionMap<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+  Input extends StateMachinePatchInput<State, Context> = StateMachinePatchInput<
+    State,
+    Context
+  >,
+>(
+  events: Event[],
+  options: {
+    isInput?: (value: unknown) => value is Input
+  } = {},
+): Partial<
+  Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+> {
+  const transitions: Partial<
+    Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+  > = {}
+
+  for (const event of events) {
+    transitions[event] = createSelfPatchTransition<
+      State,
+      Context,
+      Event,
+      Input
+    >(options)
+  }
+
+  return transitions
+}
+
+export interface RetryableStateMachineContext<State extends string> {
+  retryCount?: number
+  retryReason?: string
+  retryFromState?: State
+  lastAttempt?: number
+  lastMessage?: string
+}
+
+export interface StateMachineRetryInput<Context extends object> {
+  patch?: Partial<Context>
+  reason?: string
+  message?: string
+}
+
+export function isStateMachineRetryInput<Context extends object>(
+  value: unknown,
+): value is StateMachineRetryInput<Context> {
+  return Boolean(value && typeof value === 'object')
+}
+
+export function createRetryTransition<
+  State extends string,
+  Context extends object & RetryableStateMachineContext<State>,
+  Event extends string = string,
+  Input extends StateMachineRetryInput<Context> =
+    StateMachineRetryInput<Context>,
+>(options: {
+  target: State
+  defaultMessage: string
+  priority?: number
+  isInput?: (value: unknown) => value is Input
+}): StateMachineTransitionDefinition<State, Context, Event> {
+  const matchesInput = (options.isInput ??
+    isStateMachineRetryInput<Context>) as (value: unknown) => value is Input
+
+  return {
+    priority: options.priority ?? 100,
+    target: options.target,
+    actions: assignContext<State, Context, Event, Input>(
+      (context, { input, from }) => {
+        const retryInput = matchesInput(input) ? input : undefined
+        const nextAttempt = (context.retryCount ?? 0) + 1
+        return {
+          ...retryInput?.patch,
+          retryCount: nextAttempt,
+          retryReason: retryInput?.reason ?? context.retryReason,
+          retryFromState: from,
+          lastAttempt: nextAttempt,
+          lastMessage: retryInput?.message ?? options.defaultMessage,
+        }
+      },
+    ),
+  }
+}
+
+export interface StateMachineGuardedCaseDefinition<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+  Input = unknown,
+> extends Omit<
+  StateMachineTransitionDefinition<State, Context, Event>,
+  'guard'
+> {
+  when?: (args: { context: Context; input: Input }) => MaybePromise<boolean>
+  guard?:
+    | StateMachineTransitionGuard<State, Context, Event, Input>
+    | Array<StateMachineTransitionGuard<State, Context, Event, Input>>
+}
+
+export function createGuardedCaseTransitions<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+  Input = unknown,
+>(options: {
+  isInput: (value: unknown) => value is Input
+  cases: Array<StateMachineGuardedCaseDefinition<State, Context, Event, Input>>
+}): StateMachineTransitionDefinition<State, Context, Event>[] {
+  return options.cases.map(({ when, guard, ...definition }) => ({
+    ...definition,
+    guard: async (args) => {
+      if (!options.isInput(args.input)) {
+        return false
+      }
+
+      const typedArgs = {
+        ...args,
+        input: args.input,
+      } as StateMachineTransitionGuardArgs<State, Context, Event, Input>
+
+      if (
+        when &&
+        !(await when({ context: typedArgs.context, input: typedArgs.input }))
+      ) {
+        return false
+      }
+
+      for (const candidate of normalizeArray(guard)) {
+        if (!(await candidate(typedArgs))) {
+          return false
+        }
+      }
+
+      return true
+    },
+  }))
 }

@@ -110,7 +110,7 @@ class FakeLocator {
     state: 'visible' | 'hidden' | 'attached' | 'detached'
     timeout?: number
   }): Promise<void> {
-    const attached = this.state.attached ?? (this.state.visible ?? true)
+    const attached = this.state.attached ?? this.state.visible ?? true
     const visible = this.state.visible ?? true
     if (options.state === 'visible' && visible) return
     if (options.state === 'hidden' && !visible) return

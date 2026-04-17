@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   assignContext,
+  assignContextFromInput,
+  composeStateMachineConfig,
+  createGuardedCaseTransitions,
   createStateMachine,
+  defineStateMachineFragment,
   GuardedBranchError,
   runGuardedBranches,
 } from '../src/state-machine'
@@ -125,5 +129,112 @@ describe('state machine', () => {
         message: 'Preferred branch was not enterable.',
       },
     })
+  })
+
+  it('composes fragments and resolves guarded case transitions declaratively', async () => {
+    interface AdvanceInput {
+      mode: 'preferred' | 'fallback'
+      log: string
+    }
+
+    function isAdvanceInput(value: unknown): value is AdvanceInput {
+      if (!value || typeof value !== 'object') {
+        return false
+      }
+
+      const candidate = value as Partial<AdvanceInput>
+      return (
+        (candidate.mode === 'preferred' || candidate.mode === 'fallback') &&
+        typeof candidate.log === 'string'
+      )
+    }
+
+    const machine = createStateMachine<
+      'idle' | 'preferred' | 'fallback',
+      {
+        log: string[]
+        mode?: 'preferred' | 'fallback'
+      },
+      'advance'
+    >(
+      composeStateMachineConfig(
+        {
+          id: 'fragment.machine',
+          initialState: 'idle',
+          initialContext: {
+            log: [],
+          },
+        },
+        defineStateMachineFragment({
+          states: {
+            idle: {
+              exitActions: assignContext((context) => ({
+                log: [...context.log, 'exit-idle'],
+              })),
+            },
+          },
+        }),
+        defineStateMachineFragment({
+          on: {
+            advance: createGuardedCaseTransitions({
+              isInput: isAdvanceInput,
+              cases: [
+                {
+                  priority: 20,
+                  when: ({ input }) => input.mode === 'preferred',
+                  target: 'preferred',
+                  actions: assignContextFromInput(
+                    isAdvanceInput,
+                    (context, { input }) => ({
+                      mode: 'preferred',
+                      log: [...context.log, input.log],
+                    }),
+                  ),
+                },
+                {
+                  priority: 10,
+                  target: 'fallback',
+                  actions: assignContextFromInput(
+                    isAdvanceInput,
+                    (context, { input }) => ({
+                      mode: 'fallback',
+                      log: [...context.log, input.log],
+                    }),
+                  ),
+                },
+              ],
+            }),
+          },
+        }),
+        defineStateMachineFragment({
+          states: {
+            preferred: {
+              entryActions: assignContext((context) => ({
+                log: [...context.log, 'entry-preferred'],
+              })),
+            },
+            fallback: {
+              entryActions: assignContext((context) => ({
+                log: [...context.log, 'entry-fallback'],
+              })),
+            },
+          },
+        }),
+      ),
+    )
+
+    machine.start()
+    const snapshot = await machine.send('advance', {
+      mode: 'preferred',
+      log: 'transition-preferred',
+    })
+
+    expect(snapshot.state).toBe('preferred')
+    expect(snapshot.context.mode).toBe('preferred')
+    expect(snapshot.context.log).toEqual([
+      'exit-idle',
+      'transition-preferred',
+      'entry-preferred',
+    ])
   })
 })

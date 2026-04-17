@@ -1,9 +1,14 @@
 import type { Page } from 'patchright'
 import type { SelectorList } from '../../types'
 import {
-  assignContext,
+  assignContextFromInput,
+  composeStateMachineConfig,
+  createGuardedCaseTransitions,
+  createPatchTransitionMap,
+  createRetryTransition,
+  createSelfPatchTransitionMap,
   createStateMachine,
-  type StateMachineTransitionDefinition,
+  defineStateMachineFragment,
   type StateMachineController,
   type StateMachineSnapshot,
 } from '../../state-machine'
@@ -104,17 +109,6 @@ export interface AuthMethodResolutionInput {
   passwordMessage?: string
 }
 
-interface AuthMachineEventInput<Result = unknown> {
-  target?: AuthMachineState
-  patch?: Partial<AuthMachineContext<Result>>
-}
-
-interface AuthMachineRetryInput<Result = unknown> {
-  patch?: Partial<AuthMachineContext<Result>>
-  reason?: string
-  message?: string
-}
-
 function isAuthMethodResolutionInput(
   value: unknown,
 ): value is AuthMethodResolutionInput {
@@ -125,87 +119,108 @@ function isAuthMethodResolutionInput(
   return 'supportsPasskey' in value
 }
 
-function shouldUsePasskey<Result>({
-  context,
-  input,
-}: {
-  context: AuthMachineContext<Result>
-  input: unknown
-}): boolean {
-  return (
-    isAuthMethodResolutionInput(input) &&
-    context.preferPasskey !== false &&
-    input.supportsPasskey
-  )
+const authEventTargets = {
+  'action.started': 'opening',
+  'auth.opened': 'ready',
+  'auth.ready': 'ready',
+  'auth.email.typed': 'typing-email',
+  'auth.password.typed': 'typing-password',
+  'auth.organization.typed': 'typing-organization',
+  'auth.remember-me.checked': 'toggling-remember-me',
+  'auth.passkey.chosen': 'choosing-passkey',
+  'auth.passkey.prompted': 'waiting-passkey',
+  'auth.submitted': 'submitting',
+  'auth.after-submit.started': 'post-submit',
+  'auth.after-submit.finished': 'post-submit',
+  'auth.passkey.capture.started': 'capturing-passkey',
+  'auth.passkey.capture.finished': 'capturing-passkey',
+} as const satisfies Partial<Record<AuthMachineEvent, AuthMachineState>>
+
+const authMutableContextEvents = [
+  'context.updated',
+  'action.finished',
+] as const satisfies AuthMachineEvent[]
+
+function createAuthLifecycleFragment<Result>() {
+  return defineStateMachineFragment<
+    AuthMachineState,
+    AuthMachineContext<Result>,
+    AuthMachineEvent
+  >({
+    on: {
+      ...createPatchTransitionMap<
+        AuthMachineState,
+        AuthMachineContext<Result>,
+        AuthMachineEvent
+      >(authEventTargets),
+      'auth.retry.requested': createRetryTransition<
+        AuthMachineState,
+        AuthMachineContext<Result>,
+        AuthMachineEvent
+      >({
+        target: 'retrying',
+        defaultMessage: 'Retrying auth flow',
+      }),
+      ...createSelfPatchTransitionMap<
+        AuthMachineState,
+        AuthMachineContext<Result>,
+        AuthMachineEvent
+      >([...authMutableContextEvents]),
+    },
+  })
 }
 
-function isAuthMachineEventInput<Result>(
-  value: unknown,
-): value is AuthMachineEventInput<Result> {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-
-  return 'patch' in value || 'target' in value
-}
-
-function isAuthMachineRetryInput<Result>(
-  value: unknown,
-): value is AuthMachineRetryInput<Result> {
-  return Boolean(value && typeof value === 'object')
-}
-
-function createAuthEventTransition<Result>(
-  defaultTarget: AuthMachineState,
-): StateMachineTransitionDefinition<
-  AuthMachineState,
-  AuthMachineContext<Result>,
-  AuthMachineEvent
-> {
-  return {
-    target: ({ input }) =>
-      isAuthMachineEventInput<Result>(input)
-        ? (input.target ?? defaultTarget)
-        : defaultTarget,
-    actions: assignContext<
-      AuthMachineState,
-      AuthMachineContext<Result>,
-      AuthMachineEvent,
-      AuthMachineEventInput<Result>
-    >((_context, { input }) =>
-      isAuthMachineEventInput<Result>(input) ? (input.patch ?? {}) : {},
-    ),
-  }
-}
-
-function createAuthRetryTransition<Result>(): StateMachineTransitionDefinition<
-  AuthMachineState,
-  AuthMachineContext<Result>,
-  AuthMachineEvent
-> {
-  return {
-    priority: 100,
-    target: 'retrying',
-    actions: assignContext<
-      AuthMachineState,
-      AuthMachineContext<Result>,
-      AuthMachineEvent,
-      AuthMachineRetryInput<Result>
-    >((context, { input, from }) => {
-      const retryInput = isAuthMachineRetryInput<Result>(input)
-        ? input
-        : undefined
-      const nextAttempt = (context.retryCount ?? 0) + 1
-      return {
-        ...retryInput?.patch,
-        retryCount: nextAttempt,
-        retryReason: retryInput?.reason ?? context.retryReason,
-        retryFromState: from,
-        lastAttempt: nextAttempt,
-        lastMessage: retryInput?.message ?? 'Retrying auth flow',
-      }
-    }),
-  }
+function createAuthMethodResolutionFragment<Result>() {
+  return defineStateMachineFragment<
+    AuthMachineState,
+    AuthMachineContext<Result>,
+    AuthMachineEvent
+  >({
+    on: {
+      'auth.method.resolved': createGuardedCaseTransitions<
+        AuthMachineState,
+        AuthMachineContext<Result>,
+        AuthMachineEvent,
+        AuthMethodResolutionInput
+      >({
+        isInput: isAuthMethodResolutionInput,
+        cases: [
+          {
+            priority: 20,
+            when: ({ context, input }) =>
+              context.preferPasskey !== false && input.supportsPasskey,
+            target: 'choosing-passkey',
+            actions: assignContextFromInput<
+              AuthMachineState,
+              AuthMachineContext<Result>,
+              AuthMachineEvent,
+              AuthMethodResolutionInput
+            >(isAuthMethodResolutionInput, (currentContext, { input }) => ({
+              method: 'passkey',
+              lastSelectors:
+                input.passkeySelectors ?? currentContext.lastSelectors,
+              lastMessage: input.passkeyMessage || 'Trying passkey login',
+            })),
+          },
+          {
+            priority: 10,
+            target: 'typing-email',
+            actions: assignContextFromInput<
+              AuthMachineState,
+              AuthMachineContext<Result>,
+              AuthMachineEvent,
+              AuthMethodResolutionInput
+            >(isAuthMethodResolutionInput, (currentContext, { input }) => ({
+              method: 'password',
+              lastSelectors:
+                input.emailSelectors ?? currentContext.lastSelectors,
+              lastMessage: input.passwordMessage || 'Typing login email',
+            })),
+          },
+        ],
+      }),
+    },
+  })
 }
 
 function buildBaseMachine<Result>(
@@ -217,106 +232,20 @@ function buildBaseMachine<Result>(
     AuthMachineState,
     AuthMachineContext<Result>,
     AuthMachineEvent
-  >({
-    id,
-    initialState: 'idle',
-    initialContext: {
-      kind,
-      ...context,
-    } as AuthMachineContext<Result>,
-    on: {
-      'action.started': createAuthEventTransition<Result>('opening'),
-      'auth.opened': createAuthEventTransition<Result>('ready'),
-      'auth.ready': createAuthEventTransition<Result>('ready'),
-      'auth.retry.requested': createAuthRetryTransition<Result>(),
-      'auth.email.typed': createAuthEventTransition<Result>('typing-email'),
-      'auth.password.typed':
-        createAuthEventTransition<Result>('typing-password'),
-      'auth.organization.typed': createAuthEventTransition<Result>(
-        'typing-organization',
-      ),
-      'auth.remember-me.checked': createAuthEventTransition<Result>(
-        'toggling-remember-me',
-      ),
-      'auth.method.resolved': [
-        {
-          priority: 20,
-          guard: ({ context: currentContext, input }) =>
-            shouldUsePasskey<Result>({
-              context: currentContext,
-              input,
-            }),
-          target: 'choosing-passkey',
-          actions: assignContext<
-            AuthMachineState,
-            AuthMachineContext<Result>,
-            AuthMachineEvent,
-            AuthMethodResolutionInput
-          >((currentContext, { input }) => ({
-            method: 'passkey',
-            lastSelectors:
-              input.passkeySelectors ?? currentContext.lastSelectors,
-            lastMessage: input.passkeyMessage || 'Trying passkey login',
-          })),
-        },
-        {
-          priority: 10,
-          target: 'typing-email',
-          actions: assignContext<
-            AuthMachineState,
-            AuthMachineContext<Result>,
-            AuthMachineEvent,
-            AuthMethodResolutionInput
-          >((currentContext, { input }) => ({
-            method: 'password',
-            lastSelectors: input.emailSelectors ?? currentContext.lastSelectors,
-            lastMessage: input.passwordMessage || 'Typing login email',
-          })),
-        },
-      ],
-      'auth.passkey.chosen':
-        createAuthEventTransition<Result>('choosing-passkey'),
-      'auth.passkey.prompted':
-        createAuthEventTransition<Result>('waiting-passkey'),
-      'auth.submitted': createAuthEventTransition<Result>('submitting'),
-      'auth.after-submit.started':
-        createAuthEventTransition<Result>('post-submit'),
-      'auth.after-submit.finished':
-        createAuthEventTransition<Result>('post-submit'),
-      'auth.passkey.capture.started':
-        createAuthEventTransition<Result>('capturing-passkey'),
-      'auth.passkey.capture.finished':
-        createAuthEventTransition<Result>('capturing-passkey'),
-      'context.updated': {
-        target: ({ from, input }) =>
-          isAuthMachineEventInput<Result>(input)
-            ? (input.target ?? from)
-            : from,
-        actions: assignContext<
-          AuthMachineState,
-          AuthMachineContext<Result>,
-          AuthMachineEvent,
-          AuthMachineEventInput<Result>
-        >((_context, { input }) =>
-          isAuthMachineEventInput<Result>(input) ? (input.patch ?? {}) : {},
-        ),
+  >(
+    composeStateMachineConfig(
+      {
+        id,
+        initialState: 'idle',
+        initialContext: {
+          kind,
+          ...context,
+        } as AuthMachineContext<Result>,
       },
-      'action.finished': {
-        target: ({ from, input }) =>
-          isAuthMachineEventInput<Result>(input)
-            ? (input.target ?? from)
-            : from,
-        actions: assignContext<
-          AuthMachineState,
-          AuthMachineContext<Result>,
-          AuthMachineEvent,
-          AuthMachineEventInput<Result>
-        >((_context, { input }) =>
-          isAuthMachineEventInput<Result>(input) ? (input.patch ?? {}) : {},
-        ),
-      },
-    },
-  })
+      createAuthLifecycleFragment<Result>(),
+      createAuthMethodResolutionFragment<Result>(),
+    ),
+  )
 }
 
 export function createLoginMachine(

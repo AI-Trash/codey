@@ -1,7 +1,7 @@
 import type { Page } from 'patchright'
 import { clickAny, clickIfPresent, typeIfPresent } from '../common/form-actions'
 import type {
-  VerificationCodeStreamEvent,
+  VerificationCodeUpdateEvent,
   VerificationProvider,
 } from '../verification'
 import { sleep } from '../../utils/wait'
@@ -179,7 +179,7 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
     startedAt: string
     timeoutMs: number
     currentCode: string
-    onCodeUpdate?: (event: VerificationCodeStreamEvent) => void | Promise<void>
+    onCodeUpdate?: (event: VerificationCodeUpdateEvent) => void | Promise<void>
   },
 ): Promise<string> {
   if (!options.verificationProvider.streamVerificationEvents) {

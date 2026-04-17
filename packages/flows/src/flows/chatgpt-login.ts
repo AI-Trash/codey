@@ -2,11 +2,16 @@ import type { Page } from 'patchright'
 import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
 import {
-  assignContext,
+  assignContextFromInput,
+  composeStateMachineConfig,
+  createGuardedCaseTransitions,
+  createPatchTransitionMap,
+  createRetryTransition,
+  createSelfPatchTransitionMap,
   createStateMachine,
+  defineStateMachineFragment,
   GuardedBranchError,
   runGuardedBranches,
-  type StateMachineTransitionDefinition,
 } from '../state-machine'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
 import {
@@ -186,37 +191,17 @@ export interface ChatGPTStoredLoginResult {
   verificationCode?: string
 }
 
-interface ChatGPTLoginMachineEventInput<Result = unknown> {
-  target?: ChatGPTLoginFlowState
-  patch?: Partial<ChatGPTLoginFlowContext<Result>>
-}
-
-interface ChatGPTLoginRetryInput<Result = unknown> {
-  patch?: Partial<ChatGPTLoginFlowContext<Result>>
-  reason?: string
-  message?: string
+interface StoredLoginBranchResolution {
+  method: 'passkey' | 'password' | 'verification'
+  assertionObserved: boolean
+  passkeyStore: VirtualPasskeyStore
+  verificationCode?: string
 }
 
 interface ChatGPTLoginEmailSubmittedInput<Result = unknown> {
   step: ChatGPTPostEmailLoginStep
   url: string
   patch?: Partial<ChatGPTLoginFlowContext<Result>>
-}
-
-function isChatGPTLoginMachineEventInput<Result>(
-  value: unknown,
-): value is ChatGPTLoginMachineEventInput<Result> {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-
-  return 'patch' in value || 'target' in value
-}
-
-function isChatGPTLoginRetryInput<Result>(
-  value: unknown,
-): value is ChatGPTLoginRetryInput<Result> {
-  return Boolean(value && typeof value === 'object')
 }
 
 function isChatGPTLoginEmailSubmittedInput<Result>(
@@ -230,161 +215,160 @@ function isChatGPTLoginEmailSubmittedInput<Result>(
   return typeof candidate.step === 'string' && typeof candidate.url === 'string'
 }
 
-function createChatGPTLoginEventTransition<Result>(
-  defaultTarget: ChatGPTLoginFlowState,
-): StateMachineTransitionDefinition<
-  ChatGPTLoginFlowState,
-  ChatGPTLoginFlowContext<Result>,
-  ChatGPTLoginFlowEvent
-> {
-  return {
-    target: ({ input }) =>
-      isChatGPTLoginMachineEventInput<Result>(input)
-        ? (input.target ?? defaultTarget)
-        : defaultTarget,
-    actions: assignContext<
-      ChatGPTLoginFlowState,
-      ChatGPTLoginFlowContext<Result>,
-      ChatGPTLoginFlowEvent,
-      ChatGPTLoginMachineEventInput<Result>
-    >((_context, { input }) =>
-      isChatGPTLoginMachineEventInput<Result>(input) ? (input.patch ?? {}) : {},
-    ),
-  }
-}
+const chatgptLoginEventTargets = {
+  'chatgpt.entry.opened': 'opening-entry',
+  'chatgpt.authenticated': 'authenticated',
+  'chatgpt.login.surface.ready': 'login-surface',
+  'chatgpt.email.started': 'email-step',
+  'chatgpt.password.started': 'password-step',
+  'chatgpt.passkey.login.started': 'passkey-login',
+  'chatgpt.verification.polling': 'verification-polling',
+  'chatgpt.verification.code-found': 'verification-code-entry',
+  'chatgpt.verification.submitted': 'verification-code-entry',
+  'chatgpt.age-gate.started': 'age-gate',
+  'chatgpt.age-gate.completed': 'age-gate',
+  'chatgpt.home.waiting': 'post-signup-home',
+  'chatgpt.security.started': 'security-settings',
+  'chatgpt.passkey.provisioning': 'passkey-provisioning',
+  'chatgpt.identity.persisting': 'persisting-identity',
+  'chatgpt.same-session-passkey-check.started': 'same-session-passkey-check',
+  'chatgpt.same-session-passkey-check.completed': 'same-session-passkey-check',
+} as const satisfies Partial<
+  Record<ChatGPTLoginFlowEvent, ChatGPTLoginFlowState>
+>
 
-function createChatGPTLoginRetryTransition<
-  Result,
->(): StateMachineTransitionDefinition<
-  ChatGPTLoginFlowState,
-  ChatGPTLoginFlowContext<Result>,
-  ChatGPTLoginFlowEvent
-> {
-  return {
-    priority: 100,
-    target: 'retrying',
-    actions: assignContext<
-      ChatGPTLoginFlowState,
-      ChatGPTLoginFlowContext<Result>,
-      ChatGPTLoginFlowEvent,
-      ChatGPTLoginRetryInput<Result>
-    >((context, { input, from }) => {
-      const retryInput = isChatGPTLoginRetryInput<Result>(input)
-        ? input
-        : undefined
-      const nextAttempt = (context.retryCount ?? 0) + 1
-      return {
-        ...retryInput?.patch,
-        retryCount: nextAttempt,
-        retryReason: retryInput?.reason ?? context.retryReason,
-        retryFromState: from,
-        lastAttempt: nextAttempt,
-        lastMessage: retryInput?.message ?? 'Retrying ChatGPT login',
-      }
-    }),
-  }
-}
+const chatgptLoginMutableContextEvents = [
+  'context.updated',
+  'action.started',
+  'action.finished',
+] as const satisfies ChatGPTLoginFlowEvent[]
 
-function createChatGPTLoginEmailSubmittedTransitions<
-  Result,
->(): StateMachineTransitionDefinition<
-  ChatGPTLoginFlowState,
-  ChatGPTLoginFlowContext<Result>,
-  ChatGPTLoginFlowEvent
->[] {
+function createChatGPTLoginEmailSubmittedTransitions<Result>() {
   const assignPostEmailContext = (
     lastMessage: string,
     extras: Partial<ChatGPTLoginFlowContext<Result>> = {},
   ) =>
-    assignContext<
+    assignContextFromInput<
       ChatGPTLoginFlowState,
       ChatGPTLoginFlowContext<Result>,
       ChatGPTLoginFlowEvent,
       ChatGPTLoginEmailSubmittedInput<Result>
-    >((_context, { input }) =>
-      isChatGPTLoginEmailSubmittedInput<Result>(input)
-        ? {
+    >(isChatGPTLoginEmailSubmittedInput, (_context, { input }) => ({
+      ...input.patch,
+      ...extras,
+      postEmailStep: input.step,
+      url: input.url,
+      lastMessage,
+    }))
+
+  return createGuardedCaseTransitions<
+    ChatGPTLoginFlowState,
+    ChatGPTLoginFlowContext<Result>,
+    ChatGPTLoginFlowEvent,
+    ChatGPTLoginEmailSubmittedInput<Result>
+  >({
+    isInput: isChatGPTLoginEmailSubmittedInput,
+    cases: [
+      {
+        priority: 60,
+        when: ({ input }) => input.step === 'authenticated',
+        target: 'authenticated',
+        actions: assignPostEmailContext('Authenticated after email submission'),
+      },
+      {
+        priority: 50,
+        when: ({ input }) => input.step === 'password',
+        target: 'password-step',
+        actions: assignPostEmailContext(
+          'Password step detected after email submission',
+        ),
+      },
+      {
+        priority: 40,
+        when: ({ input }) => input.step === 'verification',
+        target: 'verification-polling',
+        actions: assignPostEmailContext(
+          'Verification step detected after email submission',
+          {
+            method: 'verification',
+          },
+        ),
+      },
+      {
+        priority: 30,
+        when: ({ input }) => input.step === 'retry',
+        target: 'retrying',
+        actions: assignContextFromInput<
+          ChatGPTLoginFlowState,
+          ChatGPTLoginFlowContext<Result>,
+          ChatGPTLoginFlowEvent,
+          ChatGPTLoginEmailSubmittedInput<Result>
+        >(isChatGPTLoginEmailSubmittedInput, (context, { input, from }) => {
+          const nextAttempt = (context.retryCount ?? 0) + 1
+          return {
             ...input.patch,
-            ...extras,
             postEmailStep: input.step,
             url: input.url,
-            lastMessage,
+            retryCount: nextAttempt,
+            retryReason: 'post-email:retry',
+            retryFromState: from,
+            lastAttempt: nextAttempt,
+            lastMessage: 'Retry step detected after email submission',
           }
-        : {},
-    )
+        }),
+      },
+      {
+        priority: 20,
+        when: ({ input }) => input.step === 'passkey',
+        target: 'passkey-login',
+        actions: assignPostEmailContext(
+          'Passkey step detected after email submission',
+        ),
+      },
+    ],
+  })
+}
 
-  return [
-    {
-      priority: 60,
-      guard: ({ input }) =>
-        isChatGPTLoginEmailSubmittedInput<Result>(input) &&
-        input.step === 'authenticated',
-      target: 'authenticated',
-      actions: assignPostEmailContext('Authenticated after email submission'),
-    },
-    {
-      priority: 50,
-      guard: ({ input }) =>
-        isChatGPTLoginEmailSubmittedInput<Result>(input) &&
-        input.step === 'password',
-      target: 'password-step',
-      actions: assignPostEmailContext(
-        'Password step detected after email submission',
-      ),
-    },
-    {
-      priority: 40,
-      guard: ({ input }) =>
-        isChatGPTLoginEmailSubmittedInput<Result>(input) &&
-        input.step === 'verification',
-      target: 'verification-polling',
-      actions: assignPostEmailContext(
-        'Verification step detected after email submission',
-        {
-          method: 'verification',
-        },
-      ),
-    },
-    {
-      priority: 30,
-      guard: ({ input }) =>
-        isChatGPTLoginEmailSubmittedInput<Result>(input) &&
-        input.step === 'retry',
-      target: 'retrying',
-      actions: assignContext<
+function createChatGPTLoginLifecycleFragment<Result>() {
+  return defineStateMachineFragment<
+    ChatGPTLoginFlowState,
+    ChatGPTLoginFlowContext<Result>,
+    ChatGPTLoginFlowEvent
+  >({
+    on: {
+      ...createPatchTransitionMap<
         ChatGPTLoginFlowState,
         ChatGPTLoginFlowContext<Result>,
-        ChatGPTLoginFlowEvent,
-        ChatGPTLoginEmailSubmittedInput<Result>
-      >((context, { input, from }) => {
-        if (!isChatGPTLoginEmailSubmittedInput<Result>(input)) {
-          return {}
-        }
-
-        const nextAttempt = (context.retryCount ?? 0) + 1
-        return {
-          ...input.patch,
-          postEmailStep: input.step,
-          url: input.url,
-          retryCount: nextAttempt,
-          retryReason: 'post-email:retry',
-          retryFromState: from,
-          lastAttempt: nextAttempt,
-          lastMessage: 'Retry step detected after email submission',
-        }
+        ChatGPTLoginFlowEvent
+      >(chatgptLoginEventTargets),
+      'chatgpt.retry.requested': createRetryTransition<
+        ChatGPTLoginFlowState,
+        ChatGPTLoginFlowContext<Result>,
+        ChatGPTLoginFlowEvent
+      >({
+        target: 'retrying',
+        defaultMessage: 'Retrying ChatGPT login',
       }),
+      ...createSelfPatchTransitionMap<
+        ChatGPTLoginFlowState,
+        ChatGPTLoginFlowContext<Result>,
+        ChatGPTLoginFlowEvent
+      >([...chatgptLoginMutableContextEvents]),
     },
-    {
-      priority: 20,
-      guard: ({ input }) =>
-        isChatGPTLoginEmailSubmittedInput<Result>(input) &&
-        input.step === 'passkey',
-      target: 'passkey-login',
-      actions: assignPostEmailContext(
-        'Passkey step detected after email submission',
-      ),
+  })
+}
+
+function createChatGPTLoginPostEmailFragment<Result>() {
+  return defineStateMachineFragment<
+    ChatGPTLoginFlowState,
+    ChatGPTLoginFlowContext<Result>,
+    ChatGPTLoginFlowEvent
+  >({
+    on: {
+      'chatgpt.email.submitted':
+        createChatGPTLoginEmailSubmittedTransitions<Result>(),
     },
-  ]
+  })
 }
 
 export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult> {
@@ -392,130 +376,20 @@ export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLogi
     ChatGPTLoginFlowState,
     ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
     ChatGPTLoginFlowEvent
-  >({
-    id: 'flow.chatgpt.login',
-    initialState: 'idle',
-    initialContext: {
-      kind: 'chatgpt-login',
-    },
-    historyLimit: 200,
-    on: {
-      'chatgpt.entry.opened':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'opening-entry',
-        ),
-      'chatgpt.authenticated':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'authenticated',
-        ),
-      'chatgpt.login.surface.ready':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'login-surface',
-        ),
-      'chatgpt.email.started':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>('email-step'),
-      'chatgpt.email.submitted':
-        createChatGPTLoginEmailSubmittedTransitions<ChatGPTLoginFlowResult>(),
-      'chatgpt.password.started':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'password-step',
-        ),
-      'chatgpt.passkey.login.started':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'passkey-login',
-        ),
-      'chatgpt.verification.polling':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'verification-polling',
-        ),
-      'chatgpt.verification.code-found':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'verification-code-entry',
-        ),
-      'chatgpt.verification.submitted':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'verification-code-entry',
-        ),
-      'chatgpt.age-gate.started':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>('age-gate'),
-      'chatgpt.age-gate.completed':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>('age-gate'),
-      'chatgpt.home.waiting':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'post-signup-home',
-        ),
-      'chatgpt.security.started':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'security-settings',
-        ),
-      'chatgpt.passkey.provisioning':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'passkey-provisioning',
-        ),
-      'chatgpt.identity.persisting':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'persisting-identity',
-        ),
-      'chatgpt.same-session-passkey-check.started':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'same-session-passkey-check',
-        ),
-      'chatgpt.same-session-passkey-check.completed':
-        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
-          'same-session-passkey-check',
-        ),
-      'chatgpt.retry.requested':
-        createChatGPTLoginRetryTransition<ChatGPTLoginFlowResult>(),
-      'context.updated': {
-        target: ({ from, input }) =>
-          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
-            ? (input.target ?? from)
-            : from,
-        actions: assignContext<
-          ChatGPTLoginFlowState,
-          ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
-          ChatGPTLoginFlowEvent,
-          ChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>
-        >((_context, { input }) =>
-          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
-            ? (input.patch ?? {})
-            : {},
-        ),
+  >(
+    composeStateMachineConfig(
+      {
+        id: 'flow.chatgpt.login',
+        initialState: 'idle',
+        initialContext: {
+          kind: 'chatgpt-login',
+        },
+        historyLimit: 200,
       },
-      'action.started': {
-        target: ({ from, input }) =>
-          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
-            ? (input.target ?? from)
-            : from,
-        actions: assignContext<
-          ChatGPTLoginFlowState,
-          ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
-          ChatGPTLoginFlowEvent,
-          ChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>
-        >((_context, { input }) =>
-          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
-            ? (input.patch ?? {})
-            : {},
-        ),
-      },
-      'action.finished': {
-        target: ({ from, input }) =>
-          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
-            ? (input.target ?? from)
-            : from,
-        actions: assignContext<
-          ChatGPTLoginFlowState,
-          ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
-          ChatGPTLoginFlowEvent,
-          ChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>
-        >((_context, { input }) =>
-          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
-            ? (input.patch ?? {})
-            : {},
-        ),
-      },
-    },
-  })
+      createChatGPTLoginLifecycleFragment<ChatGPTLoginFlowResult>(),
+      createChatGPTLoginPostEmailFragment<ChatGPTLoginFlowResult>(),
+    ),
+  )
 }
 
 async function sendLoginMachine(
@@ -792,7 +666,18 @@ async function triggerStoredPasskeyLogin(
     const config = getRuntimeConfig()
     let verificationProvider: VerificationProvider | undefined
     return (
-      await runGuardedBranches(
+      await runGuardedBranches<
+        {
+          email: string
+          preferPasskey: boolean
+          hasPasskey: boolean
+        },
+        {
+          postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
+        },
+        StoredLoginBranchResolution,
+        'authenticated' | 'password' | 'verification' | 'retry' | 'passkey'
+      >(
         [
           {
             branch: 'authenticated' as const,

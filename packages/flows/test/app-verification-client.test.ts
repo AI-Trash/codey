@@ -7,10 +7,7 @@ describe('AppVerificationProviderClient', () => {
   })
 
   it('reads the ChatGPT code from the email subject before trusting the server code field', async () => {
-    const fetchMock = vi.fn<
-      Parameters<typeof fetch>,
-      ReturnType<typeof fetch>
-    >()
+    const fetchMock = vi.fn<typeof fetch>()
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -78,10 +75,7 @@ describe('AppVerificationProviderClient', () => {
   })
 
   it('can resolve from the subject even when the endpoint stays pending', async () => {
-    const fetchMock = vi.fn<
-      Parameters<typeof fetch>,
-      ReturnType<typeof fetch>
-    >()
+    const fetchMock = vi.fn<typeof fetch>()
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -147,10 +141,7 @@ describe('AppVerificationProviderClient', () => {
   })
 
   it('prefers a manually updated server code over stale email content', async () => {
-    const fetchMock = vi.fn<
-      Parameters<typeof fetch>,
-      ReturnType<typeof fetch>
-    >()
+    const fetchMock = vi.fn<typeof fetch>()
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -220,10 +211,7 @@ describe('AppVerificationProviderClient', () => {
   })
 
   it('falls back to the English email body when the subject does not contain the code', async () => {
-    const fetchMock = vi.fn<
-      Parameters<typeof fetch>,
-      ReturnType<typeof fetch>
-    >()
+    const fetchMock = vi.fn<typeof fetch>()
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -289,10 +277,7 @@ describe('AppVerificationProviderClient', () => {
   })
 
   it('falls back to a trailing Chinese code when the message is still pending', async () => {
-    const fetchMock = vi.fn<
-      Parameters<typeof fetch>,
-      ReturnType<typeof fetch>
-    >()
+    const fetchMock = vi.fn<typeof fetch>()
     fetchMock
       .mockResolvedValueOnce(
         new Response(
@@ -358,10 +343,7 @@ describe('AppVerificationProviderClient', () => {
   })
 
   it('can sync a managed identity to the Codey app', async () => {
-    const fetchMock = vi.fn<
-      Parameters<typeof fetch>,
-      ReturnType<typeof fetch>
-    >()
+    const fetchMock = vi.fn<typeof fetch>()
     fetchMock
       .mockResolvedValueOnce(
         new Response(
