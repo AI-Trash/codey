@@ -145,9 +145,8 @@ export default {
     const url = resolveFetchRequestUrl(req);
 
     try {
-      return await paraglideMiddleware(req, async ({ request }) =>
-        fetchOidcHandler(request),
-      );
+      // Keep Paraglide locale context, but preserve the original Node-backed request for OIDC POST bodies.
+      return await paraglideMiddleware(req, async () => fetchOidcHandler(req));
     } catch (error) {
       return jsonResponse(
         {
