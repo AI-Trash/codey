@@ -61,7 +61,7 @@ export class ExchangeVerificationProvider implements VerificationProvider {
 
     while (Date.now() < deadline) {
       attempt += 1
-      options.onPollAttempt?.(attempt)
+      await options.onPollAttempt?.(attempt)
 
       const messages = await this.client.findMessages({
         maxItems: 50,

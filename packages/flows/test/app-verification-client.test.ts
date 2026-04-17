@@ -188,7 +188,8 @@ describe('AppVerificationProviderClient', () => {
             emails: [
               {
                 subject: 'ChatGPT verification code 123456',
-                htmlBody: '<p>Your verification code is <strong>123456</strong>.</p>',
+                htmlBody:
+                  '<p>Your verification code is <strong>123456</strong>.</p>',
                 receivedAt: '2026-04-16T06:36:35.000Z',
               },
             ],

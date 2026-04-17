@@ -13,6 +13,8 @@ export const CHATGPT_LOGIN_URL =
   'https://auth.openai.com/log-in-or-create-account'
 export const CHATGPT_OAUTH_LOGIN_URL =
   'https://auth.openai.com/api/accounts/login'
+export const CHATGPT_OAUTH_AUTHORIZE_URL =
+  'https://auth.openai.com/oauth/authorize'
 export const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security'
 export const ADULT_AGE = '25'
 export const ADULT_BIRTHDAY = '1999-01-01'
@@ -27,7 +29,8 @@ export function isChatGPTLoginUrl(url: string): boolean {
   return (
     url.startsWith(CHATGPT_ENTRY_LOGIN_URL) ||
     url.startsWith(CHATGPT_LOGIN_URL) ||
-    url.startsWith(CHATGPT_OAUTH_LOGIN_URL)
+    url.startsWith(CHATGPT_OAUTH_LOGIN_URL) ||
+    url.startsWith(CHATGPT_OAUTH_AUTHORIZE_URL)
   )
 }
 
@@ -48,13 +51,23 @@ export const VERIFICATION_CODE_INPUT_SELECTORS: SelectorTarget[] = [
   'input[id*="code"]',
 ]
 export const PASSWORD_TIMEOUT_ERROR_SELECTORS: SelectorTarget[] = [
+  {
+    role: 'heading',
+    options: { name: /糟糕，出错了！|oops[,，]?\s*an error occurred/i },
+  },
   { text: /糟糕，出错了！|oops[,，]?\s*an error occurred/i },
+  { text: /request id|请求\s*id|请求编号/i },
   { text: /operation timed out/i },
   'div:has-text("Operation timed out")',
 ]
+export const PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN =
+  /糟糕，出错了！|oops[,，]?\s*an error occurred!?/i
 export const PASSWORD_TIMEOUT_RETRY_SELECTORS: SelectorTarget[] = [
-  { role: 'button', options: { name: /重试|try again/i } },
-  { text: /重试|try again/i },
+  {
+    role: 'button',
+    options: { name: /重试|再次提交|重新提交|try again|retry|resubmit/i },
+  },
+  { text: /重试|再次提交|重新提交|try again|retry|resubmit/i },
   'button[data-dd-action-name="Try again"]',
 ]
 export const REGISTRATION_EMAIL_SELECTORS: SelectorTarget[] = [
@@ -486,7 +499,9 @@ export function extractChatGPTVerificationCodeFromBody(
     return trailingCode
   }
 
-  const uniqueCodes = Array.from(compact.matchAll(CHATGPT_ISOLATED_CODE_PATTERN))
+  const uniqueCodes = Array.from(
+    compact.matchAll(CHATGPT_ISOLATED_CODE_PATTERN),
+  )
     .map((match) => normalizeVerificationCandidate(match[1]))
     .filter((code): code is string => Boolean(code))
   const deduplicatedCodes = Array.from(new Set(uniqueCodes))

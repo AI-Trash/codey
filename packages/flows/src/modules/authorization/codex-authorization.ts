@@ -90,10 +90,12 @@ export async function createAuthorizationCallbackCapture(
   let resolveResult!: (payload: AuthorizationCallbackPayload) => void
   let rejectResult!: (error: Error) => void
 
-  const result = new Promise<AuthorizationCallbackPayload>((resolve, reject) => {
-    resolveResult = resolve
-    rejectResult = reject
-  })
+  const result = new Promise<AuthorizationCallbackPayload>(
+    (resolve, reject) => {
+      resolveResult = resolve
+      rejectResult = reject
+    },
+  )
 
   const cleanup = async () => {
     if (cleanedUp) return
@@ -224,7 +226,10 @@ export async function runAuthorizationCodeFlow(
     throw new Error('startUrl is required')
   }
 
-  const callbackCapture = await createAuthorizationCallbackCapture(page, callback)
+  const callbackCapture = await createAuthorizationCallbackCapture(
+    page,
+    callback,
+  )
 
   try {
     await page.goto(startUrl, { waitUntil: 'domcontentloaded' })

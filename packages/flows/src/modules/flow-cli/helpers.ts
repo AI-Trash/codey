@@ -3,10 +3,7 @@ import {
   setRuntimeConfig,
   type CliRuntimeConfig,
 } from '../../config'
-import type {
-  MachineStatus,
-  StateMachineController,
-} from '../../state-machine'
+import type { MachineStatus, StateMachineController } from '../../state-machine'
 
 export interface CommonOptions {
   config?: string
@@ -257,7 +254,9 @@ function appendSummaryLine(
   lines.push(`${label}: ${formatted}`)
 }
 
-function formatInviteCounts(result: Record<string, unknown>): string | undefined {
+function formatInviteCounts(
+  result: Record<string, unknown>,
+): string | undefined {
   const requested = asStringArray(result.requestedEmails)?.length
   const invited = asStringArray(result.invitedEmails)?.length
   const skipped = asStringArray(result.skippedEmails)?.length
@@ -291,7 +290,11 @@ export function formatFlowCompletionSummary(
     appendSummaryLine(
       lines,
       'passkey',
-      formatBooleanLabel(asBoolean(record.passkeyCreated), 'created', 'not created'),
+      formatBooleanLabel(
+        asBoolean(record.passkeyCreated),
+        'created',
+        'not created',
+      ),
     )
     appendSummaryLine(
       lines,
@@ -321,7 +324,11 @@ export function formatFlowCompletionSummary(
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))
     appendSummaryLine(lines, 'strategy', invites?.strategy)
-    appendSummaryLine(lines, 'invites', invites ? formatInviteCounts(invites) : undefined)
+    appendSummaryLine(
+      lines,
+      'invites',
+      invites ? formatInviteCounts(invites) : undefined,
+    )
     appendSummaryLine(lines, 'page', record.url)
     return lines.join('\n')
   }
@@ -357,7 +364,10 @@ export function formatFlowProgressUpdate(
     return undefined
   }
 
-  let body = typeof update.message === 'string' ? sanitizeSummaryString(update.message) : undefined
+  let body =
+    typeof update.message === 'string'
+      ? sanitizeSummaryString(update.message)
+      : undefined
 
   if (!body && update.event && update.event !== 'machine.started') {
     body = update.event
@@ -420,9 +430,13 @@ export function attachStateMachineProgressReporter<
       state: snapshot.state,
       event: snapshot.lastEvent,
       message:
-        typeof context?.lastMessage === 'string' ? context.lastMessage : undefined,
+        typeof context?.lastMessage === 'string'
+          ? context.lastMessage
+          : undefined,
       attempt:
-        typeof context?.lastAttempt === 'number' ? context.lastAttempt : undefined,
+        typeof context?.lastAttempt === 'number'
+          ? context.lastAttempt
+          : undefined,
       error: snapshot.error?.message,
     })
   })

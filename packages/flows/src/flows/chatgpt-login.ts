@@ -1,7 +1,11 @@
 import type { Page } from 'patchright'
 import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
-import { createStateMachine } from '../state-machine'
+import {
+  assignContext,
+  createStateMachine,
+  type StateMachineTransitionDefinition,
+} from '../state-machine'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
 import {
   resolveStoredChatGPTIdentity,
@@ -70,6 +74,7 @@ export type ChatGPTLoginFlowState =
   | 'same-session-passkey-check'
   | 'login-surface'
   | 'passkey-login'
+  | 'retrying'
   | 'authenticated'
   | 'completed'
   | 'failed'
@@ -94,6 +99,7 @@ export type ChatGPTLoginFlowEvent =
   | 'chatgpt.same-session-passkey-check.completed'
   | 'chatgpt.login.surface.ready'
   | 'chatgpt.passkey.login.started'
+  | 'chatgpt.retry.requested'
   | 'chatgpt.authenticated'
   | 'chatgpt.completed'
   | 'chatgpt.failed'
@@ -112,23 +118,25 @@ export interface ChatGPTLoginFlowContext<Result = unknown> {
   passkeyStore?: VirtualPasskeyStore
   assertionObserved?: boolean
   storedIdentity?: StoredChatGPTIdentitySummary
+  retryCount?: number
+  retryReason?: string
+  retryFromState?: ChatGPTLoginFlowState
+  lastAttempt?: number
   lastMessage?: string
   result?: Result
 }
 
-export type ChatGPTLoginFlowMachine<Result = unknown> =
-  StateMachineController<
-    ChatGPTLoginFlowState,
-    ChatGPTLoginFlowContext<Result>,
-    ChatGPTLoginFlowEvent
-  >
+export type ChatGPTLoginFlowMachine<Result = unknown> = StateMachineController<
+  ChatGPTLoginFlowState,
+  ChatGPTLoginFlowContext<Result>,
+  ChatGPTLoginFlowEvent
+>
 
-export type ChatGPTLoginFlowSnapshot<Result = unknown> =
-  StateMachineSnapshot<
-    ChatGPTLoginFlowState,
-    ChatGPTLoginFlowContext<Result>,
-    ChatGPTLoginFlowEvent
-  >
+export type ChatGPTLoginFlowSnapshot<Result = unknown> = StateMachineSnapshot<
+  ChatGPTLoginFlowState,
+  ChatGPTLoginFlowContext<Result>,
+  ChatGPTLoginFlowEvent
+>
 
 export interface ChatGPTLoginFlowOptions {
   identityId?: string
@@ -151,6 +159,17 @@ export interface ChatGPTLoginFlowResult {
 
 type ChatGPTLoginSurfaceStrategy = 'open-entry' | 'current-page'
 
+interface ChatGPTStoredLoginRetryCallbacks {
+  onEmailRetry?: (
+    attempt: number,
+    reason: 'retry' | 'timeout',
+  ) => void | Promise<void>
+  onPasskeyRetry?: (
+    attempt: number,
+    trigger: 'retry' | 'passkey',
+  ) => void | Promise<void>
+}
+
 export interface ChatGPTStoredLoginResult {
   email: string
   storedIdentity: StoredChatGPTIdentitySummary
@@ -159,6 +178,88 @@ export interface ChatGPTStoredLoginResult {
   assertionObserved: boolean
   passkeyStore: VirtualPasskeyStore
   verificationCode?: string
+}
+
+interface ChatGPTLoginMachineEventInput<Result = unknown> {
+  target?: ChatGPTLoginFlowState
+  patch?: Partial<ChatGPTLoginFlowContext<Result>>
+}
+
+interface ChatGPTLoginRetryInput<Result = unknown> {
+  patch?: Partial<ChatGPTLoginFlowContext<Result>>
+  reason?: string
+  message?: string
+}
+
+function isChatGPTLoginMachineEventInput<Result>(
+  value: unknown,
+): value is ChatGPTLoginMachineEventInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return 'patch' in value || 'target' in value
+}
+
+function isChatGPTLoginRetryInput<Result>(
+  value: unknown,
+): value is ChatGPTLoginRetryInput<Result> {
+  return Boolean(value && typeof value === 'object')
+}
+
+function createChatGPTLoginEventTransition<Result>(
+  defaultTarget: ChatGPTLoginFlowState,
+): StateMachineTransitionDefinition<
+  ChatGPTLoginFlowState,
+  ChatGPTLoginFlowContext<Result>,
+  ChatGPTLoginFlowEvent
+> {
+  return {
+    target: ({ input }) =>
+      isChatGPTLoginMachineEventInput<Result>(input)
+        ? (input.target ?? defaultTarget)
+        : defaultTarget,
+    actions: assignContext<
+      ChatGPTLoginFlowState,
+      ChatGPTLoginFlowContext<Result>,
+      ChatGPTLoginFlowEvent,
+      ChatGPTLoginMachineEventInput<Result>
+    >((_context, { input }) =>
+      isChatGPTLoginMachineEventInput<Result>(input) ? (input.patch ?? {}) : {},
+    ),
+  }
+}
+
+function createChatGPTLoginRetryTransition<
+  Result,
+>(): StateMachineTransitionDefinition<
+  ChatGPTLoginFlowState,
+  ChatGPTLoginFlowContext<Result>,
+  ChatGPTLoginFlowEvent
+> {
+  return {
+    priority: 100,
+    target: 'retrying',
+    actions: assignContext<
+      ChatGPTLoginFlowState,
+      ChatGPTLoginFlowContext<Result>,
+      ChatGPTLoginFlowEvent,
+      ChatGPTLoginRetryInput<Result>
+    >((context, { input, from }) => {
+      const retryInput = isChatGPTLoginRetryInput<Result>(input)
+        ? input
+        : undefined
+      const nextAttempt = (context.retryCount ?? 0) + 1
+      return {
+        ...retryInput?.patch,
+        retryCount: nextAttempt,
+        retryReason: retryInput?.reason ?? context.retryReason,
+        retryFromState: from,
+        lastAttempt: nextAttempt,
+        lastMessage: retryInput?.message ?? 'Retrying ChatGPT login',
+      }
+    }),
+  }
 }
 
 export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult> {
@@ -173,19 +274,135 @@ export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLogi
       kind: 'chatgpt-login',
     },
     historyLimit: 200,
+    on: {
+      'chatgpt.entry.opened':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'opening-entry',
+        ),
+      'chatgpt.authenticated':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'authenticated',
+        ),
+      'chatgpt.login.surface.ready':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'login-surface',
+        ),
+      'chatgpt.email.started':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>('email-step'),
+      'chatgpt.email.submitted':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'passkey-login',
+        ),
+      'chatgpt.password.started':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'password-step',
+        ),
+      'chatgpt.passkey.login.started':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'passkey-login',
+        ),
+      'chatgpt.verification.polling':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'verification-polling',
+        ),
+      'chatgpt.verification.code-found':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'verification-code-entry',
+        ),
+      'chatgpt.verification.submitted':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'verification-code-entry',
+        ),
+      'chatgpt.age-gate.started':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>('age-gate'),
+      'chatgpt.age-gate.completed':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>('age-gate'),
+      'chatgpt.home.waiting':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'post-signup-home',
+        ),
+      'chatgpt.security.started':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'security-settings',
+        ),
+      'chatgpt.passkey.provisioning':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'passkey-provisioning',
+        ),
+      'chatgpt.identity.persisting':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'persisting-identity',
+        ),
+      'chatgpt.same-session-passkey-check.started':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'same-session-passkey-check',
+        ),
+      'chatgpt.same-session-passkey-check.completed':
+        createChatGPTLoginEventTransition<ChatGPTLoginFlowResult>(
+          'same-session-passkey-check',
+        ),
+      'chatgpt.retry.requested':
+        createChatGPTLoginRetryTransition<ChatGPTLoginFlowResult>(),
+      'context.updated': {
+        target: ({ from, input }) =>
+          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          ChatGPTLoginFlowState,
+          ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
+          ChatGPTLoginFlowEvent,
+          ChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>
+        >((_context, { input }) =>
+          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+      'action.started': {
+        target: ({ from, input }) =>
+          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          ChatGPTLoginFlowState,
+          ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
+          ChatGPTLoginFlowEvent,
+          ChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>
+        >((_context, { input }) =>
+          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+      'action.finished': {
+        target: ({ from, input }) =>
+          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          ChatGPTLoginFlowState,
+          ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
+          ChatGPTLoginFlowEvent,
+          ChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>
+        >((_context, { input }) =>
+          isChatGPTLoginMachineEventInput<ChatGPTLoginFlowResult>(input)
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+    },
   })
 }
 
-function transitionLoginMachine(
+async function sendLoginMachine(
   machine: ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult>,
   state: ChatGPTLoginFlowState,
   event: ChatGPTLoginFlowEvent,
-  patch?: Partial<
-    ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>
-  >,
-): void {
-  machine.transition(state, {
-    event,
+  patch?: Partial<ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>>,
+): Promise<void> {
+  await machine.send(event, {
+    target: state,
     patch,
   })
 }
@@ -226,11 +443,7 @@ async function triggerStoredPasskeyLogin(
   options: {
     preferPasskey?: boolean
     virtualAuthenticator?: VirtualAuthenticatorOptions
-    onPasskeyRetry?: (
-      attempt: number,
-      trigger: 'retry' | 'passkey',
-    ) => void
-  } = {},
+  } & ChatGPTStoredLoginRetryCallbacks = {},
 ): Promise<{
   method: 'passkey' | 'password' | 'verification'
   assertionObserved: boolean
@@ -253,7 +466,9 @@ async function triggerStoredPasskeyLogin(
     }
 
     const startedAt = new Date().toISOString()
-    await submitLoginEmail(page, stored.identity.email)
+    await submitLoginEmail(page, stored.identity.email, {
+      onRetry: options.onEmailRetry,
+    })
 
     const postEmailStep = await waitForPostEmailLoginStep(page, 20000)
     if (postEmailStep === 'password' || postEmailStep === 'verification') {
@@ -275,6 +490,12 @@ async function triggerStoredPasskeyLogin(
         passkeyStore: importedStore,
         verificationCode: fallback.verificationCode,
       }
+    }
+
+    if (postEmailStep === 'retry') {
+      throw new Error(
+        'ChatGPT login returned to the email step repeatedly after submission.',
+      )
     }
 
     if (postEmailStep === 'authenticated') {
@@ -391,7 +612,7 @@ async function triggerStoredPasskeyLogin(
         trigger = nextTrigger
         retryOnlyMode ||= trigger === 'retry'
 
-        options.onPasskeyRetry?.(attempt, trigger)
+        await options.onPasskeyRetry?.(attempt, trigger)
         logStep('login_passkey_retry_triggered', {
           email: stored.identity.email,
           attempt,
@@ -452,11 +673,7 @@ export async function performStoredPasskeyLogin(
     preferPasskey?: boolean
     virtualAuthenticator?: VirtualAuthenticatorOptions
     surfaceStrategy?: ChatGPTLoginSurfaceStrategy
-    onPasskeyRetry?: (
-      attempt: number,
-      trigger: 'retry' | 'passkey',
-    ) => void
-  } = {},
+  } & ChatGPTStoredLoginRetryCallbacks = {},
 ): Promise<{
   surface: 'authenticated' | 'email' | 'passkey'
   method: 'passkey' | 'password' | 'verification'
@@ -464,10 +681,7 @@ export async function performStoredPasskeyLogin(
   passkeyStore: VirtualPasskeyStore
   verificationCode?: string
 }> {
-  const surface = await reachChatGPTLoginSurface(
-    page,
-    options.surfaceStrategy,
-  )
+  const surface = await reachChatGPTLoginSurface(page, options.surfaceStrategy)
   const passkey = await triggerStoredPasskeyLogin(page, stored, options)
   return {
     surface,
@@ -479,10 +693,10 @@ export async function performStoredPasskeyLogin(
 export async function continueChatGPTLoginWithStoredIdentity(
   page: Page,
   options: FlowOptions &
-    Pick<Partial<ChatGPTLoginFlowOptions>, 'virtualAuthenticator'> = {},
+    Pick<Partial<ChatGPTLoginFlowOptions>, 'virtualAuthenticator'> &
+    ChatGPTStoredLoginRetryCallbacks = {},
 ): Promise<ChatGPTStoredLoginResult> {
-  const preferPasskey =
-    parseBooleanFlag(options.preferPasskey, false) ?? false
+  const preferPasskey = parseBooleanFlag(options.preferPasskey, false) ?? false
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
@@ -490,8 +704,19 @@ export async function continueChatGPTLoginWithStoredIdentity(
   const passkey = await performStoredPasskeyLogin(page, stored, {
     preferPasskey,
     virtualAuthenticator: options.virtualAuthenticator,
+    onEmailRetry: async (attempt, reason) => {
+      await options.onEmailRetry?.(attempt, reason)
+      options.progressReporter?.({
+        message:
+          reason === 'retry'
+            ? 'Retrying login email submission'
+            : 'Retrying timed out login email submission',
+        attempt,
+      })
+    },
     surfaceStrategy: 'current-page',
-    onPasskeyRetry: (attempt, trigger) => {
+    onPasskeyRetry: async (attempt, trigger) => {
+      await options.onPasskeyRetry?.(attempt, trigger)
       options.progressReporter?.({
         message:
           trigger === 'retry'
@@ -519,8 +744,7 @@ export async function loginChatGPT(
     machine,
     options.progressReporter,
   )
-  const preferPasskey =
-    parseBooleanFlag(options.preferPasskey, false) ?? false
+  const preferPasskey = parseBooleanFlag(options.preferPasskey, false) ?? false
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
@@ -532,7 +756,9 @@ export async function loginChatGPT(
         email: stored.identity.email,
         storedIdentity: stored.summary,
         method: preferPasskey ? 'passkey' : 'password',
-        passkeyCreated: Boolean(stored.identity.passkeyStore?.credentials.length),
+        passkeyCreated: Boolean(
+          stored.identity.passkeyStore?.credentials.length,
+        ),
         passkeyStore: stored.identity.passkeyStore,
         url: CHATGPT_ENTRY_LOGIN_URL,
       },
@@ -541,7 +767,7 @@ export async function loginChatGPT(
       },
     )
 
-    transitionLoginMachine(machine, 'opening-entry', 'chatgpt.entry.opened', {
+    await sendLoginMachine(machine, 'opening-entry', 'chatgpt.entry.opened', {
       email: stored.identity.email,
       url: CHATGPT_ENTRY_LOGIN_URL,
       lastMessage: 'Opening ChatGPT login entry',
@@ -549,7 +775,40 @@ export async function loginChatGPT(
     const passkey = await performStoredPasskeyLogin(page, stored, {
       preferPasskey,
       virtualAuthenticator: options.virtualAuthenticator,
-      onPasskeyRetry: (attempt, trigger) => {
+      onEmailRetry: async (attempt, reason) => {
+        await machine.send('chatgpt.retry.requested', {
+          reason: `email:${reason}`,
+          message:
+            reason === 'retry'
+              ? 'Retrying login email submission'
+              : 'Retrying timed out login email submission',
+          patch: {
+            email: stored.identity.email,
+            storedIdentity: stored.summary,
+            url: page.url(),
+          },
+        })
+        options.progressReporter?.({
+          message:
+            reason === 'retry'
+              ? 'Retrying login email submission'
+              : 'Retrying timed out login email submission',
+          attempt,
+        })
+      },
+      onPasskeyRetry: async (attempt, trigger) => {
+        await machine.send('chatgpt.retry.requested', {
+          reason: `passkey:${trigger}`,
+          message:
+            trigger === 'retry'
+              ? 'Retrying passkey login'
+              : 'Re-triggering passkey login',
+          patch: {
+            email: stored.identity.email,
+            storedIdentity: stored.summary,
+            url: page.url(),
+          },
+        })
         options.progressReporter?.({
           message:
             trigger === 'retry'
@@ -562,7 +821,7 @@ export async function loginChatGPT(
     const surface = passkey.surface
 
     if (surface === 'authenticated') {
-      transitionLoginMachine(
+      await sendLoginMachine(
         machine,
         'authenticated',
         'chatgpt.authenticated',
@@ -573,7 +832,7 @@ export async function loginChatGPT(
         },
       )
     } else {
-      transitionLoginMachine(
+      await sendLoginMachine(
         machine,
         'login-surface',
         'chatgpt.login.surface.ready',
@@ -586,12 +845,12 @@ export async function loginChatGPT(
     }
 
     if (surface !== 'authenticated') {
-      transitionLoginMachine(machine, 'email-step', 'chatgpt.email.started', {
+      await sendLoginMachine(machine, 'email-step', 'chatgpt.email.started', {
         email: stored.identity.email,
         url: page.url(),
         lastMessage: 'Submitting login email',
       })
-      transitionLoginMachine(
+      await sendLoginMachine(
         machine,
         'passkey-login',
         'chatgpt.email.submitted',
@@ -604,7 +863,7 @@ export async function loginChatGPT(
     }
 
     if (passkey.method === 'passkey') {
-      transitionLoginMachine(
+      await sendLoginMachine(
         machine,
         'passkey-login',
         'chatgpt.passkey.login.started',
@@ -615,7 +874,7 @@ export async function loginChatGPT(
           lastMessage: 'Starting passkey login',
         },
       )
-      transitionLoginMachine(machine, 'passkey-login', 'context.updated', {
+      await sendLoginMachine(machine, 'passkey-login', 'context.updated', {
         email: stored.identity.email,
         method: passkey.method,
         assertionObserved: passkey.assertionObserved,
@@ -625,7 +884,7 @@ export async function loginChatGPT(
         lastMessage: 'Passkey login triggered',
       })
     } else {
-      transitionLoginMachine(
+      await sendLoginMachine(
         machine,
         'password-step',
         'chatgpt.password.started',
@@ -640,7 +899,7 @@ export async function loginChatGPT(
               : 'Starting password fallback',
         },
       )
-      transitionLoginMachine(
+      await sendLoginMachine(
         machine,
         passkey.method === 'verification'
           ? 'verification-code-entry'

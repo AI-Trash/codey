@@ -3,6 +3,7 @@ import { typeIfPresent } from '../src/modules/common/form-actions'
 
 class FakeLocator {
   text = ''
+  sequentialInputs: string[] = []
 
   constructor(
     private readonly options: {
@@ -49,6 +50,7 @@ class FakeLocator {
   async blur(): Promise<void> {}
 
   async pressSequentially(value: string): Promise<void> {
+    this.sequentialInputs.push(value)
     this.text += value
   }
 }
@@ -105,5 +107,24 @@ describe('typeIfPresent', () => {
       ),
     ).resolves.toBe(true)
     expect(yearSegment.text).toBe('1999')
+  })
+
+  it('can type sequentially for auth-style inputs', async () => {
+    const emailField = new FakeLocator({
+      visible: true,
+      editable: true,
+    })
+    const page = new FakePage({
+      'input[type="email"]': emailField,
+    })
+
+    await expect(
+      typeIfPresent(page as never, 'input[type="email"]', 'a@b.com', {
+        settleMs: 500,
+        strategy: 'sequential',
+      }),
+    ).resolves.toBe(true)
+    expect(emailField.text).toBe('a@b.com')
+    expect(emailField.sequentialInputs.join('')).toBe('a@b.com')
   })
 })

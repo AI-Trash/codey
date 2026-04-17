@@ -321,7 +321,7 @@ export class AppVerificationProviderClient {
 
     while (Date.now() < deadline) {
       attempt += 1
-      options.onPollAttempt?.(attempt)
+      await options.onPollAttempt?.(attempt)
 
       const result = await this.getJson<AppVerificationCodeLookupResponse>(
         codeUrl,
@@ -391,7 +391,9 @@ export class AppVerificationProviderClient {
 
     for await (const event of streamSse(response)) {
       if (event.event === 'verification_code' && event.data) {
-        const payload = JSON.parse(event.data) as AppVerificationCodeStreamResponse
+        const payload = JSON.parse(
+          event.data,
+        ) as AppVerificationCodeStreamResponse
         yield {
           type: 'verification_code',
           reservationId: payload.reservationId,

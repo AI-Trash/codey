@@ -1,6 +1,10 @@
 import type { Page } from 'patchright'
 import { pathToFileURL } from 'url'
-import { createStateMachine } from '../state-machine'
+import {
+  assignContext,
+  createStateMachine,
+  type StateMachineTransitionDefinition,
+} from '../state-machine'
 import type { RegistrationResult } from '../modules/registration'
 import type {
   VirtualAuthenticatorOptions,
@@ -31,7 +35,6 @@ import {
   clickPasskeyEntry,
   clickRetryButtonIfPresent,
   clickSignupEntry,
-  clickRegistrationContinue,
   clickVerificationContinue,
   buildPassword,
   CHATGPT_ENTRY_LOGIN_URL,
@@ -43,13 +46,11 @@ import {
   gotoSecuritySettings,
   submitLoginEmail,
   typePassword,
-  typeRegistrationEmail,
   typeVerificationCode,
   gotoLoginEntry,
   waitForAnySelectorState,
   waitForAuthenticatedSession,
   waitForEnabledSelector,
-  waitForLoginEmailFormReady,
   waitForLoginSurface,
   waitForPasskeyEntryReady,
   waitForPostEmailLoginStep,
@@ -100,6 +101,7 @@ export type ChatGPTRegistrationFlowState =
   | 'same-session-passkey-check'
   | 'login-surface'
   | 'passkey-login'
+  | 'retrying'
   | 'authenticated'
   | 'completed'
   | 'failed'
@@ -115,6 +117,7 @@ export type ChatGPTRegistrationFlowEvent =
   | 'chatgpt.verification.code-found'
   | 'chatgpt.verification.submitted'
   | 'chatgpt.age-gate.started'
+  | 'chatgpt.age-gate.outcome'
   | 'chatgpt.age-gate.completed'
   | 'chatgpt.home.waiting'
   | 'chatgpt.security.started'
@@ -124,6 +127,7 @@ export type ChatGPTRegistrationFlowEvent =
   | 'chatgpt.same-session-passkey-check.completed'
   | 'chatgpt.login.surface.ready'
   | 'chatgpt.passkey.login.started'
+  | 'chatgpt.retry.requested'
   | 'chatgpt.authenticated'
   | 'chatgpt.completed'
   | 'chatgpt.failed'
@@ -155,6 +159,11 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   registration?: RegistrationResult
   sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult
   mailbox?: string
+  retryCount?: number
+  retryReason?: string
+  retryFromState?: ChatGPTRegistrationFlowState
+  ageGateActive?: boolean
+  ageGateRetryCount?: number
   lastMessage?: string
   lastAttempt?: number
   result?: Result
@@ -201,6 +210,129 @@ export interface ChatGPTRegistrationFlowResult {
   machine: ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>
 }
 
+const MAX_AGE_GATE_SUBMIT_ATTEMPTS = 3
+
+interface ChatGPTAgeGateOutcomeInput {
+  outcome: 'advanced' | 'retry' | 'age-gate'
+  url: string
+}
+
+interface ChatGPTVerificationSubmittedInput {
+  verificationCode: string
+  url: string
+}
+
+interface ChatGPTRegistrationMachineEventInput<Result = unknown> {
+  target?: ChatGPTRegistrationFlowState
+  patch?: Partial<ChatGPTRegistrationFlowContext<Result>>
+}
+
+interface ChatGPTRegistrationRetryInput<Result = unknown> {
+  patch?: Partial<ChatGPTRegistrationFlowContext<Result>>
+  reason?: string
+  message?: string
+}
+
+function isAgeGateOutcomeInput(
+  value: unknown,
+): value is ChatGPTAgeGateOutcomeInput {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<ChatGPTAgeGateOutcomeInput>
+  return (
+    typeof candidate.outcome === 'string' && typeof candidate.url === 'string'
+  )
+}
+
+function isVerificationSubmittedInput(
+  value: unknown,
+): value is ChatGPTVerificationSubmittedInput {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<ChatGPTVerificationSubmittedInput>
+  return (
+    typeof candidate.verificationCode === 'string' &&
+    typeof candidate.url === 'string'
+  )
+}
+
+function isChatGPTRegistrationMachineEventInput<Result>(
+  value: unknown,
+): value is ChatGPTRegistrationMachineEventInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return 'patch' in value || 'target' in value
+}
+
+function isChatGPTRegistrationRetryInput<Result>(
+  value: unknown,
+): value is ChatGPTRegistrationRetryInput<Result> {
+  return Boolean(value && typeof value === 'object')
+}
+
+function createChatGPTRegistrationEventTransition<Result>(
+  defaultTarget: ChatGPTRegistrationFlowState,
+): StateMachineTransitionDefinition<
+  ChatGPTRegistrationFlowState,
+  ChatGPTRegistrationFlowContext<Result>,
+  ChatGPTRegistrationFlowEvent
+> {
+  return {
+    target: ({ input }) =>
+      isChatGPTRegistrationMachineEventInput<Result>(input)
+        ? (input.target ?? defaultTarget)
+        : defaultTarget,
+    actions: assignContext<
+      ChatGPTRegistrationFlowState,
+      ChatGPTRegistrationFlowContext<Result>,
+      ChatGPTRegistrationFlowEvent,
+      ChatGPTRegistrationMachineEventInput<Result>
+    >((_context, { input }) =>
+      isChatGPTRegistrationMachineEventInput<Result>(input)
+        ? (input.patch ?? {})
+        : {},
+    ),
+  }
+}
+
+function createChatGPTRegistrationRetryTransition<
+  Result,
+>(): StateMachineTransitionDefinition<
+  ChatGPTRegistrationFlowState,
+  ChatGPTRegistrationFlowContext<Result>,
+  ChatGPTRegistrationFlowEvent
+> {
+  return {
+    priority: 100,
+    target: 'retrying',
+    actions: assignContext<
+      ChatGPTRegistrationFlowState,
+      ChatGPTRegistrationFlowContext<Result>,
+      ChatGPTRegistrationFlowEvent,
+      ChatGPTRegistrationRetryInput<Result>
+    >((context, { input, from }) => {
+      const retryInput = isChatGPTRegistrationRetryInput<Result>(input)
+        ? input
+        : undefined
+      const nextAttempt = (context.retryCount ?? 0) + 1
+      return {
+        ...retryInput?.patch,
+        retryCount: nextAttempt,
+        retryReason: retryInput?.reason ?? context.retryReason,
+        retryFromState: from,
+        lastAttempt: nextAttempt,
+        lastMessage: retryInput?.message ?? 'Retrying ChatGPT registration',
+      }
+    }),
+  }
+}
+
 export function createChatGPTRegistrationMachine(): ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult> {
   return createStateMachine<
     ChatGPTRegistrationFlowState,
@@ -213,19 +345,237 @@ export function createChatGPTRegistrationMachine(): ChatGPTRegistrationFlowMachi
       kind: 'chatgpt-registration',
     },
     historyLimit: 200,
+    on: {
+      'chatgpt.entry.opened':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'opening-entry',
+        ),
+      'chatgpt.email.started':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'email-step',
+        ),
+      'chatgpt.email.submitted':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'password-step',
+        ),
+      'chatgpt.password.started':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'password-step',
+        ),
+      'chatgpt.password.submitted':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'verification-polling',
+        ),
+      'chatgpt.verification.polling':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'verification-polling',
+        ),
+      'chatgpt.verification.code-found':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'verification-code-entry',
+        ),
+      'chatgpt.verification.submitted': {
+        target: 'age-gate',
+        actions: assignContext<
+          ChatGPTRegistrationFlowState,
+          ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+          ChatGPTRegistrationFlowEvent,
+          ChatGPTVerificationSubmittedInput
+        >((_context, { input }) =>
+          isVerificationSubmittedInput(input)
+            ? {
+                verificationCode: input.verificationCode,
+                url: input.url,
+                lastMessage: 'Verification code submitted',
+              }
+            : {},
+        ),
+      },
+      'chatgpt.home.waiting':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'post-signup-home',
+        ),
+      'chatgpt.security.started':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'security-settings',
+        ),
+      'chatgpt.passkey.provisioning':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'passkey-provisioning',
+        ),
+      'chatgpt.identity.persisting':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'persisting-identity',
+        ),
+      'chatgpt.same-session-passkey-check.started':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'same-session-passkey-check',
+        ),
+      'chatgpt.same-session-passkey-check.completed':
+        createChatGPTRegistrationEventTransition<ChatGPTRegistrationFlowResult>(
+          'same-session-passkey-check',
+        ),
+      'chatgpt.retry.requested':
+        createChatGPTRegistrationRetryTransition<ChatGPTRegistrationFlowResult>(),
+      'context.updated': {
+        target: ({ from, input }) =>
+          isChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>(
+            input,
+          )
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          ChatGPTRegistrationFlowState,
+          ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+          ChatGPTRegistrationFlowEvent,
+          ChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>
+        >((_context, { input }) =>
+          isChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>(
+            input,
+          )
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+      'action.started': {
+        target: ({ from, input }) =>
+          isChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>(
+            input,
+          )
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          ChatGPTRegistrationFlowState,
+          ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+          ChatGPTRegistrationFlowEvent,
+          ChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>
+        >((_context, { input }) =>
+          isChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>(
+            input,
+          )
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+      'action.finished': {
+        target: ({ from, input }) =>
+          isChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>(
+            input,
+          )
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          ChatGPTRegistrationFlowState,
+          ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+          ChatGPTRegistrationFlowEvent,
+          ChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>
+        >((_context, { input }) =>
+          isChatGPTRegistrationMachineEventInput<ChatGPTRegistrationFlowResult>(
+            input,
+          )
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+    },
+    states: {
+      'age-gate': {
+        entryActions: assignContext<
+          ChatGPTRegistrationFlowState,
+          ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+          ChatGPTRegistrationFlowEvent
+        >(() => ({
+          ageGateActive: true,
+        })),
+        exitActions: assignContext<
+          ChatGPTRegistrationFlowState,
+          ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+          ChatGPTRegistrationFlowEvent
+        >(() => ({
+          ageGateActive: false,
+          ageGateRetryCount: 0,
+        })),
+        on: {
+          'chatgpt.age-gate.outcome': [
+            {
+              priority: 30,
+              guard: ({ input }) =>
+                isAgeGateOutcomeInput(input) && input.outcome === 'advanced',
+              target: 'post-signup-home',
+              actions: assignContext<
+                ChatGPTRegistrationFlowState,
+                ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+                ChatGPTRegistrationFlowEvent,
+                ChatGPTAgeGateOutcomeInput
+              >((_context, { input }) =>
+                isAgeGateOutcomeInput(input)
+                  ? {
+                      url: input.url,
+                      lastMessage: 'Age gate completed',
+                    }
+                  : {},
+              ),
+            },
+            {
+              priority: 20,
+              guard: ({ context, input }) =>
+                isAgeGateOutcomeInput(input) &&
+                input.outcome === 'retry' &&
+                (context.ageGateRetryCount ?? 0) < MAX_AGE_GATE_SUBMIT_ATTEMPTS,
+              target: 'age-gate',
+              actions: assignContext<
+                ChatGPTRegistrationFlowState,
+                ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+                ChatGPTRegistrationFlowEvent,
+                ChatGPTAgeGateOutcomeInput
+              >((context, { input }) => {
+                const nextAttempt = (context.ageGateRetryCount ?? 0) + 1
+                return isAgeGateOutcomeInput(input)
+                  ? {
+                      url: input.url,
+                      ageGateRetryCount: nextAttempt,
+                      lastAttempt: nextAttempt,
+                      lastMessage: 'Retrying age gate submission',
+                    }
+                  : {}
+              }),
+            },
+            {
+              priority: 10,
+              target: 'age-gate',
+              actions: assignContext<
+                ChatGPTRegistrationFlowState,
+                ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>,
+                ChatGPTRegistrationFlowEvent,
+                ChatGPTAgeGateOutcomeInput
+              >((context, { input }) =>
+                isAgeGateOutcomeInput(input)
+                  ? {
+                      url: input.url,
+                      ageGateRetryCount: context.ageGateRetryCount ?? 0,
+                      lastAttempt: context.lastAttempt,
+                      lastMessage: 'Age gate is still pending',
+                    }
+                  : {},
+              ),
+            },
+          ],
+        },
+      },
+    },
   })
 }
 
-function transitionRegistrationMachine(
+async function sendRegistrationMachine(
   machine: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
   state: ChatGPTRegistrationFlowState,
   event: ChatGPTRegistrationFlowEvent,
   patch?: Partial<
     ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>
   >,
-): void {
-  machine.transition(state, {
-    event,
+): Promise<void> {
+  await machine.send(event, {
+    target: state,
     patch,
   })
 }
@@ -282,7 +632,10 @@ async function waitForAgeGateSubmissionOutcome(
     : 'age-gate'
 }
 
-async function completeRegistrationAgeGate(page: Page): Promise<void> {
+async function completeRegistrationAgeGate(
+  page: Page,
+  machine?: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
+): Promise<void> {
   const ageGateReady = await waitForAnySelectorState(
     page,
     AGE_GATE_INPUT_SELECTORS,
@@ -312,7 +665,7 @@ async function completeRegistrationAgeGate(page: Page): Promise<void> {
     throw new Error('Age gate fields were visible but could not be filled.')
   }
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= MAX_AGE_GATE_SUBMIT_ATTEMPTS; attempt += 1) {
     await waitForEnabledSelector(page, COMPLETE_ACCOUNT_SELECTORS, 5000)
     const submitted = await clickCompleteAccountCreation(page)
     if (!submitted) {
@@ -321,7 +674,17 @@ async function completeRegistrationAgeGate(page: Page): Promise<void> {
     await confirmAgeDialogIfPresent(page)
 
     const outcome = await waitForAgeGateSubmissionOutcome(page)
-    if (outcome === 'advanced') {
+    const ageGateSnapshot = machine
+      ? await machine.send('chatgpt.age-gate.outcome', {
+          outcome,
+          url: page.url(),
+        })
+      : undefined
+
+    if (
+      outcome === 'advanced' ||
+      ageGateSnapshot?.state === 'post-signup-home'
+    ) {
       return
     }
 
@@ -420,6 +783,7 @@ async function runSameSessionPasskeyCheck(
     verificationTimeoutMs: number
     pollIntervalMs: number
   },
+  machine?: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
 ): Promise<SameSessionPasskeyCheckResult> {
   let attemptedMethod: SameSessionPasskeyCheckResult['method'] = 'passkey'
   try {
@@ -442,7 +806,21 @@ async function runSameSessionPasskeyCheck(
     // Chrome only allows one internal virtual authenticator per environment.
 
     const startedAt = new Date().toISOString()
-    await submitLoginEmail(page, options.email)
+    await submitLoginEmail(page, options.email, {
+      onRetry: async (_attempt, reason) => {
+        await machine?.send('chatgpt.retry.requested', {
+          reason: `same-session-email:${reason}`,
+          message:
+            reason === 'retry'
+              ? 'Retrying same-session login email submission'
+              : 'Retrying timed out same-session login email submission',
+          patch: {
+            email: options.email,
+            url: page.url(),
+          },
+        })
+      },
+    })
 
     const postEmailStep = await waitForPostEmailLoginStep(page, 20000)
     if (postEmailStep === 'password' || postEmailStep === 'verification') {
@@ -548,7 +926,7 @@ export async function registerChatGPT(
 
     await verificationProvider.primeInbox()
 
-    transitionRegistrationMachine(
+    await sendRegistrationMachine(
       machine,
       'opening-entry',
       'chatgpt.entry.opened',
@@ -560,7 +938,7 @@ export async function registerChatGPT(
     await gotoLoginEntry(page)
     await clickSignupEntry(page)
 
-    transitionRegistrationMachine(
+    await sendRegistrationMachine(
       machine,
       'email-step',
       'chatgpt.email.started',
@@ -570,35 +948,28 @@ export async function registerChatGPT(
         lastMessage: 'Waiting for registration email step',
       },
     )
-    const registrationFormReady = await waitForLoginEmailFormReady(page, 20000)
-    if (!registrationFormReady) {
-      throw new Error(
-        'ChatGPT sign-up page did not finish rendering a stable email form.',
-      )
-    }
-    transitionRegistrationMachine(machine, 'email-step', 'context.updated', {
+    await sendRegistrationMachine(machine, 'email-step', 'context.updated', {
       email,
       url: page.url(),
       lastMessage: 'Typing registration email',
     })
-    const emailTyped = await typeRegistrationEmail(page, email)
-    if (!emailTyped) {
-      throw new Error(
-        'ChatGPT sign-up email field was visible but could not be typed into.',
-      )
-    }
-    await waitForEnabledSelector(
-      page,
-      [
-        'button[type="submit"]',
-        { role: 'button', options: { name: /继续|continue/i } },
-        { text: /继续|continue/i },
-      ],
-      5000,
-    )
-    await clickRegistrationContinue(page)
+    await submitLoginEmail(page, email, {
+      onRetry: async (_attempt, reason) => {
+        await machine.send('chatgpt.retry.requested', {
+          reason: `registration-email:${reason}`,
+          message:
+            reason === 'retry'
+              ? 'Retrying registration email submission'
+              : 'Retrying timed out registration email submission',
+          patch: {
+            email,
+            url: page.url(),
+          },
+        })
+      },
+    })
 
-    transitionRegistrationMachine(
+    await sendRegistrationMachine(
       machine,
       'password-step',
       'chatgpt.email.submitted',
@@ -610,7 +981,7 @@ export async function registerChatGPT(
     )
     const postEmailStep = await waitForPostEmailLoginStep(page, 20000)
     if (postEmailStep === 'password') {
-      transitionRegistrationMachine(
+      await sendRegistrationMachine(
         machine,
         'password-step',
         'chatgpt.password.started',
@@ -649,13 +1020,17 @@ export async function registerChatGPT(
           )
         }
       }
+    } else if (postEmailStep === 'retry') {
+      throw new Error(
+        'ChatGPT registration returned to the email step repeatedly after submission.',
+      )
     } else if (postEmailStep !== 'verification') {
       throw new Error(
         'ChatGPT registration did not reach a supported post-email step.',
       )
     }
 
-    transitionRegistrationMachine(
+    await sendRegistrationMachine(
       machine,
       'verification-polling',
       postEmailStep === 'password'
@@ -684,8 +1059,8 @@ export async function registerChatGPT(
       startedAt,
       timeoutMs: verificationTimeoutMs,
       pollIntervalMs,
-      onPollAttempt: (attempt) => {
-        transitionRegistrationMachine(
+      onPollAttempt: async (attempt) => {
+        await sendRegistrationMachine(
           machine,
           'verification-polling',
           'context.updated',
@@ -698,7 +1073,7 @@ export async function registerChatGPT(
       },
     })
 
-    transitionRegistrationMachine(
+    await sendRegistrationMachine(
       machine,
       'verification-code-entry',
       'chatgpt.verification.code-found',
@@ -718,8 +1093,8 @@ export async function registerChatGPT(
         startedAt,
         timeoutMs: verificationTimeoutMs,
         currentCode: verificationCode,
-        onCodeUpdate: (event) => {
-          transitionRegistrationMachine(
+        onCodeUpdate: async (event) => {
+          await sendRegistrationMachine(
             machine,
             'verification-code-entry',
             'context.updated',
@@ -735,29 +1110,14 @@ export async function registerChatGPT(
         },
       })
 
-    transitionRegistrationMachine(
-      machine,
-      'age-gate',
-      'chatgpt.verification.submitted',
-      {
-        verificationCode: submittedVerificationCode,
-        url: page.url(),
-        lastMessage: 'Verification code submitted',
-      },
-    )
+    await machine.send('chatgpt.verification.submitted', {
+      verificationCode: submittedVerificationCode,
+      url: page.url(),
+    })
     await page.waitForLoadState('domcontentloaded').catch(() => undefined)
-    await completeRegistrationAgeGate(page)
+    await completeRegistrationAgeGate(page, machine)
 
-    transitionRegistrationMachine(
-      machine,
-      'post-signup-home',
-      'chatgpt.age-gate.completed',
-      {
-        url: page.url(),
-        lastMessage: 'Age gate completed',
-      },
-    )
-    transitionRegistrationMachine(
+    await sendRegistrationMachine(
       machine,
       'post-signup-home',
       'chatgpt.home.waiting',
@@ -771,7 +1131,7 @@ export async function registerChatGPT(
       clickOnboardingAction,
       20,
     )
-    transitionRegistrationMachine(
+    await sendRegistrationMachine(
       machine,
       'post-signup-home',
       'context.updated',
@@ -796,8 +1156,8 @@ export async function registerChatGPT(
             homeReady,
             securityAttemptCount: 0,
           }
-        : (() => {
-            transitionRegistrationMachine(
+        : (async () => {
+            await sendRegistrationMachine(
               machine,
               'passkey-provisioning',
               'chatgpt.passkey.provisioning',
@@ -815,7 +1175,7 @@ export async function registerChatGPT(
 
     if (createPasskey) {
       if (resolvedPasskey.securityAttemptCount > 0) {
-        transitionRegistrationMachine(
+        await sendRegistrationMachine(
           machine,
           'security-settings',
           'chatgpt.security.started',
@@ -826,7 +1186,7 @@ export async function registerChatGPT(
           },
         )
       }
-      transitionRegistrationMachine(
+      await sendRegistrationMachine(
         machine,
         'passkey-provisioning',
         'context.updated',
@@ -844,8 +1204,8 @@ export async function registerChatGPT(
 
     const sameSessionPasskeyCheck =
       sameSessionPasskeyCheckEnabled && resolvedPasskey.passkeyCreated
-        ? (() => {
-            transitionRegistrationMachine(
+        ? (async () => {
+            await sendRegistrationMachine(
               machine,
               'same-session-passkey-check',
               'chatgpt.same-session-passkey-check.started',
@@ -855,19 +1215,23 @@ export async function registerChatGPT(
                 lastMessage: 'Running same-session passkey check',
               },
             )
-            return runSameSessionPasskeyCheck(page, {
-              email,
-              password,
-              verificationProvider,
-              verificationTimeoutMs,
-              pollIntervalMs,
-            })
+            return runSameSessionPasskeyCheck(
+              page,
+              {
+                email,
+                password,
+                verificationProvider,
+                verificationTimeoutMs,
+                pollIntervalMs,
+              },
+              machine,
+            )
           })()
         : undefined
     const resolvedSameSessionPasskeyCheck = await sameSessionPasskeyCheck
 
     if (resolvedSameSessionPasskeyCheck) {
-      transitionRegistrationMachine(
+      await sendRegistrationMachine(
         machine,
         'same-session-passkey-check',
         'chatgpt.same-session-passkey-check.completed',
@@ -882,7 +1246,7 @@ export async function registerChatGPT(
       )
     }
 
-    transitionRegistrationMachine(
+    await sendRegistrationMachine(
       machine,
       'persisting-identity',
       'chatgpt.identity.persisting',

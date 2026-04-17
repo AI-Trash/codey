@@ -15,10 +15,12 @@ function createFakePage() {
   let matcher: RegExp | undefined
   let handler: RouteHandler | undefined
 
-  const route = vi.fn(async (nextMatcher: RegExp, nextHandler: RouteHandler) => {
-    matcher = nextMatcher
-    handler = nextHandler
-  })
+  const route = vi.fn(
+    async (nextMatcher: RegExp, nextHandler: RouteHandler) => {
+      matcher = nextMatcher
+      handler = nextHandler
+    },
+  )
   const unroute = vi.fn(async () => {})
 
   return {
@@ -45,7 +47,13 @@ describe('createAuthorizationCallbackCapture', () => {
     const fulfill = vi.fn(async () => {})
     const handler = fakePage.getHandler()
 
-    expect(fakePage.getMatcher()?.test('http://127.0.0.1:3000/callback?code=test-code&state=test-state')).toBe(true)
+    expect(
+      fakePage
+        .getMatcher()
+        ?.test(
+          'http://127.0.0.1:3000/callback?code=test-code&state=test-state',
+        ),
+    ).toBe(true)
     expect(handler).toBeTypeOf('function')
 
     await handler!({

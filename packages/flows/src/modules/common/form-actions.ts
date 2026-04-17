@@ -3,6 +3,11 @@ import { firstVisible, toLocator } from '../../utils/selectors'
 import type { SelectorList, SelectorTarget } from '../../types'
 import { sleep } from '../../utils/wait'
 
+export interface TypeIfPresentOptions {
+  settleMs?: number
+  strategy?: 'auto' | 'fill' | 'sequential'
+}
+
 export async function clickAny(page: Page, selectors: SelectorList) {
   const locator = await firstVisible(page, selectors)
   await locator.click()
@@ -24,10 +29,13 @@ export async function typeIfPresent(
   page: Page,
   selector: SelectorTarget | SelectorList,
   value?: string,
+  options: TypeIfPresentOptions = {},
 ) {
   if (value == null) return false
 
   const nextValue = String(value)
+  const settleMs = Math.max(0, options.settleMs ?? 0)
+  const strategy = options.strategy ?? 'auto'
   const deadline = Date.now() + 3000
   while (Date.now() < deadline) {
     const locator = await resolveEditableLocator(page, selector)
@@ -36,11 +44,17 @@ export async function typeIfPresent(
       continue
     }
 
-    if (await fillEditableLocator(locator, nextValue)) {
+    if (
+      strategy !== 'fill' &&
+      (await typeEditableLocator(locator, nextValue, settleMs))
+    ) {
       return true
     }
 
-    if (await typeEditableLocator(locator, nextValue)) {
+    if (
+      strategy !== 'sequential' &&
+      (await fillEditableLocator(locator, nextValue, settleMs))
+    ) {
       return true
     }
 
@@ -144,6 +158,7 @@ async function isEditableLocator(locator: Locator): Promise<boolean> {
 async function fillEditableLocator(
   locator: Locator,
   value: string,
+  settleMs = 0,
 ): Promise<boolean> {
   try {
     await locator.click().catch(() => undefined)
@@ -154,6 +169,9 @@ async function fillEditableLocator(
 
     if (!matches) return false
 
+    if (settleMs > 0) {
+      await sleep(settleMs)
+    }
     await locator.blur().catch(() => undefined)
     return true
   } catch {
@@ -164,11 +182,12 @@ async function fillEditableLocator(
 async function typeEditableLocator(
   locator: Locator,
   value: string,
+  settleMs = 0,
 ): Promise<boolean> {
   try {
-    await locator.click({ delay: randomBetween(60, 140) }).catch(
-      () => undefined,
-    )
+    await locator
+      .click({ delay: randomBetween(60, 140) })
+      .catch(() => undefined)
     await locator.fill('')
     await sleep(randomBetween(120, 240))
 
@@ -181,6 +200,9 @@ async function typeEditableLocator(
 
     await sleep(randomBetween(80, 180))
     const matches = await locatorMatchesValue(locator, value)
+    if (matches && settleMs > 0) {
+      await sleep(settleMs)
+    }
     await locator.blur().catch(() => undefined)
     return matches
   } catch {

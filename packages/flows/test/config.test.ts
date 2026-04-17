@@ -62,7 +62,9 @@ describe('resolveConfig codex defaults', () => {
       () => resolveConfig(),
     )
 
-    expect(config.codex?.authorizeUrl).toBe(defaultCodexOAuthConfig.authorizeUrl)
+    expect(config.codex?.authorizeUrl).toBe(
+      defaultCodexOAuthConfig.authorizeUrl,
+    )
     expect(config.codex?.tokenUrl).toBe('https://example.test/codex/token')
     expect(config.codex?.clientId).toBe(defaultCodexOAuthConfig.clientId)
     expect(config.codex?.scope).toBe(defaultCodexOAuthConfig.scope)

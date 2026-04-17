@@ -11,7 +11,7 @@ export interface WaitForVerificationCodeOptions {
   startedAt: string
   timeoutMs: number
   pollIntervalMs: number
-  onPollAttempt?: (attempt: number) => void
+  onPollAttempt?: (attempt: number) => void | Promise<void>
 }
 
 export interface VerificationCodeStreamEvent {
@@ -32,11 +32,9 @@ export interface VerificationProvider {
   waitForVerificationCode(
     options: WaitForVerificationCodeOptions,
   ): Promise<string>
-  streamVerificationEvents?(
-    params: {
-      email: string
-      startedAt: string
-      signal?: AbortSignal
-    },
-  ): AsyncGenerator<VerificationCodeStreamEvent, void, void>
+  streamVerificationEvents?(params: {
+    email: string
+    startedAt: string
+    signal?: AbortSignal
+  }): AsyncGenerator<VerificationCodeStreamEvent, void, void>
 }

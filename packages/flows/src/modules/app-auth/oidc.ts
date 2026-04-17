@@ -284,7 +284,9 @@ function buildOidcError(
 
 function mapTokenSet(payload: OidcTokenPayload): OidcTokenSet {
   if (!payload.access_token) {
-    throw new Error(readOidcErrorMessage(payload, 'OIDC token exchange failed.'))
+    throw new Error(
+      readOidcErrorMessage(payload, 'OIDC token exchange failed.'),
+    )
   }
 
   const obtainedAt = new Date().toISOString()

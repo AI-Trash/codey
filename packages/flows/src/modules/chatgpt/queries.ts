@@ -11,12 +11,14 @@ import {
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_HOME_URL,
   DEFAULT_EVENT_TIMEOUT_MS,
+  LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
   LOGIN_NEXT_STEP_SELECTORS,
   ONBOARDING_SIGNAL_SELECTORS,
   PASSKEY_ENTRY_SELECTORS,
   PASSWORD_INPUT_SELECTORS,
   PASSWORD_TIMEOUT_ERROR_SELECTORS,
+  PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   SECURITY_READY_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
@@ -28,6 +30,7 @@ export type ChatGPTPostEmailLoginStep =
   | 'passkey'
   | 'password'
   | 'verification'
+  | 'retry'
   | 'unknown'
 
 export function isChatGPTHomeUrl(url: string): boolean {
@@ -350,10 +353,7 @@ export async function waitForPasswordSubmissionOutcome(
   while (Date.now() < deadline) {
     if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS))
       return 'verification'
-    if (
-      (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_ERROR_SELECTORS)) &&
-      (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_RETRY_SELECTORS))
-    ) {
+    if (await hasPasswordTimeoutErrorState(page)) {
       return 'timeout'
     }
     await sleep(500)
@@ -418,19 +418,52 @@ export async function waitUntilChatGPTHomeReady(
 export async function waitForLoginEmailSubmissionOutcome(
   page: Page,
   timeoutMs = 15000,
-): Promise<'next' | 'timeout' | 'unknown'> {
+): Promise<'next' | 'retry' | 'timeout' | 'unknown'> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if ((await detectPostEmailLoginStep(page)) !== 'unknown') return 'next'
-    if (
-      (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_ERROR_SELECTORS)) &&
-      (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_RETRY_SELECTORS))
-    ) {
+    const step = await detectPostEmailLoginStep(page)
+    if (step === 'retry') return 'retry'
+    if (step !== 'unknown') return 'next'
+    if (await hasPasswordTimeoutErrorState(page)) {
       return 'timeout'
     }
     await sleep(500)
   }
-  return 'unknown'
+
+  return (await detectPostEmailLoginStep(page)) === 'retry'
+    ? 'retry'
+    : 'unknown'
+}
+
+export async function hasPasswordTimeoutErrorState(
+  page: Page,
+): Promise<boolean> {
+  if (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_ERROR_SELECTORS)) {
+    return true
+  }
+
+  const title = await page.title().catch(() => '')
+  return PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN.test(title)
+}
+
+async function isLoginEmailRetryReady(page: Page): Promise<boolean> {
+  if (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) {
+    return true
+  }
+
+  if (await hasPasswordTimeoutErrorState(page)) {
+    return true
+  }
+
+  if (!(await hasEditableSelector(page, LOGIN_EMAIL_SELECTORS))) {
+    return false
+  }
+
+  if (await hasEnabledSelector(page, LOGIN_CONTINUE_SELECTORS)) {
+    return true
+  }
+
+  return isAnySelectorVisible(page, LOGIN_CONTINUE_SELECTORS)
 }
 
 export async function detectPostEmailLoginStep(
@@ -446,6 +479,7 @@ export async function detectPostEmailLoginStep(
     return 'passkey'
   if (await isAnySelectorVisible(page, PASSWORD_INPUT_SELECTORS))
     return 'password'
+  if (await isLoginEmailRetryReady(page)) return 'retry'
   if (await isAnySelectorVisible(page, LOGIN_NEXT_STEP_SELECTORS))
     return 'passkey'
   return 'unknown'
@@ -580,7 +614,10 @@ export async function waitForRetryOrPasskeyEntryReady(
 ): Promise<'retry' | 'passkey' | 'none'> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) {
+    if (
+      (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) ||
+      (await hasPasswordTimeoutErrorState(page))
+    ) {
       return 'retry'
     }
     if (

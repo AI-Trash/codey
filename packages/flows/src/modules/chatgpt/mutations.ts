@@ -43,6 +43,8 @@ import type { SelectorTarget } from '../../types'
 import { toLocator } from '../../utils/selectors'
 import {
   type ChatGPTPostEmailLoginStep,
+  hasPasswordTimeoutErrorState,
+  isLocatorEnabled,
   waitForAnySelectorState,
   waitForEditableSelector,
   waitForLoginEmailFormReady,
@@ -53,6 +55,11 @@ import {
   waitForVerificationCode,
   waitForVerificationCodeInputReady,
 } from './queries'
+
+const AUTH_INPUT_TYPING_OPTIONS = {
+  settleMs: 500,
+  strategy: 'sequential',
+} as const
 
 export async function clickSignupEntry(page: Page): Promise<void> {
   await clickAny(page, SIGNUP_ENTRY_SELECTORS)
@@ -72,7 +79,12 @@ export async function typeRegistrationEmail(
   page: Page,
   email: string,
 ): Promise<boolean> {
-  return typeIfPresent(page, REGISTRATION_EMAIL_SELECTORS, email)
+  return typeIfPresent(
+    page,
+    REGISTRATION_EMAIL_SELECTORS,
+    email,
+    AUTH_INPUT_TYPING_OPTIONS,
+  )
 }
 
 export async function clickRegistrationContinue(page: Page): Promise<void> {
@@ -88,6 +100,7 @@ export async function typePassword(
     page,
     ['input[type="password"]', 'input[name="password"]'],
     password,
+    AUTH_INPUT_TYPING_OPTIONS,
   )
 }
 
@@ -97,13 +110,29 @@ export async function clickPasswordSubmit(page: Page): Promise<void> {
 }
 
 export async function clickPasswordTimeoutRetry(page: Page): Promise<boolean> {
-  for (const selector of PASSWORD_TIMEOUT_RETRY_SELECTORS) {
-    const locator = toLocator(page, selector).first()
-    const visible = await locator.isVisible().catch(() => false)
-    if (!visible) continue
-    await locator.click()
-    return true
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    for (const selector of PASSWORD_TIMEOUT_RETRY_SELECTORS) {
+      const locator = toLocator(page, selector).first()
+      const visible = await locator.isVisible().catch(() => false)
+      if (!visible) continue
+      const enabled = await isLocatorEnabled(locator).catch(() => true)
+      if (!enabled) continue
+      await locator.scrollIntoViewIfNeeded().catch(() => undefined)
+      const clicked = await locator
+        .click()
+        .then(() => true)
+        .catch(() => false)
+      if (clicked) return true
+    }
+
+    await sleep(
+      (await hasPasswordTimeoutErrorState(page))
+        ? 250
+        : Math.min(250, Math.max(1, deadline - Date.now())),
+    )
   }
+
   return false
 }
 
@@ -115,12 +144,23 @@ export async function typeVerificationCode(
   page: Page,
   code: string,
 ): Promise<void> {
-  const input = page
-    .locator(
-      'input#_r_5_-code, input[autocomplete="one-time-code"], input[name="code"], input[name*="code"], input[id*="code"]',
+  const typed = await typeIfPresent(
+    page,
+    [
+      'input#_r_5_-code',
+      'input[autocomplete="one-time-code"]',
+      'input[name="code"]',
+      'input[name*="code"]',
+      'input[id*="code"]',
+    ],
+    code,
+    AUTH_INPUT_TYPING_OPTIONS,
+  )
+  if (!typed) {
+    throw new Error(
+      'ChatGPT verification code field was visible but could not be typed into.',
     )
-    .first()
-  await input.fill(code)
+  }
 }
 
 export async function clickVerificationContinue(page: Page): Promise<boolean> {
@@ -139,7 +179,7 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
     startedAt: string
     timeoutMs: number
     currentCode: string
-    onCodeUpdate?: (event: VerificationCodeStreamEvent) => void
+    onCodeUpdate?: (event: VerificationCodeStreamEvent) => void | Promise<void>
   },
 ): Promise<string> {
   if (!options.verificationProvider.streamVerificationEvents) {
@@ -214,7 +254,7 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
       await typeVerificationCode(page, event.code)
       await clickVerificationContinue(page)
       currentCode = event.code
-      options.onCodeUpdate?.(event)
+      await options.onCodeUpdate?.(event)
     }
   } finally {
     abortController.abort()
@@ -263,7 +303,9 @@ async function setBirthdayHiddenInputValue(
     const updated = await page
       .evaluate(
         ({ selector, value: nextValue }) => {
-          const input = document.querySelector(selector) as HTMLInputElement | null
+          const input = document.querySelector(
+            selector,
+          ) as HTMLInputElement | null
           if (!input) return false
           input.value = nextValue
           input.setAttribute('value', nextValue)
@@ -367,7 +409,10 @@ async function clickAgeGateBirthdayTrigger(page: Page): Promise<boolean> {
       ]
 
       for (const position of positions) {
-        const localX = Math.max(1, Math.min(box.width - 1, box.width * position.xRatio))
+        const localX = Math.max(
+          1,
+          Math.min(box.width - 1, box.width * position.xRatio),
+        )
         const localY = Math.max(
           1,
           Math.min(box.height - 1, box.height * position.yRatio),
@@ -395,30 +440,36 @@ async function clickAgeGateBirthdayTrigger(page: Page): Promise<boolean> {
         attempted = true
 
         await page
-          .evaluate(({ x, y }) => {
-            const target = document.elementFromPoint(x, y) as HTMLElement | null
-            if (!target) return false
-            target.focus?.()
+          .evaluate(
+            ({ x, y }) => {
+              const target = document.elementFromPoint(
+                x,
+                y,
+              ) as HTMLElement | null
+              if (!target) return false
+              target.focus?.()
 
-            for (const type of [
-              'pointerdown',
-              'mousedown',
-              'pointerup',
-              'mouseup',
-              'click',
-            ]) {
-              target.dispatchEvent(
-                new MouseEvent(type, {
-                  bubbles: true,
-                  cancelable: true,
-                  clientX: x,
-                  clientY: y,
-                }),
-              )
-            }
+              for (const type of [
+                'pointerdown',
+                'mousedown',
+                'pointerup',
+                'mouseup',
+                'click',
+              ]) {
+                target.dispatchEvent(
+                  new MouseEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: x,
+                    clientY: y,
+                  }),
+                )
+              }
 
-            return true
-          }, { x: pageX, y: pageY })
+              return true
+            },
+            { x: pageX, y: pageY },
+          )
           .catch(() => false)
 
         await sleep(80)
@@ -532,7 +583,12 @@ export async function typeLoginEmail(
   page: Page,
   email: string,
 ): Promise<boolean> {
-  return typeIfPresent(page, LOGIN_EMAIL_SELECTORS, email)
+  return typeIfPresent(
+    page,
+    LOGIN_EMAIL_SELECTORS,
+    email,
+    AUTH_INPUT_TYPING_OPTIONS,
+  )
 }
 
 export async function clickLoginContinue(page: Page): Promise<boolean> {
@@ -543,11 +599,32 @@ export async function clickPasskeyEntry(page: Page): Promise<boolean> {
   return clickIfPresent(page, PASSKEY_ENTRY_SELECTORS)
 }
 
+export async function recoverLoginEmailSubmissionSurface(
+  page: Page,
+): Promise<boolean> {
+  const retried = await clickPasswordTimeoutRetry(page)
+  if (retried) {
+    return waitForLoginEmailFormReady(page, 10000)
+  }
+
+  return waitForLoginEmailFormReady(page, 5000)
+}
+
+export interface SubmitLoginEmailOptions {
+  maxAttempts?: number
+  onRetry?: (
+    attempt: number,
+    reason: 'retry' | 'timeout',
+  ) => void | Promise<void>
+}
+
 export async function submitLoginEmail(
   page: Page,
   email: string,
+  options: SubmitLoginEmailOptions = {},
 ): Promise<void> {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  const maxAttempts = Math.max(1, options.maxAttempts ?? 3)
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const formReady = await waitForLoginEmailFormReady(page, 15000)
     if (!formReady) {
       throw new Error(
@@ -570,12 +647,27 @@ export async function submitLoginEmail(
     }
 
     const outcome = await waitForLoginEmailSubmissionOutcome(page)
-    if (outcome === 'next' || outcome === 'unknown') return
+    let retryReason: 'retry' | 'timeout' | undefined
+    if (outcome === 'next') {
+      return
+    }
+    if (outcome === 'unknown') {
+      const lateStep = await waitForPostEmailLoginStep(page, 5000)
+      if (lateStep !== 'retry') {
+        return
+      }
+      retryReason = 'retry'
+    } else {
+      retryReason = outcome
+    }
 
-    const retried = await clickPasswordTimeoutRetry(page)
-    if (!retried) {
+    await options.onRetry?.(attempt, retryReason)
+    const recovered = await recoverLoginEmailSubmissionSurface(page)
+    if (!recovered) {
       throw new Error(
-        'Login email submission timed out and retry button was not clickable.',
+        retryReason === 'retry'
+          ? 'Login email submission returned to the email step and could not be recovered.'
+          : 'Login email submission timed out and retry button was not clickable.',
       )
     }
   }

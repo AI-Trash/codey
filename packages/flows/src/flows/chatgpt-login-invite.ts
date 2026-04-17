@@ -7,10 +7,7 @@ import {
   type ResolvedInviteEmails,
 } from '../modules/chatgpt/workspace-invites'
 import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
-import {
-  loginChatGPT,
-  type ChatGPTLoginFlowResult,
-} from './chatgpt-login'
+import { loginChatGPT, type ChatGPTLoginFlowResult } from './chatgpt-login'
 import {
   runSingleFileFlowFromCli,
   type SingleFileFlowDefinition,

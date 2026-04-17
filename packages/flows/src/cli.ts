@@ -61,7 +61,10 @@ async function runFlowCommand(
       }
 
       if (subcommand === 'chatgpt-login-invite') {
-        result = await loginChatGPTAndInviteMembers(session.page, runtimeOptions)
+        result = await loginChatGPTAndInviteMembers(
+          session.page,
+          runtimeOptions,
+        )
         return
       }
 

@@ -16,6 +16,7 @@ import {
   createLoginMachine,
   markAuthOpened,
   markAuthStep,
+  resolveAuthMethod,
   runWithAuthMachine,
   type AuthMachine,
 } from '../auth-machine'
@@ -56,14 +57,10 @@ function mergeSelectors(
 }
 
 async function openLogin(page: Page, options: LoginOptions): Promise<void> {
-  options.machine?.transition('opening', {
-    event: 'action.started',
-    action: 'open-login',
-    patch: {
-      url: options.url || page.url(),
-      lastMessage: 'Opening login entry',
-      lastSelectors: options.openLoginSelectors,
-    },
+  await markAuthStep(options.machine, 'opening', 'action.started', {
+    url: options.url || page.url(),
+    lastMessage: 'Opening login entry',
+    lastSelectors: options.openLoginSelectors,
   })
   if (options.url) {
     await page.goto(options.url, { waitUntil: 'domcontentloaded' })
@@ -71,13 +68,10 @@ async function openLogin(page: Page, options: LoginOptions): Promise<void> {
   if (options.openLoginSelectors?.length) {
     await clickAny(page, options.openLoginSelectors)
   }
-  markAuthOpened(options.machine, page, options.openLoginSelectors)
-  options.machine?.endAction({
-    event: 'auth.ready',
-    patch: {
-      url: page.url(),
-      lastMessage: 'Login surface ready',
-    },
+  await markAuthOpened(options.machine, page, options.openLoginSelectors)
+  await markAuthStep(options.machine, 'ready', 'auth.ready', {
+    url: page.url(),
+    lastMessage: 'Login surface ready',
   })
 }
 
@@ -98,21 +92,27 @@ export async function loginParentAccount(
     async () => {
       const selectors = mergeSelectors(loginDefaults.common, options.selectors)
       await openLogin(page, { ...options, machine })
-      markAuthStep(machine, 'typing-email', 'auth.email.typed', {
+      await markAuthStep(machine, 'typing-email', 'auth.email.typed', {
         email: options.email || null,
         lastSelectors: selectors.email,
         lastMessage: 'Typing login email',
       })
-      await typeIfPresent(page, selectors.email, options.email)
+      await typeIfPresent(page, selectors.email, options.email, {
+        settleMs: 500,
+        strategy: 'sequential',
+      })
 
-      markAuthStep(machine, 'typing-password', 'auth.password.typed', {
+      await markAuthStep(machine, 'typing-password', 'auth.password.typed', {
         lastSelectors: selectors.password,
         lastMessage: 'Typing login password',
       })
-      await typeIfPresent(page, selectors.password, options.password)
+      await typeIfPresent(page, selectors.password, options.password, {
+        settleMs: 500,
+        strategy: 'sequential',
+      })
 
       if (options.rememberMeSelectors) {
-        markAuthStep(
+        await markAuthStep(
           machine,
           'toggling-remember-me',
           'auth.remember-me.checked',
@@ -124,21 +124,31 @@ export async function loginParentAccount(
         await checkIfPresent(page, options.rememberMeSelectors)
       }
 
-      markAuthStep(machine, 'submitting', 'auth.submitted', {
+      await markAuthStep(machine, 'submitting', 'auth.submitted', {
         lastSelectors: selectors.submit,
         lastMessage: 'Submitting login form',
       })
       await clickAny(page, selectors.submit)
 
       if (options.afterSubmit) {
-        markAuthStep(machine, 'post-submit', 'auth.after-submit.started', {
-          lastMessage: 'Running afterSubmit hook',
-        })
+        await markAuthStep(
+          machine,
+          'post-submit',
+          'auth.after-submit.started',
+          {
+            lastMessage: 'Running afterSubmit hook',
+          },
+        )
         await options.afterSubmit(page)
-        markAuthStep(machine, 'post-submit', 'auth.after-submit.finished', {
-          url: page.url(),
-          lastMessage: 'afterSubmit hook finished',
-        })
+        await markAuthStep(
+          machine,
+          'post-submit',
+          'auth.after-submit.finished',
+          {
+            url: page.url(),
+            lastMessage: 'afterSubmit hook finished',
+          },
+        )
       }
 
       return {
@@ -173,10 +183,19 @@ export async function loginChildAccount(
 
       await openLogin(page, { ...options, machine })
 
+      const requestedMethod = await resolveAuthMethod(machine, {
+        supportsPasskey:
+          options.preferPasskey !== false &&
+          Boolean(selectors.passkeyEntry?.length),
+        passkeySelectors: selectors.passkeyEntry,
+        emailSelectors: selectors.email,
+        passkeyMessage: 'Trying passkey login',
+        passwordMessage: 'Typing login email',
+      })
       let method: 'password' | 'passkey' = 'password'
 
-      if (options.preferPasskey !== false && selectors.passkeyEntry) {
-        markAuthStep(machine, 'choosing-passkey', 'auth.passkey.chosen', {
+      if (requestedMethod === 'passkey' && selectors.passkeyEntry) {
+        await markAuthStep(machine, 'choosing-passkey', 'auth.passkey.chosen', {
           method: 'passkey',
           lastSelectors: selectors.passkeyEntry,
           lastMessage: 'Trying passkey login',
@@ -189,10 +208,15 @@ export async function loginChildAccount(
         const triggered = await clickIfPresent(page, selectors.passkeyEntry)
         if (triggered) {
           method = 'passkey'
-          markAuthStep(machine, 'waiting-passkey', 'auth.passkey.prompted', {
-            method,
-            lastMessage: 'Passkey prompt displayed',
-          })
+          await markAuthStep(
+            machine,
+            'waiting-passkey',
+            'auth.passkey.prompted',
+            {
+              method,
+              lastMessage: 'Passkey prompt displayed',
+            },
+          )
           if (options.onPasskeyPrompt) {
             await options.onPasskeyPrompt(page)
           }
@@ -200,22 +224,28 @@ export async function loginChildAccount(
       }
 
       if (method !== 'passkey') {
-        markAuthStep(machine, 'typing-email', 'auth.email.typed', {
+        await markAuthStep(machine, 'typing-email', 'auth.email.typed', {
           email: options.email || null,
           method,
           lastSelectors: selectors.email,
           lastMessage: 'Typing login email',
         })
-        await typeIfPresent(page, selectors.email, options.email)
+        await typeIfPresent(page, selectors.email, options.email, {
+          settleMs: 500,
+          strategy: 'sequential',
+        })
 
-        markAuthStep(machine, 'typing-password', 'auth.password.typed', {
+        await markAuthStep(machine, 'typing-password', 'auth.password.typed', {
           method,
           lastSelectors: selectors.password,
           lastMessage: 'Typing login password',
         })
-        await typeIfPresent(page, selectors.password, options.password)
+        await typeIfPresent(page, selectors.password, options.password, {
+          settleMs: 500,
+          strategy: 'sequential',
+        })
 
-        markAuthStep(machine, 'submitting', 'auth.submitted', {
+        await markAuthStep(machine, 'submitting', 'auth.submitted', {
           method,
           lastSelectors: selectors.submit,
           lastMessage: 'Submitting login form',
@@ -224,16 +254,26 @@ export async function loginChildAccount(
       }
 
       if (options.afterSubmit) {
-        markAuthStep(machine, 'post-submit', 'auth.after-submit.started', {
-          method,
-          lastMessage: 'Running afterSubmit hook',
-        })
+        await markAuthStep(
+          machine,
+          'post-submit',
+          'auth.after-submit.started',
+          {
+            method,
+            lastMessage: 'Running afterSubmit hook',
+          },
+        )
         await options.afterSubmit(page)
-        markAuthStep(machine, 'post-submit', 'auth.after-submit.finished', {
-          method,
-          url: page.url(),
-          lastMessage: 'afterSubmit hook finished',
-        })
+        await markAuthStep(
+          machine,
+          'post-submit',
+          'auth.after-submit.finished',
+          {
+            method,
+            url: page.url(),
+            lastMessage: 'afterSubmit hook finished',
+          },
+        )
       }
 
       return {

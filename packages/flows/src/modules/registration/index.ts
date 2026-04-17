@@ -67,14 +67,10 @@ async function openRegistration(
   page: Page,
   options: RegistrationOptions,
 ): Promise<void> {
-  options.machine?.transition('opening', {
-    event: 'action.started',
-    action: 'open-registration',
-    patch: {
-      url: options.url || page.url(),
-      lastMessage: 'Opening registration entry',
-      lastSelectors: options.openRegistrationSelectors,
-    },
+  await markAuthStep(options.machine, 'opening', 'action.started', {
+    url: options.url || page.url(),
+    lastMessage: 'Opening registration entry',
+    lastSelectors: options.openRegistrationSelectors,
   })
   if (options.url) {
     await page.goto(options.url, { waitUntil: 'domcontentloaded' })
@@ -82,13 +78,10 @@ async function openRegistration(
   if (options.openRegistrationSelectors?.length) {
     await clickAny(page, options.openRegistrationSelectors)
   }
-  markAuthOpened(options.machine, page, options.openRegistrationSelectors)
-  options.machine?.endAction({
-    event: 'auth.ready',
-    patch: {
-      url: page.url(),
-      lastMessage: 'Registration surface ready',
-    },
+  await markAuthOpened(options.machine, page, options.openRegistrationSelectors)
+  await markAuthStep(options.machine, 'ready', 'auth.ready', {
+    url: page.url(),
+    lastMessage: 'Registration surface ready',
   })
 }
 
@@ -134,21 +127,27 @@ export async function registerAccount(
     async () => {
       await openRegistration(page, { ...options, machine })
 
-      markAuthStep(machine, 'typing-email', 'auth.email.typed', {
+      await markAuthStep(machine, 'typing-email', 'auth.email.typed', {
         email: options.email || null,
         lastSelectors: selectors.email,
         lastMessage: 'Typing registration email',
       })
-      await typeIfPresent(page, selectors.email, options.email)
+      await typeIfPresent(page, selectors.email, options.email, {
+        settleMs: 500,
+        strategy: 'sequential',
+      })
 
-      markAuthStep(machine, 'typing-password', 'auth.password.typed', {
+      await markAuthStep(machine, 'typing-password', 'auth.password.typed', {
         lastSelectors: selectors.password,
         lastMessage: 'Typing registration password',
       })
-      await typeIfPresent(page, selectors.password, options.password)
+      await typeIfPresent(page, selectors.password, options.password, {
+        settleMs: 500,
+        strategy: 'sequential',
+      })
 
       if (selectors.organizationName) {
-        markAuthStep(
+        await markAuthStep(
           machine,
           'typing-organization',
           'auth.organization.typed',
@@ -165,7 +164,7 @@ export async function registerAccount(
         )
       }
 
-      markAuthStep(machine, 'submitting', 'auth.submitted', {
+      await markAuthStep(machine, 'submitting', 'auth.submitted', {
         lastSelectors: selectors.submit,
         lastMessage: 'Submitting registration form',
       })
@@ -174,7 +173,7 @@ export async function registerAccount(
       let passkeyCreated = false
       let passkeyStore: VirtualPasskeyStore | undefined
       if (createPasskey && selectors.createPasskey) {
-        markAuthStep(machine, 'choosing-passkey', 'auth.passkey.chosen', {
+        await markAuthStep(machine, 'choosing-passkey', 'auth.passkey.chosen', {
           lastSelectors: selectors.createPasskey,
           lastMessage: 'Trying to create passkey',
         })
@@ -185,16 +184,21 @@ export async function registerAccount(
         )
         passkeyCreated = await clickIfPresent(page, selectors.createPasskey)
         if (passkeyCreated) {
-          markAuthStep(machine, 'waiting-passkey', 'auth.passkey.prompted', {
-            passkeyCreated: true,
-            lastSelectors: selectors.passkeyDialogConfirm,
-            lastMessage: 'Passkey creation prompt displayed',
-          })
+          await markAuthStep(
+            machine,
+            'waiting-passkey',
+            'auth.passkey.prompted',
+            {
+              passkeyCreated: true,
+              lastSelectors: selectors.passkeyDialogConfirm,
+              lastMessage: 'Passkey creation prompt displayed',
+            },
+          )
           await clickIfPresent(page, selectors.passkeyDialogConfirm || [])
           if (options.onPasskeySetup) {
             await options.onPasskeySetup(page)
           }
-          markAuthStep(
+          await markAuthStep(
             machine,
             'capturing-passkey',
             'auth.passkey.capture.started',
@@ -206,7 +210,7 @@ export async function registerAccount(
             virtualAuth.session,
             virtualAuth.authenticatorId,
           )
-          markAuthStep(
+          await markAuthStep(
             machine,
             'capturing-passkey',
             'auth.passkey.capture.finished',
@@ -220,14 +224,24 @@ export async function registerAccount(
       }
 
       if (options.afterSubmit) {
-        markAuthStep(machine, 'post-submit', 'auth.after-submit.started', {
-          lastMessage: 'Running afterSubmit hook',
-        })
+        await markAuthStep(
+          machine,
+          'post-submit',
+          'auth.after-submit.started',
+          {
+            lastMessage: 'Running afterSubmit hook',
+          },
+        )
         await options.afterSubmit(page)
-        markAuthStep(machine, 'post-submit', 'auth.after-submit.finished', {
-          url: page.url(),
-          lastMessage: 'afterSubmit hook finished',
-        })
+        await markAuthStep(
+          machine,
+          'post-submit',
+          'auth.after-submit.finished',
+          {
+            url: page.url(),
+            lastMessage: 'afterSubmit hook finished',
+          },
+        )
       }
 
       return {

@@ -1,7 +1,11 @@
 import type { Page } from 'patchright'
 import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
-import { createStateMachine } from '../state-machine'
+import {
+  assignContext,
+  createStateMachine,
+  type StateMachineTransitionDefinition,
+} from '../state-machine'
 import type {
   StateMachineController,
   StateMachineSnapshot,
@@ -29,7 +33,7 @@ import {
 } from '../modules/authorization/codex-client'
 import { saveCodexToken } from '../modules/authorization/codex-token-store'
 import { createAuthorizationCallbackCapture } from '../modules/authorization/codex-authorization'
-import { isChatGPTLoginUrl, waitForLoginSurface } from '../modules/chatgpt/shared'
+import { waitForLoginSurface } from '../modules/chatgpt/shared'
 import { continueChatGPTLoginWithStoredIdentity } from './chatgpt-login'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
@@ -38,6 +42,7 @@ export type CodexOAuthFlowState =
   | 'idle'
   | 'starting-oauth'
   | 'waiting-for-callback'
+  | 'retrying'
   | 'exchanging-token'
   | 'persisting-token'
   | 'signing-in-admin'
@@ -51,6 +56,7 @@ export type CodexOAuthFlowEvent =
   | 'codex.oauth.callback.received'
   | 'codex.oauth.token.exchanged'
   | 'codex.oauth.token.persisted'
+  | 'codex.oauth.retry.requested'
   | 'axonhub.admin.signin.started'
   | 'axonhub.admin.signin.completed'
   | 'codex.oauth.completed'
@@ -112,6 +118,10 @@ export interface CodexOAuthFlowContext<Result = unknown> {
   tokenStorePath?: string
   channelName?: string
   projectId?: string
+  retryCount?: number
+  retryReason?: string
+  retryFromState?: CodexOAuthFlowState
+  lastAttempt?: number
   lastMessage?: string
   result?: Result
 }
@@ -142,6 +152,91 @@ export interface CodexOAuthFlowResult {
   machine: CodexOAuthFlowSnapshot<CodexOAuthFlowResult>
 }
 
+const CODEX_OAUTH_BROWSER_HANDOFF_TIMEOUT_MS = 180000
+
+interface CodexOAuthMachineEventInput<Result = unknown> {
+  target?: CodexOAuthFlowState
+  patch?: Partial<CodexOAuthFlowContext<Result>>
+}
+
+interface CodexOAuthRetryInput<Result = unknown> {
+  patch?: Partial<CodexOAuthFlowContext<Result>>
+  reason?: string
+  message?: string
+}
+
+function isCodexOAuthMachineEventInput<Result>(
+  value: unknown,
+): value is CodexOAuthMachineEventInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return 'patch' in value || 'target' in value
+}
+
+function isCodexOAuthRetryInput<Result>(
+  value: unknown,
+): value is CodexOAuthRetryInput<Result> {
+  return Boolean(value && typeof value === 'object')
+}
+
+function createCodexOAuthEventTransition<Result>(
+  defaultTarget: CodexOAuthFlowState,
+): StateMachineTransitionDefinition<
+  CodexOAuthFlowState,
+  CodexOAuthFlowContext<Result>,
+  CodexOAuthFlowEvent
+> {
+  return {
+    target: ({ input }) =>
+      isCodexOAuthMachineEventInput<Result>(input)
+        ? (input.target ?? defaultTarget)
+        : defaultTarget,
+    actions: assignContext<
+      CodexOAuthFlowState,
+      CodexOAuthFlowContext<Result>,
+      CodexOAuthFlowEvent,
+      CodexOAuthMachineEventInput<Result>
+    >((_context, { input }) =>
+      isCodexOAuthMachineEventInput<Result>(input) ? (input.patch ?? {}) : {},
+    ),
+  }
+}
+
+function createCodexOAuthRetryTransition<
+  Result,
+>(): StateMachineTransitionDefinition<
+  CodexOAuthFlowState,
+  CodexOAuthFlowContext<Result>,
+  CodexOAuthFlowEvent
+> {
+  return {
+    priority: 100,
+    target: 'retrying',
+    actions: assignContext<
+      CodexOAuthFlowState,
+      CodexOAuthFlowContext<Result>,
+      CodexOAuthFlowEvent,
+      CodexOAuthRetryInput<Result>
+    >((context, { input, from }) => {
+      const retryInput = isCodexOAuthRetryInput<Result>(input)
+        ? input
+        : undefined
+      const nextAttempt = (context.retryCount ?? 0) + 1
+      return {
+        ...retryInput?.patch,
+        retryCount: nextAttempt,
+        retryReason: retryInput?.reason ?? context.retryReason,
+        retryFromState: from,
+        lastAttempt: nextAttempt,
+        lastMessage:
+          retryInput?.message ?? 'Retrying Codex OAuth login handoff',
+      }
+    }),
+  }
+}
+
 export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowResult> {
   return createStateMachine<
     CodexOAuthFlowState,
@@ -154,17 +249,91 @@ export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowR
       kind: 'codex-oauth',
     },
     historyLimit: 100,
+    on: {
+      'codex.oauth.started':
+        createCodexOAuthEventTransition<CodexOAuthFlowResult>('starting-oauth'),
+      'codex.oauth.callback.received':
+        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
+          'exchanging-token',
+        ),
+      'codex.oauth.token.exchanged':
+        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
+          'persisting-token',
+        ),
+      'codex.oauth.token.persisted':
+        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
+          'persisting-token',
+        ),
+      'codex.oauth.retry.requested':
+        createCodexOAuthRetryTransition<CodexOAuthFlowResult>(),
+      'axonhub.admin.signin.started':
+        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
+          'signing-in-admin',
+        ),
+      'axonhub.admin.signin.completed':
+        createCodexOAuthEventTransition<CodexOAuthFlowResult>(
+          'creating-channel',
+        ),
+      'context.updated': {
+        target: ({ from, input }) =>
+          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          CodexOAuthFlowState,
+          CodexOAuthFlowContext<CodexOAuthFlowResult>,
+          CodexOAuthFlowEvent,
+          CodexOAuthMachineEventInput<CodexOAuthFlowResult>
+        >((_context, { input }) =>
+          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+      'action.started': {
+        target: ({ from, input }) =>
+          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          CodexOAuthFlowState,
+          CodexOAuthFlowContext<CodexOAuthFlowResult>,
+          CodexOAuthFlowEvent,
+          CodexOAuthMachineEventInput<CodexOAuthFlowResult>
+        >((_context, { input }) =>
+          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+      'action.finished': {
+        target: ({ from, input }) =>
+          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
+            ? (input.target ?? from)
+            : from,
+        actions: assignContext<
+          CodexOAuthFlowState,
+          CodexOAuthFlowContext<CodexOAuthFlowResult>,
+          CodexOAuthFlowEvent,
+          CodexOAuthMachineEventInput<CodexOAuthFlowResult>
+        >((_context, { input }) =>
+          isCodexOAuthMachineEventInput<CodexOAuthFlowResult>(input)
+            ? (input.patch ?? {})
+            : {},
+        ),
+      },
+    },
   })
 }
 
-function transitionCodexOAuthMachine(
+async function sendCodexOAuthMachine(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
   state: CodexOAuthFlowState,
   event: CodexOAuthFlowEvent,
   patch?: Partial<CodexOAuthFlowContext<CodexOAuthFlowResult>>,
-): void {
-  machine.transition(state, {
-    event,
+): Promise<void> {
+  await machine.send(event, {
+    target: state,
     patch,
   })
 }
@@ -273,24 +442,9 @@ function redactChannelCredentials(
 
 async function waitForCodexOAuthLoginSurface(
   page: Page,
-  timeoutMs = 20000,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (isChatGPTLoginUrl(page.url())) {
-      return true
-    }
-
-    const surface = await waitForLoginSurface(
-      page,
-      Math.min(1000, Math.max(1, deadline - Date.now())),
-    )
-    if (surface !== 'unknown') {
-      return true
-    }
-  }
-
-  return isChatGPTLoginUrl(page.url())
+  timeoutMs = CODEX_OAUTH_BROWSER_HANDOFF_TIMEOUT_MS,
+): Promise<'authenticated' | 'email' | 'passkey' | 'unknown'> {
+  return waitForLoginSurface(page, timeoutMs)
 }
 
 export async function runCodexOAuthFlow(
@@ -323,7 +477,7 @@ export async function runCodexOAuthFlow(
       codexConfig.redirectPort ||
       3000
 
-    transitionCodexOAuthMachine(
+    await sendCodexOAuthMachine(
       machine,
       'starting-oauth',
       'codex.oauth.started',
@@ -348,6 +502,7 @@ export async function runCodexOAuthFlow(
       host: started.redirectHost,
       port: started.redirectPort,
       path: started.redirectPath,
+      timeoutMs: CODEX_OAUTH_BROWSER_HANDOFF_TIMEOUT_MS,
     })
 
     try {
@@ -360,7 +515,7 @@ export async function runCodexOAuthFlow(
       throw error
     }
 
-    transitionCodexOAuthMachine(
+    await sendCodexOAuthMachine(
       machine,
       'waiting-for-callback',
       'context.updated',
@@ -376,26 +531,65 @@ export async function runCodexOAuthFlow(
         kind: 'callback' as const,
         callback,
       })),
-      waitForCodexOAuthLoginSurface(page).then((needsLogin) => ({
-        kind: needsLogin ? ('login' as const) : ('pending' as const),
+      waitForCodexOAuthLoginSurface(page).then((surface) => ({
+        kind: 'surface' as const,
+        surface,
       })),
     ])
 
-    if (nextStep.kind === 'login') {
-      transitionCodexOAuthMachine(
+    if (nextStep.kind === 'surface' && nextStep.surface !== 'unknown') {
+      const waitingMessage =
+        nextStep.surface === 'authenticated'
+          ? 'OpenAI session detected; waiting for Codex OAuth callback'
+          : 'ChatGPT login required; continuing stored identity login'
+
+      await sendCodexOAuthMachine(
         machine,
         'waiting-for-callback',
         'context.updated',
         {
           url: sanitizeUrl(page.url()),
           redirectUri: started.redirectUri,
-          lastMessage: 'ChatGPT login required; continuing stored identity login',
+          lastMessage: waitingMessage,
         },
       )
+    }
 
-      const login = await continueChatGPTLoginWithStoredIdentity(page, options)
+    if (
+      nextStep.kind === 'surface' &&
+      (nextStep.surface === 'email' || nextStep.surface === 'passkey')
+    ) {
+      const login = await continueChatGPTLoginWithStoredIdentity(page, {
+        ...options,
+        onEmailRetry: async (_attempt, reason) => {
+          await machine.send('codex.oauth.retry.requested', {
+            reason: `email:${reason}`,
+            message:
+              reason === 'retry'
+                ? 'Retrying OpenAI email submission during Codex OAuth'
+                : 'Retrying timed out OpenAI email submission during Codex OAuth',
+            patch: {
+              url: sanitizeUrl(page.url()),
+              redirectUri: started.redirectUri,
+            },
+          })
+        },
+        onPasskeyRetry: async (_attempt, trigger) => {
+          await machine.send('codex.oauth.retry.requested', {
+            reason: `passkey:${trigger}`,
+            message:
+              trigger === 'retry'
+                ? 'Retrying OpenAI passkey challenge during Codex OAuth'
+                : 'Re-triggering OpenAI passkey challenge during Codex OAuth',
+            patch: {
+              url: sanitizeUrl(page.url()),
+              redirectUri: started.redirectUri,
+            },
+          })
+        },
+      })
 
-      transitionCodexOAuthMachine(
+      await sendCodexOAuthMachine(
         machine,
         'waiting-for-callback',
         'context.updated',
@@ -420,7 +614,7 @@ export async function runCodexOAuthFlow(
       throw new Error('Codex OAuth state mismatch.')
     }
 
-    transitionCodexOAuthMachine(
+    await sendCodexOAuthMachine(
       machine,
       'exchanging-token',
       'codex.oauth.callback.received',
@@ -440,7 +634,7 @@ export async function runCodexOAuthFlow(
       codeVerifier: started.codeVerifier,
     })
 
-    transitionCodexOAuthMachine(
+    await sendCodexOAuthMachine(
       machine,
       'persisting-token',
       'codex.oauth.token.exchanged',
@@ -452,7 +646,7 @@ export async function runCodexOAuthFlow(
 
     const tokenStorePath = saveCodexToken(token)
 
-    transitionCodexOAuthMachine(
+    await sendCodexOAuthMachine(
       machine,
       'persisting-token',
       'codex.oauth.token.persisted',
@@ -463,7 +657,7 @@ export async function runCodexOAuthFlow(
       },
     )
 
-    transitionCodexOAuthMachine(
+    await sendCodexOAuthMachine(
       machine,
       'signing-in-admin',
       'axonhub.admin.signin.started',
@@ -480,7 +674,7 @@ export async function runCodexOAuthFlow(
     })
     const adminSession = await axonHubClient.signIn()
 
-    transitionCodexOAuthMachine(machine, 'creating-channel', 'action.started', {
+    await sendCodexOAuthMachine(machine, 'creating-channel', 'action.started', {
       url: sanitizeUrl(page.url()),
       tokenStorePath,
       lastMessage: 'Creating Codex channel in AxonHub',

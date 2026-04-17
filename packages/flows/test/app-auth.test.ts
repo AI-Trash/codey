@@ -120,7 +120,8 @@ describe('app auth OIDC helpers', () => {
       new Response(
         JSON.stringify({
           error: true,
-          detail: 'OAUTH_JWKS_JSON is required before initializing the OIDC provider',
+          detail:
+            'OAUTH_JWKS_JSON is required before initializing the OIDC provider',
         }),
         {
           status: 500,
