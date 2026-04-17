@@ -2,6 +2,82 @@ import { describe, expect, it } from 'vitest'
 import { createChatGPTRegistrationMachine } from '../src/flows/chatgpt-register'
 
 describe('chatgpt registration machine', () => {
+  it('selects guarded entry surfaces for direct email and legacy signup flows', async () => {
+    const machine = createChatGPTRegistrationMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.login.surface.ready', {
+      step: 'signup',
+      url: 'https://chatgpt.com/auth/login',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'login-surface',
+      context: {
+        email: 'person@example.com',
+        lastMessage: 'Registration signup surface ready',
+        url: 'https://chatgpt.com/auth/login',
+      },
+    })
+
+    await machine.send('chatgpt.login.surface.ready', {
+      step: 'email',
+      url: 'https://chatgpt.com/auth/login',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'email-step',
+      context: {
+        email: 'person@example.com',
+        lastMessage: 'Registration email surface ready',
+        url: 'https://chatgpt.com/auth/login',
+      },
+    })
+  })
+
+  it('selects the post-email transition with guards', async () => {
+    const machine = createChatGPTRegistrationMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.email.started', {
+      target: 'email-step',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    await machine.send('chatgpt.email.submitted', {
+      step: 'verification',
+      url: 'https://auth.openai.com/u/signup/password',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'verification-polling',
+      context: {
+        email: 'person@example.com',
+        postEmailStep: 'verification',
+        method: 'verification',
+        lastMessage:
+          'Verification step detected after registration email submission',
+      },
+    })
+  })
+
   it('tracks age-gate retries in context and clears the active flag on completion', async () => {
     const machine = createChatGPTRegistrationMachine()
 

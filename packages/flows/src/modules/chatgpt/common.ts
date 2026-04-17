@@ -123,6 +123,7 @@ export const AGE_GATE_INPUT_SELECTORS: SelectorTarget[] = [
   'input[name="name"]',
   'input#_r_h_-name',
   'input#_r_v_-name',
+  'input[id*="name"]',
   'input[name="age"]',
   'input#_r_h_-age',
   'input[id*="age"]',
@@ -135,6 +136,7 @@ export const AGE_GATE_NAME_SELECTORS: SelectorTarget[] = [
   'input[name="name"]',
   'input#_r_h_-name',
   'input#_r_v_-name',
+  'input[id*="name"]',
 ]
 export const AGE_GATE_AGE_SELECTORS: SelectorTarget[] = [
   'input[name="age"]',

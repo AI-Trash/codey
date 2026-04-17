@@ -4,6 +4,7 @@ import { getRuntimeConfig } from '../config'
 import {
   assignContext,
   createStateMachine,
+  runGuardedBranches,
   type StateMachineTransitionDefinition,
 } from '../state-machine'
 import type {
@@ -537,74 +538,169 @@ export async function runCodexOAuthFlow(
       })),
     ])
 
-    if (nextStep.kind === 'surface' && nextStep.surface !== 'unknown') {
-      const waitingMessage =
-        nextStep.surface === 'authenticated'
-          ? 'OpenAI session detected; waiting for Codex OAuth callback'
-          : 'ChatGPT login required; continuing stored identity login'
+    const callback = (
+      await runGuardedBranches(
+        [
+          {
+            branch: 'callback' as const,
+            priority: 60,
+            guard: ({ input }) => input.nextStep.kind === 'callback',
+            run: async () => nextStep.callback,
+          },
+          {
+            branch: 'authenticated' as const,
+            priority: 50,
+            guard: ({ input }) =>
+              input.nextStep.kind === 'surface' &&
+              input.nextStep.surface === 'authenticated',
+            run: async () => {
+              await sendCodexOAuthMachine(
+                machine,
+                'waiting-for-callback',
+                'context.updated',
+                {
+                  url: sanitizeUrl(page.url()),
+                  redirectUri: started.redirectUri,
+                  lastMessage:
+                    'OpenAI session detected; waiting for Codex OAuth callback',
+                },
+              )
+              return callbackCapture.result
+            },
+          },
+          {
+            branch: 'email' as const,
+            priority: 40,
+            guard: ({ input }) =>
+              input.nextStep.kind === 'surface' &&
+              input.nextStep.surface === 'email',
+            run: async () => {
+              await sendCodexOAuthMachine(
+                machine,
+                'waiting-for-callback',
+                'context.updated',
+                {
+                  url: sanitizeUrl(page.url()),
+                  redirectUri: started.redirectUri,
+                  lastMessage:
+                    'ChatGPT login required; continuing stored identity login',
+                },
+              )
 
-      await sendCodexOAuthMachine(
-        machine,
-        'waiting-for-callback',
-        'context.updated',
+              const login = await continueChatGPTLoginWithStoredIdentity(page, {
+                ...options,
+                onEmailRetry: async (_attempt, reason) => {
+                  await machine.send('codex.oauth.retry.requested', {
+                    reason: `email:${reason}`,
+                    message:
+                      reason === 'retry'
+                        ? 'Retrying OpenAI email submission during Codex OAuth'
+                        : 'Retrying timed out OpenAI email submission during Codex OAuth',
+                    patch: {
+                      url: sanitizeUrl(page.url()),
+                      redirectUri: started.redirectUri,
+                    },
+                  })
+                },
+                onPasskeyRetry: async (_attempt, trigger) => {
+                  await machine.send('codex.oauth.retry.requested', {
+                    reason: `passkey:${trigger}`,
+                    message:
+                      trigger === 'retry'
+                        ? 'Retrying OpenAI passkey challenge during Codex OAuth'
+                        : 'Re-triggering OpenAI passkey challenge during Codex OAuth',
+                    patch: {
+                      url: sanitizeUrl(page.url()),
+                      redirectUri: started.redirectUri,
+                    },
+                  })
+                },
+              })
+
+              await sendCodexOAuthMachine(
+                machine,
+                'waiting-for-callback',
+                'context.updated',
+                {
+                  url: sanitizeUrl(page.url()),
+                  redirectUri: started.redirectUri,
+                  lastMessage: `Submitted ChatGPT ${login.method} login for ${login.email}; waiting for Codex OAuth callback`,
+                },
+              )
+              return callbackCapture.result
+            },
+          },
+          {
+            branch: 'passkey' as const,
+            priority: 30,
+            guard: ({ input }) =>
+              input.nextStep.kind === 'surface' &&
+              input.nextStep.surface === 'passkey',
+            run: async () => {
+              await sendCodexOAuthMachine(
+                machine,
+                'waiting-for-callback',
+                'context.updated',
+                {
+                  url: sanitizeUrl(page.url()),
+                  redirectUri: started.redirectUri,
+                  lastMessage:
+                    'ChatGPT login required; continuing stored identity login',
+                },
+              )
+
+              const login = await continueChatGPTLoginWithStoredIdentity(page, {
+                ...options,
+                onEmailRetry: async (_attempt, reason) => {
+                  await machine.send('codex.oauth.retry.requested', {
+                    reason: `email:${reason}`,
+                    message:
+                      reason === 'retry'
+                        ? 'Retrying OpenAI email submission during Codex OAuth'
+                        : 'Retrying timed out OpenAI email submission during Codex OAuth',
+                    patch: {
+                      url: sanitizeUrl(page.url()),
+                      redirectUri: started.redirectUri,
+                    },
+                  })
+                },
+                onPasskeyRetry: async (_attempt, trigger) => {
+                  await machine.send('codex.oauth.retry.requested', {
+                    reason: `passkey:${trigger}`,
+                    message:
+                      trigger === 'retry'
+                        ? 'Retrying OpenAI passkey challenge during Codex OAuth'
+                        : 'Re-triggering OpenAI passkey challenge during Codex OAuth',
+                    patch: {
+                      url: sanitizeUrl(page.url()),
+                      redirectUri: started.redirectUri,
+                    },
+                  })
+                },
+              })
+
+              await sendCodexOAuthMachine(
+                machine,
+                'waiting-for-callback',
+                'context.updated',
+                {
+                  url: sanitizeUrl(page.url()),
+                  redirectUri: started.redirectUri,
+                  lastMessage: `Submitted ChatGPT ${login.method} login for ${login.email}; waiting for Codex OAuth callback`,
+                },
+              )
+              return callbackCapture.result
+            },
+          },
+        ],
         {
-          url: sanitizeUrl(page.url()),
-          redirectUri: started.redirectUri,
-          lastMessage: waitingMessage,
+          context: machine.getSnapshot().context,
+          input: {
+            nextStep,
+          },
         },
       )
-    }
-
-    if (
-      nextStep.kind === 'surface' &&
-      (nextStep.surface === 'email' || nextStep.surface === 'passkey')
-    ) {
-      const login = await continueChatGPTLoginWithStoredIdentity(page, {
-        ...options,
-        onEmailRetry: async (_attempt, reason) => {
-          await machine.send('codex.oauth.retry.requested', {
-            reason: `email:${reason}`,
-            message:
-              reason === 'retry'
-                ? 'Retrying OpenAI email submission during Codex OAuth'
-                : 'Retrying timed out OpenAI email submission during Codex OAuth',
-            patch: {
-              url: sanitizeUrl(page.url()),
-              redirectUri: started.redirectUri,
-            },
-          })
-        },
-        onPasskeyRetry: async (_attempt, trigger) => {
-          await machine.send('codex.oauth.retry.requested', {
-            reason: `passkey:${trigger}`,
-            message:
-              trigger === 'retry'
-                ? 'Retrying OpenAI passkey challenge during Codex OAuth'
-                : 'Re-triggering OpenAI passkey challenge during Codex OAuth',
-            patch: {
-              url: sanitizeUrl(page.url()),
-              redirectUri: started.redirectUri,
-            },
-          })
-        },
-      })
-
-      await sendCodexOAuthMachine(
-        machine,
-        'waiting-for-callback',
-        'context.updated',
-        {
-          url: sanitizeUrl(page.url()),
-          redirectUri: started.redirectUri,
-          lastMessage: `Submitted ChatGPT ${login.method} login for ${login.email}; waiting for Codex OAuth callback`,
-        },
-      )
-    }
-
-    const callback =
-      nextStep.kind === 'callback'
-        ? nextStep.callback
-        : await callbackCapture.result
+    ).result
     if (!callback.code) {
       throw new Error(
         'Codex OAuth callback did not include an authorization code.',

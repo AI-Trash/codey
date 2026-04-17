@@ -151,13 +151,43 @@ function matchesAccessibleName(
 }
 
 describe('chatgpt retry surfaces', () => {
-  it('treats the OpenAI inline error page title as a retry outcome', async () => {
+  it('treats the OpenAI inline error page title as a timeout outcome', async () => {
     const page = new FakePage()
     page.currentTitle = '糟糕，出错了！ - OpenAI'
 
     await expect(
       waitForLoginEmailSubmissionOutcome(page as never, 250),
-    ).resolves.toBe('retry')
+    ).resolves.toBe('timeout')
+  })
+
+  it('keeps waiting when the email form is still visible but verification appears shortly after', async () => {
+    const page = new FakePage()
+    page.currentTitle = '登录 - OpenAI'
+
+    const emailField = new FakeLocator({
+      visible: true,
+      editable: true,
+      enabled: true,
+    })
+    const continueButton = new FakeLocator({
+      visible: true,
+      enabled: true,
+    })
+    const verificationInput = new FakeLocator({
+      visibleSequence: [false, false, false, true],
+      editable: true,
+      enabled: true,
+    })
+
+    page.cssLocators['input#email'] = emailField
+    page.cssLocators['input[name="email"]'] = emailField
+    page.cssLocators['input[type="email"]'] = emailField
+    page.cssLocators['button[type="submit"]'] = continueButton
+    page.cssLocators['input[autocomplete="one-time-code"]'] = verificationInput
+
+    await expect(
+      waitForLoginEmailSubmissionOutcome(page as never, 2500),
+    ).resolves.toBe('next')
   })
 
   it('waits for and clicks a delayed 再次提交 button before restoring the email form', async () => {

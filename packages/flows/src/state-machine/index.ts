@@ -296,6 +296,143 @@ function normalizeTransitionDefinitions<
   return normalizeArray(value)
 }
 
+export interface GuardedBranchArgs<
+  Context,
+  Input,
+  Branch extends string = string,
+> {
+  context: Context
+  input: Input
+  branch: Branch
+  failures: GuardedBranchFailure<Branch>[]
+}
+
+export type GuardedBranchGuard<
+  Context,
+  Input,
+  Branch extends string = string,
+> = (args: GuardedBranchArgs<Context, Input, Branch>) => MaybePromise<boolean>
+
+export interface GuardedBranchDefinition<
+  Context,
+  Input,
+  Result,
+  Branch extends string = string,
+> {
+  branch: Branch
+  priority?: number
+  guard?:
+    | GuardedBranchGuard<Context, Input, Branch>
+    | Array<GuardedBranchGuard<Context, Input, Branch>>
+  run: (args: GuardedBranchArgs<Context, Input, Branch>) => MaybePromise<Result>
+}
+
+export interface GuardedBranchFailure<Branch extends string = string> {
+  branch: Branch
+  error: GuardedBranchError<Branch>
+}
+
+export interface RunGuardedBranchesOptions<
+  Context,
+  Input,
+  Branch extends string = string,
+> {
+  context: Context
+  input: Input
+  onFallback?: (failure: GuardedBranchFailure<Branch>) => MaybePromise<void>
+}
+
+export class GuardedBranchError<Branch extends string = string> extends Error {
+  readonly branch: Branch
+  readonly recoverable: boolean
+  override readonly cause?: unknown
+
+  constructor(
+    branch: Branch,
+    message: string,
+    options: {
+      recoverable?: boolean
+      cause?: unknown
+    } = {},
+  ) {
+    super(message)
+    this.name = 'GuardedBranchError'
+    this.branch = branch
+    this.recoverable = options.recoverable ?? true
+    this.cause = options.cause
+  }
+}
+
+export async function runGuardedBranches<
+  Context,
+  Input,
+  Result,
+  Branch extends string = string,
+>(
+  branches: Array<GuardedBranchDefinition<Context, Input, Result, Branch>>,
+  options: RunGuardedBranchesOptions<Context, Input, Branch>,
+): Promise<{
+  branch: Branch
+  result: Result
+  failures: GuardedBranchFailure<Branch>[]
+}> {
+  const failures: GuardedBranchFailure<Branch>[] = []
+  const orderedBranches = [...branches].sort((left, right) => {
+    if ((left.priority ?? 0) !== (right.priority ?? 0)) {
+      return (right.priority ?? 0) - (left.priority ?? 0)
+    }
+    return branches.indexOf(left) - branches.indexOf(right)
+  })
+
+  for (const definition of orderedBranches) {
+    const args: GuardedBranchArgs<Context, Input, Branch> = {
+      context: options.context,
+      input: options.input,
+      branch: definition.branch,
+      failures,
+    }
+
+    let matched = true
+    for (const guard of normalizeArray(definition.guard)) {
+      if (!(await guard(args))) {
+        matched = false
+        break
+      }
+    }
+    if (!matched) continue
+
+    try {
+      return {
+        branch: definition.branch,
+        result: await definition.run(args),
+        failures,
+      }
+    } catch (error) {
+      if (
+        !(error instanceof GuardedBranchError) ||
+        error.branch !== definition.branch ||
+        !error.recoverable
+      ) {
+        throw error
+      }
+
+      const failure: GuardedBranchFailure<Branch> = {
+        branch: definition.branch,
+        error,
+      }
+      failures.push(failure)
+      await options.onFallback?.(failure)
+    }
+  }
+
+  const lastFailure = failures.at(-1)
+  if (lastFailure) {
+    throw lastFailure.error
+  }
+
+  throw new Error('No guarded branch matched the current input.')
+}
+
 export function assignContext<
   State extends string,
   Context extends object,

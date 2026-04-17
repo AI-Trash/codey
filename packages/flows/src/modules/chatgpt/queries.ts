@@ -8,6 +8,9 @@ import {
   type VirtualPasskeyStore,
 } from '../webauthn/virtual-authenticator'
 import {
+  AGE_GATE_AGE_SELECTORS,
+  AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
+  AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_HOME_URL,
   DEFAULT_EVENT_TIMEOUT_MS,
@@ -21,6 +24,7 @@ import {
   PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   SECURITY_READY_SELECTORS,
+  SIGNUP_ENTRY_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
   isChatGPTLoginUrl,
 } from './common'
@@ -32,6 +36,22 @@ export type ChatGPTPostEmailLoginStep =
   | 'verification'
   | 'retry'
   | 'unknown'
+
+export type ChatGPTLoginSurface =
+  | 'authenticated'
+  | 'email'
+  | 'passkey'
+  | 'unknown'
+
+export type ChatGPTPasskeyTrigger = 'retry' | 'passkey' | 'none'
+
+export type ChatGPTRegistrationEntrySurface =
+  | 'authenticated'
+  | 'email'
+  | 'signup'
+  | 'unknown'
+
+export type ChatGPTAgeGateFieldMode = 'age' | 'birthday'
 
 export function isChatGPTHomeUrl(url: string): boolean {
   return (
@@ -420,19 +440,41 @@ export async function waitForLoginEmailSubmissionOutcome(
   timeoutMs = 15000,
 ): Promise<'next' | 'retry' | 'timeout' | 'unknown'> {
   const deadline = Date.now() + timeoutMs
+  let emailSurfaceLeft = false
+  let emailSurfaceReturnedAt: number | null = null
   while (Date.now() < deadline) {
     const step = await detectPostEmailLoginStep(page)
-    if (step === 'retry') return 'retry'
-    if (step !== 'unknown') return 'next'
-    if (await hasPasswordTimeoutErrorState(page)) {
-      return 'timeout'
+    if (step === 'retry') {
+      const retryState = await getExplicitLoginEmailRetryState(page)
+      return retryState === 'none' ? 'retry' : retryState
     }
+    if (step !== 'unknown') return 'next'
+
+    const retryState = await getExplicitLoginEmailRetryState(page)
+    if (retryState !== 'none') {
+      return retryState
+    }
+
+    const emailSurfaceReady = await isLoginEmailSurfaceReady(page)
+    if (!emailSurfaceReady) {
+      emailSurfaceLeft = true
+      emailSurfaceReturnedAt = null
+    } else if (emailSurfaceLeft) {
+      emailSurfaceReturnedAt ??= Date.now()
+      if (Date.now() - emailSurfaceReturnedAt >= 750) {
+        return 'retry'
+      }
+    }
+
     await sleep(500)
   }
 
-  return (await detectPostEmailLoginStep(page)) === 'retry'
-    ? 'retry'
-    : 'unknown'
+  const retryState = await getExplicitLoginEmailRetryState(page)
+  if (retryState !== 'none') {
+    return retryState
+  }
+
+  return (await isLoginEmailSurfaceReady(page)) ? 'retry' : 'unknown'
 }
 
 export async function hasPasswordTimeoutErrorState(
@@ -446,15 +488,7 @@ export async function hasPasswordTimeoutErrorState(
   return PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN.test(title)
 }
 
-async function isLoginEmailRetryReady(page: Page): Promise<boolean> {
-  if (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) {
-    return true
-  }
-
-  if (await hasPasswordTimeoutErrorState(page)) {
-    return true
-  }
-
+async function isLoginEmailSurfaceReady(page: Page): Promise<boolean> {
   if (!(await hasEditableSelector(page, LOGIN_EMAIL_SELECTORS))) {
     return false
   }
@@ -466,37 +500,88 @@ async function isLoginEmailRetryReady(page: Page): Promise<boolean> {
   return isAnySelectorVisible(page, LOGIN_CONTINUE_SELECTORS)
 }
 
+async function getExplicitLoginEmailRetryState(
+  page: Page,
+): Promise<'retry' | 'timeout' | 'none'> {
+  if (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) {
+    return 'retry'
+  }
+
+  if (await hasPasswordTimeoutErrorState(page)) {
+    return 'timeout'
+  }
+
+  return 'none'
+}
+
+function pushUniqueCandidate<T extends string>(list: T[], candidate: T): void {
+  if (!list.includes(candidate)) {
+    list.push(candidate)
+  }
+}
+
+export async function getPostEmailLoginStepCandidates(
+  page: Page,
+): Promise<Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]> {
+  const candidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[] = []
+
+  if (await waitForAuthenticatedSession(page, 250)) {
+    pushUniqueCandidate(candidates, 'authenticated')
+  }
+  if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'passkey')
+  }
+  if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'verification')
+  }
+  if (await hasEnabledSelector(page, PASSWORD_INPUT_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'password')
+  }
+  if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'passkey')
+  }
+  if (await isAnySelectorVisible(page, PASSWORD_INPUT_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'password')
+  }
+  if ((await getExplicitLoginEmailRetryState(page)) !== 'none') {
+    pushUniqueCandidate(candidates, 'retry')
+  }
+  if (await isAnySelectorVisible(page, LOGIN_NEXT_STEP_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'passkey')
+  }
+
+  return candidates
+}
+
 export async function detectPostEmailLoginStep(
   page: Page,
 ): Promise<ChatGPTPostEmailLoginStep> {
-  if (await waitForAuthenticatedSession(page, 250)) return 'authenticated'
-  if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) return 'passkey'
-  if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS))
-    return 'verification'
-  if (await hasEnabledSelector(page, PASSWORD_INPUT_SELECTORS))
-    return 'password'
-  if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS))
-    return 'passkey'
-  if (await isAnySelectorVisible(page, PASSWORD_INPUT_SELECTORS))
-    return 'password'
-  if (await isLoginEmailRetryReady(page)) return 'retry'
-  if (await isAnySelectorVisible(page, LOGIN_NEXT_STEP_SELECTORS))
-    return 'passkey'
-  return 'unknown'
+  return (await getPostEmailLoginStepCandidates(page))[0] ?? 'unknown'
+}
+
+export async function waitForPostEmailLoginCandidates(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const candidates = await getPostEmailLoginStepCandidates(page)
+    if (candidates.length > 0) {
+      return candidates
+    }
+    await sleep(250)
+  }
+
+  return getPostEmailLoginStepCandidates(page)
 }
 
 export async function waitForPostEmailLoginStep(
   page: Page,
   timeoutMs = 15000,
 ): Promise<ChatGPTPostEmailLoginStep> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const step = await detectPostEmailLoginStep(page)
-    if (step !== 'unknown') return step
-    await sleep(250)
-  }
-
-  return detectPostEmailLoginStep(page)
+  return (
+    (await waitForPostEmailLoginCandidates(page, timeoutMs))[0] ?? 'unknown'
+  )
 }
 
 export async function waitForPasskeyCreation(
@@ -542,6 +627,83 @@ export async function waitForAuthenticatedSession(
   return isChatGPTHomeUrl(page.url()) && (await isProfileReady(page))
 }
 
+export async function getRegistrationEntryCandidates(
+  page: Page,
+): Promise<Exclude<ChatGPTRegistrationEntrySurface, 'unknown'>[]> {
+  const candidates: Exclude<ChatGPTRegistrationEntrySurface, 'unknown'>[] = []
+
+  if (await waitForAuthenticatedSession(page, 250)) {
+    pushUniqueCandidate(candidates, 'authenticated')
+  }
+  if (await isLoginEmailSurfaceReady(page)) {
+    pushUniqueCandidate(candidates, 'email')
+  }
+  if (await isAnySelectorVisible(page, SIGNUP_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'signup')
+  }
+
+  return candidates
+}
+
+export async function waitForRegistrationEntryCandidates(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<Exclude<ChatGPTRegistrationEntrySurface, 'unknown'>[]> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const candidates = await getRegistrationEntryCandidates(page)
+    if (candidates.length > 0) {
+      return candidates
+    }
+    await sleep(250)
+  }
+
+  return getRegistrationEntryCandidates(page)
+}
+
+export async function getAgeGateFieldCandidates(
+  page: Page,
+): Promise<ChatGPTAgeGateFieldMode[]> {
+  const candidates: ChatGPTAgeGateFieldMode[] = []
+
+  if (await hasEditableSelector(page, AGE_GATE_AGE_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'age')
+  }
+
+  const birthdayVisible = await isAnySelectorVisible(
+    page,
+    AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
+  )
+  const birthdayHiddenPresent = await waitForAnySelectorState(
+    page,
+    AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
+    'attached',
+    250,
+  )
+
+  if (birthdayVisible || birthdayHiddenPresent) {
+    pushUniqueCandidate(candidates, 'birthday')
+  }
+
+  return candidates
+}
+
+export async function waitForAgeGateFieldCandidates(
+  page: Page,
+  timeoutMs = 3000,
+): Promise<ChatGPTAgeGateFieldMode[]> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const candidates = await getAgeGateFieldCandidates(page)
+    if (candidates.length > 0) {
+      return candidates
+    }
+    await sleep(250)
+  }
+
+  return getAgeGateFieldCandidates(page)
+}
+
 export async function waitForLoginEmailFormReady(
   page: Page,
   timeoutMs = 15000,
@@ -571,26 +733,53 @@ export async function waitForLoginEmailFormReady(
   return false
 }
 
-export async function waitForLoginSurface(
+export async function getLoginSurfaceCandidates(
+  page: Page,
+): Promise<Exclude<ChatGPTLoginSurface, 'unknown'>[]> {
+  const candidates: Exclude<ChatGPTLoginSurface, 'unknown'>[] = []
+
+  if (await waitForAuthenticatedSession(page, 500)) {
+    pushUniqueCandidate(candidates, 'authenticated')
+  }
+  if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'passkey')
+  }
+  if (await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'email')
+  }
+  if (isChatGPTLoginUrl(page.url())) {
+    if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) {
+      pushUniqueCandidate(candidates, 'passkey')
+    }
+    if (await isAnySelectorVisible(page, LOGIN_EMAIL_SELECTORS)) {
+      pushUniqueCandidate(candidates, 'email')
+    }
+  }
+
+  return candidates
+}
+
+export async function waitForLoginSurfaceCandidates(
   page: Page,
   timeoutMs = 15000,
-): Promise<'authenticated' | 'email' | 'passkey' | 'unknown'> {
+): Promise<Exclude<ChatGPTLoginSurface, 'unknown'>[]> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (await waitForAuthenticatedSession(page, 500)) return 'authenticated'
-    if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS))
-      return 'passkey'
-    if (await hasEnabledSelector(page, LOGIN_EMAIL_SELECTORS)) return 'email'
-    if (isChatGPTLoginUrl(page.url())) {
-      if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS))
-        return 'passkey'
-      if (await isAnySelectorVisible(page, LOGIN_EMAIL_SELECTORS))
-        return 'email'
+    const candidates = await getLoginSurfaceCandidates(page)
+    if (candidates.length > 0) {
+      return candidates
     }
     await sleep(250)
   }
 
-  return 'unknown'
+  return getLoginSurfaceCandidates(page)
+}
+
+export async function waitForLoginSurface(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<ChatGPTLoginSurface> {
+  return (await waitForLoginSurfaceCandidates(page, timeoutMs))[0] ?? 'unknown'
 }
 
 export async function waitForPasskeyEntryReady(
@@ -607,29 +796,62 @@ export async function waitForPasskeyEntryReady(
   return waitForEnabledSelector(page, PASSKEY_ENTRY_SELECTORS, timeoutMs)
 }
 
-export async function waitForRetryOrPasskeyEntryReady(
+export async function getRetryOrPasskeyEntryCandidates(
+  page: Page,
+  allowPasskeyEntry = true,
+): Promise<Exclude<ChatGPTPasskeyTrigger, 'none'>[]> {
+  const candidates: Exclude<ChatGPTPasskeyTrigger, 'none'>[] = []
+
+  if (
+    (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) ||
+    (await hasPasswordTimeoutErrorState(page))
+  ) {
+    pushUniqueCandidate(candidates, 'retry')
+  }
+  if (
+    allowPasskeyEntry &&
+    (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS))
+  ) {
+    pushUniqueCandidate(candidates, 'passkey')
+  }
+
+  return candidates
+}
+
+export async function waitForRetryOrPasskeyEntryCandidates(
   page: Page,
   timeoutMs = 10000,
   allowPasskeyEntry = true,
-): Promise<'retry' | 'passkey' | 'none'> {
+): Promise<Exclude<ChatGPTPasskeyTrigger, 'none'>[]> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (
-      (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) ||
-      (await hasPasswordTimeoutErrorState(page))
-    ) {
-      return 'retry'
-    }
-    if (
-      allowPasskeyEntry &&
-      (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS))
-    ) {
-      return 'passkey'
+    const candidates = await getRetryOrPasskeyEntryCandidates(
+      page,
+      allowPasskeyEntry,
+    )
+    if (candidates.length > 0) {
+      return candidates
     }
     await sleep(250)
   }
 
-  return 'none'
+  return getRetryOrPasskeyEntryCandidates(page, allowPasskeyEntry)
+}
+
+export async function waitForRetryOrPasskeyEntryReady(
+  page: Page,
+  timeoutMs = 10000,
+  allowPasskeyEntry = true,
+): Promise<ChatGPTPasskeyTrigger> {
+  return (
+    (
+      await waitForRetryOrPasskeyEntryCandidates(
+        page,
+        timeoutMs,
+        allowPasskeyEntry,
+      )
+    )[0] ?? 'none'
+  )
 }
 
 export async function waitForVerificationCode(params: {

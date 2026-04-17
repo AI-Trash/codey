@@ -4,8 +4,15 @@ import {
   ADULT_BIRTH_DAY,
   ADULT_BIRTH_MONTH,
   ADULT_BIRTH_YEAR,
+  ADULT_AGE,
+  PROFILE_NAME,
 } from '../src/modules/chatgpt/common'
-import { fillAgeGateBirthday } from '../src/modules/chatgpt/mutations'
+import {
+  fillAgeGateAge,
+  fillAgeGateBirthday,
+  fillAgeGateName,
+} from '../src/modules/chatgpt/mutations'
+import { waitForAgeGateFieldCandidates } from '../src/modules/chatgpt/queries'
 
 class FakePage {
   hiddenBirthdayValue = ''
@@ -16,6 +23,7 @@ class FakePage {
   private readonly hiddenLocator = new FakeLocator(this, {
     visible: false,
     editable: false,
+    attached: false,
   })
 
   readonly mouse = {
@@ -81,6 +89,7 @@ class FakeLocator {
   constructor(
     private readonly page: FakePage,
     readonly state: {
+      attached?: boolean
       visible?: boolean
       editable?: boolean
       onClick?: () => void
@@ -101,9 +110,12 @@ class FakeLocator {
     state: 'visible' | 'hidden' | 'attached' | 'detached'
     timeout?: number
   }): Promise<void> {
+    const attached = this.state.attached ?? (this.state.visible ?? true)
     const visible = this.state.visible ?? true
     if (options.state === 'visible' && visible) return
     if (options.state === 'hidden' && !visible) return
+    if (options.state === 'attached' && attached) return
+    if (options.state === 'detached' && !attached) return
     throw new Error(`State ${options.state} not reached`)
   }
 
@@ -230,5 +242,51 @@ describe('fillAgeGateBirthday', () => {
 
     await expect(fillAgeGateBirthday(page as never)).resolves.toBe(true)
     expect(page.hiddenBirthdayValue).toBe(ADULT_BIRTHDAY)
+  })
+})
+
+describe('age gate text inputs', () => {
+  it('prefers the visible age input over the hidden birthday fallback', async () => {
+    const page = new FakePage()
+    page.locators['input[id*="age"]'] = new FakeLocator(page, {
+      visible: true,
+      editable: true,
+      attached: true,
+    })
+    page.locators['input[name="birthday"]'] = new FakeLocator(page, {
+      visible: false,
+      editable: false,
+      attached: true,
+    })
+
+    await expect(
+      waitForAgeGateFieldCandidates(page as never, 200),
+    ).resolves.toEqual(['age', 'birthday'])
+  })
+
+  it('types the visible name field using the generic name selector fallback', async () => {
+    const page = new FakePage()
+    const nameInput = new FakeLocator(page, {
+      visible: true,
+      editable: true,
+    })
+    nameInput.text = 'stale'
+    page.locators['input[id*="name"]'] = nameInput
+
+    await expect(fillAgeGateName(page as never)).resolves.toBe(true)
+    expect(nameInput.text).toBe(PROFILE_NAME)
+  })
+
+  it('types the visible age field so the value is present in the input', async () => {
+    const page = new FakePage()
+    const ageInput = new FakeLocator(page, {
+      visible: true,
+      editable: true,
+    })
+    ageInput.text = '1'
+    page.locators['input[id*="age"]'] = ageInput
+
+    await expect(fillAgeGateAge(page as never)).resolves.toBe(true)
+    expect(ageInput.text).toBe(ADULT_AGE)
   })
 })

@@ -276,15 +276,7 @@ async function fillFirstAvailable(
   selectors: SelectorTarget[],
   value: string,
 ): Promise<boolean> {
-  for (const selector of selectors) {
-    const locator = toLocator(page, selector).first()
-    const visible = await locator.isVisible().catch(() => false)
-    if (!visible) continue
-    await locator.fill(value)
-    await locator.blur().catch(() => undefined)
-    return true
-  }
-  return false
+  return typeIfPresent(page, selectors, value, AUTH_INPUT_TYPING_OPTIONS)
 }
 
 export async function fillAgeGateName(page: Page): Promise<boolean> {

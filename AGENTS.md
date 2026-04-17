@@ -17,6 +17,16 @@
 - `pnpm test`, `pnpm lint`, `pnpm fmt`, and `pnpm fmt:check` are scoped to `packages/flows`.
 - If you change app code outside `packages/flows`, use `pnpm build` plus editor diagnostics; there is no separate root lint task for the app.
 
+## Flow state machines
+
+- Treat flow branching as a state-machine concern. Do not add new `if/else` trees in flow runners to decide between states such as email/password/verification/retry/passkey.
+- Encode branch selection as guarded transitions with explicit priority. When multiple transitions exist for the same event, guards must be evaluated in priority order and only the first passing transition should be selected.
+- Keep guards pure. In `packages/flows`, guards should consume query results or candidate lists returned by `queries.ts`; prefer helpers such as `get*Candidates()` / `waitFor*Candidates()` over embedding DOM checks directly in mutation code.
+- Keep retry and fallback bookkeeping in machine context, not in ad-hoc local variables only. This includes `retryCount`, `retryReason`, `retryFromState`, `lastAttempt`, and `lastMessage`.
+- Retry states must be globally reachable from every flow state. When a branch fails in a recoverable way, emit the flow's retry event and record the fallback in context before trying the next eligible branch.
+- When a flow needs to enter one of several guarded branches at runtime, use the ordered guarded-branch runner (`runGuardedBranches`) so recoverable branch-entry failures can automatically fall through to the next matching branch.
+- States that may be revisited must be safe to re-enter. Prefer explicit same-state/reentry transitions and idempotent actions over recursive helper loops or one-off retry code paths.
+
 ## Package and version management
 
 - This repo uses **pnpm workspace catalogs**.

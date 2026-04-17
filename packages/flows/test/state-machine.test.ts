@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { assignContext, createStateMachine } from '../src/state-machine'
+import {
+  assignContext,
+  createStateMachine,
+  GuardedBranchError,
+  runGuardedBranches,
+} from '../src/state-machine'
 
 describe('state machine', () => {
   it('selects transitions by priority and runs exit, transition, and entry actions in order', async () => {
@@ -71,5 +76,54 @@ describe('state machine', () => {
       'transition-preferred',
       'entry-preferred',
     ])
+  })
+
+  it('falls through to the next guarded branch when the first branch fails recoverably', async () => {
+    const visited: string[] = []
+
+    const resolved = await runGuardedBranches(
+      [
+        {
+          branch: 'preferred' as const,
+          priority: 20,
+          guard: () => true,
+          run: async () => {
+            visited.push('preferred')
+            throw new GuardedBranchError(
+              'preferred',
+              'Preferred branch was not enterable.',
+            )
+          },
+        },
+        {
+          branch: 'fallback' as const,
+          priority: 10,
+          guard: ({ failures }) => failures.length === 1,
+          run: async () => {
+            visited.push('fallback')
+            return 'fallback-result'
+          },
+        },
+      ],
+      {
+        context: {
+          kind: 'test',
+        },
+        input: {
+          candidates: ['preferred', 'fallback'],
+        },
+      },
+    )
+
+    expect(visited).toEqual(['preferred', 'fallback'])
+    expect(resolved.branch).toBe('fallback')
+    expect(resolved.result).toBe('fallback-result')
+    expect(resolved.failures).toHaveLength(1)
+    expect(resolved.failures[0]).toMatchObject({
+      branch: 'preferred',
+      error: {
+        message: 'Preferred branch was not enterable.',
+      },
+    })
   })
 })
