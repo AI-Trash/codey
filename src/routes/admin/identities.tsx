@@ -2,15 +2,14 @@ import {
   type ComponentProps,
   type ReactNode,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
-  ArchiveIcon,
   CalendarIcon,
-  CheckIcon,
   HashIcon,
   SearchIcon,
   ShieldIcon,
@@ -22,7 +21,6 @@ import {
   AdminMetricCard,
   AdminPageHeader,
   EmptyState,
-  StatusBadge,
   formatAdminDate,
 } from '#/components/admin/layout'
 import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
@@ -48,6 +46,13 @@ import {
 import { CopyableValue } from '#/components/ui/copyable-value'
 import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#/components/ui/select'
 import {
   Table,
   TableBody,
@@ -106,6 +111,50 @@ type IdentitySummary = {
   status?: string | null
 }
 
+const managedIdentityStatusOptions = [
+  {
+    value: 'active',
+    intent: 'activate',
+    label: () => m.status_active(),
+  },
+  {
+    value: 'review',
+    intent: 'review',
+    label: () => m.status_review(),
+  },
+  {
+    value: 'archived',
+    intent: 'archive',
+    label: () => m.status_archived(),
+  },
+] as const
+
+type ManagedIdentityStatus =
+  (typeof managedIdentityStatusOptions)[number]['value']
+
+function normalizeManagedIdentityStatus(
+  status?: string | null,
+): ManagedIdentityStatus {
+  if (status === 'review' || status === 'archived') {
+    return status
+  }
+
+  return 'active'
+}
+
+function isManagedIdentityStatus(
+  value: string,
+): value is ManagedIdentityStatus {
+  return managedIdentityStatusOptions.some((option) => option.value === value)
+}
+
+function getManagedIdentityIntent(status: ManagedIdentityStatus) {
+  return (
+    managedIdentityStatusOptions.find((option) => option.value === status)
+      ?.intent || 'activate'
+  )
+}
+
 function AdminIdentitiesPage() {
   const data = Route.useLoaderData()
 
@@ -139,7 +188,9 @@ function AdminIdentitiesPage() {
       dtf
         .text()
         .id('account')
-        .accessor((summary) => summary.account || m.admin_dashboard_not_linked_yet())
+        .accessor(
+          (summary) => summary.account || m.admin_dashboard_not_linked_yet(),
+        )
         .displayName(m.admin_dashboard_table_account())
         .icon(SearchIcon)
         .build(),
@@ -219,7 +270,9 @@ function AdminIdentitiesPage() {
 
       <Card className="min-h-0 flex-1">
         <CardHeader>
-          <CardDescription>{m.admin_dashboard_identities_kicker()}</CardDescription>
+          <CardDescription>
+            {m.admin_dashboard_identities_kicker()}
+          </CardDescription>
           <div className="flex items-start gap-2">
             <CardTitle>{m.admin_dashboard_identities_title()}</CardTitle>
             <InfoTooltip
@@ -300,7 +353,7 @@ function AdminIdentitiesPage() {
                           m.admin_dashboard_not_captured_yet()}
                       </TableCell>
                       <TableCell className="align-top">
-                        <StatusBadge value={summary.status || 'unknown'} />
+                        <IdentityStatusSelect summary={summary} />
                       </TableCell>
                       <TableCell className="align-top">
                         <IdentityRowActions summary={summary} />
@@ -347,27 +400,6 @@ function IdentityRowActions(props: { summary: IdentitySummary }) {
         </form>
 
         <div className="flex flex-wrap gap-2">
-          <IdentityStatusActionButton
-            summary={summary}
-            intent="activate"
-            active={summary.status === 'active'}
-            label={m.status_active()}
-            icon={<CheckIcon />}
-          />
-          <IdentityStatusActionButton
-            summary={summary}
-            intent="review"
-            active={summary.status === 'review'}
-            label={m.status_review()}
-            icon={<SearchIcon />}
-          />
-          <IdentityStatusActionButton
-            summary={summary}
-            intent="archive"
-            active={summary.status === 'archived'}
-            label={m.status_archived()}
-            icon={<ArchiveIcon />}
-          />
           <IdentityDeleteAction summary={summary} />
         </div>
       </div>
@@ -389,24 +421,47 @@ function IdentityActionFields(props: { summary: IdentitySummary }) {
   )
 }
 
-function IdentityStatusActionButton(props: {
-  summary: IdentitySummary
-  intent: 'activate' | 'review' | 'archive'
-  active: boolean
-  label: string
-  icon: ReactNode
-}) {
+function IdentityStatusSelect(props: { summary: IdentitySummary }) {
+  const formRef = useRef<HTMLFormElement>(null)
+  const intentInputRef = useRef<HTMLInputElement>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const currentStatus = normalizeManagedIdentityStatus(props.summary.status)
+
   return (
-    <form method="post" action="/api/admin/identities">
+    <form ref={formRef} method="post" action="/api/admin/identities">
       <IdentityActionFields summary={props.summary} />
-      <ActionIconButton
-        type="submit"
+      <input
+        ref={intentInputRef}
+        type="hidden"
         name="intent"
-        value={props.intent}
-        variant={props.active ? 'default' : 'outline'}
-        label={props.label}
-        icon={props.icon}
+        value={getManagedIdentityIntent(currentStatus)}
       />
+
+      <Select
+        defaultValue={currentStatus}
+        disabled={submitting}
+        onValueChange={(nextStatus) => {
+          const intentInput = intentInputRef.current
+          if (!intentInput || !isManagedIdentityStatus(nextStatus)) {
+            return
+          }
+
+          intentInput.value = getManagedIdentityIntent(nextStatus)
+          setSubmitting(true)
+          formRef.current?.requestSubmit()
+        }}
+      >
+        <SelectTrigger size="sm" className="w-[132px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="start">
+          {managedIdentityStatusOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label()}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </form>
   )
 }
