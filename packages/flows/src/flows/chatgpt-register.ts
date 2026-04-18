@@ -15,10 +15,6 @@ import {
   runGuardedBranches,
 } from '../state-machine'
 import type { RegistrationResult } from '../modules/registration'
-import type {
-  VirtualAuthenticatorOptions,
-  VirtualPasskeyStore,
-} from '../modules/webauthn'
 import {
   persistChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
@@ -31,70 +27,52 @@ import type {
   StateMachineController,
   StateMachineSnapshot,
 } from '../state-machine'
-import { loadVirtualPasskeyStore } from '../modules/webauthn/virtual-authenticator'
 import { getRuntimeConfig } from '../config'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
 import { syncManagedSessionsToCodeyApp } from '../modules/app-auth/managed-sessions'
-import {
-  createVerificationProvider,
-  type VerificationProvider,
-} from '../modules/verification'
+import { createVerificationProvider } from '../modules/verification'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
 import {
-  clickAddPasskey,
   type ChatGPTAgeGateFieldMode,
   type ChatGPTRegistrationEntrySurface,
   type ChatGPTPostEmailLoginStep,
   clickCompleteAccountCreation,
   clickOnboardingAction,
-  clickPasskeyDoneIfPresent,
-  clearAuthenticatedSessionState,
   clickPasswordSubmit,
-  clickPasskeyEntry,
   clickRetryButtonIfPresent,
   clickSignupEntry,
   clickVerificationContinue,
   buildPassword,
   CHATGPT_ENTRY_LOGIN_URL,
-  completePasswordOrVerificationLoginFallback,
   confirmAgeDialogIfPresent,
   fillAgeGateAge,
   fillAgeGateBirthday,
   fillAgeGateName,
-  gotoSecuritySettings,
   submitLoginEmail,
   typePassword,
   typeVerificationCode,
   gotoLoginEntry,
   waitForAnySelectorState,
-  waitForAuthenticatedSession,
   getAgeGateFieldCandidates,
   waitForEnabledSelector,
   waitForLoginEmailFormReady,
-  waitForLoginSurface,
   waitForPasswordInputReady,
-  waitForPasskeyEntryReady,
   waitForAgeGateFieldCandidates,
   waitForPostEmailLoginCandidates,
   waitForPasswordSubmissionOutcome,
-  waitForPasskeyCreation,
   waitForRegistrationEntryCandidates,
   waitUntilChatGPTHomeReady,
   waitForVerificationCodeInputReady,
   waitForVerificationCode,
   waitForVerificationCodeUpdatesAfterSubmit,
-  isSecuritySettingsReady,
   DEFAULT_EVENT_TIMEOUT_MS,
   COMPLETE_ACCOUNT_SELECTORS,
   AGE_GATE_INPUT_SELECTORS,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
-  SECURITY_READY_SELECTORS,
-  clickLoginEntryIfPresent,
   clickPasswordTimeoutRetry,
 } from '../modules/chatgpt/shared'
 import {
   attachStateMachineProgressReporter,
-  parseBooleanFlag,
   parseNumberFlag,
   sanitizeErrorForOutput,
   type FlowOptions,
@@ -117,12 +95,8 @@ export type ChatGPTRegistrationFlowState =
   | 'verification-code-entry'
   | 'age-gate'
   | 'post-signup-home'
-  | 'security-settings'
-  | 'passkey-provisioning'
   | 'persisting-identity'
-  | 'same-session-passkey-check'
   | 'login-surface'
-  | 'passkey-login'
   | 'retrying'
   | 'add-phone-required'
   | 'authenticated'
@@ -143,13 +117,8 @@ export type ChatGPTRegistrationFlowEvent =
   | 'chatgpt.age-gate.outcome'
   | 'chatgpt.age-gate.completed'
   | 'chatgpt.home.waiting'
-  | 'chatgpt.security.started'
-  | 'chatgpt.passkey.provisioning'
   | 'chatgpt.identity.persisting'
-  | 'chatgpt.same-session-passkey-check.started'
-  | 'chatgpt.same-session-passkey-check.completed'
   | 'chatgpt.login.surface.ready'
-  | 'chatgpt.passkey.login.started'
   | 'chatgpt.retry.requested'
   | 'chatgpt.authenticated'
   | 'chatgpt.completed'
@@ -157,20 +126,6 @@ export type ChatGPTRegistrationFlowEvent =
   | 'context.updated'
   | 'action.started'
   | 'action.finished'
-
-export interface SameSessionPasskeyCheckResult {
-  attempted: boolean
-  authenticated: boolean
-  method?: 'passkey' | 'password' | 'verification'
-  error?: string
-}
-
-interface SameSessionBranchResolution {
-  attempted: boolean
-  authenticated: boolean
-  method: 'passkey' | 'password' | 'verification'
-  error?: string
-}
 
 interface RegistrationPostEmailResolution {
   verificationEvent: 'chatgpt.password.submitted' | 'context.updated'
@@ -185,16 +140,12 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   postEmailStep?: ChatGPTPostEmailLoginStep
   prefix?: string
   verificationCode?: string
-  method?: 'password' | 'passkey' | 'verification'
-  createPasskey?: boolean
-  passkeyCreated?: boolean
-  passkeyStore?: VirtualPasskeyStore
+  method?: 'password' | 'verification'
   usedEmailFallback?: boolean
   assertionObserved?: boolean
   storedIdentity?: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
   registration?: RegistrationResult
-  sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult
   mailbox?: string
   retryCount?: number
   retryReason?: string
@@ -224,10 +175,6 @@ export interface ChatGPTRegistrationFlowOptions {
   password?: string
   verificationTimeoutMs?: number
   pollIntervalMs?: number
-  createPasskey?: boolean
-  sameSessionPasskeyCheck?: boolean
-  virtualAuthenticator?: VirtualAuthenticatorOptions
-  passkeyStore?: VirtualPasskeyStore
   machine?: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>
 }
 
@@ -240,11 +187,8 @@ export interface ChatGPTRegistrationFlowResult {
   verificationCode: string
   verified: boolean
   registration: RegistrationResult
-  passkeyCreated: boolean
-  passkeyStore?: VirtualPasskeyStore
   storedIdentity?: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
-  sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult
   machine: ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>
 }
 
@@ -338,11 +282,7 @@ const chatgptRegistrationEventTargets = {
   'chatgpt.verification.polling': 'verification-polling',
   'chatgpt.verification.code-found': 'verification-code-entry',
   'chatgpt.home.waiting': 'post-signup-home',
-  'chatgpt.security.started': 'security-settings',
-  'chatgpt.passkey.provisioning': 'passkey-provisioning',
   'chatgpt.identity.persisting': 'persisting-identity',
-  'chatgpt.same-session-passkey-check.started': 'same-session-passkey-check',
-  'chatgpt.same-session-passkey-check.completed': 'same-session-passkey-check',
 } as const satisfies Partial<
   Record<ChatGPTRegistrationFlowEvent, ChatGPTRegistrationFlowState>
 >
@@ -366,13 +306,8 @@ const chatgptRegistrationAddPhoneGuardEvents = [
   'chatgpt.age-gate.outcome',
   'chatgpt.age-gate.completed',
   'chatgpt.home.waiting',
-  'chatgpt.security.started',
-  'chatgpt.passkey.provisioning',
   'chatgpt.identity.persisting',
-  'chatgpt.same-session-passkey-check.started',
-  'chatgpt.same-session-passkey-check.completed',
   'chatgpt.login.surface.ready',
-  'chatgpt.passkey.login.started',
   'chatgpt.retry.requested',
   'chatgpt.authenticated',
   ...chatgptRegistrationMutableContextEvents,
@@ -456,14 +391,6 @@ function createChatGPTRegistrationEmailSubmittedTransitions<Result>() {
                 'Retry step detected after registration email submission',
             }
           },
-        ),
-      },
-      {
-        priority: 20,
-        when: ({ input }) => input.step === 'passkey',
-        target: 'passkey-login',
-        actions: assignPostEmailContext(
-          'Passkey step detected after registration email submission',
         ),
       },
     ],
@@ -1086,311 +1013,9 @@ async function completeRegistrationAgeGate(
   throw new Error('Age gate submission did not complete successfully.')
 }
 
-async function provisionRegistrationPasskey(
-  page: Page,
-  options: {
-    passkeyStore?: VirtualPasskeyStore
-    virtualAuthenticator?: VirtualAuthenticatorOptions
-  } = {},
-): Promise<{
-  passkeyCreated: boolean
-  passkeyStore?: VirtualPasskeyStore
-  homeReady: boolean
-  securityAttemptCount: number
-}> {
-  const virtualAuth = await loadVirtualPasskeyStore(
-    page,
-    options.passkeyStore,
-    options.virtualAuthenticator,
-  )
-
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    await gotoSecuritySettings(page)
-    if (!(await isSecuritySettingsReady(page))) {
-      const action = await clickOnboardingAction(page)
-      if (action) continue
-    }
-
-    for (let wait = 0; wait < 45; wait += 1) {
-      const ready = await isSecuritySettingsReady(page)
-      if (ready) break
-      await clickOnboardingAction(page)
-      await waitForAnySelectorState(
-        page,
-        SECURITY_READY_SELECTORS,
-        'visible',
-        DEFAULT_EVENT_TIMEOUT_MS,
-      ).catch(() => false)
-    }
-
-    const addClicked = await clickAddPasskey(page)
-    if (!addClicked) continue
-
-    const passkeyStore = await waitForPasskeyCreation(
-      page,
-      virtualAuth.session,
-      virtualAuth.authenticatorId,
-    )
-    const passkeyCreated = passkeyStore.credentials.length > 0
-    await clickPasskeyDoneIfPresent(page)
-    return {
-      passkeyCreated,
-      passkeyStore: passkeyCreated ? passkeyStore : undefined,
-      homeReady: true,
-      securityAttemptCount: attempt + 1,
-    }
-  }
-
-  return { passkeyCreated: false, homeReady: true, securityAttemptCount: 10 }
-}
-
-async function runSameSessionPasskeyCheck(
-  page: Page,
-  options: {
-    email: string
-    password: string
-    verificationProvider: VerificationProvider
-    verificationTimeoutMs: number
-    pollIntervalMs: number
-  },
-  machine?: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
-): Promise<SameSessionPasskeyCheckResult> {
-  let attemptedMethod: SameSessionPasskeyCheckResult['method'] = 'passkey'
-  try {
-    await clearAuthenticatedSessionState(page)
-    await gotoLoginEntry(page)
-
-    if (await waitForAuthenticatedSession(page, 5000)) {
-      return { attempted: true, authenticated: true, method: 'passkey' }
-    }
-
-    await clickLoginEntryIfPresent(page)
-    const surface = await waitForLoginSurface(page, 15000)
-    if (surface === 'unknown') {
-      throw new Error(
-        'ChatGPT login entry page did not reach a supported login surface.',
-      )
-    }
-
-    // Reuse the existing virtual authenticator created during passkey provisioning.
-    // Chrome only allows one internal virtual authenticator per environment.
-
-    const startedAt = new Date().toISOString()
-    await submitLoginEmail(page, options.email, {
-      onRetry: async (_attempt, reason) => {
-        await machine?.send('chatgpt.retry.requested', {
-          reason: `same-session-email:${reason}`,
-          message:
-            reason === 'retry'
-              ? 'Retrying same-session login email submission'
-              : 'Retrying timed out same-session login email submission',
-          patch: {
-            email: options.email,
-            url: page.url(),
-          },
-        })
-      },
-    })
-
-    const postEmailCandidates = await waitForPostEmailLoginCandidates(
-      page,
-      20000,
-    )
-    if (postEmailCandidates.length === 0) {
-      throw new Error(
-        'Same-session ChatGPT login did not reach a supported post-email step.',
-      )
-    }
-
-    return (
-      await runGuardedBranches<
-        {
-          email: string
-        },
-        {
-          postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
-        },
-        SameSessionBranchResolution,
-        'authenticated' | 'password' | 'verification' | 'retry' | 'passkey'
-      >(
-        [
-          {
-            branch: 'authenticated' as const,
-            priority: 60,
-            guard: ({ input }) =>
-              input.postEmailCandidates.includes('authenticated'),
-            run: async () => ({
-              attempted: true,
-              authenticated: true,
-              method: 'passkey' as const,
-            }),
-          },
-          {
-            branch: 'password' as const,
-            priority: 50,
-            guard: async ({ input }) =>
-              input.postEmailCandidates.includes('password') ||
-              (await waitForPasswordInputReady(page, 500)),
-            run: async () => {
-              attemptedMethod = 'password'
-              try {
-                const fallback =
-                  await completePasswordOrVerificationLoginFallback(page, {
-                    email: options.email,
-                    password: options.password,
-                    step: 'password',
-                    startedAt,
-                    verificationProvider: options.verificationProvider,
-                    verificationTimeoutMs: options.verificationTimeoutMs,
-                    pollIntervalMs: options.pollIntervalMs,
-                  })
-                const authenticated = await waitForAuthenticatedSession(
-                  page,
-                  30000,
-                )
-                return {
-                  attempted: true,
-                  authenticated,
-                  method: fallback.method,
-                  ...(authenticated
-                    ? {}
-                    : {
-                        error: 'Password fallback login did not authenticate.',
-                      }),
-                }
-              } catch (error) {
-                throw wrapRecoverableRegistrationBranchError('password', error)
-              }
-            },
-          },
-          {
-            branch: 'verification' as const,
-            priority: 40,
-            guard: async ({ input }) =>
-              input.postEmailCandidates.includes('verification') ||
-              (await waitForVerificationCodeInputReady(page, 500)),
-            run: async () => {
-              attemptedMethod = 'verification'
-              try {
-                const fallback =
-                  await completePasswordOrVerificationLoginFallback(page, {
-                    email: options.email,
-                    password: options.password,
-                    step: 'verification',
-                    startedAt,
-                    verificationProvider: options.verificationProvider,
-                    verificationTimeoutMs: options.verificationTimeoutMs,
-                    pollIntervalMs: options.pollIntervalMs,
-                  })
-                const authenticated = await waitForAuthenticatedSession(
-                  page,
-                  30000,
-                )
-                return {
-                  attempted: true,
-                  authenticated,
-                  method: fallback.method,
-                  ...(authenticated
-                    ? {}
-                    : {
-                        error:
-                          'Verification fallback login did not authenticate.',
-                      }),
-                }
-              } catch (error) {
-                throw wrapRecoverableRegistrationBranchError(
-                  'verification',
-                  error,
-                )
-              }
-            },
-          },
-          {
-            branch: 'retry' as const,
-            priority: 30,
-            guard: ({ input }) => input.postEmailCandidates.includes('retry'),
-            run: async () => {
-              throw new GuardedBranchError(
-                'retry',
-                'Same-session ChatGPT login returned to the email step repeatedly after submission.',
-              )
-            },
-          },
-          {
-            branch: 'passkey' as const,
-            priority: 20,
-            guard: async ({ input }) =>
-              input.postEmailCandidates.includes('passkey') ||
-              (await waitForPasskeyEntryReady(page, 500)),
-            run: async () => {
-              attemptedMethod = 'passkey'
-              const passkeyReady = await waitForPasskeyEntryReady(page, 20000)
-              if (!passkeyReady) {
-                throw new GuardedBranchError(
-                  'passkey',
-                  'Passkey entry button did not appear on the login surface.',
-                )
-              }
-              if (!(await clickPasskeyEntry(page))) {
-                throw new GuardedBranchError(
-                  'passkey',
-                  'Passkey entry button became visible but could not be clicked.',
-                )
-              }
-
-              const authenticated = await waitForAuthenticatedSession(
-                page,
-                30000,
-              )
-              return {
-                attempted: true,
-                authenticated,
-                method: 'passkey' as const,
-                ...(authenticated
-                  ? {}
-                  : { error: 'Passkey login did not authenticate.' }),
-              }
-            },
-          },
-        ],
-        {
-          context: {
-            email: options.email,
-          },
-          input: {
-            postEmailCandidates,
-          },
-          onFallback: async ({ branch, error }) => {
-            await machine?.send('chatgpt.retry.requested', {
-              reason: `same-session:${branch}`,
-              message: `Falling back from same-session ${branch} branch`,
-              patch: {
-                email: options.email,
-                url: page.url(),
-                lastMessage: error.message,
-              },
-            })
-          },
-        },
-      )
-    ).result
-  } catch (error) {
-    return {
-      attempted: true,
-      authenticated: false,
-      method: attemptedMethod,
-      error: error instanceof Error ? error.message : String(error),
-    }
-  }
-}
-
 export async function registerChatGPT(
   page: Page,
-  options: FlowOptions &
-    Pick<
-      Partial<ChatGPTRegistrationFlowOptions>,
-      'passkeyStore' | 'virtualAuthenticator'
-    > = {},
+  options: FlowOptions = {},
 ): Promise<ChatGPTRegistrationFlowResult> {
   const config = getRuntimeConfig()
 
@@ -1403,9 +1028,6 @@ export async function registerChatGPT(
   const { email, prefix, mailbox, reservationId } =
     await verificationProvider.prepareEmailTarget()
   const password = options.password || buildPassword()
-  const createPasskey = parseBooleanFlag(options.createPasskey, false) ?? false
-  const sameSessionPasskeyCheckEnabled =
-    parseBooleanFlag(options.sameSessionPasskeyCheck, false) ?? false
   const verificationTimeoutMs =
     parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000
   const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
@@ -1418,8 +1040,6 @@ export async function registerChatGPT(
         email,
         prefix,
         mailbox,
-        createPasskey,
-        passkeyCreated: false,
         url: CHATGPT_ENTRY_LOGIN_URL,
       },
       {
@@ -1490,7 +1110,7 @@ export async function registerChatGPT(
           postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
         },
         RegistrationPostEmailResolution,
-        'password' | 'verification' | 'retry' | 'passkey'
+        'password' | 'verification' | 'retry'
       >(
         [
           {
@@ -1605,24 +1225,6 @@ export async function registerChatGPT(
               )
             },
           },
-          {
-            branch: 'passkey' as const,
-            priority: 20,
-            guard: ({ input }) => input.postEmailCandidates.includes('passkey'),
-            run: async () => {
-              await machine.send('chatgpt.email.submitted', {
-                step: 'passkey',
-                url: page.url(),
-                patch: {
-                  email,
-                },
-              })
-              throw new GuardedBranchError(
-                'passkey',
-                'ChatGPT registration unexpectedly reached a passkey challenge before verification.',
-              )
-            },
-          },
         ],
         {
           context: {
@@ -1663,7 +1265,6 @@ export async function registerChatGPT(
       accountType: 'parent',
       email,
       organizationName: null,
-      passkeyCreated: false,
     }
 
     const verificationCode = await waitForVerificationCode({
@@ -1761,112 +1362,11 @@ export async function registerChatGPT(
       )
     }
 
-    const passkeyPromise =
-      createPasskey === false
-        ? {
-            passkeyCreated: false as const,
-            passkeyStore: undefined,
-            homeReady,
-            securityAttemptCount: 0,
-          }
-        : (async () => {
-            await sendRegistrationMachine(
-              machine,
-              'passkey-provisioning',
-              'chatgpt.passkey.provisioning',
-              {
-                url: page.url(),
-                lastMessage: 'Starting passkey provisioning',
-              },
-            )
-            return provisionRegistrationPasskey(page, {
-              passkeyStore: options.passkeyStore,
-              virtualAuthenticator: options.virtualAuthenticator,
-            })
-          })()
-    const resolvedPasskey = await passkeyPromise
-
-    if (createPasskey) {
-      if (resolvedPasskey.securityAttemptCount > 0) {
-        await sendRegistrationMachine(
-          machine,
-          'security-settings',
-          'chatgpt.security.started',
-          {
-            lastAttempt: resolvedPasskey.securityAttemptCount,
-            url: page.url(),
-            lastMessage: 'Opening security settings',
-          },
-        )
-      }
-      await sendRegistrationMachine(
-        machine,
-        'passkey-provisioning',
-        'context.updated',
-        {
-          passkeyCreated: resolvedPasskey.passkeyCreated,
-          passkeyStore: resolvedPasskey.passkeyStore,
-          lastAttempt: resolvedPasskey.securityAttemptCount,
-          url: page.url(),
-          lastMessage: resolvedPasskey.passkeyCreated
-            ? 'Passkey provisioned'
-            : 'Passkey not created yet',
-        },
-      )
-    }
-
-    const sameSessionPasskeyCheck =
-      sameSessionPasskeyCheckEnabled && resolvedPasskey.passkeyCreated
-        ? (async () => {
-            await sendRegistrationMachine(
-              machine,
-              'same-session-passkey-check',
-              'chatgpt.same-session-passkey-check.started',
-              {
-                email,
-                url: page.url(),
-                lastMessage: 'Running same-session passkey check',
-              },
-            )
-            return runSameSessionPasskeyCheck(
-              page,
-              {
-                email,
-                password,
-                verificationProvider,
-                verificationTimeoutMs,
-                pollIntervalMs,
-              },
-              machine,
-            )
-          })()
-        : undefined
-    const resolvedSameSessionPasskeyCheck = await sameSessionPasskeyCheck
-
-    if (resolvedSameSessionPasskeyCheck) {
-      await sendRegistrationMachine(
-        machine,
-        'same-session-passkey-check',
-        'chatgpt.same-session-passkey-check.completed',
-        {
-          email,
-          url: page.url(),
-          sameSessionPasskeyCheck: resolvedSameSessionPasskeyCheck,
-          lastMessage: resolvedSameSessionPasskeyCheck.authenticated
-            ? 'Same-session passkey check completed'
-            : 'Same-session passkey check failed',
-        },
-      )
-    }
-
     await sendRegistrationMachine(
       machine,
       'persisting-identity',
       'chatgpt.identity.persisting',
       {
-        passkeyCreated: resolvedPasskey.passkeyCreated,
-        passkeyStore: resolvedPasskey.passkeyStore,
-        sameSessionPasskeyCheck: resolvedSameSessionPasskeyCheck,
         url: page.url(),
         lastMessage: 'Persisting ChatGPT identity and session',
       },
@@ -1877,8 +1377,6 @@ export async function registerChatGPT(
       password,
       prefix,
       mailbox,
-      passkeyCreated: resolvedPasskey.passkeyCreated,
-      passkeyStore: resolvedPasskey.passkeyStore,
     }).summary
     let storedSession: StoredChatGPTSessionSummary | undefined
     let persistedSessionRecords:
@@ -1958,16 +1456,9 @@ export async function registerChatGPT(
       prefix,
       verificationCode: submittedVerificationCode,
       verified: true,
-      registration: {
-        ...registration,
-        passkeyCreated: resolvedPasskey.passkeyCreated,
-        passkeyStore: resolvedPasskey.passkeyStore,
-      },
-      passkeyCreated: resolvedPasskey.passkeyCreated,
-      passkeyStore: resolvedPasskey.passkeyStore,
+      registration,
       storedIdentity,
       storedSession,
-      sameSessionPasskeyCheck: resolvedSameSessionPasskeyCheck,
       machine:
         undefined as unknown as ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>,
     }
@@ -1978,12 +1469,9 @@ export async function registerChatGPT(
         email,
         prefix,
         verificationCode: submittedVerificationCode,
-        passkeyCreated: resolvedPasskey.passkeyCreated,
-        passkeyStore: resolvedPasskey.passkeyStore,
         storedIdentity,
         storedSession,
         registration: result.registration,
-        sameSessionPasskeyCheck: resolvedSameSessionPasskeyCheck,
         url: result.url,
         title: result.title,
         lastMessage: 'ChatGPT registration completed',

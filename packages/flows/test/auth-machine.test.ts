@@ -2,66 +2,49 @@ import { describe, expect, it } from 'vitest'
 import { OPENAI_ADD_PHONE_ERROR_MESSAGE } from '../src/state-machine'
 import {
   createLoginMachine,
-  resolveAuthMethod,
+  createRegistrationMachine,
 } from '../src/modules/auth-machine'
 
 describe('auth machine', () => {
-  it('prefers passkey when the machine context and guard input allow it', async () => {
+  it('seeds the login machine with the initial email context', () => {
     const machine = createLoginMachine({
       options: {
         email: 'person@example.com',
-        preferPasskey: true,
       },
     })
 
     machine.start({
       email: 'person@example.com',
-      preferPasskey: true,
     })
 
-    const method = await resolveAuthMethod(machine, {
-      supportsPasskey: true,
-      passkeySelectors: ['button.passkey'],
-      emailSelectors: ['input[type="email"]'],
-    })
-
-    expect(method).toBe('passkey')
     expect(machine.getSnapshot()).toMatchObject({
-      state: 'choosing-passkey',
+      state: 'idle',
       context: {
-        method: 'passkey',
-        lastSelectors: ['button.passkey'],
-        lastMessage: 'Trying passkey login',
+        kind: 'login',
+        email: 'person@example.com',
       },
     })
   })
 
-  it('falls back to password when passkey is unavailable', async () => {
-    const machine = createLoginMachine({
+  it('seeds the registration machine with organization context', () => {
+    const machine = createRegistrationMachine({
       options: {
         email: 'person@example.com',
-        preferPasskey: true,
+        organizationName: 'Codey Labs',
       },
     })
 
     machine.start({
       email: 'person@example.com',
-      preferPasskey: true,
+      organizationName: 'Codey Labs',
     })
 
-    const method = await resolveAuthMethod(machine, {
-      supportsPasskey: false,
-      passkeySelectors: ['button.passkey'],
-      emailSelectors: ['input[type="email"]'],
-    })
-
-    expect(method).toBe('password')
     expect(machine.getSnapshot()).toMatchObject({
-      state: 'typing-email',
+      state: 'idle',
       context: {
-        method: 'password',
-        lastSelectors: ['input[type="email"]'],
-        lastMessage: 'Typing login email',
+        kind: 'registration',
+        email: 'person@example.com',
+        organizationName: 'Codey Labs',
       },
     })
   })

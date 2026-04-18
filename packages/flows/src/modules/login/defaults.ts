@@ -4,7 +4,6 @@ export interface LoginSelectors {
   email: SelectorList
   password: SelectorList
   submit: SelectorList
-  passkeyEntry?: SelectorList
 }
 
 export const loginDefaults: {
@@ -36,15 +35,5 @@ export const loginDefaults: {
       'input[type="submit"]',
     ],
   },
-  child: {
-    passkeyEntry: [
-      {
-        role: 'button',
-        options: {
-          name: /passkey|sign in with passkey|use a passkey|使用 passkey/i,
-        },
-      },
-      { text: /passkey/i },
-    ],
-  },
+  child: {},
 }

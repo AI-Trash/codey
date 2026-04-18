@@ -1,9 +1,7 @@
 import type { Page } from 'patchright'
 import type { SelectorList } from '../../types'
 import {
-  assignContextFromInput,
   composeStateMachineConfig,
-  createGuardedCaseTransitions,
   createOpenAIAddPhoneFailureFragment,
   createPatchTransitionMap,
   createRetryTransition,
@@ -16,7 +14,6 @@ import {
 import type { AccountType } from '../common/account-types'
 import type { LoginOptions, LoginResult } from '../login'
 import type { RegistrationOptions, RegistrationResult } from '../registration'
-import type { VirtualPasskeyStore } from '../webauthn'
 
 export type AuthMachineKind = 'login' | 'registration'
 
@@ -30,11 +27,8 @@ export type AuthMachineState =
   | 'typing-password'
   | 'typing-organization'
   | 'toggling-remember-me'
-  | 'choosing-passkey'
-  | 'waiting-passkey'
   | 'submitting'
   | 'post-submit'
-  | 'capturing-passkey'
   | 'completed'
   | 'failed'
 
@@ -47,14 +41,9 @@ export type AuthMachineEvent =
   | 'auth.password.typed'
   | 'auth.organization.typed'
   | 'auth.remember-me.checked'
-  | 'auth.method.resolved'
-  | 'auth.passkey.chosen'
-  | 'auth.passkey.prompted'
   | 'auth.submitted'
   | 'auth.after-submit.started'
   | 'auth.after-submit.finished'
-  | 'auth.passkey.capture.started'
-  | 'auth.passkey.capture.finished'
   | 'auth.completed'
   | 'auth.failed'
   | 'context.updated'
@@ -66,12 +55,8 @@ export interface AuthMachineContext<Result = unknown> {
   accountType?: AccountType
   url?: string
   email?: string | null
-  method?: 'password' | 'passkey'
-  createPasskey?: boolean
-  preferPasskey?: boolean
+  method?: 'password'
   organizationName?: string | null
-  passkeyCreated?: boolean
-  passkeyStore?: VirtualPasskeyStore
   lastSelectors?: SelectorList
   retryCount?: number
   retryReason?: string
@@ -103,24 +88,6 @@ export interface RegistrationMachineOptions {
   options?: RegistrationOptions
 }
 
-export interface AuthMethodResolutionInput {
-  supportsPasskey: boolean
-  passkeySelectors?: SelectorList
-  emailSelectors?: SelectorList
-  passkeyMessage?: string
-  passwordMessage?: string
-}
-
-function isAuthMethodResolutionInput(
-  value: unknown,
-): value is AuthMethodResolutionInput {
-  if (!value || typeof value !== 'object') {
-    return false
-  }
-
-  return 'supportsPasskey' in value
-}
-
 const authEventTargets = {
   'action.started': 'opening',
   'auth.opened': 'ready',
@@ -129,13 +96,9 @@ const authEventTargets = {
   'auth.password.typed': 'typing-password',
   'auth.organization.typed': 'typing-organization',
   'auth.remember-me.checked': 'toggling-remember-me',
-  'auth.passkey.chosen': 'choosing-passkey',
-  'auth.passkey.prompted': 'waiting-passkey',
   'auth.submitted': 'submitting',
   'auth.after-submit.started': 'post-submit',
   'auth.after-submit.finished': 'post-submit',
-  'auth.passkey.capture.started': 'capturing-passkey',
-  'auth.passkey.capture.finished': 'capturing-passkey',
 } as const satisfies Partial<Record<AuthMachineEvent, AuthMachineState>>
 
 const authMutableContextEvents = [
@@ -152,14 +115,9 @@ const authAddPhoneGuardEvents = [
   'auth.password.typed',
   'auth.organization.typed',
   'auth.remember-me.checked',
-  'auth.method.resolved',
-  'auth.passkey.chosen',
-  'auth.passkey.prompted',
   'auth.submitted',
   'auth.after-submit.started',
   'auth.after-submit.finished',
-  'auth.passkey.capture.started',
-  'auth.passkey.capture.finished',
   ...authMutableContextEvents,
 ] as const satisfies AuthMachineEvent[]
 
@@ -188,59 +146,6 @@ function createAuthLifecycleFragment<Result>() {
         AuthMachineContext<Result>,
         AuthMachineEvent
       >([...authMutableContextEvents]),
-    },
-  })
-}
-
-function createAuthMethodResolutionFragment<Result>() {
-  return defineStateMachineFragment<
-    AuthMachineState,
-    AuthMachineContext<Result>,
-    AuthMachineEvent
-  >({
-    on: {
-      'auth.method.resolved': createGuardedCaseTransitions<
-        AuthMachineState,
-        AuthMachineContext<Result>,
-        AuthMachineEvent,
-        AuthMethodResolutionInput
-      >({
-        isInput: isAuthMethodResolutionInput,
-        cases: [
-          {
-            priority: 20,
-            when: ({ context, input }) =>
-              context.preferPasskey !== false && input.supportsPasskey,
-            target: 'choosing-passkey',
-            actions: assignContextFromInput<
-              AuthMachineState,
-              AuthMachineContext<Result>,
-              AuthMachineEvent,
-              AuthMethodResolutionInput
-            >(isAuthMethodResolutionInput, (currentContext, { input }) => ({
-              method: 'passkey',
-              lastSelectors:
-                input.passkeySelectors ?? currentContext.lastSelectors,
-              lastMessage: input.passkeyMessage || 'Trying passkey login',
-            })),
-          },
-          {
-            priority: 10,
-            target: 'typing-email',
-            actions: assignContextFromInput<
-              AuthMachineState,
-              AuthMachineContext<Result>,
-              AuthMachineEvent,
-              AuthMethodResolutionInput
-            >(isAuthMethodResolutionInput, (currentContext, { input }) => ({
-              method: 'password',
-              lastSelectors:
-                input.emailSelectors ?? currentContext.lastSelectors,
-              lastMessage: input.passwordMessage || 'Typing login email',
-            })),
-          },
-        ],
-      }),
     },
   })
 }
@@ -277,7 +182,6 @@ function buildBaseMachine<Result>(
       },
       createAuthLifecycleFragment<Result>(),
       createAuthAddPhoneFailureFragment<Result>(),
-      createAuthMethodResolutionFragment<Result>(),
     ),
   )
 }
@@ -289,7 +193,6 @@ export function createLoginMachine(
     accountType: config.options?.accountType as AccountType | undefined,
     url: config.options?.url,
     email: config.options?.email ?? null,
-    preferPasskey: config.options?.preferPasskey,
   })
 }
 
@@ -304,7 +207,6 @@ export function createRegistrationMachine(
       url: config.options?.url,
       email: config.options?.email ?? null,
       organizationName: config.options?.organizationName ?? null,
-      createPasskey: config.options?.createPasskey ?? false,
     },
   )
 }
@@ -341,14 +243,6 @@ export async function runWithAuthMachine<Result>(
     })
     throw error
   }
-}
-
-export async function resolveAuthMethod<Result>(
-  machine: AuthMachine<Result>,
-  input: AuthMethodResolutionInput,
-): Promise<'password' | 'passkey'> {
-  const snapshot = await machine.send('auth.method.resolved', input)
-  return snapshot.context.method === 'passkey' ? 'passkey' : 'password'
 }
 
 export async function markAuthOpened<Result>(

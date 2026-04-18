@@ -6,8 +6,6 @@ export interface RegistrationSelectors {
   submit: SelectorList
   organizationName?: SelectorList
   inviteChild?: SelectorList
-  createPasskey?: SelectorList
-  passkeyDialogConfirm?: SelectorList
 }
 
 export const registrationDefaults: {
@@ -57,18 +55,5 @@ export const registrationDefaults: {
       },
     ],
   },
-  child: {
-    createPasskey: [
-      {
-        role: 'button',
-        options: {
-          name: /create passkey|set up passkey|continue with passkey|创建 passkey/i,
-        },
-      },
-      { text: /passkey/i },
-    ],
-    passkeyDialogConfirm: [
-      { role: 'button', options: { name: /continue|ok|allow|confirm|完成/i } },
-    ],
-  },
+  child: {},
 }

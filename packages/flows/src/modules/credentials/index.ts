@@ -61,7 +61,7 @@ export interface PersistChatGPTIdentityInput {
   prefix?: string
   mailbox?: string
   passkeyStore?: VirtualPasskeyStore
-  passkeyCreated: boolean
+  passkeyCreated?: boolean
 }
 
 export interface ResolveChatGPTIdentityOptions {
@@ -320,7 +320,7 @@ export function persistChatGPTIdentity(
       prefix: input.prefix,
       mailbox: input.mailbox,
       source: 'chatgpt-register',
-      passkeyCreated: input.passkeyCreated,
+      passkeyCreated: input.passkeyCreated ?? false,
       chatgptUrl: getRuntimeConfig().openai.chatgptUrl,
     },
   }

@@ -328,17 +328,7 @@ withCommonOptions(
       '--pollIntervalMs <ms>',
       'How often to poll Exchange for the verification email',
     )
-    .option(
-      '--createPasskey <bool>',
-      'Whether to provision a passkey after registration (defaults to false)',
-    )
-    .option(
-      '--sameSessionPasskeyCheck <bool>',
-      'Whether to run a same-session passkey re-login diagnostic after registration',
-    )
-    .example(
-      'codey flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true',
-    ),
+    .example('codey flow chatgpt-register --verificationTimeoutMs 180000'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -353,7 +343,7 @@ withCommonOptions(
   flowCli
     .command(
       'chatgpt-login',
-      'Sign in to ChatGPT with a previously stored identity, optionally preferring passkey',
+      'Sign in to ChatGPT with a previously stored identity',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
@@ -368,14 +358,8 @@ withCommonOptions(
       '--email <email>',
       'Stored identity email; defaults to the latest saved identity',
     )
-    .option(
-      '--preferPasskey <bool>',
-      'Whether to prefer a stored passkey during login (defaults to false)',
-    )
     .example('codey flow chatgpt-login')
-    .example(
-      'codey flow chatgpt-login --email someone@example.com --preferPasskey true',
-    ),
+    .example('codey flow chatgpt-login --email someone@example.com'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -404,10 +388,6 @@ withCommonOptions(
     .option(
       '--email <email>',
       'Stored identity email; defaults to the latest saved identity',
-    )
-    .option(
-      '--preferPasskey <bool>',
-      'Whether to prefer a stored passkey during login (defaults to false)',
     )
     .option(
       '--inviteEmail <email>',
@@ -463,10 +443,6 @@ withCommonOptions(
     .option(
       '--authorizeUrlOnly <bool>',
       'Generate the OAuth URL and exit before continuing browser login',
-    )
-    .option(
-      '--preferPasskey <bool>',
-      'Whether to prefer a stored ChatGPT passkey if login is required (defaults to false)',
     )
     .option(
       '--projectId <id>',
@@ -630,12 +606,8 @@ withCommonOptions(
 
 cli
   .command('flow', 'Run OpenAI flow commands')
-  .example(
-    'codey flow chatgpt-register --verificationTimeoutMs 180000 --createPasskey true',
-  )
-  .example(
-    'codey flow chatgpt-login --email someone@example.com --preferPasskey true',
-  )
+  .example('codey flow chatgpt-register --verificationTimeoutMs 180000')
+  .example('codey flow chatgpt-login --email someone@example.com')
   .example(
     'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
   )

@@ -4,7 +4,7 @@ import {
   normalizeAccountType,
   type AccountType,
 } from '../common/account-types'
-import { clickAny, clickIfPresent, typeIfPresent } from '../common/form-actions'
+import { clickAny, typeIfPresent } from '../common/form-actions'
 import { registrationDefaults, type RegistrationSelectors } from './defaults'
 import type { SelectorList } from '../../types'
 import {
@@ -14,12 +14,6 @@ import {
   runWithAuthMachine,
   type AuthMachine,
 } from '../auth-machine'
-import {
-  captureVirtualPasskeyStore,
-  loadVirtualPasskeyStore,
-  type VirtualAuthenticatorOptions,
-  type VirtualPasskeyStore,
-} from '../webauthn'
 
 const unifiedRegistrationSelectors: RegistrationSelectors = {
   ...registrationDefaults.common,
@@ -33,12 +27,8 @@ export interface RegistrationOptions {
   email?: string
   password?: string
   organizationName?: string
-  createPasskey?: boolean
   selectors?: Partial<RegistrationSelectors>
   openRegistrationSelectors?: SelectorList
-  passkeyStore?: VirtualPasskeyStore
-  virtualAuthenticator?: VirtualAuthenticatorOptions
-  onPasskeySetup?: (page: Page) => Promise<void>
   afterSubmit?: (page: Page) => Promise<void>
   machine?: AuthMachine<RegistrationResult>
 }
@@ -48,8 +38,6 @@ export interface RegistrationResult {
   accountType: AccountType
   email: string | null
   organizationName?: string | null
-  passkeyCreated: boolean
-  passkeyStore?: VirtualPasskeyStore
 }
 
 function mergeSelectors(
@@ -57,10 +45,6 @@ function mergeSelectors(
   overrides: Partial<RegistrationSelectors> = {},
 ): RegistrationSelectors {
   return { ...base, ...overrides }
-}
-
-function resolveCreatePasskey(createPasskey?: boolean): boolean {
-  return createPasskey ?? false
 }
 
 async function openRegistration(
@@ -112,7 +96,6 @@ export async function registerAccount(
     unifiedRegistrationSelectors,
     options.selectors,
   )
-  const createPasskey = resolveCreatePasskey(options.createPasskey)
 
   return runWithAuthMachine(
     machine,
@@ -121,8 +104,6 @@ export async function registerAccount(
       url: options.url,
       email: options.email || null,
       organizationName: options.organizationName || null,
-      createPasskey,
-      passkeyCreated: false,
     },
     async () => {
       await openRegistration(page, { ...options, machine })
@@ -170,59 +151,6 @@ export async function registerAccount(
       })
       await clickAny(page, selectors.submit)
 
-      let passkeyCreated = false
-      let passkeyStore: VirtualPasskeyStore | undefined
-      if (createPasskey && selectors.createPasskey) {
-        await markAuthStep(machine, 'choosing-passkey', 'auth.passkey.chosen', {
-          lastSelectors: selectors.createPasskey,
-          lastMessage: 'Trying to create passkey',
-        })
-        const virtualAuth = await loadVirtualPasskeyStore(
-          page,
-          options.passkeyStore,
-          options.virtualAuthenticator,
-        )
-        passkeyCreated = await clickIfPresent(page, selectors.createPasskey)
-        if (passkeyCreated) {
-          await markAuthStep(
-            machine,
-            'waiting-passkey',
-            'auth.passkey.prompted',
-            {
-              passkeyCreated: true,
-              lastSelectors: selectors.passkeyDialogConfirm,
-              lastMessage: 'Passkey creation prompt displayed',
-            },
-          )
-          await clickIfPresent(page, selectors.passkeyDialogConfirm || [])
-          if (options.onPasskeySetup) {
-            await options.onPasskeySetup(page)
-          }
-          await markAuthStep(
-            machine,
-            'capturing-passkey',
-            'auth.passkey.capture.started',
-            {
-              lastMessage: 'Capturing created passkey',
-            },
-          )
-          passkeyStore = await captureVirtualPasskeyStore(
-            virtualAuth.session,
-            virtualAuth.authenticatorId,
-          )
-          await markAuthStep(
-            machine,
-            'capturing-passkey',
-            'auth.passkey.capture.finished',
-            {
-              passkeyCreated: true,
-              passkeyStore,
-              lastMessage: 'Passkey captured',
-            },
-          )
-        }
-      }
-
       if (options.afterSubmit) {
         await markAuthStep(
           machine,
@@ -249,8 +177,6 @@ export async function registerAccount(
         accountType: type,
         email: options.email || null,
         organizationName: options.organizationName || null,
-        passkeyCreated,
-        passkeyStore,
       }
     },
   )

@@ -4,40 +4,25 @@ import {
   normalizeAccountType,
   type AccountType,
 } from '../common/account-types'
-import {
-  checkIfPresent,
-  clickAny,
-  clickIfPresent,
-  typeIfPresent,
-} from '../common/form-actions'
+import { checkIfPresent, clickAny, typeIfPresent } from '../common/form-actions'
 import { loginDefaults, type LoginSelectors } from './defaults'
 import type { SelectorList } from '../../types'
 import {
   createLoginMachine,
   markAuthOpened,
   markAuthStep,
-  resolveAuthMethod,
   runWithAuthMachine,
   type AuthMachine,
 } from '../auth-machine'
-import {
-  loadVirtualPasskeyStore,
-  type VirtualAuthenticatorOptions,
-  type VirtualPasskeyStore,
-} from '../webauthn'
 
 export interface LoginOptions {
   accountType?: string
   url?: string
   email?: string
   password?: string
-  preferPasskey?: boolean
   selectors?: Partial<LoginSelectors>
   openLoginSelectors?: SelectorList
   rememberMeSelectors?: SelectorList
-  passkeyStore?: VirtualPasskeyStore
-  virtualAuthenticator?: VirtualAuthenticatorOptions
-  onPasskeyPrompt?: (page: Page) => Promise<void>
   afterSubmit?: (page: Page) => Promise<void>
   machine?: AuthMachine<LoginResult>
 }
@@ -45,7 +30,7 @@ export interface LoginOptions {
 export interface LoginResult {
   module: 'login'
   accountType: AccountType
-  method: 'password' | 'passkey'
+  method: 'password'
   email: string | null
 }
 
@@ -87,7 +72,6 @@ export async function loginParentAccount(
       url: options.url,
       email: options.email || null,
       method: 'password',
-      preferPasskey: false,
     },
     async () => {
       const selectors = mergeSelectors(loginDefaults.common, options.selectors)
@@ -172,8 +156,7 @@ export async function loginChildAccount(
       accountType: ACCOUNT_TYPES.CHILD,
       url: options.url,
       email: options.email || null,
-      method: options.preferPasskey === false ? 'password' : undefined,
-      preferPasskey: options.preferPasskey,
+      method: 'password',
     },
     async () => {
       const selectors = mergeSelectors(
@@ -182,76 +165,35 @@ export async function loginChildAccount(
       )
 
       await openLogin(page, { ...options, machine })
+      const method = 'password' as const
 
-      const requestedMethod = await resolveAuthMethod(machine, {
-        supportsPasskey:
-          options.preferPasskey !== false &&
-          Boolean(selectors.passkeyEntry?.length),
-        passkeySelectors: selectors.passkeyEntry,
-        emailSelectors: selectors.email,
-        passkeyMessage: 'Trying passkey login',
-        passwordMessage: 'Typing login email',
+      await markAuthStep(machine, 'typing-email', 'auth.email.typed', {
+        email: options.email || null,
+        method,
+        lastSelectors: selectors.email,
+        lastMessage: 'Typing login email',
       })
-      let method: 'password' | 'passkey' = 'password'
+      await typeIfPresent(page, selectors.email, options.email, {
+        settleMs: 500,
+        strategy: 'sequential',
+      })
 
-      if (requestedMethod === 'passkey' && selectors.passkeyEntry) {
-        await markAuthStep(machine, 'choosing-passkey', 'auth.passkey.chosen', {
-          method: 'passkey',
-          lastSelectors: selectors.passkeyEntry,
-          lastMessage: 'Trying passkey login',
-        })
-        await loadVirtualPasskeyStore(
-          page,
-          options.passkeyStore,
-          options.virtualAuthenticator,
-        )
-        const triggered = await clickIfPresent(page, selectors.passkeyEntry)
-        if (triggered) {
-          method = 'passkey'
-          await markAuthStep(
-            machine,
-            'waiting-passkey',
-            'auth.passkey.prompted',
-            {
-              method,
-              lastMessage: 'Passkey prompt displayed',
-            },
-          )
-          if (options.onPasskeyPrompt) {
-            await options.onPasskeyPrompt(page)
-          }
-        }
-      }
+      await markAuthStep(machine, 'typing-password', 'auth.password.typed', {
+        method,
+        lastSelectors: selectors.password,
+        lastMessage: 'Typing login password',
+      })
+      await typeIfPresent(page, selectors.password, options.password, {
+        settleMs: 500,
+        strategy: 'sequential',
+      })
 
-      if (method !== 'passkey') {
-        await markAuthStep(machine, 'typing-email', 'auth.email.typed', {
-          email: options.email || null,
-          method,
-          lastSelectors: selectors.email,
-          lastMessage: 'Typing login email',
-        })
-        await typeIfPresent(page, selectors.email, options.email, {
-          settleMs: 500,
-          strategy: 'sequential',
-        })
-
-        await markAuthStep(machine, 'typing-password', 'auth.password.typed', {
-          method,
-          lastSelectors: selectors.password,
-          lastMessage: 'Typing login password',
-        })
-        await typeIfPresent(page, selectors.password, options.password, {
-          settleMs: 500,
-          strategy: 'sequential',
-        })
-
-        await markAuthStep(machine, 'submitting', 'auth.submitted', {
-          method,
-          lastSelectors: selectors.submit,
-          lastMessage: 'Submitting login form',
-        })
-        await clickAny(page, selectors.submit)
-      }
+      await markAuthStep(machine, 'submitting', 'auth.submitted', {
+        method,
+        lastSelectors: selectors.submit,
+        lastMessage: 'Submitting login form',
+      })
+      await clickAny(page, selectors.submit)
 
       if (options.afterSubmit) {
         await markAuthStep(

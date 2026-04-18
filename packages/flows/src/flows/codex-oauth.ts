@@ -52,9 +52,7 @@ import { createAuthorizationCallbackCapture } from '../modules/authorization/cod
 import { createNodeHarRecorder } from '../modules/authorization/har-recorder'
 import {
   clickLoginEntryIfPresent,
-  clickPasskeyEntry,
   clickPasswordSubmit,
-  clickPasswordTimeoutRetry,
   clickVerificationContinue,
   continueCodexOAuthConsent,
   continueCodexWorkspaceSelection,
@@ -63,9 +61,7 @@ import {
   type ChatGPTPostEmailLoginStep,
   waitForCodexOAuthSurface,
   waitForPasswordInputReady,
-  waitForPasskeyEntryReady,
   waitForPostEmailLoginCandidates,
-  waitForRetryOrPasskeyEntryCandidates,
   waitForVerificationCode,
   waitForVerificationCodeInputReady,
   typePassword,
@@ -75,7 +71,6 @@ import {
   createVerificationProvider,
   type VerificationProvider,
 } from '../modules/verification'
-import { loadVirtualPasskeyStore } from '../modules/webauthn'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
 
@@ -86,7 +81,6 @@ export type CodexOAuthFlowState =
   | 'email-step'
   | 'password-step'
   | 'verification-step'
-  | 'passkey-step'
   | 'workspace-step'
   | 'consent-step'
   | 'waiting-for-callback'
@@ -173,7 +167,7 @@ export interface CodexOAuthFlowContext<Result = unknown> {
   channelName?: string
   projectId?: string
   surface?: CodexOAuthLoginSurface
-  method?: 'password' | 'passkey' | 'verification'
+  method?: 'password' | 'verification'
   storedIdentity?: StoredChatGPTIdentitySummary
   retryCount?: number
   retryReason?: string
@@ -232,7 +226,7 @@ export type CodexOAuthFlowRunResult =
 type CodexOAuthLoginSurface = Exclude<ChatGPTCodexOAuthSurface, 'unknown'>
 type CodexOAuthLoginProgressStep = Extract<
   ChatGPTPostEmailLoginStep,
-  'authenticated' | 'password' | 'verification' | 'retry' | 'passkey'
+  'authenticated' | 'password' | 'verification' | 'retry'
 >
 
 interface CodexOAuthSurfaceInput<Result = unknown> {
@@ -358,12 +352,6 @@ function createCodexOAuthSurfaceTransitions<Result>() {
         when: ({ input }) => input.surface === 'email',
         target: 'email-step',
         actions: assignSurfaceContext('OpenAI email login surface ready'),
-      },
-      {
-        priority: 10,
-        when: ({ input }) => input.surface === 'passkey',
-        target: 'passkey-step',
-        actions: assignSurfaceContext('OpenAI passkey login surface ready'),
       },
     ],
   })
@@ -802,19 +790,6 @@ function buildCodexOAuthRetryCallbacks(
         },
       })
     },
-    onPasskeyRetry: async (_attempt: number, trigger: 'retry' | 'passkey') => {
-      await machine.send('codex.oauth.retry.requested', {
-        reason: `passkey:${trigger}`,
-        message:
-          trigger === 'retry'
-            ? 'Retrying OpenAI passkey challenge during Codex OAuth'
-            : 'Re-triggering OpenAI passkey challenge during Codex OAuth',
-        patch: {
-          url: sanitizeUrl(page.url()),
-          redirectUri,
-        },
-      })
-    },
   }
 }
 
@@ -988,18 +963,13 @@ async function submitCodexOAuthStoredVerification(
 ): Promise<StoredChatGPTIdentitySummary> {
   const stored = requireCodexOAuthStoredLoginIdentity(machine, options)
 
-  await sendCodexOAuthMachine(
-    machine,
-    'verification-step',
-    'context.updated',
-    {
-      url: sanitizeUrl(page.url()),
-      redirectUri,
-      email: stored.identity.email,
-      storedIdentity: stored.summary,
-      lastMessage: 'Submitting ChatGPT verification code',
-    },
-  )
+  await sendCodexOAuthMachine(machine, 'verification-step', 'context.updated', {
+    url: sanitizeUrl(page.url()),
+    redirectUri,
+    email: stored.identity.email,
+    storedIdentity: stored.summary,
+    lastMessage: 'Submitting ChatGPT verification code',
+  })
 
   const verificationReady = await waitForVerificationCodeInputReady(page, 10000)
   if (!verificationReady) {
@@ -1007,7 +977,8 @@ async function submitCodexOAuthStoredVerification(
   }
 
   progress.startedAt ??= new Date().toISOString()
-  progress.verificationProvider ??= createVerificationProvider(getRuntimeConfig())
+  progress.verificationProvider ??=
+    createVerificationProvider(getRuntimeConfig())
 
   const verificationTimeoutMs =
     parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000
@@ -1022,64 +993,6 @@ async function submitCodexOAuthStoredVerification(
 
   await typeVerificationCode(page, code)
   await clickVerificationContinue(page)
-
-  return stored.summary
-}
-
-async function submitCodexOAuthStoredPasskey(
-  page: Page,
-  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
-  options: FlowOptions,
-  redirectUri: string,
-): Promise<StoredChatGPTIdentitySummary> {
-  const stored = requireCodexOAuthStoredLoginIdentity(machine, options)
-  if (!stored.identity.passkeyStore?.credentials.length) {
-    throw new Error(
-      `Stored identity ${stored.identity.email} does not contain a passkey credential, but ChatGPT requested a passkey step.`,
-    )
-  }
-
-  await sendCodexOAuthMachine(machine, 'passkey-step', 'context.updated', {
-    url: sanitizeUrl(page.url()),
-    redirectUri,
-    email: stored.identity.email,
-    storedIdentity: stored.summary,
-    lastMessage: 'Triggering stored ChatGPT passkey login',
-  })
-
-  await loadVirtualPasskeyStore(page, stored.identity.passkeyStore)
-
-  let triggerCandidates = await waitForRetryOrPasskeyEntryCandidates(
-    page,
-    10000,
-  )
-  if (
-    triggerCandidates.length === 0 &&
-    (await waitForPasskeyEntryReady(page, 2000))
-  ) {
-    triggerCandidates = ['passkey']
-  }
-
-  const retryCallbacks = buildCodexOAuthRetryCallbacks(machine, page, redirectUri)
-
-  if (triggerCandidates.includes('retry')) {
-    if (!(await clickPasswordTimeoutRetry(page))) {
-      throw new Error(
-        'Passkey retry button became visible but could not be clicked.',
-      )
-    }
-    await retryCallbacks.onPasskeyRetry?.(1, 'retry')
-  } else if (triggerCandidates.includes('passkey')) {
-    if (!(await clickPasskeyEntry(page))) {
-      throw new Error(
-        'Passkey entry button became visible but could not be clicked.',
-      )
-    }
-  } else {
-    throw new Error(
-      'ChatGPT passkey step did not expose a retry or passkey entry action.',
-    )
-  }
 
   return stored.summary
 }
@@ -1149,7 +1062,6 @@ async function resolveCodexOAuthNextStep(
         | 'password'
         | 'verification'
         | 'retry'
-        | 'passkey'
         | 'workspace'
         | 'consent'
       >(
@@ -1232,8 +1144,7 @@ async function resolveCodexOAuthNextStep(
             branch: 'authenticated' as const,
             priority: 50,
             guard: ({ input }) =>
-              (input.kind === 'surface' &&
-                input.surface === 'authenticated') ||
+              (input.kind === 'surface' && input.surface === 'authenticated') ||
               (input.kind === 'post-login-step' &&
                 input.step === 'authenticated'),
             run: async () => {
@@ -1305,7 +1216,7 @@ async function resolveCodexOAuthNextStep(
               ) {
                 throw new GuardedBranchError(
                   'login',
-                  'OpenAI login entry did not advance to an authenticated, workspace, email, or passkey surface.',
+                  'OpenAI login entry did not advance to an authenticated, workspace, or email surface.',
                 )
               }
               return postLoginStep
@@ -1364,8 +1275,7 @@ async function resolveCodexOAuthNextStep(
             branch: 'verification' as const,
             priority: 24,
             guard: ({ input }) =>
-              input.kind === 'post-login-step' &&
-              input.step === 'verification',
+              input.kind === 'post-login-step' && input.step === 'verification',
             run: async () => {
               await submitCodexOAuthStoredVerification(
                 page,
@@ -1410,39 +1320,6 @@ async function resolveCodexOAuthNextStep(
                 waitForCallback,
                 redirectUri,
                 CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'passkey' as const,
-            priority: 20,
-            guard: ({ input }) =>
-              (input.kind === 'surface' && input.surface === 'passkey') ||
-              (input.kind === 'post-login-step' && input.step === 'passkey'),
-            run: async () => {
-              if (
-                currentStep.kind === 'surface' &&
-                currentStep.surface === 'passkey'
-              ) {
-                await sendCodexOAuthSurfaceReady(
-                  machine,
-                  page,
-                  'passkey',
-                  redirectUri,
-                )
-              }
-              await submitCodexOAuthStoredPasskey(
-                page,
-                machine,
-                options,
-                redirectUri,
-              )
-              return waitForCodexOAuthLoginProgressStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_BROWSER_HANDOFF_TIMEOUT_MS,
                 getResolvedCallback,
               )
             },

@@ -29,38 +29,24 @@ import {
   type VerificationProvider,
 } from '../modules/verification'
 import type {
-  VirtualAuthenticatorOptions,
-  VirtualPasskeyStore,
-} from '../modules/webauthn'
-import type {
   StateMachineController,
   StateMachineSnapshot,
 } from '../state-machine'
 import {
   CHATGPT_ENTRY_LOGIN_URL,
   type ChatGPTPostEmailLoginStep,
-  createPasskeyAssertionTracker,
   logStep,
-  summarizePasskeyCredentials,
   waitForAuthenticatedSession,
   waitForLoginSurface,
-  waitForPasskeyEntryReady,
   clickLoginEntryIfPresent,
-  clickPasskeyEntry,
-  clickPasswordTimeoutRetry,
   completePasswordOrVerificationLoginFallback,
   gotoLoginEntry,
   submitLoginEmail,
   waitForPasswordInputReady,
   waitForPostEmailLoginCandidates,
-  waitForRetryOrPasskeyEntryCandidates,
   waitForVerificationCodeInputReady,
 } from '../modules/chatgpt/shared'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
-import {
-  captureVirtualPasskeyStore,
-  loadVirtualPasskeyStore,
-} from '../modules/webauthn/virtual-authenticator'
 import type { ResolvedChatGPTIdentity } from '../modules/credentials'
 import type { FlowOptions } from '../modules/flow-cli/helpers'
 import {
@@ -69,7 +55,6 @@ import {
 } from '../modules/flow-cli/single-file'
 import {
   attachStateMachineProgressReporter,
-  parseBooleanFlag,
   sanitizeErrorForOutput,
 } from '../modules/flow-cli/helpers'
 import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
@@ -86,11 +71,8 @@ export type ChatGPTLoginFlowState =
   | 'age-gate'
   | 'post-signup-home'
   | 'security-settings'
-  | 'passkey-provisioning'
   | 'persisting-identity'
-  | 'same-session-passkey-check'
   | 'login-surface'
-  | 'passkey-login'
   | 'retrying'
   | 'add-phone-required'
   | 'authenticated'
@@ -111,12 +93,8 @@ export type ChatGPTLoginFlowEvent =
   | 'chatgpt.age-gate.completed'
   | 'chatgpt.home.waiting'
   | 'chatgpt.security.started'
-  | 'chatgpt.passkey.provisioning'
   | 'chatgpt.identity.persisting'
-  | 'chatgpt.same-session-passkey-check.started'
-  | 'chatgpt.same-session-passkey-check.completed'
   | 'chatgpt.login.surface.ready'
-  | 'chatgpt.passkey.login.started'
   | 'chatgpt.retry.requested'
   | 'chatgpt.authenticated'
   | 'chatgpt.completed'
@@ -132,10 +110,7 @@ export interface ChatGPTLoginFlowContext<Result = unknown> {
   email?: string
   postEmailStep?: ChatGPTPostEmailLoginStep
   verificationCode?: string
-  method?: 'password' | 'passkey' | 'verification'
-  passkeyCreated?: boolean
-  passkeyStore?: VirtualPasskeyStore
-  assertionObserved?: boolean
+  method?: 'password' | 'verification'
   storedIdentity?: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
   retryCount?: number
@@ -161,8 +136,6 @@ export type ChatGPTLoginFlowSnapshot<Result = unknown> = StateMachineSnapshot<
 export interface ChatGPTLoginFlowOptions {
   identityId?: string
   email?: string
-  preferPasskey?: boolean
-  virtualAuthenticator?: VirtualAuthenticatorOptions
   machine?: ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult>
 }
 
@@ -171,7 +144,7 @@ export interface ChatGPTLoginFlowResult {
   url: string
   title: string
   email: string
-  method: 'passkey' | 'password' | 'verification'
+  method: 'password' | 'verification'
   authenticated: boolean
   storedIdentity: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
@@ -185,26 +158,18 @@ interface ChatGPTStoredLoginRetryCallbacks {
     attempt: number,
     reason: 'retry' | 'timeout',
   ) => void | Promise<void>
-  onPasskeyRetry?: (
-    attempt: number,
-    trigger: 'retry' | 'passkey',
-  ) => void | Promise<void>
 }
 
 export interface ChatGPTStoredLoginResult {
   email: string
   storedIdentity: StoredChatGPTIdentitySummary
-  surface: 'authenticated' | 'email' | 'passkey'
-  method: 'passkey' | 'password' | 'verification'
-  assertionObserved: boolean
-  passkeyStore: VirtualPasskeyStore
+  surface: 'authenticated' | 'email'
+  method: 'password' | 'verification'
   verificationCode?: string
 }
 
 interface StoredLoginBranchResolution {
-  method: 'passkey' | 'password' | 'verification'
-  assertionObserved: boolean
-  passkeyStore: VirtualPasskeyStore
+  method: 'password' | 'verification'
   verificationCode?: string
 }
 
@@ -231,7 +196,6 @@ const chatgptLoginEventTargets = {
   'chatgpt.login.surface.ready': 'login-surface',
   'chatgpt.email.started': 'email-step',
   'chatgpt.password.started': 'password-step',
-  'chatgpt.passkey.login.started': 'passkey-login',
   'chatgpt.verification.polling': 'verification-polling',
   'chatgpt.verification.code-found': 'verification-code-entry',
   'chatgpt.verification.submitted': 'verification-code-entry',
@@ -239,10 +203,7 @@ const chatgptLoginEventTargets = {
   'chatgpt.age-gate.completed': 'age-gate',
   'chatgpt.home.waiting': 'post-signup-home',
   'chatgpt.security.started': 'security-settings',
-  'chatgpt.passkey.provisioning': 'passkey-provisioning',
   'chatgpt.identity.persisting': 'persisting-identity',
-  'chatgpt.same-session-passkey-check.started': 'same-session-passkey-check',
-  'chatgpt.same-session-passkey-check.completed': 'same-session-passkey-check',
 } as const satisfies Partial<
   Record<ChatGPTLoginFlowEvent, ChatGPTLoginFlowState>
 >
@@ -266,12 +227,8 @@ const chatgptLoginAddPhoneGuardEvents = [
   'chatgpt.age-gate.completed',
   'chatgpt.home.waiting',
   'chatgpt.security.started',
-  'chatgpt.passkey.provisioning',
   'chatgpt.identity.persisting',
-  'chatgpt.same-session-passkey-check.started',
-  'chatgpt.same-session-passkey-check.completed',
   'chatgpt.login.surface.ready',
-  'chatgpt.passkey.login.started',
   'chatgpt.retry.requested',
   'chatgpt.authenticated',
   ...chatgptLoginMutableContextEvents,
@@ -350,14 +307,6 @@ function createChatGPTLoginEmailSubmittedTransitions<Result>() {
             lastMessage: 'Retry step detected after email submission',
           }
         }),
-      },
-      {
-        priority: 20,
-        when: ({ input }) => input.step === 'passkey',
-        target: 'passkey-login',
-        actions: assignPostEmailContext(
-          'Passkey step detected after email submission',
-        ),
       },
     ],
   })
@@ -450,10 +399,6 @@ async function sendLoginMachine(
   })
 }
 
-function emptyPasskeyStore(): VirtualPasskeyStore {
-  return { credentials: [] }
-}
-
 function isRecoverableLoginBranchEntryError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -484,7 +429,7 @@ function wrapRecoverableLoginBranchError<Branch extends string>(
 async function reachChatGPTLoginSurface(
   page: Page,
   surfaceStrategy: ChatGPTLoginSurfaceStrategy = 'open-entry',
-): Promise<'authenticated' | 'email' | 'passkey'> {
+): Promise<'authenticated' | 'email'> {
   if (surfaceStrategy === 'open-entry') {
     await gotoLoginEntry(page)
     if (await waitForAuthenticatedSession(page, 5000)) {
@@ -504,448 +449,176 @@ async function reachChatGPTLoginSurface(
         : 'ChatGPT login entry page did not reach a supported login surface.',
     )
   }
+  if (surface !== 'authenticated' && surface !== 'email') {
+    throw new Error('ChatGPT login surface did not resolve to email login.')
+  }
   return surface
 }
 
-async function completeStoredPasskeyChallenge(
+async function triggerStoredLogin(
   page: Page,
   stored: ResolvedChatGPTIdentity,
-  virtualAuth: Awaited<ReturnType<typeof loadVirtualPasskeyStore>>,
-  tracker: ReturnType<typeof createPasskeyAssertionTracker>,
-  options: {
-    enteredFromPasskeySurface: boolean
-    onPasskeyRetry?: (
-      attempt: number,
-      trigger: 'retry' | 'passkey',
-    ) => void | Promise<void>
-  } = {
-    enteredFromPasskeySurface: false,
-  },
+  options: ChatGPTStoredLoginRetryCallbacks = {},
 ): Promise<{
-  method: 'passkey'
-  assertionObserved: boolean
-  passkeyStore: VirtualPasskeyStore
-}> {
-  let assertionObserved = false
-  let retryOnlyMode = false
-
-  if (options.enteredFromPasskeySurface) {
-    const conditionalAssertionObserved = await tracker.waitForAssertion(4000)
-    assertionObserved = conditionalAssertionObserved || assertionObserved
-
-    if (conditionalAssertionObserved) {
-      logStep('login_passkey_conditional_attempt_observed', {
-        email: stored.identity.email,
-      })
-      if (await waitForAuthenticatedSession(page, 5000)) {
-        return {
-          method: 'passkey',
-          assertionObserved,
-          passkeyStore: await captureVirtualPasskeyStore(
-            virtualAuth.session,
-            virtualAuth.authenticatorId,
-          ),
-        }
-      }
-    }
-  }
-
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
-    let triggerCandidates = await waitForRetryOrPasskeyEntryCandidates(
-      page,
-      attempt === 1
-        ? options.enteredFromPasskeySurface
-          ? 4000
-          : 20000
-        : 10000,
-      !retryOnlyMode,
-    )
-
-    if (
-      triggerCandidates.length === 0 &&
-      !retryOnlyMode &&
-      (await waitForPasskeyEntryReady(page, attempt === 1 ? 2000 : 1000))
-    ) {
-      triggerCandidates = ['passkey']
-    }
-
-    if (triggerCandidates.length === 0) {
-      break
-    }
-
-    const trigger = (
-      await runGuardedBranches(
-        [
-          {
-            branch: 'retry' as const,
-            priority: 20,
-            guard: ({ input }) => input.triggerCandidates.includes('retry'),
-            run: async () => {
-              if (!(await clickPasswordTimeoutRetry(page))) {
-                throw new GuardedBranchError(
-                  'retry',
-                  'Passkey retry button became visible but could not be clicked.',
-                )
-              }
-              return 'retry' as const
-            },
-          },
-          {
-            branch: 'passkey' as const,
-            priority: 10,
-            guard: ({ input }) =>
-              !input.retryOnlyMode &&
-              input.triggerCandidates.includes('passkey'),
-            run: async () => {
-              if (!(await clickPasskeyEntry(page))) {
-                throw new GuardedBranchError(
-                  'passkey',
-                  'Passkey entry button became visible but could not be clicked.',
-                )
-              }
-              return 'passkey' as const
-            },
-          },
-        ],
-        {
-          context: {
-            retryOnlyMode,
-          },
-          input: {
-            attempt,
-            retryOnlyMode,
-            triggerCandidates,
-          },
-          onFallback: async ({ branch, error }) => {
-            logStep('login_passkey_trigger_fallback', {
-              email: stored.identity.email,
-              attempt,
-              branch,
-              message: error.message,
-            })
-          },
-        },
-      )
-    ).branch
-
-    if (attempt > 1 || trigger === 'retry') {
-      await options.onPasskeyRetry?.(attempt, trigger)
-      logStep('login_passkey_retry_triggered', {
-        email: stored.identity.email,
-        attempt,
-        trigger,
-      })
-    }
-
-    assertionObserved =
-      (await tracker.waitForAssertion(10000)) || assertionObserved
-
-    if (await waitForAuthenticatedSession(page, 5000)) {
-      return {
-        method: 'passkey',
-        assertionObserved,
-        passkeyStore: await captureVirtualPasskeyStore(
-          virtualAuth.session,
-          virtualAuth.authenticatorId,
-        ),
-      }
-    }
-
-    if (trigger === 'retry') {
-      retryOnlyMode = true
-    }
-  }
-
-  return {
-    method: 'passkey',
-    assertionObserved,
-    passkeyStore: await captureVirtualPasskeyStore(
-      virtualAuth.session,
-      virtualAuth.authenticatorId,
-    ),
-  }
-}
-
-async function triggerStoredPasskeyLogin(
-  page: Page,
-  stored: ResolvedChatGPTIdentity,
-  options: {
-    preferPasskey?: boolean
-    virtualAuthenticator?: VirtualAuthenticatorOptions
-  } & ChatGPTStoredLoginRetryCallbacks = {},
-): Promise<{
-  method: 'passkey' | 'password' | 'verification'
-  assertionObserved: boolean
-  passkeyStore: VirtualPasskeyStore
+  method: 'password' | 'verification'
   verificationCode?: string
 }> {
-  const preferPasskey = options.preferPasskey ?? false
-  const hasPasskey = Boolean(stored.identity.passkeyStore?.credentials.length)
-  const fallbackStore = stored.identity.passkeyStore ?? emptyPasskeyStore()
-  let importedStore = fallbackStore
-  let tracker: ReturnType<typeof createPasskeyAssertionTracker> | undefined
-
-  try {
-    if (await waitForAuthenticatedSession(page, 5000)) {
-      return {
-        method: preferPasskey && hasPasskey ? 'passkey' : 'password',
-        assertionObserved: false,
-        passkeyStore: importedStore,
-      }
+  if (await waitForAuthenticatedSession(page, 5000)) {
+    return {
+      method: 'password',
     }
-
-    const startedAt = new Date().toISOString()
-    await submitLoginEmail(page, stored.identity.email, {
-      onRetry: options.onEmailRetry,
-    })
-
-    const postEmailCandidates = await waitForPostEmailLoginCandidates(
-      page,
-      20000,
-    )
-    if (postEmailCandidates.length === 0) {
-      throw new Error(
-        'ChatGPT login did not reach a supported post-email step.',
-      )
-    }
-
-    const config = getRuntimeConfig()
-    let verificationProvider: VerificationProvider | undefined
-    return (
-      await runGuardedBranches<
-        {
-          email: string
-          preferPasskey: boolean
-          hasPasskey: boolean
-        },
-        {
-          postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
-        },
-        StoredLoginBranchResolution,
-        'authenticated' | 'password' | 'verification' | 'retry' | 'passkey'
-      >(
-        [
-          {
-            branch: 'authenticated' as const,
-            priority: 60,
-            guard: ({ input }) =>
-              input.postEmailCandidates.includes('authenticated'),
-            run: async () => ({
-              method: preferPasskey && hasPasskey ? 'passkey' : 'password',
-              assertionObserved: false,
-              passkeyStore: importedStore,
-            }),
-          },
-          {
-            branch: 'password' as const,
-            priority: 50,
-            guard: async ({ input }) =>
-              input.postEmailCandidates.includes('password') ||
-              (await waitForPasswordInputReady(page, 500)),
-            run: async () => {
-              try {
-                const fallback =
-                  await completePasswordOrVerificationLoginFallback(page, {
-                    email: stored.identity.email,
-                    password: stored.identity.password,
-                    step: 'password',
-                    startedAt,
-                    getVerificationProvider: () => {
-                      verificationProvider ??=
-                        createVerificationProvider(config)
-                      return verificationProvider
-                    },
-                  })
-                return {
-                  method: fallback.method,
-                  assertionObserved: false,
-                  passkeyStore: importedStore,
-                  verificationCode: fallback.verificationCode,
-                }
-              } catch (error) {
-                throw wrapRecoverableLoginBranchError('password', error)
-              }
-            },
-          },
-          {
-            branch: 'verification' as const,
-            priority: 40,
-            guard: async ({ input }) =>
-              input.postEmailCandidates.includes('verification') ||
-              (await waitForVerificationCodeInputReady(page, 500)),
-            run: async () => {
-              try {
-                const fallback =
-                  await completePasswordOrVerificationLoginFallback(page, {
-                    email: stored.identity.email,
-                    password: stored.identity.password,
-                    step: 'verification',
-                    startedAt,
-                    getVerificationProvider: () => {
-                      verificationProvider ??=
-                        createVerificationProvider(config)
-                      return verificationProvider
-                    },
-                  })
-                return {
-                  method: fallback.method,
-                  assertionObserved: false,
-                  passkeyStore: importedStore,
-                  verificationCode: fallback.verificationCode,
-                }
-              } catch (error) {
-                throw wrapRecoverableLoginBranchError('verification', error)
-              }
-            },
-          },
-          {
-            branch: 'retry' as const,
-            priority: 30,
-            guard: ({ input }) => input.postEmailCandidates.includes('retry'),
-            run: async () => {
-              throw new GuardedBranchError(
-                'retry',
-                'ChatGPT login returned to the email step repeatedly after submission.',
-              )
-            },
-          },
-          {
-            branch: 'passkey' as const,
-            priority: 20,
-            guard: ({ input }) => input.postEmailCandidates.includes('passkey'),
-            run: async () => {
-              if (!hasPasskey) {
-                throw new Error(
-                  `Stored identity ${stored.identity.email} does not contain a passkey credential, but ChatGPT requested a passkey step.`,
-                )
-              }
-
-              if (!preferPasskey) {
-                logStep('login_passkey_used_as_last_resort', {
-                  email: stored.identity.email,
-                })
-              }
-
-              logStep('login_passkey_store_before_import', {
-                email: stored.identity.email,
-                credentials: summarizePasskeyCredentials(
-                  stored.identity.passkeyStore,
-                ),
-              })
-
-              const virtualAuth = await loadVirtualPasskeyStore(
-                page,
-                stored.identity.passkeyStore,
-                options.virtualAuthenticator,
-              )
-              virtualAuth.session.on('WebAuthn.credentialAsserted', (event) => {
-                logStep('login_passkey_credential_asserted', {
-                  email: stored.identity.email,
-                  credential: {
-                    credentialId: event.credential.credentialId,
-                    rpId: event.credential.rpId,
-                    userHandle: event.credential.userHandle,
-                    signCount: event.credential.signCount,
-                    isResidentCredential: event.credential.isResidentCredential,
-                    backupEligibility: event.credential.backupEligibility,
-                    backupState: event.credential.backupState,
-                    userName: event.credential.userName,
-                    userDisplayName: event.credential.userDisplayName,
-                  },
-                })
-              })
-
-              importedStore = await captureVirtualPasskeyStore(
-                virtualAuth.session,
-                virtualAuth.authenticatorId,
-              )
-              tracker = createPasskeyAssertionTracker(
-                virtualAuth.session,
-                virtualAuth.authenticatorId,
-                importedStore,
-              )
-
-              try {
-                return await completeStoredPasskeyChallenge(
-                  page,
-                  stored,
-                  virtualAuth,
-                  tracker,
-                  {
-                    enteredFromPasskeySurface:
-                      postEmailCandidates.includes('passkey'),
-                    onPasskeyRetry: options.onPasskeyRetry,
-                  },
-                )
-              } catch (error) {
-                throw wrapRecoverableLoginBranchError('passkey', error)
-              }
-            },
-          },
-        ],
-        {
-          context: {
-            email: stored.identity.email,
-            preferPasskey,
-            hasPasskey,
-          },
-          input: {
-            postEmailCandidates,
-          },
-          onFallback: async ({ branch, error }) => {
-            logStep('login_post_email_branch_fallback', {
-              email: stored.identity.email,
-              branch,
-              message: error.message,
-              candidates: postEmailCandidates,
-            })
-          },
-        },
-      )
-    ).result
-  } finally {
-    tracker?.dispose()
   }
+
+  const startedAt = new Date().toISOString()
+  await submitLoginEmail(page, stored.identity.email, {
+    onRetry: options.onEmailRetry,
+  })
+
+  const postEmailCandidates = await waitForPostEmailLoginCandidates(page, 20000)
+  if (postEmailCandidates.length === 0) {
+    throw new Error('ChatGPT login did not reach a supported post-email step.')
+  }
+
+  const config = getRuntimeConfig()
+  let verificationProvider: VerificationProvider | undefined
+  return (
+    await runGuardedBranches<
+      {
+        email: string
+      },
+      {
+        postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
+      },
+      StoredLoginBranchResolution,
+      'authenticated' | 'password' | 'verification' | 'retry'
+    >(
+      [
+        {
+          branch: 'authenticated' as const,
+          priority: 60,
+          guard: ({ input }) =>
+            input.postEmailCandidates.includes('authenticated'),
+          run: async () => ({
+            method: 'password',
+          }),
+        },
+        {
+          branch: 'password' as const,
+          priority: 50,
+          guard: async ({ input }) =>
+            input.postEmailCandidates.includes('password') ||
+            (await waitForPasswordInputReady(page, 500)),
+          run: async () => {
+            try {
+              const fallback =
+                await completePasswordOrVerificationLoginFallback(page, {
+                  email: stored.identity.email,
+                  password: stored.identity.password,
+                  step: 'password',
+                  startedAt,
+                  getVerificationProvider: () => {
+                    verificationProvider ??= createVerificationProvider(config)
+                    return verificationProvider
+                  },
+                })
+              return {
+                method: fallback.method,
+                verificationCode: fallback.verificationCode,
+              }
+            } catch (error) {
+              throw wrapRecoverableLoginBranchError('password', error)
+            }
+          },
+        },
+        {
+          branch: 'verification' as const,
+          priority: 40,
+          guard: async ({ input }) =>
+            input.postEmailCandidates.includes('verification') ||
+            (await waitForVerificationCodeInputReady(page, 500)),
+          run: async () => {
+            try {
+              const fallback =
+                await completePasswordOrVerificationLoginFallback(page, {
+                  email: stored.identity.email,
+                  password: stored.identity.password,
+                  step: 'verification',
+                  startedAt,
+                  getVerificationProvider: () => {
+                    verificationProvider ??= createVerificationProvider(config)
+                    return verificationProvider
+                  },
+                })
+              return {
+                method: fallback.method,
+                verificationCode: fallback.verificationCode,
+              }
+            } catch (error) {
+              throw wrapRecoverableLoginBranchError('verification', error)
+            }
+          },
+        },
+        {
+          branch: 'retry' as const,
+          priority: 30,
+          guard: ({ input }) => input.postEmailCandidates.includes('retry'),
+          run: async () => {
+            throw new GuardedBranchError(
+              'retry',
+              'ChatGPT login returned to the email step repeatedly after submission.',
+            )
+          },
+        },
+      ],
+      {
+        context: {
+          email: stored.identity.email,
+        },
+        input: {
+          postEmailCandidates,
+        },
+        onFallback: async ({ branch, error }) => {
+          logStep('login_post_email_branch_fallback', {
+            email: stored.identity.email,
+            branch,
+            message: error.message,
+            candidates: postEmailCandidates,
+          })
+        },
+      },
+    )
+  ).result
 }
 
-export async function performStoredPasskeyLogin(
+export async function performStoredLogin(
   page: Page,
   stored: ResolvedChatGPTIdentity,
   options: {
-    preferPasskey?: boolean
-    virtualAuthenticator?: VirtualAuthenticatorOptions
     surfaceStrategy?: ChatGPTLoginSurfaceStrategy
   } & ChatGPTStoredLoginRetryCallbacks = {},
 ): Promise<{
-  surface: 'authenticated' | 'email' | 'passkey'
-  method: 'passkey' | 'password' | 'verification'
-  assertionObserved: boolean
-  passkeyStore: VirtualPasskeyStore
+  surface: 'authenticated' | 'email'
+  method: 'password' | 'verification'
   verificationCode?: string
 }> {
   const surface = await reachChatGPTLoginSurface(page, options.surfaceStrategy)
-  const passkey = await triggerStoredPasskeyLogin(page, stored, options)
+  const login = await triggerStoredLogin(page, stored, options)
   return {
     surface,
-    ...passkey,
+    ...login,
   }
 }
 
 // Continue an already-open ChatGPT/OpenAI login challenge without navigating away.
 export async function continueChatGPTLoginWithStoredIdentity(
   page: Page,
-  options: FlowOptions &
-    Pick<Partial<ChatGPTLoginFlowOptions>, 'virtualAuthenticator'> &
-    ChatGPTStoredLoginRetryCallbacks = {},
+  options: FlowOptions & ChatGPTStoredLoginRetryCallbacks = {},
 ): Promise<ChatGPTStoredLoginResult> {
-  const preferPasskey = parseBooleanFlag(options.preferPasskey, false) ?? false
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
   })
-  const passkey = await performStoredPasskeyLogin(page, stored, {
-    preferPasskey,
-    virtualAuthenticator: options.virtualAuthenticator,
+  const login = await performStoredLogin(page, stored, {
     onEmailRetry: async (attempt, reason) => {
       await options.onEmailRetry?.(attempt, reason)
       options.progressReporter?.({
@@ -957,36 +630,24 @@ export async function continueChatGPTLoginWithStoredIdentity(
       })
     },
     surfaceStrategy: 'current-page',
-    onPasskeyRetry: async (attempt, trigger) => {
-      await options.onPasskeyRetry?.(attempt, trigger)
-      options.progressReporter?.({
-        message:
-          trigger === 'retry'
-            ? 'Retrying passkey login'
-            : 'Re-triggering passkey login',
-        attempt,
-      })
-    },
   })
 
   return {
     email: stored.identity.email,
     storedIdentity: stored.summary,
-    ...passkey,
+    ...login,
   }
 }
 
 export async function loginChatGPT(
   page: Page,
-  options: FlowOptions &
-    Pick<Partial<ChatGPTLoginFlowOptions>, 'virtualAuthenticator'> = {},
+  options: FlowOptions = {},
 ): Promise<ChatGPTLoginFlowResult> {
   const machine = createChatGPTLoginMachine()
   const detachProgress = attachStateMachineProgressReporter(
     machine,
     options.progressReporter,
   )
-  const preferPasskey = parseBooleanFlag(options.preferPasskey, false) ?? false
   const stored = resolveStoredChatGPTIdentity({
     id: options.identityId,
     email: options.email,
@@ -998,11 +659,7 @@ export async function loginChatGPT(
       {
         email: stored.identity.email,
         storedIdentity: stored.summary,
-        method: preferPasskey ? 'passkey' : 'password',
-        passkeyCreated: Boolean(
-          stored.identity.passkeyStore?.credentials.length,
-        ),
-        passkeyStore: stored.identity.passkeyStore,
+        method: 'password',
         url: CHATGPT_ENTRY_LOGIN_URL,
       },
       {
@@ -1015,9 +672,7 @@ export async function loginChatGPT(
       url: CHATGPT_ENTRY_LOGIN_URL,
       lastMessage: 'Opening ChatGPT login entry',
     })
-    const passkey = await performStoredPasskeyLogin(page, stored, {
-      preferPasskey,
-      virtualAuthenticator: options.virtualAuthenticator,
+    const login = await performStoredLogin(page, stored, {
       onEmailRetry: async (attempt, reason) => {
         await machine.send('chatgpt.retry.requested', {
           reason: `email:${reason}`,
@@ -1039,29 +694,8 @@ export async function loginChatGPT(
           attempt,
         })
       },
-      onPasskeyRetry: async (attempt, trigger) => {
-        await machine.send('chatgpt.retry.requested', {
-          reason: `passkey:${trigger}`,
-          message:
-            trigger === 'retry'
-              ? 'Retrying passkey login'
-              : 'Re-triggering passkey login',
-          patch: {
-            email: stored.identity.email,
-            storedIdentity: stored.summary,
-            url: page.url(),
-          },
-        })
-        options.progressReporter?.({
-          message:
-            trigger === 'retry'
-              ? 'Retrying passkey login'
-              : 'Re-triggering passkey login',
-          attempt,
-        })
-      },
     })
-    const surface = passkey.surface
+    const surface = login.surface
 
     if (surface === 'authenticated') {
       await sendLoginMachine(
@@ -1094,12 +728,7 @@ export async function loginChatGPT(
         lastMessage: 'Submitting login email',
       })
       await machine.send('chatgpt.email.submitted', {
-        step:
-          passkey.method === 'verification'
-            ? 'verification'
-            : passkey.method === 'password'
-              ? 'password'
-              : 'passkey',
+        step: login.method === 'verification' ? 'verification' : 'password',
         url: page.url(),
         patch: {
           email: stored.identity.email,
@@ -1107,66 +736,41 @@ export async function loginChatGPT(
       })
     }
 
-    if (passkey.method === 'passkey') {
-      await sendLoginMachine(
-        machine,
-        'passkey-login',
-        'chatgpt.passkey.login.started',
-        {
-          email: stored.identity.email,
-          storedIdentity: stored.summary,
-          url: page.url(),
-          lastMessage: 'Starting passkey login',
-        },
-      )
-      await sendLoginMachine(machine, 'passkey-login', 'context.updated', {
+    await sendLoginMachine(
+      machine,
+      'password-step',
+      'chatgpt.password.started',
+      {
         email: stored.identity.email,
-        method: passkey.method,
-        assertionObserved: passkey.assertionObserved,
-        passkeyStore: passkey.passkeyStore,
+        method: login.method,
         storedIdentity: stored.summary,
         url: page.url(),
-        lastMessage: 'Passkey login triggered',
-      })
-    } else {
-      await sendLoginMachine(
-        machine,
-        'password-step',
-        'chatgpt.password.started',
-        {
-          email: stored.identity.email,
-          method: passkey.method,
-          storedIdentity: stored.summary,
-          url: page.url(),
-          lastMessage:
-            passkey.method === 'verification'
-              ? 'Starting verification fallback'
-              : 'Starting password fallback',
-        },
-      )
-      await sendLoginMachine(
-        machine,
-        passkey.method === 'verification'
-          ? 'verification-code-entry'
-          : 'password-step',
-        'context.updated',
-        {
-          email: stored.identity.email,
-          method: passkey.method,
-          verificationCode: passkey.verificationCode,
-          assertionObserved: passkey.assertionObserved,
-          passkeyStore: passkey.passkeyStore,
-          storedIdentity: stored.summary,
-          url: page.url(),
-          lastMessage:
-            passkey.method === 'verification'
-              ? 'Verification fallback completed'
-              : passkey.verificationCode
-                ? 'Password fallback completed with verification code'
-                : 'Password fallback submitted',
-        },
-      )
-    }
+        lastMessage:
+          login.method === 'verification'
+            ? 'Starting verification fallback'
+            : 'Starting password fallback',
+      },
+    )
+    await sendLoginMachine(
+      machine,
+      login.method === 'verification'
+        ? 'verification-code-entry'
+        : 'password-step',
+      'context.updated',
+      {
+        email: stored.identity.email,
+        method: login.method,
+        verificationCode: login.verificationCode,
+        storedIdentity: stored.summary,
+        url: page.url(),
+        lastMessage:
+          login.method === 'verification'
+            ? 'Verification fallback completed'
+            : login.verificationCode
+              ? 'Password fallback completed with verification code'
+              : 'Password fallback submitted',
+      },
+    )
 
     const authenticated = await waitForAuthenticatedSession(page, 30000)
     if (!authenticated) {
@@ -1248,7 +852,7 @@ export async function loginChatGPT(
       url: page.url(),
       title,
       email: stored.identity.email,
-      method: passkey.method,
+      method: login.method,
       authenticated: true,
       storedIdentity: stored.summary,
       storedSession,
@@ -1259,17 +863,15 @@ export async function loginChatGPT(
       event: 'chatgpt.completed',
       patch: {
         email: stored.identity.email,
-        method: passkey.method,
+        method: login.method,
         storedIdentity: stored.summary,
         storedSession,
         url: result.url,
         title: result.title,
         lastMessage:
-          passkey.method === 'passkey'
-            ? 'ChatGPT passkey login completed'
-            : passkey.method === 'verification'
-              ? 'ChatGPT verification fallback login completed'
-              : 'ChatGPT password fallback login completed',
+          login.method === 'verification'
+            ? 'ChatGPT verification fallback login completed'
+            : 'ChatGPT password fallback login completed',
       },
     })
     result.machine = snapshot

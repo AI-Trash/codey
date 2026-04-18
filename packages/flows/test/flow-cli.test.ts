@@ -66,17 +66,10 @@ describe('flow cli helpers', () => {
       title: 'ChatGPT',
       email: 'person@example.com',
       verified: true,
-      passkeyCreated: true,
-      passkeyStore: {
-        credentials: [{ id: 'cred-1' }],
-      },
       storedIdentity: {
         id: 'identity-123',
         email: 'person@example.com',
         storePath: 'C:/tmp/identity.json',
-      },
-      sameSessionPasskeyCheck: {
-        authenticated: true,
       },
       machine: {
         state: 'completed',
@@ -86,11 +79,8 @@ describe('flow cli helpers', () => {
     expect(summary).toContain('flow:chatgpt-register completed')
     expect(summary).toContain('email: person@example.com')
     expect(summary).toContain('verified: yes')
-    expect(summary).toContain('passkey: created')
-    expect(summary).toContain('passkey check: passed')
     expect(summary).toContain('identity: identity-123')
     expect(summary).not.toContain('machine')
-    expect(summary).not.toContain('passkeyStore')
     expect(summary).not.toContain('storePath')
     expect(summary).not.toContain('mfa_token')
     expect(summary).not.toContain('?')

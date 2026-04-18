@@ -3,20 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const getRuntimeConfig = vi.fn()
 const waitForCodexOAuthSurface = vi.fn()
 const clickLoginEntryIfPresent = vi.fn()
-const clickPasskeyEntry = vi.fn()
 const clickPasswordSubmit = vi.fn()
-const clickPasswordTimeoutRetry = vi.fn()
 const clickVerificationContinue = vi.fn()
 const continueCodexWorkspaceSelection = vi.fn()
 const continueCodexOAuthConsent = vi.fn()
 const submitLoginEmail = vi.fn()
 const typePassword = vi.fn()
 const typeVerificationCode = vi.fn()
-const waitForAuthenticatedSession = vi.fn()
 const waitForPasswordInputReady = vi.fn()
-const waitForPasskeyEntryReady = vi.fn()
 const waitForPostEmailLoginCandidates = vi.fn()
-const waitForRetryOrPasskeyEntryCandidates = vi.fn()
 const waitForVerificationCode = vi.fn()
 const waitForVerificationCodeInputReady = vi.fn()
 const createAuthorizationCallbackCapture = vi.fn()
@@ -29,7 +24,6 @@ const buildCodexOAuthCredentials = vi.fn()
 const AxonHubAdminClient = vi.fn()
 const shareCodexOAuthSessionWithCodeyApp = vi.fn()
 const resolveStoredChatGPTIdentity = vi.fn()
-const loadVirtualPasskeyStore = vi.fn()
 
 vi.mock('../src/config', () => ({
   getRuntimeConfig,
@@ -37,27 +31,18 @@ vi.mock('../src/config', () => ({
 
 vi.mock('../src/modules/chatgpt/shared', () => ({
   clickLoginEntryIfPresent,
-  clickPasskeyEntry,
   clickPasswordSubmit,
-  clickPasswordTimeoutRetry,
   clickVerificationContinue,
   continueCodexOAuthConsent,
   continueCodexWorkspaceSelection,
   submitLoginEmail,
   typePassword,
   typeVerificationCode,
-  waitForAuthenticatedSession,
   waitForCodexOAuthSurface,
   waitForPasswordInputReady,
-  waitForPasskeyEntryReady,
   waitForPostEmailLoginCandidates,
-  waitForRetryOrPasskeyEntryCandidates,
   waitForVerificationCode,
   waitForVerificationCodeInputReady,
-}))
-
-vi.mock('../src/modules/webauthn', () => ({
-  loadVirtualPasskeyStore,
 }))
 
 vi.mock('../src/modules/credentials', () => ({
@@ -137,9 +122,6 @@ describe('runCodexOAuthFlow', () => {
       identity: {
         email: 'person@example.com',
         password: 'person-password',
-        passkeyStore: {
-          credentials: [],
-        },
       },
       summary: {
         id: 'identity-123',
@@ -187,21 +169,15 @@ describe('runCodexOAuthFlow', () => {
       createChannel,
     }))
 
-    clickPasskeyEntry.mockResolvedValue(true)
     clickPasswordSubmit.mockResolvedValue(undefined)
-    clickPasswordTimeoutRetry.mockResolvedValue(true)
     clickVerificationContinue.mockResolvedValue(true)
     submitLoginEmail.mockResolvedValue(undefined)
     typePassword.mockResolvedValue(true)
     typeVerificationCode.mockResolvedValue(undefined)
-    waitForAuthenticatedSession.mockResolvedValue(false)
     waitForPasswordInputReady.mockResolvedValue(false)
-    waitForPasskeyEntryReady.mockResolvedValue(false)
     waitForPostEmailLoginCandidates.mockResolvedValue([])
-    waitForRetryOrPasskeyEntryCandidates.mockResolvedValue([])
     waitForVerificationCode.mockResolvedValue('654321')
     waitForVerificationCodeInputReady.mockResolvedValue(false)
-    loadVirtualPasskeyStore.mockResolvedValue({})
   })
 
   it('waits for a late login surface and advances stored identity login one step at a time before exchanging the callback', async () => {
@@ -314,8 +290,7 @@ describe('runCodexOAuthFlow', () => {
         (entry) =>
           entry.event === 'context.updated' && entry.to === 'password-step',
       ),
-    )
-      .toBe(true)
+    ).toBe(true)
     expect(exchangeCodexAuthorizationCode).toHaveBeenCalledWith(
       expect.objectContaining({
         code: 'oauth-code',
@@ -658,7 +633,7 @@ describe('runCodexOAuthFlow', () => {
       }
 
       await new Promise((resolve) => setTimeout(resolve, 25))
-      return 'passkey'
+      return 'email'
     })
 
     continueCodexWorkspaceSelection.mockImplementation(async () => {

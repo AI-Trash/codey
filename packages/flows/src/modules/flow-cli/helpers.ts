@@ -21,9 +21,6 @@ export interface FlowOptions extends CommonOptions {
   pollIntervalMs?: string | boolean
   authorizeUrlOnly?: string | boolean
   password?: string
-  createPasskey?: string | boolean
-  preferPasskey?: string | boolean
-  sameSessionPasskeyCheck?: string | boolean
   identityId?: string
   email?: string
   workspaceIndex?: string | boolean
@@ -257,15 +254,6 @@ function formatSummaryValue(value: unknown): string | undefined {
   return undefined
 }
 
-function formatBooleanLabel(
-  value: boolean | undefined,
-  yesLabel: string,
-  noLabel: string,
-): string | undefined {
-  if (value == null) return undefined
-  return value ? yesLabel : noLabel
-}
-
 function appendSummaryLine(
   lines: string[],
   label: string,
@@ -326,24 +314,6 @@ export function formatFlowCompletionSummary(
   if (pageName === 'chatgpt-register') {
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'verified', asBoolean(record.verified))
-    appendSummaryLine(
-      lines,
-      'passkey',
-      formatBooleanLabel(
-        asBoolean(record.passkeyCreated),
-        'created',
-        'not created',
-      ),
-    )
-    appendSummaryLine(
-      lines,
-      'passkey check',
-      formatBooleanLabel(
-        asBoolean(asRecord(record.sameSessionPasskeyCheck)?.authenticated),
-        'passed',
-        'failed',
-      ),
-    )
     appendSummaryLine(lines, 'identity', asRecord(record.storedIdentity)?.id)
     appendSummaryLine(
       lines,
