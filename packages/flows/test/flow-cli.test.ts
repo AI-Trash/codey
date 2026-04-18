@@ -4,6 +4,7 @@ import {
   applyFlowOptionDefaults,
   formatFlowProgressUpdate,
   formatFlowCompletionSummary,
+  keepBrowserOpenForHarWhenUnspecified,
   shouldKeepFlowOpen,
   type FlowOptions,
 } from '../src/modules/flow-cli/helpers'
@@ -33,6 +34,22 @@ describe('flow cli helpers', () => {
     expect(shouldKeepFlowOpen({ record: true })).toBe(true)
     expect(shouldKeepFlowOpen({ record: 'true' })).toBe(true)
     expect(shouldKeepFlowOpen({ record: 'false' })).toBe(false)
+  })
+
+  it('defaults record to true when HAR is enabled and record is unspecified', () => {
+    expect(keepBrowserOpenForHarWhenUnspecified({ har: true })).toMatchObject({
+      har: true,
+      record: true,
+    })
+    expect(
+      keepBrowserOpenForHarWhenUnspecified({ har: 'true', record: 'false' }),
+    ).toMatchObject({
+      har: 'true',
+      record: 'false',
+    })
+    expect(keepBrowserOpenForHarWhenUnspecified({ har: false })).toMatchObject({
+      har: false,
+    })
   })
 
   it('defaults noop flow to har and record enabled', () => {
@@ -114,8 +131,10 @@ describe('flow cli helpers', () => {
     const oauthSummary = formatFlowCompletionSummary('flow:codex-oauth', {
       pageName: 'codex-oauth',
       url: 'https://app.example.com/callback?access_token=secret',
+      email: 'person@example.com',
       redirectUri: 'http://localhost:3000/callback?code=secret',
       tokenStorePath: 'C:/tmp/token.json',
+      apiHarPath: 'C:/tmp/flow-codex-oauth-api.har',
       token: {
         accessToken: 'secret',
       },
@@ -147,11 +166,13 @@ describe('flow cli helpers', () => {
     expect(inviteSummary).not.toContain('inviteFilePath')
     expect(inviteSummary).not.toContain('token=secret')
 
+    expect(oauthSummary).toContain('email: person@example.com')
     expect(oauthSummary).toContain('channel: Codey')
     expect(oauthSummary).toContain('project: project-42')
     expect(oauthSummary).toContain('token: stored locally')
     expect(oauthSummary).not.toContain('tokenStorePath')
     expect(oauthSummary).not.toContain('accessToken')
+    expect(oauthSummary).not.toContain('apiHarPath')
     expect(oauthSummary).not.toContain('code=secret')
   })
 

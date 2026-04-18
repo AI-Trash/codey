@@ -25,6 +25,7 @@ export interface FlowOptions extends CommonOptions {
   sameSessionPasskeyCheck?: string | boolean
   identityId?: string
   email?: string
+  workspaceIndex?: string | boolean
   target?: string
   redirectPort?: string | boolean
   projectId?: string
@@ -167,6 +168,26 @@ export function applyFlowOptionDefaults<
     ...defaults,
     ...options,
   } as T
+}
+
+export function keepBrowserOpenForHarWhenUnspecified<
+  T extends {
+    har?: string | boolean
+    record?: string | boolean
+  },
+>(options: T): T {
+  if (options.record !== undefined) {
+    return options
+  }
+
+  if (parseBooleanFlag(options.har, false)) {
+    return {
+      ...options,
+      record: true,
+    }
+  }
+
+  return options
 }
 
 export function shouldKeepFlowOpen(options: {
@@ -336,6 +357,7 @@ export function formatFlowCompletionSummary(
   if (pageName === 'codex-oauth') {
     const axonHub = asRecord(record.axonHub)
     const channel = asRecord(axonHub?.channel)
+    appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'channel', channel?.name ?? channel?.id)
     appendSummaryLine(lines, 'project', axonHub?.projectId)
     appendSummaryLine(lines, 'redirect', record.redirectUri)

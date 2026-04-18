@@ -16,6 +16,8 @@ export const CHATGPT_OAUTH_LOGIN_URL =
   'https://auth.openai.com/api/accounts/login'
 export const CHATGPT_OAUTH_AUTHORIZE_URL =
   'https://auth.openai.com/oauth/authorize'
+export const CHATGPT_CODEX_CONSENT_URL =
+  'https://auth.openai.com/sign-in-with-chatgpt/codex/consent'
 export const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security'
 export const ADULT_AGE = '25'
 export const ADULT_BIRTHDAY = '1999-01-01'
@@ -34,6 +36,10 @@ export function isChatGPTLoginUrl(url: string): boolean {
     url.startsWith(CHATGPT_OAUTH_LOGIN_URL) ||
     url.startsWith(CHATGPT_OAUTH_AUTHORIZE_URL)
   )
+}
+
+export function isChatGPTCodexConsentUrl(url: string): boolean {
+  return url.startsWith(CHATGPT_CODEX_CONSENT_URL)
 }
 
 export const PASSWORD_INPUT_SELECTORS: SelectorTarget[] = [
@@ -195,6 +201,25 @@ export const LOGIN_ENTRY_SELECTORS: SelectorTarget[] = [
   '[data-testid="login-button"]',
   { role: 'button', options: { name: /^登录$|^log in$|^login$/i } },
   { text: /^登录$|^log in$|^login$/i },
+]
+export const CODEX_WORKSPACE_SELECTORS: SelectorTarget[] = [
+  'input[type="radio"][name="workspace_id"]',
+  'input[type="hidden"][name="workspace_id"]',
+  'select[name="workspace_id"]',
+  {
+    role: 'heading',
+    options: { name: /选择工作区|select a workspace/i },
+  },
+  { text: /选择工作区|select a workspace/i },
+]
+export const CODEX_WORKSPACE_SUBMIT_SELECTORS: SelectorTarget[] = [
+  'form button[type="submit"]',
+  'button[type="submit"]',
+  {
+    role: 'button',
+    options: { name: /继续|continue|sign in|allow|authorize/i },
+  },
+  { text: /继续|continue|sign in|allow|authorize/i },
 ]
 export const ONBOARDING_ACTION_CANDIDATES: Array<{
   text: string

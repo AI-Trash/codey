@@ -1,6 +1,7 @@
 import type { AxonHubAdminConfig } from '../../config'
 import { ensureJson } from '../app-auth/http'
 import type { CodexTokenResponse } from './codex-client'
+import { fetchWithHarCapture, type NodeHarRecorder } from './har-recorder'
 
 interface AxonHubAdminUser {
   id?: string
@@ -113,7 +114,12 @@ export function buildCodexOAuthCredentials(
 }
 
 export class AxonHubAdminClient {
-  constructor(private readonly config: AxonHubAdminConfig) {}
+  constructor(
+    private readonly config: AxonHubAdminConfig,
+    private readonly options: {
+      harRecorder?: NodeHarRecorder
+    } = {},
+  ) {}
 
   private getBaseUrl(): string {
     return normalizeBaseUrl(
@@ -160,11 +166,18 @@ export class AxonHubAdminClient {
       'AXONHUB_ADMIN_PASSWORD is required for Codex channel creation.',
     )
 
-    const response = await fetch(this.buildUrl('/admin/auth/signin'), {
-      method: 'POST',
-      headers: this.buildHeaders(),
-      body: JSON.stringify({ email, password }),
-    })
+    const response = await fetchWithHarCapture(
+      this.options.harRecorder,
+      this.buildUrl('/admin/auth/signin'),
+      {
+        method: 'POST',
+        headers: this.buildHeaders(),
+        body: JSON.stringify({ email, password }),
+      },
+      {
+        comment: 'AxonHub admin sign-in',
+      },
+    )
 
     const payload = await ensureJson<AxonHubAdminSignInResponse>(response)
     if (!payload.token?.trim()) {
@@ -177,11 +190,14 @@ export class AxonHubAdminClient {
     token: string,
     input: CreateAxonHubChannelInput,
   ): Promise<NonNullable<CreateChannelGraphQLResponse['createChannel']>> {
-    const response = await fetch(this.buildUrl(this.getGraphqlPath()), {
-      method: 'POST',
-      headers: this.buildHeaders(token),
-      body: JSON.stringify({
-        query: `mutation CreateChannel($input: CreateChannelInput!) {
+    const response = await fetchWithHarCapture(
+      this.options.harRecorder,
+      this.buildUrl(this.getGraphqlPath()),
+      {
+        method: 'POST',
+        headers: this.buildHeaders(token),
+        body: JSON.stringify({
+          query: `mutation CreateChannel($input: CreateChannelInput!) {
   createChannel(input: $input) {
     id
     type
@@ -196,9 +212,13 @@ export class AxonHubAdminClient {
     updatedAt
   }
 }`,
-        variables: { input },
-      }),
-    })
+          variables: { input },
+        }),
+      },
+      {
+        comment: 'AxonHub createChannel mutation',
+      },
+    )
 
     const payload =
       await ensureJson<GraphQLResponse<CreateChannelGraphQLResponse>>(response)

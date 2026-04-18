@@ -180,9 +180,19 @@ The daemon keeps an SSE connection to `/api/cli/events` and prints admin notific
 
 ```bash
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth
+pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --email someone@example.com
+pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --workspaceIndex 2
 ```
 
 This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, stores the resulting Codex token under `.codey/credentials/`, signs in to AxonHub admin, and creates a Codex channel using `credentials.oauth`. CLI output redacts access tokens, refresh tokens, and passwords.
+
+When login is required, `flow codex-oauth` can target a specific stored ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `flow chatgpt-login`.
+
+If OpenAI shows the Codex workspace picker, `flow codex-oauth` now auto-selects a workspace and submits the consent form. Use `--workspaceIndex <n>` to choose a different 1-based workspace position; if omitted, it selects the first workspace.
+
+When you run `flow codex-oauth --har true`, the CLI now keeps the browser open by default so the normal browser HAR is flushed when you close the browser window. Pass `--record false` if you want the browser to close automatically after the flow finishes.
+
+When `--har true` is enabled, the browser HAR still captures the in-browser OAuth navigation, and `codex-oauth` also writes a separate `*-flow-codex-oauth-api.har` sidecar under `artifacts/` for the token exchange and AxonHub API calls that run outside the browser context.
 
 Built-in defaults from `axonhub` are used for Codex OAuth, so these overrides are optional:
 

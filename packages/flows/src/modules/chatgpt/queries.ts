@@ -11,9 +11,12 @@ import {
   AGE_GATE_AGE_SELECTORS,
   AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
   AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
+  CODEX_WORKSPACE_SELECTORS,
+  CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_HOME_URL,
   DEFAULT_EVENT_TIMEOUT_MS,
+  isChatGPTCodexConsentUrl,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
   LOGIN_ENTRY_SELECTORS,
@@ -49,6 +52,8 @@ export type ChatGPTLoginEntrySurface =
   | 'email'
   | 'passkey'
   | 'unknown'
+
+export type ChatGPTCodexOAuthSurface = ChatGPTLoginEntrySurface | 'workspace'
 
 export type ChatGPTPasskeyTrigger = 'retry' | 'passkey' | 'none'
 
@@ -801,6 +806,35 @@ export async function getLoginEntryCandidates(
   return candidates
 }
 
+export async function isCodexWorkspacePickerReady(
+  page: Page,
+): Promise<boolean> {
+  if (!isChatGPTCodexConsentUrl(page.url())) {
+    return false
+  }
+
+  return (
+    (await isAnySelectorVisible(page, CODEX_WORKSPACE_SELECTORS)) ||
+    (await hasEnabledSelector(page, CODEX_WORKSPACE_SUBMIT_SELECTORS))
+  )
+}
+
+export async function getCodexOAuthSurfaceCandidates(
+  page: Page,
+): Promise<Exclude<ChatGPTCodexOAuthSurface, 'unknown'>[]> {
+  const candidates: Exclude<ChatGPTCodexOAuthSurface, 'unknown'>[] = []
+
+  if (await isCodexWorkspacePickerReady(page)) {
+    pushUniqueCandidate(candidates, 'workspace')
+  }
+
+  for (const candidate of await getLoginEntryCandidates(page)) {
+    pushUniqueCandidate(candidates, candidate)
+  }
+
+  return candidates
+}
+
 export async function waitForLoginEntryCandidates(
   page: Page,
   timeoutMs = 15000,
@@ -822,6 +856,22 @@ export async function waitForLoginEntrySurface(
   timeoutMs = 15000,
 ): Promise<ChatGPTLoginEntrySurface> {
   return (await waitForLoginEntryCandidates(page, timeoutMs))[0] ?? 'unknown'
+}
+
+export async function waitForCodexOAuthSurface(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<ChatGPTCodexOAuthSurface> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const candidates = await getCodexOAuthSurfaceCandidates(page)
+    if (candidates.length > 0) {
+      return candidates[0]
+    }
+    await sleep(250)
+  }
+
+  return (await getCodexOAuthSurfaceCandidates(page))[0] ?? 'unknown'
 }
 
 export async function waitForLoginSurfaceCandidates(

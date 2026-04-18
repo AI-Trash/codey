@@ -22,6 +22,7 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { CopyableValue } from '#/components/ui/copyable-value'
 import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
@@ -751,11 +752,30 @@ function AdminPage() {
                         <div className="font-medium text-foreground">
                           {summary.label}
                         </div>
-                        <code>{summary.id}</code>
+                        <CopyableValue
+                          value={summary.id}
+                          code
+                          title={m.clipboard_copy_value({
+                            label: m.admin_dashboard_identity_id_label(),
+                          })}
+                          className="max-w-full text-sm text-muted-foreground"
+                          contentClassName="break-all"
+                        />
                       </div>
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
-                      {summary.account || m.admin_dashboard_not_linked_yet()}
+                      {summary.account ? (
+                        <CopyableValue
+                          value={summary.account}
+                          title={m.clipboard_copy_value({
+                            label: m.admin_dashboard_account_email_label(),
+                          })}
+                          className="max-w-full"
+                          contentClassName="break-all"
+                        />
+                      ) : (
+                        m.admin_dashboard_not_linked_yet()
+                      )}
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
                       {summary.provider || m.admin_dashboard_saved_identity()}

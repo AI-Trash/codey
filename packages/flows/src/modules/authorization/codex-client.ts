@@ -3,6 +3,7 @@ import {
   buildAuthorizationUrl,
   waitForAuthorizationCode,
 } from './codex-authorization'
+import { fetchWithHarCapture, type NodeHarRecorder } from './har-recorder'
 
 interface CodexTokenPayload {
   access_token?: string
@@ -113,22 +114,30 @@ export async function exchangeCodexAuthorizationCode(input: {
   code: string
   redirectUri: string
   codeVerifier?: string
+  harRecorder?: NodeHarRecorder
 }): Promise<CodexTokenResponse> {
-  const response = await fetch(input.tokenUrl, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
+  const response = await fetchWithHarCapture(
+    input.harRecorder,
+    input.tokenUrl,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: input.code,
+        redirect_uri: input.redirectUri,
+        client_id: input.clientId,
+        ...(input.clientSecret ? { client_secret: input.clientSecret } : {}),
+        ...(input.codeVerifier ? { code_verifier: input.codeVerifier } : {}),
+      }),
     },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code: input.code,
-      redirect_uri: input.redirectUri,
-      client_id: input.clientId,
-      ...(input.clientSecret ? { client_secret: input.clientSecret } : {}),
-      ...(input.codeVerifier ? { code_verifier: input.codeVerifier } : {}),
-    }),
-  })
+    {
+      comment: 'Codex OAuth token exchange',
+    },
+  )
 
   const tokenPayload = (await response.json()) as CodexTokenPayload
   if (!response.ok) {
@@ -152,6 +161,7 @@ export async function runCodexAuthorization(input: {
   redirectPort?: number
   redirectPath?: string
   openBrowserWindow?: boolean
+  harRecorder?: NodeHarRecorder
 }): Promise<CodexTokenResponse> {
   const started = startCodexAuthorization({
     authorizeUrl: input.authorizeUrl,
@@ -187,5 +197,6 @@ export async function runCodexAuthorization(input: {
     code: callback.code,
     redirectUri: started.redirectUri,
     codeVerifier: started.codeVerifier,
+    harRecorder: input.harRecorder,
   })
 }
