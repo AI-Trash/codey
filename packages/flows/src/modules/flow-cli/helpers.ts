@@ -19,6 +19,7 @@ export interface FlowOptions extends CommonOptions {
   waitMs?: string | boolean
   verificationTimeoutMs?: string | boolean
   pollIntervalMs?: string | boolean
+  authorizeUrlOnly?: string | boolean
   password?: string
   createPasskey?: string | boolean
   preferPasskey?: string | boolean
@@ -254,6 +255,23 @@ function appendSummaryLine(
   lines.push(`${label}: ${formatted}`)
 }
 
+function appendExactSummaryLine(
+  lines: string[],
+  label: string,
+  value: unknown,
+): void {
+  if (typeof value !== 'string') {
+    return
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return
+  }
+
+  lines.push(`${label}: ${trimmed}`)
+}
+
 function formatInviteCounts(
   result: Record<string, unknown>,
 ): string | undefined {
@@ -341,6 +359,12 @@ export function formatFlowCompletionSummary(
     appendSummaryLine(lines, 'redirect', record.redirectUri)
     appendSummaryLine(lines, 'token', 'stored locally')
     appendSummaryLine(lines, 'page', record.url)
+    return lines.join('\n')
+  }
+
+  if (pageName === 'codex-oauth-authorize-url') {
+    appendSummaryLine(lines, 'redirect', record.redirectUri)
+    appendExactSummaryLine(lines, 'oauth url', record.oauthUrl)
     return lines.join('\n')
   }
 

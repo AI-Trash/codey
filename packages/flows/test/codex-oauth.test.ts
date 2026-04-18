@@ -341,4 +341,39 @@ describe('runCodexOAuthFlow', () => {
       ),
     ).toBe(true)
   })
+
+  it('can stop after generating the oauth url and return it for manual verification', async () => {
+    const page = {
+      goto: vi.fn(),
+      url: vi.fn(() => 'about:blank'),
+      title: vi.fn(async () => 'about:blank'),
+    }
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    const result = await runCodexOAuthFlow(page as never, {
+      authorizeUrlOnly: true,
+    })
+
+    expect(result).toMatchObject({
+      pageName: 'codex-oauth-authorize-url',
+      redirectUri: 'http://localhost:1455/auth/callback',
+      oauthUrl:
+        'https://auth.openai.com/oauth/authorize?client_id=codex-client-id',
+    })
+    expect(createAuthorizationCallbackCapture).not.toHaveBeenCalled()
+    expect(waitForLoginEntrySurface).not.toHaveBeenCalled()
+    expect(exchangeCodexAuthorizationCode).not.toHaveBeenCalled()
+    expect(page.goto).not.toHaveBeenCalled()
+    expect(result.machine).toMatchObject({
+      status: 'succeeded',
+      state: 'completed',
+      context: {
+        redirectUri: 'http://localhost:1455/auth/callback',
+        authorizationUrl:
+          'https://auth.openai.com/oauth/authorize?client_id=codex-client-id',
+        lastMessage:
+          'Generated Codex OAuth URL and exited before browser login',
+      },
+    })
+  })
 })

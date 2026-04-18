@@ -448,6 +448,10 @@ withCommonOptions(
     )
     .option('--redirectPort <port>', 'Override OAuth callback redirect port')
     .option(
+      '--authorizeUrlOnly <bool>',
+      'Generate the OAuth URL and exit before continuing browser login',
+    )
+    .option(
       '--preferPasskey <bool>',
       'Whether to prefer a stored ChatGPT passkey if login is required (defaults to false)',
     )
@@ -460,6 +464,7 @@ withCommonOptions(
       'Override the AxonHub channel name for this run',
     )
     .example('codey flow codex-oauth --redirectPort 3005')
+    .example('codey flow codex-oauth --authorizeUrlOnly true')
     .example('codey flow codex-oauth --projectId gid://axonhub/project/123'),
 ).action((options: FlowOptions) => {
   execute(

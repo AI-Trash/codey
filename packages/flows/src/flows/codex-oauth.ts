@@ -20,6 +20,7 @@ import type {
 } from '../state-machine'
 import {
   attachStateMachineProgressReporter,
+  parseBooleanFlag,
   parseNumberFlag,
   sanitizeErrorForOutput,
   type FlowOptions,
@@ -173,8 +174,21 @@ export interface CodexOAuthFlowResult {
     projectId?: string
     channel: CodexOAuthChannelResult
   }
-  machine: CodexOAuthFlowSnapshot<CodexOAuthFlowResult>
+  machine: CodexOAuthFlowSnapshot<CodexOAuthFlowRunResult>
 }
+
+export interface CodexOAuthAuthorizeUrlResult {
+  pageName: 'codex-oauth-authorize-url'
+  url: string
+  title: string
+  redirectUri: string
+  oauthUrl: string
+  machine: CodexOAuthFlowSnapshot<CodexOAuthFlowRunResult>
+}
+
+export type CodexOAuthFlowRunResult =
+  | CodexOAuthFlowResult
+  | CodexOAuthAuthorizeUrlResult
 
 type CodexOAuthLoginSurface = Exclude<ChatGPTLoginEntrySurface, 'unknown'>
 
@@ -419,10 +433,10 @@ function createCodexOAuthAddPhoneFailureFragment<Result>() {
   })
 }
 
-export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowResult> {
+export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowRunResult> {
   return createStateMachine<
     CodexOAuthFlowState,
-    CodexOAuthFlowContext<CodexOAuthFlowResult>,
+    CodexOAuthFlowContext<CodexOAuthFlowRunResult>,
     CodexOAuthFlowEvent
   >(
     composeStateMachineConfig(
@@ -434,18 +448,18 @@ export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowR
         },
         historyLimit: 100,
       },
-      createCodexOAuthLifecycleFragment<CodexOAuthFlowResult>(),
-      createCodexOAuthAddPhoneFailureFragment<CodexOAuthFlowResult>(),
-      createCodexOAuthSurfaceFragment<CodexOAuthFlowResult>(),
+      createCodexOAuthLifecycleFragment<CodexOAuthFlowRunResult>(),
+      createCodexOAuthAddPhoneFailureFragment<CodexOAuthFlowRunResult>(),
+      createCodexOAuthSurfaceFragment<CodexOAuthFlowRunResult>(),
     ),
   )
 }
 
 async function sendCodexOAuthMachine(
-  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   state: CodexOAuthFlowState,
   event: CodexOAuthFlowEvent,
-  patch?: Partial<CodexOAuthFlowContext<CodexOAuthFlowResult>>,
+  patch?: Partial<CodexOAuthFlowContext<CodexOAuthFlowRunResult>>,
 ): Promise<void> {
   await machine.send(event, {
     target: state,
@@ -563,7 +577,7 @@ async function waitForCodexOAuthLoginSurface(
 }
 
 function buildCodexOAuthRetryCallbacks(
-  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   page: Page,
   redirectUri: string,
 ) {
@@ -598,7 +612,7 @@ function buildCodexOAuthRetryCallbacks(
 }
 
 async function sendCodexOAuthSurfaceReady(
-  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   page: Page,
   surface: CodexOAuthLoginSurface,
   redirectUri: string,
@@ -614,7 +628,7 @@ async function sendCodexOAuthSurfaceReady(
 
 async function continueCodexOAuthStoredLogin(
   page: Page,
-  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
   surface: Extract<CodexOAuthLoginSurface, 'email' | 'passkey'>,
   redirectUri: string,
@@ -668,7 +682,7 @@ function wrapRecoverableCodexOAuthBranchError<Branch extends string>(
 
 async function resolveCodexOAuthAfterLoginEntry(
   page: Page,
-  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
   redirectUri: string,
   waitForCallback: Promise<CodexOAuthCallbackPayload>,
@@ -688,7 +702,7 @@ async function resolveCodexOAuthAfterLoginEntry(
 
   return (
     await runGuardedBranches<
-      CodexOAuthFlowContext<CodexOAuthFlowResult>,
+      CodexOAuthFlowContext<CodexOAuthFlowRunResult>,
       {
         surface: Extract<
           CodexOAuthLoginSurface,
@@ -759,7 +773,7 @@ async function resolveCodexOAuthAfterLoginEntry(
 
 async function resolveCodexOAuthNextStep(
   page: Page,
-  machine: CodexOAuthFlowMachine<CodexOAuthFlowResult>,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
   redirectUri: string,
   nextStep:
@@ -769,7 +783,7 @@ async function resolveCodexOAuthNextStep(
 ): Promise<CodexOAuthCallbackPayload> {
   return (
     await runGuardedBranches<
-      CodexOAuthFlowContext<CodexOAuthFlowResult>,
+      CodexOAuthFlowContext<CodexOAuthFlowRunResult>,
       typeof nextStep,
       CodexOAuthCallbackPayload,
       'callback' | 'authenticated' | 'login' | 'email' | 'passkey'
@@ -899,7 +913,7 @@ async function resolveCodexOAuthNextStep(
 export async function runCodexOAuthFlow(
   page: Page,
   options: FlowOptions = {},
-): Promise<CodexOAuthFlowResult> {
+): Promise<CodexOAuthFlowRunResult> {
   const config = getRuntimeConfig()
   const codexConfig = getRequiredCodexConfig()
   const machine = createCodexOAuthMachine()
@@ -909,6 +923,7 @@ export async function runCodexOAuthFlow(
   )
   const channelName = resolveChannelName(options)
   const projectId = resolveProjectId(options)
+  const authorizeUrlOnly = parseBooleanFlag(options.authorizeUrlOnly, false)
 
   try {
     machine.start(
@@ -946,6 +961,33 @@ export async function runCodexOAuthFlow(
       redirectPath: codexConfig.redirectPath,
       openBrowserWindow: false,
     })
+
+    if (authorizeUrlOnly) {
+      const result = {
+        pageName: 'codex-oauth-authorize-url' as const,
+        url: sanitizeUrl(started.authorizationUrl),
+        title: 'Codex OAuth authorization URL generated',
+        redirectUri: started.redirectUri,
+        oauthUrl: started.authorizationUrl,
+        machine:
+          undefined as unknown as CodexOAuthFlowSnapshot<CodexOAuthFlowRunResult>,
+      }
+
+      const snapshot = machine.succeed('completed', {
+        event: 'codex.oauth.completed',
+        patch: {
+          url: result.url,
+          title: result.title,
+          redirectUri: started.redirectUri,
+          authorizationUrl: result.oauthUrl,
+          channelName,
+          projectId,
+          lastMessage: 'Generated Codex OAuth URL and exited before browser login',
+        },
+      })
+      result.machine = snapshot
+      return result
+    }
 
     const callbackCapture = await createAuthorizationCallbackCapture(page, {
       host: started.redirectHost,
@@ -1092,7 +1134,7 @@ export async function runCodexOAuthFlow(
         channel: redactChannelCredentials(channelInput, createdChannel),
       },
       machine:
-        undefined as unknown as CodexOAuthFlowSnapshot<CodexOAuthFlowResult>,
+        undefined as unknown as CodexOAuthFlowSnapshot<CodexOAuthFlowRunResult>,
     }
 
     const snapshot = machine.succeed('completed', {
@@ -1127,7 +1169,7 @@ export async function runCodexOAuthFlow(
 
 export const codexOAuthFlow: SingleFileFlowDefinition<
   FlowOptions,
-  CodexOAuthFlowResult
+  CodexOAuthFlowRunResult
 > = {
   command: 'flow:codex-oauth',
   run: runCodexOAuthFlow,

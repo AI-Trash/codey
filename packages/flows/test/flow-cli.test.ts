@@ -155,6 +155,22 @@ describe('flow cli helpers', () => {
     expect(oauthSummary).not.toContain('code=secret')
   })
 
+  it('prints the full oauth url when codex oauth exits in authorize-url-only mode', () => {
+    const summary = formatFlowCompletionSummary('flow:codex-oauth', {
+      pageName: 'codex-oauth-authorize-url',
+      url: 'https://auth.openai.com/oauth/authorize',
+      redirectUri: 'http://localhost:1455/auth/callback',
+      oauthUrl:
+        'https://auth.openai.com/oauth/authorize?client_id=codex-client-id&state=manual-debug',
+    })
+
+    expect(summary).toContain('flow:codex-oauth completed')
+    expect(summary).toContain('redirect: http://localhost:1455/auth/callback')
+    expect(summary).toContain(
+      'oauth url: https://auth.openai.com/oauth/authorize?client_id=codex-client-id&state=manual-debug',
+    )
+  })
+
   it('formats live flow progress updates as readable one-line messages', () => {
     const progress = formatFlowProgressUpdate('flow:chatgpt-register', {
       status: 'running',
