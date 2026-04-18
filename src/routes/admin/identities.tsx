@@ -377,18 +377,18 @@ function IdentityRowActions(props: { summary: IdentitySummary }) {
 
   return (
     <TooltipProvider>
-      <div className="grid min-w-[260px] gap-3">
+      <div className="flex min-w-[320px] items-start gap-2">
         <form
           method="post"
           action="/api/admin/identities"
-          className="flex items-start gap-2"
+          className="flex min-w-0 flex-1 items-start gap-2"
         >
           <IdentityActionFields summary={summary} />
           <Input
             name="label"
             defaultValue={labelDefaultValue}
             placeholder={summary.account || m.admin_dashboard_identity_label()}
-            className="h-8 min-w-0"
+            className="h-8 min-w-0 flex-1"
           />
           <ActionIconButton
             type="submit"
@@ -398,10 +398,7 @@ function IdentityRowActions(props: { summary: IdentitySummary }) {
             icon={<SquarePenIcon />}
           />
         </form>
-
-        <div className="flex flex-wrap gap-2">
-          <IdentityDeleteAction summary={summary} />
-        </div>
+        <IdentityDeleteAction summary={summary} />
       </div>
     </TooltipProvider>
   )
