@@ -410,6 +410,7 @@ export class AppVerificationProviderClient {
     email: string
     label?: string
     credentialCount?: number
+    reservationId?: string
   }): Promise<AppManagedIdentitySyncResponse> {
     return this.getJson<AppManagedIdentitySyncResponse>(
       this.buildUrl('/api/managed-identities'),
@@ -423,6 +424,7 @@ export class AppVerificationProviderClient {
           email: input.email,
           label: input.label,
           credentialCount: input.credentialCount,
+          reservationId: input.reservationId,
         }),
       },
       [VERIFICATION_RESERVE_SCOPE],

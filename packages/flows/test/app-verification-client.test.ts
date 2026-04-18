@@ -397,6 +397,7 @@ describe('AppVerificationProviderClient', () => {
         identityId: 'identity-123',
         email: 'user@example.com',
         credentialCount: 1,
+        reservationId: 'reservation-123',
       }),
     ).resolves.toEqual({
       ok: true,
@@ -413,6 +414,7 @@ describe('AppVerificationProviderClient', () => {
           email: 'user@example.com',
           label: undefined,
           credentialCount: 1,
+          reservationId: 'reservation-123',
         }),
       }),
     )

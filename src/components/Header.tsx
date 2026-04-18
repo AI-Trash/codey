@@ -9,10 +9,8 @@ import { Button } from './ui/button'
 
 export default function Header() {
   const primaryLinks = [
-    { href: '/#features', label: m.header_nav_features() },
-    { href: '/#example', label: m.header_nav_docs() },
     { href: '/device', label: m.header_nav_device() },
-    { href: '/#process', label: m.header_nav_process() },
+    { href: '/about', label: m.footer_link_about() },
   ] as const
 
   return (

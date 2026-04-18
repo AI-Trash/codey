@@ -9,7 +9,6 @@ import {
   LogOutIcon,
   MailIcon,
   MonitorSmartphoneIcon,
-  PlusCircleIcon,
   ShieldCheckIcon,
 } from 'lucide-react'
 
@@ -84,12 +83,6 @@ export type AdminShellUser = {
 function getOperationsSubNavigation() {
   return [
     {
-      label: m.admin_nav_overview(),
-      to: '/admin',
-      icon: LayoutDashboardIcon,
-      matches: (pathname: string) => pathname === '/admin',
-    },
-    {
       label: m.admin_nav_mail_inbox(),
       to: '/admin/emails',
       icon: MailIcon,
@@ -115,12 +108,6 @@ function getOauthAppsSubNavigation() {
         (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
     },
     {
-      label: m.admin_nav_register_app(),
-      to: '/admin/apps/new',
-      icon: PlusCircleIcon,
-      matches: (pathname: string) => pathname === '/admin/apps/new',
-    },
-    {
       label: m.admin_nav_domains(),
       to: '/admin/domains',
       icon: GlobeIcon,
@@ -136,7 +123,7 @@ function getAdminNavigation() {
   return [
     {
       label: m.admin_nav_operations(),
-      to: '/admin',
+      to: '/admin/emails',
       icon: LayoutDashboardIcon,
       matches: (pathname: string) =>
         pathname === '/admin' ||
@@ -179,7 +166,7 @@ export function AdminShell(props: {
                 size="lg"
                 tooltip={m.admin_shell_tooltip()}
               >
-                <Link to="/admin">
+                <Link to="/admin/emails">
                   <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                     <ShieldCheckIcon className="size-4" />
                   </div>
@@ -307,7 +294,7 @@ function AdminBreadcrumb(props: { pathname: string }) {
       <BreadcrumbList>
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
-            <Link to="/admin">{m.admin_breadcrumb_root()}</Link>
+            <Link to="/admin/emails">{m.admin_breadcrumb_root()}</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />

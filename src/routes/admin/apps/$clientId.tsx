@@ -117,7 +117,9 @@ function AdminAppsDetailPage() {
               <a href="/admin/domains">{m.admin_manage_domains()}</a>
             </Button>
             <Button asChild variant="outline">
-              <a href="/admin/apps/new">{m.admin_register_another_app()}</a>
+              <a href="/admin/apps?create=true">
+                {m.admin_register_another_app()}
+              </a>
             </Button>
           </>
         }

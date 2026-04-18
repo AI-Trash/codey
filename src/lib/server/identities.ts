@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "./db/client";
-import { managedIdentities } from "./db/schema";
+import { managedIdentities, verificationEmailReservations } from "./db/schema";
 import { createId } from "./security";
 import { m } from "#/paraglide/messages";
 
@@ -101,14 +101,53 @@ export async function upsertManagedIdentity(params: {
   return record;
 }
 
+export async function updateManagedIdentity(params: {
+  identityId: string;
+  label?: string | null;
+  status?: "ACTIVE" | "REVIEW" | "ARCHIVED";
+}) {
+  const existing = await getDb().query.managedIdentities.findFirst({
+    where: eq(managedIdentities.identityId, params.identityId),
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const label =
+    params.label === undefined ? existing.label : params.label?.trim() || null;
+  const status = params.status ?? existing.status;
+  const [record] = await getDb()
+    .update(managedIdentities)
+    .set({
+      label,
+      status,
+      updatedAt: new Date(),
+    })
+    .where(eq(managedIdentities.identityId, params.identityId))
+    .returning();
+
+  return record ?? existing;
+}
+
+export async function deleteManagedIdentity(identityId: string) {
+  const [record] = await getDb()
+    .delete(managedIdentities)
+    .where(eq(managedIdentities.identityId, identityId))
+    .returning();
+
+  return record ?? null;
+}
+
 export async function syncManagedIdentity(params: {
   identityId: string;
   email: string;
   credentialCount?: number;
   label?: string;
+  reservationId?: string;
 }) {
   const identityId = params.identityId.trim();
   const email = params.email.trim().toLowerCase();
+  const reservationId = params.reservationId?.trim() || null;
   const credentialCount =
     Number.isFinite(params.credentialCount) && Number(params.credentialCount) > 0
       ? Math.floor(Number(params.credentialCount))
@@ -118,6 +157,20 @@ export async function syncManagedIdentity(params: {
   const existing = await getDb().query.managedIdentities.findFirst({
     where: eq(managedIdentities.identityId, identityId),
   });
+
+  const attachReservation = async () => {
+    if (!reservationId) {
+      return;
+    }
+
+    await getDb()
+      .update(verificationEmailReservations)
+      .set({
+        identityId,
+        updatedAt: seenAt,
+      })
+      .where(eq(verificationEmailReservations.id, reservationId));
+  };
 
   if (existing) {
     const [record] = await getDb()
@@ -132,6 +185,7 @@ export async function syncManagedIdentity(params: {
       .returning();
 
     if (record) {
+      await attachReservation();
       return record;
     }
   }
@@ -153,5 +207,6 @@ export async function syncManagedIdentity(params: {
     throw new Error("Unable to sync managed identity");
   }
 
+  await attachReservation();
   return created;
 }

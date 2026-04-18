@@ -67,7 +67,7 @@ function AdminDomainsPage() {
               <a href="/admin/apps">{m.admin_back_to_apps()}</a>
             </Button>
             <Button asChild>
-              <a href="/admin/apps/new">{m.admin_register_app()}</a>
+              <a href="/admin/apps?create=true">{m.admin_register_app()}</a>
             </Button>
           </>
         }

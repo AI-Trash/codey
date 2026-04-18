@@ -7,14 +7,12 @@ export default function Footer() {
   const year = new Date().getFullYear()
   const footerLinks = {
     [m.footer_group_product()]: [
-      { href: '/#features', label: m.footer_link_features() },
-      { href: '/#example', label: m.footer_link_docs() },
-      { href: '/#process', label: m.footer_link_process() },
+      { href: '/', label: 'Codey' },
+      { href: '/about', label: m.footer_link_about() },
     ],
     [m.footer_group_routes()]: [
       { href: '/device', label: m.footer_link_device_flow() },
       { href: '/admin', label: m.footer_link_admin_dashboard() },
-      { href: '/about', label: m.footer_link_about() },
     ],
   } as const
 

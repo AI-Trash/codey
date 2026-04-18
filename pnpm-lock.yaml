@@ -21,6 +21,9 @@ catalogs:
     '@microsoft/microsoft-graph-client':
       specifier: ^3.0.7
       version: 3.0.7
+    '@paper-design/shaders-react':
+      specifier: ^0.0.76
+      version: 0.0.76
     '@tailwindcss/typography':
       specifier: ^0.5.16
       version: 0.5.19
@@ -212,6 +215,9 @@ importers:
       '@hookform/resolvers':
         specifier: 'catalog:'
         version: 5.2.2(react-hook-form@7.72.1(react@19.2.5))
+      '@paper-design/shaders-react':
+        specifier: 'catalog:'
+        version: 0.0.76(@types/react@19.2.14)(react@19.2.5)
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.2.2(vite@8.0.8(@types/node@22.19.17)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0))
@@ -1796,6 +1802,18 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [win32]
+
+  '@paper-design/shaders-react@0.0.76':
+    resolution: {integrity: sha512-uPJWrYRf6cJdO2H+fuXlahaqz0QjYglNAyUTaRfIInpzCa/d6guxBIK003soAZQFuQ035yg9FhtfFzKNWm+a5A==}
+    peerDependencies:
+      '@types/react': ^18 || ^19
+      react: ^18 || ^19
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
+  '@paper-design/shaders@0.0.76':
+    resolution: {integrity: sha512-AcNDY4J66YQHUfQYFInkCP7M9VOje0od7wLpOR7LtCmc532opJy6ll+h1W9zBovz8tt9U7OADUmJ/qKEXyOX/A==}
 
   '@poppinss/colors@4.1.6':
     resolution: {integrity: sha512-H9xkIdFswbS8n1d6vmRd8+c10t2Qe+rZITbbDHHkQixH5+2x1FDGmi/0K+WgWiqQFKPSlIYB7jlH6Kpfn6Fleg==}
@@ -6429,6 +6447,15 @@ snapshots:
 
   '@oxlint/binding-win32-x64-msvc@1.59.0':
     optional: true
+
+  '@paper-design/shaders-react@0.0.76(@types/react@19.2.14)(react@19.2.5)':
+    dependencies:
+      '@paper-design/shaders': 0.0.76
+      react: 19.2.5
+    optionalDependencies:
+      '@types/react': 19.2.14
+
+  '@paper-design/shaders@0.0.76': {}
 
   '@poppinss/colors@4.1.6':
     dependencies:

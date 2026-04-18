@@ -105,6 +105,9 @@ export const verificationEmailReservations = pgTable(
     email: text("email").notNull(),
     prefix: text("prefix"),
     mailbox: text("mailbox"),
+    identityId: text("identity_id").references(() => managedIdentities.identityId, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", {
       withTimezone: true,
       mode: "date",

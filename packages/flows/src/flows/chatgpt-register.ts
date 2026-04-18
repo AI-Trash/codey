@@ -1351,7 +1351,7 @@ export async function registerChatGPT(
     options.progressReporter,
   )
   const verificationProvider = createVerificationProvider(config)
-  const { email, prefix, mailbox } =
+  const { email, prefix, mailbox, reservationId } =
     await verificationProvider.prepareEmailTarget()
   const password = options.password || buildPassword()
   const createPasskey = parseBooleanFlag(options.createPasskey, false) ?? false
@@ -1835,6 +1835,7 @@ export async function registerChatGPT(
         identityId: storedIdentity.id,
         email: storedIdentity.email,
         credentialCount: storedIdentity.credentialCount,
+        reservationId,
       })
       if (syncedIdentity) {
         options.progressReporter?.({

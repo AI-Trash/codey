@@ -93,6 +93,10 @@ export type AdminMailInboxEmail = {
   reservationEmail: string | null
   reservationMailbox: string | null
   reservationExpiresAt: string | null
+  managedIdentityId: string | null
+  managedIdentityLabel: string | null
+  managedIdentityAccount: string | null
+  managedIdentityStatus: string | null
   latestCode: string | null
   latestCodeSource: string | null
   latestCodeReceivedAt: string | null
@@ -496,16 +500,24 @@ export function AdminMailInbox(props: {
                           />
                         </TableCell>
                         <TableCell className="align-top text-right">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              openEmailDetails(email.id)
-                            }}
-                          >
-                            {m.mail_inbox_open_button()}
-                          </Button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <ArchiveManagedIdentityButton
+                              identityId={email.managedIdentityId}
+                              identityStatus={email.managedIdentityStatus}
+                              onUpdated={invalidateInboxQueries}
+                              compact
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                openEmailDetails(email.id)
+                              }}
+                            >
+                              {m.mail_inbox_open_button()}
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -572,6 +584,7 @@ export function AdminMailInbox(props: {
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         onCodeUpdated={invalidateInboxQueries}
+        onIdentityUpdated={invalidateInboxQueries}
       />
     </div>
   )
@@ -607,6 +620,7 @@ function MessageDetailsDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCodeUpdated?: () => Promise<void> | void
+  onIdentityUpdated?: () => Promise<void> | void
 }) {
   const email = props.email
   const isOpen = props.open && Boolean(email)
@@ -718,6 +732,67 @@ function MessageDetailsDialog(props: {
                   <div className="space-y-3 rounded-lg border bg-background p-4">
                     <div className="space-y-1">
                       <div className="text-sm font-medium text-foreground">
+                        {m.mail_detail_label_identity()}
+                      </div>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {email.managedIdentityId
+                          ? email.managedIdentityAccount ||
+                            email.managedIdentityId
+                          : m.mail_detail_not_linked()}
+                      </p>
+                    </div>
+
+                    {email.managedIdentityId ? (
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <div className="font-medium text-foreground">
+                            {email.managedIdentityLabel ||
+                              email.managedIdentityAccount ||
+                              email.managedIdentityId}
+                          </div>
+                          {email.managedIdentityAccount &&
+                          email.managedIdentityLabel !==
+                            email.managedIdentityAccount ? (
+                            <CopyableValue
+                              value={email.managedIdentityAccount}
+                              title={m.clipboard_copy_value({
+                                label:
+                                  m.admin_dashboard_account_email_label(),
+                              })}
+                              className="max-w-full text-sm text-muted-foreground"
+                              contentClassName="break-all"
+                            />
+                          ) : null}
+                          <CopyableValue
+                            value={email.managedIdentityId}
+                            code
+                            title={m.clipboard_copy_value({
+                              label: m.admin_dashboard_identity_id_label(),
+                            })}
+                            className="max-w-full text-sm text-muted-foreground"
+                            contentClassName="break-all"
+                          />
+                          {email.managedIdentityStatus ? (
+                            <StatusBadge value={email.managedIdentityStatus} />
+                          ) : null}
+                        </div>
+
+                        <ArchiveManagedIdentityButton
+                          identityId={email.managedIdentityId}
+                          identityStatus={email.managedIdentityStatus}
+                          onUpdated={props.onIdentityUpdated}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        {m.mail_detail_not_linked()}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-3 rounded-lg border bg-background p-4">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-foreground">
                         {m.mail_manual_code_section_title()}
                       </div>
                       <p className="text-xs leading-5 text-muted-foreground">
@@ -784,6 +859,95 @@ function MessageDetailsDialog(props: {
         </DialogContent>
       ) : null}
     </Dialog>
+  )
+}
+
+type ArchiveManagedIdentityButtonProps = {
+  identityId?: string | null
+  identityStatus?: string | null
+  onUpdated?: () => Promise<void> | void
+  compact?: boolean
+}
+
+function ArchiveManagedIdentityButton(props: ArchiveManagedIdentityButtonProps) {
+  const [status, setStatus] = useState<
+    'idle' | 'submitting' | 'success' | 'error'
+  >('idle')
+  const [message, setMessage] = useState<string | null>(null)
+  const isArchived = props.identityStatus === 'archived'
+
+  useEffect(() => {
+    setStatus('idle')
+    setMessage(null)
+  }, [props.identityId, props.identityStatus])
+
+  if (!props.identityId) {
+    return null
+  }
+
+  async function archiveIdentity() {
+    if (!props.identityId || isArchived || status === 'submitting') {
+      return
+    }
+
+    setStatus('submitting')
+    setMessage(null)
+
+    try {
+      await submitAdminIdentityAction({
+        identityId: props.identityId,
+        intent: 'archive',
+      })
+      await props.onUpdated?.()
+      setStatus('success')
+      setMessage(m.mail_identity_archive_success())
+    } catch (error) {
+      setStatus('error')
+      setMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : m.mail_identity_archive_error(),
+      )
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        'space-y-2',
+        props.compact ? 'max-w-fit text-left' : 'w-full max-w-[280px]',
+      )}
+    >
+      <Button
+        type="button"
+        size="sm"
+        variant={isArchived ? 'secondary' : 'outline'}
+        disabled={isArchived || status === 'submitting'}
+        onClick={() => {
+          void archiveIdentity()
+        }}
+      >
+        {status === 'submitting' ? (
+          <LoaderCircleIcon className="animate-spin" />
+        ) : null}
+        {isArchived
+          ? m.mail_identity_archive_done()
+          : m.mail_identity_archive_button()}
+      </Button>
+
+      {message && (!props.compact || status === 'error') ? (
+        <p
+          className={cn(
+            'text-xs',
+            status === 'error'
+              ? 'text-destructive'
+              : 'text-emerald-600',
+          )}
+        >
+          {message}
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -1147,6 +1311,29 @@ async function submitAdminVerificationCode(params: {
   form.set('code', params.code)
 
   const response = await fetch('/api/admin/verification-codes', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+    },
+    body: form,
+  })
+
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+
+  return (await response.json()) as { ok: true; id: string }
+}
+
+async function submitAdminIdentityAction(params: {
+  identityId: string
+  intent: 'archive'
+}) {
+  const form = new FormData()
+  form.set('identityId', params.identityId)
+  form.set('intent', params.intent)
+
+  const response = await fetch('/api/admin/identities', {
     method: 'POST',
     headers: {
       accept: 'application/json',
