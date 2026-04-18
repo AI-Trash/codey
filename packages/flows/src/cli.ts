@@ -22,6 +22,7 @@ import {
   applyFlowOptionDefaults,
   createConsoleFlowProgressReporter,
   execute,
+  keepBrowserOpenForHarWhenUnspecified,
   parseBooleanFlag,
   parseNumberFlag,
   prepareRuntimeConfig,
@@ -446,6 +447,18 @@ withCommonOptions(
       '--record <bool>',
       'Whether to keep the browser session open after the flow completes',
     )
+    .option(
+      '--identityId <id>',
+      'Stored identity id to use if the OpenAI login flow needs credentials',
+    )
+    .option(
+      '--email <email>',
+      'Stored identity email to use if the OpenAI login flow needs credentials',
+    )
+    .option(
+      '--workspaceIndex <index>',
+      '1-based workspace position to select on the Codex consent page (defaults to 1)',
+    )
     .option('--redirectPort <port>', 'Override OAuth callback redirect port')
     .option(
       '--authorizeUrlOnly <bool>',
@@ -465,11 +478,15 @@ withCommonOptions(
     )
     .example('codey flow codex-oauth --redirectPort 3005')
     .example('codey flow codex-oauth --authorizeUrlOnly true')
+    .example('codey flow codex-oauth --email someone@example.com')
+    .example('codey flow codex-oauth --workspaceIndex 2')
     .example('codey flow codex-oauth --projectId gid://axonhub/project/123'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const resolvedOptions = applyFlowOptionDefaults(options)
+      const resolvedOptions = keepBrowserOpenForHarWhenUnspecified(
+        applyFlowOptionDefaults(options),
+      )
       prepareRuntimeConfig('flow:codex-oauth', resolvedOptions)
       await runFlowCommand('codex-oauth', resolvedOptions)
     })(),

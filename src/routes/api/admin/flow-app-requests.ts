@@ -38,7 +38,7 @@ export const Route = createFileRoute("/api/admin/flow-app-requests")({
           return json({ ok: true, id: record.id }, 201);
         }
 
-        return redirect("/admin#requests");
+        return redirect("/admin/apps");
       },
     },
   },

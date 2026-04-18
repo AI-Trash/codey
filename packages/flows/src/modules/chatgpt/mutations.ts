@@ -20,6 +20,7 @@ import {
   AGE_GATE_BIRTH_MONTH_SELECTORS,
   AGE_GATE_BIRTH_YEAR_SELECTORS,
   AGE_GATE_NAME_SELECTORS,
+  CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
   CHATGPT_SECURITY_URL,
@@ -44,8 +45,10 @@ import { toLocator } from '../../utils/selectors'
 import {
   type ChatGPTPostEmailLoginStep,
   hasPasswordTimeoutErrorState,
+  isCodexWorkspacePickerReady,
   isLocatorEnabled,
   waitForAnySelectorState,
+  waitForEnabledSelector,
   waitForEditableSelector,
   waitForLoginEmailFormReady,
   waitForLoginEmailSubmissionOutcome,
@@ -60,6 +63,11 @@ const AUTH_INPUT_TYPING_OPTIONS = {
   settleMs: 500,
   strategy: 'sequential',
 } as const
+
+interface CodexWorkspaceSelectionResult {
+  availableWorkspaces: number
+  selectedWorkspaceIndex: number
+}
 
 export async function clickSignupEntry(page: Page): Promise<void> {
   await clickAny(page, SIGNUP_ENTRY_SELECTORS)
@@ -782,6 +790,124 @@ export async function completePasswordOrVerificationLoginFallback(
   }
 
   throw new Error('Password submission timed out repeatedly.')
+}
+
+export async function continueCodexWorkspaceSelection(
+  page: Page,
+  workspaceIndex = 1,
+): Promise<CodexWorkspaceSelectionResult> {
+  if (!Number.isInteger(workspaceIndex) || workspaceIndex < 1) {
+    throw new Error(
+      'Codex workspace selection requires a positive 1-based workspace index.',
+    )
+  }
+
+  if (!(await isCodexWorkspacePickerReady(page))) {
+    throw new Error('Codex workspace picker was not ready.')
+  }
+
+  const selected = await page.evaluate(
+    ({ requestedIndex }) => {
+      const radioInputs = Array.from(
+        document.querySelectorAll('input[type="radio"][name="workspace_id"]'),
+      ) as HTMLInputElement[]
+
+      if (radioInputs.length > 0) {
+        if (requestedIndex > radioInputs.length) {
+          return {
+            availableWorkspaces: radioInputs.length,
+            selectedWorkspaceIndex: 0,
+            status: 'out_of_range' as const,
+          }
+        }
+
+        const radio = radioInputs[requestedIndex - 1]
+        radio.checked = true
+        radio.dispatchEvent(new Event('input', { bubbles: true }))
+        radio.dispatchEvent(new Event('change', { bubbles: true }))
+        radio.click()
+
+        return {
+          availableWorkspaces: radioInputs.length,
+          selectedWorkspaceIndex: requestedIndex,
+          status: 'selected' as const,
+        }
+      }
+
+      const select = document.querySelector(
+        'select[name="workspace_id"]',
+      ) as HTMLSelectElement | null
+      if (select) {
+        const availableWorkspaces = select.options.length
+        if (requestedIndex > availableWorkspaces) {
+          return {
+            availableWorkspaces,
+            selectedWorkspaceIndex: 0,
+            status: 'out_of_range' as const,
+          }
+        }
+
+        select.value = select.options[requestedIndex - 1]?.value || ''
+        select.dispatchEvent(new Event('input', { bubbles: true }))
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+
+        return {
+          availableWorkspaces,
+          selectedWorkspaceIndex: requestedIndex,
+          status: 'selected' as const,
+        }
+      }
+
+      const hiddenInput = document.querySelector(
+        'input[name="workspace_id"]',
+      ) as HTMLInputElement | null
+      if (hiddenInput?.value) {
+        return {
+          availableWorkspaces: 1,
+          selectedWorkspaceIndex: requestedIndex === 1 ? 1 : 0,
+          status:
+            requestedIndex === 1
+              ? ('selected' as const)
+              : ('out_of_range' as const),
+        }
+      }
+
+      return {
+        availableWorkspaces: 0,
+        selectedWorkspaceIndex: 0,
+        status: 'missing' as const,
+      }
+    },
+    { requestedIndex: workspaceIndex },
+  )
+
+  if (selected.status === 'missing') {
+    throw new Error(
+      'Codex workspace picker did not expose a workspace_id input.',
+    )
+  }
+
+  if (selected.status === 'out_of_range') {
+    throw new Error(
+      `Requested workspace #${workspaceIndex}, but only ${selected.availableWorkspaces} workspaces were available.`,
+    )
+  }
+
+  const submitReady = await waitForEnabledSelector(
+    page,
+    CODEX_WORKSPACE_SUBMIT_SELECTORS,
+    5000,
+  )
+  if (!submitReady) {
+    throw new Error('Codex workspace submit button did not become enabled.')
+  }
+
+  await clickAny(page, CODEX_WORKSPACE_SUBMIT_SELECTORS)
+
+  return {
+    availableWorkspaces: selected.availableWorkspaces,
+    selectedWorkspaceIndex: selected.selectedWorkspaceIndex,
+  }
 }
 
 async function clearOriginStorage(

@@ -5,6 +5,7 @@ import {
   AdminAuthRequired,
   EditOAuthClientPageContent,
   type ManagedOAuthClient,
+  type ManagedVerificationDomainOption,
 } from '../../../components/admin/oauth-clients'
 import { Button } from '../../../components/ui/button'
 import {
@@ -25,12 +26,14 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
       { getOAuthClientSummaryById },
       { getAppEnv },
       { DEFAULT_OAUTH_SUPPORTED_SCOPES },
+      { listEnabledVerificationDomains },
     ] = await Promise.all([
       import('@tanstack/react-start/server'),
       import('../../../lib/server/auth'),
       import('../../../lib/server/oauth-clients'),
       import('../../../lib/server/env'),
       import('../../../lib/server/oauth-scopes'),
+      import('../../../lib/server/verification-domains'),
     ])
     const request = getRequest()
 
@@ -46,6 +49,7 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
         authorized: true as const,
         client: null,
         supportedScopes: [] as string[],
+        verificationDomains: [] as ManagedVerificationDomainOption[],
       }
     }
 
@@ -57,6 +61,8 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
       supportedScopes: env.oauthSupportedScopes.length
         ? env.oauthSupportedScopes
         : DEFAULT_OAUTH_SUPPORTED_SCOPES,
+      verificationDomains:
+        (await listEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
     }
   })
 
@@ -108,7 +114,12 @@ function AdminAppsDetailPage() {
               <a href="/admin/apps">{m.admin_back_to_apps()}</a>
             </Button>
             <Button asChild variant="outline">
-              <a href="/admin/apps/new">{m.admin_register_another_app()}</a>
+              <a href="/admin/domains">{m.admin_manage_domains()}</a>
+            </Button>
+            <Button asChild variant="outline">
+              <a href="/admin/apps?create=true">
+                {m.admin_register_another_app()}
+              </a>
             </Button>
           </>
         }
@@ -116,6 +127,7 @@ function AdminAppsDetailPage() {
       <EditOAuthClientPageContent
         initialClient={data.client}
         supportedScopes={data.supportedScopes}
+        verificationDomains={data.verificationDomains}
       />
     </>
   )

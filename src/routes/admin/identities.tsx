@@ -1,8 +1,22 @@
-import { useMemo } from 'react'
+import {
+  type ComponentProps,
+  type ReactNode,
+  useMemo,
+  useState,
+} from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
-import { CalendarIcon, HashIcon, SearchIcon, ShieldIcon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  CalendarIcon,
+  CheckIcon,
+  HashIcon,
+  SearchIcon,
+  ShieldIcon,
+  SquarePenIcon,
+  Trash2Icon,
+} from 'lucide-react'
 
 import {
   AdminMetricCard,
@@ -14,6 +28,15 @@ import {
 import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '#/components/ui/alert-dialog'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -22,9 +45,9 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { CopyableValue } from '#/components/ui/copyable-value'
 import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
-import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import {
   Table,
   TableBody,
@@ -33,6 +56,12 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '#/components/ui/tooltip'
 import { translateStatusLabel } from '#/lib/i18n'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
@@ -231,11 +260,30 @@ function AdminIdentitiesPage() {
                           <div className="font-medium text-foreground">
                             {summary.label}
                           </div>
-                          <code>{summary.id}</code>
+                          <CopyableValue
+                            value={summary.id}
+                            code
+                            title={m.clipboard_copy_value({
+                              label: m.admin_dashboard_identity_id_label(),
+                            })}
+                            className="max-w-full text-sm text-muted-foreground"
+                            contentClassName="break-all"
+                          />
                         </div>
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
-                        {summary.account || m.admin_dashboard_not_linked_yet()}
+                        {summary.account ? (
+                          <CopyableValue
+                            value={summary.account}
+                            title={m.clipboard_copy_value({
+                              label: m.admin_dashboard_account_email_label(),
+                            })}
+                            className="max-w-full"
+                            contentClassName="break-all"
+                          />
+                        ) : (
+                          m.admin_dashboard_not_linked_yet()
+                        )}
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
                         {summary.provider || m.admin_dashboard_saved_identity()}
@@ -255,52 +303,7 @@ function AdminIdentitiesPage() {
                         <StatusBadge value={summary.status || 'unknown'} />
                       </TableCell>
                       <TableCell className="align-top">
-                        <form
-                          method="post"
-                          action="/api/admin/identities"
-                          className="grid min-w-[320px] gap-2 md:grid-cols-[minmax(0,1fr)_160px_auto]"
-                        >
-                          <input type="hidden" name="identityId" value={summary.id} />
-                          <input
-                            type="hidden"
-                            name="email"
-                            value={summary.account || summary.label}
-                          />
-                          <input
-                            type="hidden"
-                            name="redirectTo"
-                            value="/admin/identities"
-                          />
-                          <Input
-                            name="label"
-                            defaultValue={
-                              summary.label !== summary.account ? summary.label : ''
-                            }
-                            placeholder={
-                              summary.account || m.admin_dashboard_identity_label()
-                            }
-                            className="h-8"
-                          />
-                          <NativeSelect
-                            name="status"
-                            defaultValue={toManagedStatus(summary.status)}
-                            size="sm"
-                            className="w-full min-w-[140px]"
-                          >
-                            <NativeSelectOption value="ACTIVE">
-                              {m.status_active()}
-                            </NativeSelectOption>
-                            <NativeSelectOption value="REVIEW">
-                              {m.status_review()}
-                            </NativeSelectOption>
-                            <NativeSelectOption value="ARCHIVED">
-                              {m.status_archived()}
-                            </NativeSelectOption>
-                          </NativeSelect>
-                          <Button type="submit" size="sm" variant="outline">
-                            {m.oauth_edit_save_settings()}
-                          </Button>
-                        </form>
+                        <IdentityRowActions summary={summary} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -314,17 +317,181 @@ function AdminIdentitiesPage() {
   )
 }
 
-function toManagedStatus(status?: string | null) {
-  const normalized = status?.toLowerCase()
-  if (normalized === 'archived') {
-    return 'ARCHIVED'
-  }
+function IdentityRowActions(props: { summary: IdentitySummary }) {
+  const { summary } = props
+  const labelDefaultValue =
+    summary.label !== summary.account ? summary.label : ''
 
-  if (normalized === 'review' || normalized === 'pending') {
-    return 'REVIEW'
-  }
+  return (
+    <TooltipProvider>
+      <div className="grid min-w-[260px] gap-3">
+        <form
+          method="post"
+          action="/api/admin/identities"
+          className="flex items-start gap-2"
+        >
+          <IdentityActionFields summary={summary} />
+          <Input
+            name="label"
+            defaultValue={labelDefaultValue}
+            placeholder={summary.account || m.admin_dashboard_identity_label()}
+            className="h-8 min-w-0"
+          />
+          <ActionIconButton
+            type="submit"
+            name="intent"
+            value="save-label"
+            label={m.admin_identity_update_label_button()}
+            icon={<SquarePenIcon />}
+          />
+        </form>
 
-  return 'ACTIVE'
+        <div className="flex flex-wrap gap-2">
+          <IdentityStatusActionButton
+            summary={summary}
+            intent="activate"
+            active={summary.status === 'active'}
+            label={m.status_active()}
+            icon={<CheckIcon />}
+          />
+          <IdentityStatusActionButton
+            summary={summary}
+            intent="review"
+            active={summary.status === 'review'}
+            label={m.status_review()}
+            icon={<SearchIcon />}
+          />
+          <IdentityStatusActionButton
+            summary={summary}
+            intent="archive"
+            active={summary.status === 'archived'}
+            label={m.status_archived()}
+            icon={<ArchiveIcon />}
+          />
+          <IdentityDeleteAction summary={summary} />
+        </div>
+      </div>
+    </TooltipProvider>
+  )
+}
+
+function IdentityActionFields(props: { summary: IdentitySummary }) {
+  return (
+    <>
+      <input type="hidden" name="identityId" value={props.summary.id} />
+      <input
+        type="hidden"
+        name="email"
+        value={props.summary.account || props.summary.label}
+      />
+      <input type="hidden" name="redirectTo" value="/admin/identities" />
+    </>
+  )
+}
+
+function IdentityStatusActionButton(props: {
+  summary: IdentitySummary
+  intent: 'activate' | 'review' | 'archive'
+  active: boolean
+  label: string
+  icon: ReactNode
+}) {
+  return (
+    <form method="post" action="/api/admin/identities">
+      <IdentityActionFields summary={props.summary} />
+      <ActionIconButton
+        type="submit"
+        name="intent"
+        value={props.intent}
+        variant={props.active ? 'default' : 'outline'}
+        label={props.label}
+        icon={props.icon}
+      />
+    </form>
+  )
+}
+
+function IdentityDeleteAction(props: { summary: IdentitySummary }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="destructive"
+            aria-label={m.admin_identity_delete_button()}
+            title={m.admin_identity_delete_button()}
+            onClick={() => {
+              setOpen(true)
+            }}
+          >
+            <Trash2Icon />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent sideOffset={6}>
+          {m.admin_identity_delete_button()}
+        </TooltipContent>
+      </Tooltip>
+
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {m.admin_identity_delete_confirm_title()}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {m.admin_identity_delete_confirm_description()}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel>{m.ui_close()}</AlertDialogCancel>
+          <form method="post" action="/api/admin/identities">
+            <IdentityActionFields summary={props.summary} />
+            <Button
+              type="submit"
+              name="intent"
+              value="delete"
+              size="sm"
+              variant="destructive"
+            >
+              {m.admin_identity_delete_button()}
+            </Button>
+          </form>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function ActionIconButton(props: {
+  type?: 'button' | 'submit' | 'reset'
+  name?: string
+  value?: string
+  variant?: ComponentProps<typeof Button>['variant']
+  label: string
+  icon: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type={props.type || 'button'}
+          name={props.name}
+          value={props.value}
+          size="icon-sm"
+          variant={props.variant || 'outline'}
+          aria-label={props.label}
+          title={props.label}
+        >
+          {props.icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent sideOffset={6}>{props.label}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 function normalizeDate(value?: string | Date | null) {

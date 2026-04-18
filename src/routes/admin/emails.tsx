@@ -7,7 +7,6 @@ import {
   type AdminMailInboxPageData,
 } from '#/components/admin/mail-inbox'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
-import { Button } from '#/components/ui/button'
 import { m } from '#/paraglide/messages'
 
 const loadAdminMailInbox = createServerFn({ method: 'GET' }).handler(
@@ -69,11 +68,6 @@ function AdminMailInboxPage() {
         title={m.admin_mail_page_title()}
         description={m.admin_mail_page_description()}
         variant="plain"
-        actions={
-          <Button asChild variant="outline">
-            <a href="/admin">{m.admin_back_to_operations()}</a>
-          </Button>
-        }
       />
 
       <AdminMailInbox

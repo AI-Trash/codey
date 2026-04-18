@@ -105,6 +105,9 @@ export const verificationEmailReservations = pgTable(
     email: text("email").notNull(),
     prefix: text("prefix"),
     mailbox: text("mailbox"),
+    identityId: text("identity_id").references(() => managedIdentities.identityId, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", {
       withTimezone: true,
       mode: "date",
@@ -338,6 +341,37 @@ export const managedIdentities = pgTable(
   ],
 );
 
+export const verificationDomains = pgTable(
+  "verification_domains",
+  {
+    id: text("id").primaryKey(),
+    domain: text("domain").notNull(),
+    description: text("description"),
+    enabled: boolean("enabled").default(true).notNull(),
+    isDefault: boolean("is_default").default(false).notNull(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("verification_domains_domain_unique").on(table.domain),
+    index("verification_domains_default_idx").on(table.isDefault),
+    index("verification_domains_enabled_domain_idx").on(
+      table.enabled,
+      table.domain,
+    ),
+  ],
+);
+
 export const oauthClients = pgTable(
   "oauth_clients",
   {
@@ -360,6 +394,12 @@ export const oauthClients = pgTable(
     clientSecretCiphertext: text("client_secret_ciphertext").notNull(),
     clientSecretPreview: text("client_secret_preview").notNull(),
     allowedScopes: text("allowed_scopes").default("").notNull(),
+    verificationDomainId: text("verification_domain_id").references(
+      () => verificationDomains.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     createdByUserId: text("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -538,6 +578,20 @@ export const deviceChallengesRelations = relations(
   }),
 );
 
+export const verificationDomainsRelations = relations(
+  verificationDomains,
+  ({ many }) => ({
+    oauthClients: many(oauthClients),
+  }),
+);
+
+export const oauthClientsRelations = relations(oauthClients, ({ one }) => ({
+  verificationDomain: one(verificationDomains, {
+    fields: [oauthClients.verificationDomainId],
+    references: [verificationDomains.id],
+  }),
+}));
+
 export type UserRole = (typeof userRoleEnum.enumValues)[number];
 export type SessionKind = (typeof sessionKindEnum.enumValues)[number];
 export type DeviceChallengeStatus =
@@ -561,6 +615,7 @@ export type DeviceChallengeRow = typeof deviceChallenges.$inferSelect;
 export type AdminNotificationRow = typeof adminNotifications.$inferSelect;
 export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect;
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect;
+export type VerificationDomainRow = typeof verificationDomains.$inferSelect;
 export type OAuthClientRow = typeof oauthClients.$inferSelect;
 export type OidcArtifactRow = typeof oidcArtifacts.$inferSelect;
 export type OidcSigningKeyRow = typeof oidcSigningKeys.$inferSelect;

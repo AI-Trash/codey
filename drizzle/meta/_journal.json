@@ -29,6 +29,20 @@
       "when": 1776361695116,
       "tag": "0003_peaceful_gladiator",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776477296350,
+      "tag": "0004_futuristic_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776484146367,
+      "tag": "0005_parched_mephistopheles",
+      "breakpoints": true
     }
   ]
 }

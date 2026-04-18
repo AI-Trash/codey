@@ -4,6 +4,7 @@ export interface VerificationEmailTarget {
   email: string
   prefix?: string
   mailbox?: string
+  reservationId?: string
 }
 
 export interface WaitForVerificationCodeOptions {

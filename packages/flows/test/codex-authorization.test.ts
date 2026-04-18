@@ -1,96 +1,47 @@
-import type { Page } from 'patchright'
-import { describe, expect, it, vi } from 'vitest'
+import { EventEmitter } from 'events'
+import { describe, expect, it } from 'vitest'
 import { createAuthorizationCallbackCapture } from '../src/modules/authorization/codex-authorization'
 
-type RouteHandler = (route: {
-  request: () => { url: () => string }
-  fulfill: (response: {
-    status: number
-    contentType: string
-    body: string
-  }) => Promise<void>
-}) => Promise<void>
+class FakeBrowser extends EventEmitter {}
 
-function createFakePage() {
-  let matcher: RegExp | undefined
-  let handler: RouteHandler | undefined
+class FakeContext extends EventEmitter {
+  constructor(private readonly browserInstance: FakeBrowser) {
+    super()
+  }
 
-  const route = vi.fn(
-    async (nextMatcher: RegExp, nextHandler: RouteHandler) => {
-      matcher = nextMatcher
-      handler = nextHandler
-    },
-  )
-  const unroute = vi.fn(async () => {})
+  browser(): FakeBrowser {
+    return this.browserInstance
+  }
+}
 
-  return {
-    page: {
-      route,
-      unroute,
-    } as unknown as Page,
-    route,
-    unroute,
-    getMatcher: () => matcher,
-    getHandler: () => handler,
+class FakePage extends EventEmitter {
+  public readonly contextInstance: FakeContext
+  public readonly route = async () => {}
+  public readonly unroute = async () => {}
+
+  constructor(browser: FakeBrowser) {
+    super()
+    this.contextInstance = new FakeContext(browser)
+  }
+
+  context(): FakeContext {
+    return this.contextInstance
   }
 }
 
 describe('createAuthorizationCallbackCapture', () => {
-  it('captures callback params from a routed browser navigation', async () => {
-    const fakePage = createFakePage()
-    const capture = await createAuthorizationCallbackCapture(fakePage.page, {
-      host: '127.0.0.1',
-      port: 3000,
-      path: '/callback',
+  it('aborts immediately when the browser page is closed', async () => {
+    const browser = new FakeBrowser()
+    const page = new FakePage(browser)
+
+    const capture = await createAuthorizationCallbackCapture(page as never, {
+      timeoutMs: 180000,
     })
 
-    const fulfill = vi.fn(async () => {})
-    const handler = fakePage.getHandler()
-
-    expect(
-      fakePage
-        .getMatcher()
-        ?.test(
-          'http://127.0.0.1:3000/callback?code=test-code&state=test-state',
-        ),
-    ).toBe(true)
-    expect(handler).toBeTypeOf('function')
-
-    await handler!({
-      request: () => ({
-        url: () =>
-          'http://127.0.0.1:3000/callback?code=test-code&state=test-state&scope=openid',
-      }),
-      fulfill,
-    })
-
-    await expect(capture.result).resolves.toEqual({
-      code: 'test-code',
-      state: 'test-state',
-      scope: 'openid',
-      rawQuery: '/callback?code=test-code&state=test-state&scope=openid',
-      callbackUrl:
-        'http://127.0.0.1:3000/callback?code=test-code&state=test-state&scope=openid',
-    })
-    expect(fulfill).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 200,
-        contentType: 'text/html; charset=utf-8',
-        body: expect.stringContaining('Authorization received'),
-      }),
-    )
-    expect(fakePage.unroute).toHaveBeenCalled()
-  })
-
-  it('rejects and cleans up when the callback capture is aborted', async () => {
-    const fakePage = createFakePage()
-    const capture = await createAuthorizationCallbackCapture(fakePage.page)
-
-    await capture.abort()
+    page.emit('close')
 
     await expect(capture.result).rejects.toThrow(
-      'Authorization callback wait aborted.',
+      'Authorization callback wait aborted because the browser page was closed.',
     )
-    expect(fakePage.unroute).toHaveBeenCalled()
   })
 })

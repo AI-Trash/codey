@@ -87,8 +87,13 @@ export async function createAuthorizationCallbackCapture(
   let cleanedUp = false
   let timer: NodeJS.Timeout | undefined
   let abortListener: (() => void) | undefined
+  let pageCloseListener: (() => void) | undefined
+  let contextCloseListener: (() => void) | undefined
+  let browserDisconnectListener: (() => void) | undefined
   let resolveResult!: (payload: AuthorizationCallbackPayload) => void
   let rejectResult!: (error: Error) => void
+  const context = page.context()
+  const browser = context.browser()
 
   const result = new Promise<AuthorizationCallbackPayload>(
     (resolve, reject) => {
@@ -105,6 +110,15 @@ export async function createAuthorizationCallbackCapture(
     }
     if (signal && abortListener) {
       signal.removeEventListener('abort', abortListener)
+    }
+    if (pageCloseListener) {
+      page.off('close', pageCloseListener)
+    }
+    if (contextCloseListener) {
+      context.off('close', contextCloseListener)
+    }
+    if (browser && browserDisconnectListener) {
+      browser.off('disconnected', browserDisconnectListener)
     }
     await page.unroute(callbackUrlPattern, routeHandler).catch(() => undefined)
   }
@@ -142,6 +156,27 @@ export async function createAuthorizationCallbackCapture(
   abortListener = () => {
     void settleWithError(new Error('Authorization callback wait aborted.'))
   }
+  pageCloseListener = () => {
+    void settleWithError(
+      new Error(
+        'Authorization callback wait aborted because the browser page was closed.',
+      ),
+    )
+  }
+  contextCloseListener = () => {
+    void settleWithError(
+      new Error(
+        'Authorization callback wait aborted because the browser context was closed.',
+      ),
+    )
+  }
+  browserDisconnectListener = () => {
+    void settleWithError(
+      new Error(
+        'Authorization callback wait aborted because the browser disconnected.',
+      ),
+    )
+  }
 
   timer = setTimeout(() => {
     void settleWithError(
@@ -150,6 +185,10 @@ export async function createAuthorizationCallbackCapture(
       ),
     )
   }, timeoutMs)
+
+  page.on('close', pageCloseListener)
+  context.on('close', contextCloseListener)
+  browser?.on('disconnected', browserDisconnectListener)
 
   if (signal?.aborted) {
     await settleWithError(new Error('Authorization callback wait aborted.'))

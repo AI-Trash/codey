@@ -8,6 +8,7 @@ catalog:
   '@cloudflare/workers-types': '^4.20260415.1'
   '@hookform/resolvers': '^5.2.2'
   '@inlang/paraglide-js': '^2.13.1'
+  '@paper-design/shaders-react': '^0.0.76'
   '@types/oidc-provider': '^9.5.0'
   '@tailwindcss/typography': '^0.5.16'
   '@tailwindcss/vite': '^4.1.18'

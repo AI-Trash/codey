@@ -25,6 +25,7 @@ import {
 import { getAppEnv } from './env'
 import {
   emailIngestRecords,
+  managedIdentities,
   verificationCodes,
   verificationEmailReservations,
   type EmailIngestRecordRow,
@@ -34,6 +35,7 @@ import {
   publishAdminInboxEmailEvent,
 } from './admin-inbox-events'
 import { publishVerificationCodeEvent } from './verification-events'
+import { resolveReservationVerificationDomain } from './verification-domains'
 import { getDb } from './db/client'
 import { createId, randomCode } from './security'
 import { extractVerificationCodeFromText } from '../shared/verification-code'
@@ -62,6 +64,10 @@ export interface AdminInboxEmail {
   reservationEmail: string | null
   reservationMailbox: string | null
   reservationExpiresAt: string | null
+  managedIdentityId: string | null
+  managedIdentityLabel: string | null
+  managedIdentityAccount: string | null
+  managedIdentityStatus: string | null
   latestCode: string | null
   latestCodeSource: string | null
   latestCodeReceivedAt: string | null
@@ -102,6 +108,13 @@ type AdminInboxCodeSummary = {
   code: string
   source: string
   receivedAt: string
+}
+
+type AdminInboxManagedIdentitySummary = {
+  identityId: string
+  label: string | null
+  email: string
+  status: string
 }
 
 const DEFAULT_ADMIN_INBOX_PAGE_SIZE = 25
@@ -353,16 +366,54 @@ async function getLatestCodeByReservationId(
   return latestCodes
 }
 
+function mapManagedIdentityStatus(status?: string | null) {
+  if (status === 'ARCHIVED') {
+    return 'archived'
+  }
+
+  if (status === 'REVIEW') {
+    return 'review'
+  }
+
+  return 'active'
+}
+
+async function getManagedIdentitySummaryByIdentityId(
+  identityIds: string[],
+): Promise<Map<string, AdminInboxManagedIdentitySummary>> {
+  if (!identityIds.length) {
+    return new Map()
+  }
+
+  const rows = await getDb().query.managedIdentities.findMany({
+    where: inArray(managedIdentities.identityId, identityIds),
+  })
+
+  return new Map(
+    rows.map((row) => [
+      row.identityId,
+      {
+        identityId: row.identityId,
+        label: row.label,
+        email: row.email,
+        status: mapManagedIdentityStatus(row.status),
+      },
+    ]),
+  )
+}
+
 function serializeAdminInboxEmail(
   email: EmailIngestRecordRow & {
     reservation?: {
       id: string
       email: string
       mailbox: string | null
+      identityId: string | null
       expiresAt: Date
     } | null
   },
   latestCode?: AdminInboxCodeSummary,
+  managedIdentity?: AdminInboxManagedIdentitySummary,
 ): AdminInboxEmail {
   return {
     id: email.id,
@@ -382,35 +433,47 @@ function serializeAdminInboxEmail(
     reservationEmail: email.reservation?.email || null,
     reservationMailbox: email.reservation?.mailbox || null,
     reservationExpiresAt: email.reservation?.expiresAt.toISOString() || null,
+    managedIdentityId: managedIdentity?.identityId || null,
+    managedIdentityLabel: managedIdentity?.label || null,
+    managedIdentityAccount: managedIdentity?.email || null,
+    managedIdentityStatus: managedIdentity?.status || null,
     latestCode: latestCode?.code || null,
     latestCodeSource: latestCode?.source || null,
     latestCodeReceivedAt: latestCode?.receivedAt || null,
   }
 }
 
-function buildReservationEmail(id: string): {
+function getReservationAliasPrefix(): string {
+  const env = getAppEnv()
+  const configuredPrefix = env.verificationEmailPrefix?.trim()
+  if (configuredPrefix) {
+    return configuredPrefix
+  }
+
+  const mailbox = env.verificationMailbox?.trim()
+  if (mailbox) {
+    const atIndex = mailbox.lastIndexOf('@')
+    if (atIndex > 0) {
+      const localPart = mailbox.slice(0, atIndex).trim()
+      if (localPart) {
+        return localPart
+      }
+    }
+  }
+
+  return 'codey'
+}
+
+function buildReservationEmail(id: string, domain: string): {
   email: string
   prefix?: string
   mailbox?: string
 } {
-  const env = getAppEnv()
-  if (env.verificationMailbox) {
-    const [localPart, domain] = env.verificationMailbox.split('@')
-    if (!localPart || !domain) {
-      throw new Error(
-        `Invalid VERIFICATION_MAILBOX value: ${env.verificationMailbox}`,
-      )
-    }
-
-    return {
-      email: `${localPart}+${id}@${domain}`,
-      mailbox: env.verificationMailbox,
-    }
-  }
-
-  const domain = env.verificationDomain || 'example.invalid'
+  const prefix = getReservationAliasPrefix()
   return {
-    email: `${env.verificationEmailPrefix || 'codey'}+${id}@${domain}`,
+    email: `${prefix}+${id}@${domain}`,
+    prefix,
+    mailbox: `${prefix}@${domain}`,
   }
 }
 
@@ -539,13 +602,18 @@ function serializeVerificationCodeEvent(params: {
   }
 }
 
-export async function reserveVerificationEmailTarget() {
+export async function reserveVerificationEmailTarget(options?: {
+  clientId?: string | null
+}) {
   const env = getAppEnv()
   const expiresAt = new Date(
     Date.now() + env.verificationReservationTtlMinutes * 60 * 1000,
   )
   const tempId = randomCode(12)
-  const target = buildReservationEmail(tempId)
+  const verificationDomain = await resolveReservationVerificationDomain({
+    clientId: options?.clientId,
+  })
+  const target = buildReservationEmail(tempId, verificationDomain.domain)
 
   const [reservation] = await getDb()
     .insert(verificationEmailReservations)
@@ -782,6 +850,11 @@ export async function ingestCloudflareEmail(params: {
           reservation.id,
         )
       : undefined
+    const managedIdentity = reservation?.identityId
+      ? (
+          await getManagedIdentitySummaryByIdentityId([reservation.identityId])
+        ).get(reservation.identityId)
+      : undefined
 
     publishAdminInboxEmailEvent(
       serializeAdminInboxEmail(
@@ -790,6 +863,7 @@ export async function ingestCloudflareEmail(params: {
           reservation,
         },
         latestCode,
+        managedIdentity,
       ),
     )
   }
@@ -850,12 +924,24 @@ export async function listAdminInboxEmailsPage(options?: {
     ),
   )
   const latestCodes = await getLatestCodeByReservationId(reservationIds)
+  const identityIds = Array.from(
+    new Set(
+      emails
+        .map((email) => email.reservation?.identityId)
+        .filter((identityId): identityId is string => Boolean(identityId)),
+    ),
+  )
+  const managedIdentityById =
+    await getManagedIdentitySummaryByIdentityId(identityIds)
 
   return {
     emails: emails.map((email) =>
       serializeAdminInboxEmail(
         email,
         email.reservationId ? latestCodes.get(email.reservationId) : undefined,
+        email.reservation?.identityId
+          ? managedIdentityById.get(email.reservation.identityId)
+          : undefined,
       ),
     ),
     page,
@@ -900,11 +986,23 @@ export async function listAdminInboxEmailsAfterCursor(options?: {
     ),
   )
   const latestCodes = await getLatestCodeByReservationId(reservationIds)
+  const identityIds = Array.from(
+    new Set(
+      emails
+        .map((email) => email.reservation?.identityId)
+        .filter((identityId): identityId is string => Boolean(identityId)),
+    ),
+  )
+  const managedIdentityById =
+    await getManagedIdentitySummaryByIdentityId(identityIds)
 
   return emails.map((email) =>
     serializeAdminInboxEmail(
       email,
       email.reservationId ? latestCodes.get(email.reservationId) : undefined,
+      email.reservation?.identityId
+        ? managedIdentityById.get(email.reservation.identityId)
+        : undefined,
     ),
   )
 }

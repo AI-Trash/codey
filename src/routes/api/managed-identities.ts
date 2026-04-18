@@ -10,6 +10,7 @@ interface ManagedIdentitySyncBody {
   email?: string;
   label?: string;
   credentialCount?: number;
+  reservationId?: string;
 }
 
 export const Route = createFileRoute("/api/managed-identities")({
@@ -50,6 +51,7 @@ export const Route = createFileRoute("/api/managed-identities")({
           email,
           label: String(body.label || "").trim() || undefined,
           credentialCount,
+          reservationId: String(body.reservationId || "").trim() || undefined,
         });
 
         return json({ ok: true, id: record.id });

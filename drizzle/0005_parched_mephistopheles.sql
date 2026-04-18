@@ -1,0 +1,2 @@
+ALTER TABLE "verification_email_reservations" ADD COLUMN "identity_id" text;--> statement-breakpoint
+ALTER TABLE "verification_email_reservations" ADD CONSTRAINT "verification_email_reservations_identity_id_managed_identities_identity_id_fk" FOREIGN KEY ("identity_id") REFERENCES "public"."managed_identities"("identity_id") ON DELETE set null ON UPDATE no action;

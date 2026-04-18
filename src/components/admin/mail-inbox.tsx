@@ -10,8 +10,8 @@ import {
 import DOMPurify from 'dompurify'
 import { extract as extractLetterMail } from 'letterparser'
 import {
+  ArchiveIcon,
   CheckIcon,
-  ClipboardCopyIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   FileCodeIcon,
@@ -45,6 +45,7 @@ import type { FiltersState } from '#/components/data-table-filter/core/types'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
+import { CopyableValue } from '#/components/ui/copyable-value'
 import {
   Card,
   CardContent,
@@ -73,6 +74,12 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '#/components/ui/tooltip'
 import { serializeDataTableFilters } from '#/lib/data-table-filters'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
@@ -93,6 +100,10 @@ export type AdminMailInboxEmail = {
   reservationEmail: string | null
   reservationMailbox: string | null
   reservationExpiresAt: string | null
+  managedIdentityId: string | null
+  managedIdentityLabel: string | null
+  managedIdentityAccount: string | null
+  managedIdentityStatus: string | null
   latestCode: string | null
   latestCodeSource: string | null
   latestCodeReceivedAt: string | null
@@ -496,16 +507,35 @@ export function AdminMailInbox(props: {
                           />
                         </TableCell>
                         <TableCell className="align-top text-right">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              openEmailDetails(email.id)
-                            }}
-                          >
-                            {m.mail_inbox_open_button()}
-                          </Button>
+                          <TooltipProvider>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <ArchiveManagedIdentityButton
+                                identityId={email.managedIdentityId}
+                                identityStatus={email.managedIdentityStatus}
+                                onUpdated={invalidateInboxQueries}
+                                compact
+                              />
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon-sm"
+                                    aria-label={m.mail_inbox_open_button()}
+                                    title={m.mail_inbox_open_button()}
+                                    onClick={() => {
+                                      openEmailDetails(email.id)
+                                    }}
+                                  >
+                                    <MailIcon />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent sideOffset={6}>
+                                  {m.mail_inbox_open_button()}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TooltipProvider>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -572,6 +602,7 @@ export function AdminMailInbox(props: {
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         onCodeUpdated={invalidateInboxQueries}
+        onIdentityUpdated={invalidateInboxQueries}
       />
     </div>
   )
@@ -607,6 +638,7 @@ function MessageDetailsDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCodeUpdated?: () => Promise<void> | void
+  onIdentityUpdated?: () => Promise<void> | void
 }) {
   const email = props.email
   const isOpen = props.open && Boolean(email)
@@ -673,6 +705,7 @@ function MessageDetailsDialog(props: {
                     <DetailItem
                       label={m.mail_detail_label_recipient()}
                       value={email.recipient}
+                      copyValue={email.recipient}
                       code
                     />
                     <DetailItem
@@ -685,6 +718,7 @@ function MessageDetailsDialog(props: {
                     <DetailItem
                       label={m.mail_detail_label_message_id()}
                       value={email.messageId || m.mail_detail_not_captured()}
+                      copyValue={email.messageId}
                       code
                     />
                     <DetailItem
@@ -693,6 +727,7 @@ function MessageDetailsDialog(props: {
                         email.reservationMailbox ||
                         m.mail_detail_not_configured()
                       }
+                      copyValue={email.reservationMailbox}
                       code
                     />
                     <DetailItem
@@ -700,6 +735,7 @@ function MessageDetailsDialog(props: {
                       value={
                         email.reservationEmail || m.mail_detail_not_linked()
                       }
+                      copyValue={email.reservationEmail}
                       code
                     />
                     <DetailItem
@@ -710,6 +746,67 @@ function MessageDetailsDialog(props: {
                       }
                     />
                   </dl>
+
+                  <div className="space-y-3 rounded-lg border bg-background p-4">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium text-foreground">
+                        {m.mail_detail_label_identity()}
+                      </div>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {email.managedIdentityId
+                          ? email.managedIdentityAccount ||
+                            email.managedIdentityId
+                          : m.mail_detail_not_linked()}
+                      </p>
+                    </div>
+
+                    {email.managedIdentityId ? (
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <div className="font-medium text-foreground">
+                            {email.managedIdentityLabel ||
+                              email.managedIdentityAccount ||
+                              email.managedIdentityId}
+                          </div>
+                          {email.managedIdentityAccount &&
+                          email.managedIdentityLabel !==
+                            email.managedIdentityAccount ? (
+                            <CopyableValue
+                              value={email.managedIdentityAccount}
+                              title={m.clipboard_copy_value({
+                                label:
+                                  m.admin_dashboard_account_email_label(),
+                              })}
+                              className="max-w-full text-sm text-muted-foreground"
+                              contentClassName="break-all"
+                            />
+                          ) : null}
+                          <CopyableValue
+                            value={email.managedIdentityId}
+                            code
+                            title={m.clipboard_copy_value({
+                              label: m.admin_dashboard_identity_id_label(),
+                            })}
+                            className="max-w-full text-sm text-muted-foreground"
+                            contentClassName="break-all"
+                          />
+                          {email.managedIdentityStatus ? (
+                            <StatusBadge value={email.managedIdentityStatus} />
+                          ) : null}
+                        </div>
+
+                        <ArchiveManagedIdentityButton
+                          identityId={email.managedIdentityId}
+                          identityStatus={email.managedIdentityStatus}
+                          onUpdated={props.onIdentityUpdated}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        {m.mail_detail_not_linked()}
+                      </p>
+                    )}
+                  </div>
 
                   <div className="space-y-3 rounded-lg border bg-background p-4">
                     <div className="space-y-1">
@@ -783,6 +880,115 @@ function MessageDetailsDialog(props: {
   )
 }
 
+type ArchiveManagedIdentityButtonProps = {
+  identityId?: string | null
+  identityStatus?: string | null
+  onUpdated?: () => Promise<void> | void
+  compact?: boolean
+}
+
+function ArchiveManagedIdentityButton(props: ArchiveManagedIdentityButtonProps) {
+  const [status, setStatus] = useState<
+    'idle' | 'submitting' | 'success' | 'error'
+  >('idle')
+  const [message, setMessage] = useState<string | null>(null)
+  const isArchived = props.identityStatus === 'archived'
+
+  useEffect(() => {
+    setStatus('idle')
+    setMessage(null)
+  }, [props.identityId, props.identityStatus])
+
+  if (!props.identityId) {
+    return null
+  }
+
+  async function archiveIdentity() {
+    if (!props.identityId || isArchived || status === 'submitting') {
+      return
+    }
+
+    setStatus('submitting')
+    setMessage(null)
+
+    try {
+      await submitAdminIdentityAction({
+        identityId: props.identityId,
+        intent: 'archive',
+      })
+      await props.onUpdated?.()
+      setStatus('success')
+      setMessage(m.mail_identity_archive_success())
+    } catch (error) {
+      setStatus('error')
+      setMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : m.mail_identity_archive_error(),
+      )
+    }
+  }
+
+  return (
+    <TooltipProvider>
+      <div
+        className={cn(
+          'space-y-2',
+          props.compact ? 'max-w-fit text-left' : 'w-full max-w-[280px]',
+        )}
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant={isArchived ? 'secondary' : 'outline'}
+              disabled={status === 'submitting'}
+              aria-label={
+                isArchived
+                  ? m.mail_identity_archive_done()
+                  : m.mail_identity_archive_button()
+              }
+              title={
+                isArchived
+                  ? m.mail_identity_archive_done()
+                  : m.mail_identity_archive_button()
+              }
+              onClick={() => {
+                void archiveIdentity()
+              }}
+            >
+              {status === 'submitting' ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : (
+                <ArchiveIcon />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={6}>
+            {isArchived
+              ? m.mail_identity_archive_done()
+              : m.mail_identity_archive_button()}
+          </TooltipContent>
+        </Tooltip>
+
+        {message && (!props.compact || status === 'error') ? (
+          <p
+            className={cn(
+              'text-xs',
+              status === 'error'
+                ? 'text-destructive'
+                : 'text-emerald-600',
+            )}
+          >
+            {message}
+          </p>
+        ) : null}
+      </div>
+    </TooltipProvider>
+  )
+}
+
 type ManualVerificationCodeFormProps = {
   email: string
   initialCode?: string | null
@@ -792,20 +998,17 @@ type ManualVerificationCodeFormProps = {
 
 function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const copyFeedbackTimeoutRef = useRef<number | null>(null)
   const [code, setCode] = useState(props.initialCode || '')
   const [isEditing, setIsEditing] = useState(false)
   const [status, setStatus] = useState<
     'idle' | 'submitting' | 'success' | 'error'
   >('idle')
-  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle')
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setCode(props.initialCode || '')
     setIsEditing(false)
     setStatus('idle')
-    setCopyStatus('idle')
     setMessage(null)
   }, [props.email, props.initialCode])
 
@@ -823,15 +1026,6 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
     const cursorPosition = input.value.length
     input.setSelectionRange(cursorPosition, cursorPosition)
   }, [isEditing])
-
-  useEffect(() => {
-    return () => {
-      if (copyFeedbackTimeoutRef.current != null) {
-        window.clearTimeout(copyFeedbackTimeoutRef.current)
-      }
-    }
-  }, [])
-
   async function submitCode() {
     setStatus('submitting')
     setMessage(null)
@@ -865,40 +1059,6 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
     await submitCode()
   }
 
-  function clearCopyFeedbackTimer() {
-    if (copyFeedbackTimeoutRef.current != null) {
-      window.clearTimeout(copyFeedbackTimeoutRef.current)
-      copyFeedbackTimeoutRef.current = null
-    }
-  }
-
-  function startCopyFeedbackTimer() {
-    clearCopyFeedbackTimer()
-    copyFeedbackTimeoutRef.current = window.setTimeout(() => {
-      setCopyStatus('idle')
-      copyFeedbackTimeoutRef.current = null
-    }, 1500)
-  }
-
-  async function handleCopyCode() {
-    if (!code || typeof navigator === 'undefined' || !navigator.clipboard) {
-      setStatus('error')
-      setCopyStatus('idle')
-      setMessage(m.mail_manual_code_copy_error())
-      return
-    }
-
-    try {
-      await navigator.clipboard.writeText(code)
-      setCopyStatus('copied')
-      startCopyFeedbackTimer()
-    } catch {
-      setStatus('error')
-      setCopyStatus('idle')
-      setMessage(m.mail_manual_code_copy_error())
-    }
-  }
-
   return (
     <form
       onSubmit={(event) => {
@@ -910,26 +1070,53 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
       )}
     >
       <div className="flex items-center gap-2">
-        <Input
-          ref={inputRef}
-          value={code}
-          onChange={(event) => {
-            setCode(event.target.value.replace(/\D/g, '').slice(0, 6))
-            if (status !== 'idle') {
-              setStatus('idle')
-              setMessage(null)
-            }
-          }}
-          disabled={!isEditing || status === 'submitting'}
-          inputMode="numeric"
-          maxLength={6}
-          placeholder={m.admin_dashboard_code_input_placeholder()}
-          aria-label={m.admin_dashboard_code_input_label()}
-          className={cn(
-            'h-8 font-mono tracking-[0.28em] text-center disabled:cursor-default disabled:opacity-100 disabled:bg-muted/40 disabled:text-foreground',
-            props.compact ? 'w-[132px]' : 'w-full',
-          )}
-        />
+        {isEditing ? (
+          <Input
+            ref={inputRef}
+            value={code}
+            onChange={(event) => {
+              setCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+              if (status !== 'idle') {
+                setStatus('idle')
+                setMessage(null)
+              }
+            }}
+            disabled={status === 'submitting'}
+            inputMode="numeric"
+            maxLength={6}
+            placeholder={m.admin_dashboard_code_input_placeholder()}
+            aria-label={m.admin_dashboard_code_input_label()}
+            className={cn(
+              'h-8 font-mono tracking-[0.28em] text-center disabled:cursor-default disabled:opacity-100 disabled:bg-muted/40 disabled:text-foreground',
+              props.compact ? 'w-[132px]' : 'w-full',
+            )}
+          />
+        ) : (
+          <CopyableValue
+            value={code}
+            displayValue={code || m.admin_dashboard_code_input_placeholder()}
+            disabled={!code}
+            code
+            iconMode="overlay"
+            title={m.mail_manual_code_copy_button()}
+            onCopySuccess={() => {
+              setStatus('success')
+              setMessage(m.mail_manual_code_copy_success())
+            }}
+            onCopyError={() => {
+              setStatus('error')
+              setMessage(m.mail_manual_code_copy_error())
+            }}
+            className={cn(
+              'h-8 justify-center rounded-md border border-border/70 bg-muted/40 px-3 pr-8',
+              code ? 'text-foreground' : 'text-muted-foreground',
+              code && 'hover:bg-accent/50 active:bg-accent/70',
+              props.compact ? 'w-[132px]' : 'w-full',
+            )}
+            copiedClassName="border-emerald-500/70 bg-emerald-50/70 text-emerald-700 dark:border-emerald-500/60 dark:bg-emerald-500/10 dark:text-emerald-300"
+            contentClassName="w-full text-center font-mono tracking-[0.28em]"
+          />
+        )}
         <Button
           type="button"
           size="icon-sm"
@@ -968,23 +1155,6 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
             <SquarePenIcon />
           )}
         </Button>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="outline"
-          disabled={!code}
-          onClick={() => {
-            void handleCopyCode()
-          }}
-          className={cn(
-            copyStatus === 'copied' &&
-              'border-emerald-500/70 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:border-emerald-500/60 dark:text-emerald-300 dark:hover:bg-emerald-500/10',
-          )}
-          aria-label={m.mail_manual_code_copy_button()}
-          title={m.mail_manual_code_copy_button()}
-        >
-          {copyStatus === 'copied' ? <CheckIcon /> : <ClipboardCopyIcon />}
-        </Button>
       </div>
 
       {message && (!props.compact || status === 'error') ? (
@@ -1005,14 +1175,31 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
   )
 }
 
-function DetailItem(props: { label: string; value: string; code?: boolean }) {
+function DetailItem(props: {
+  label: string
+  value: string
+  copyValue?: string | null
+  code?: boolean
+}) {
   return (
     <div className="grid gap-1">
       <dt className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">
         {props.label}
       </dt>
       <dd className="m-0 text-foreground">
-        {props.code ? <code>{props.value}</code> : props.value}
+        {props.copyValue ? (
+          <CopyableValue
+            value={props.copyValue}
+            displayValue={props.value}
+            code={props.code}
+            title={m.clipboard_copy_value({ label: props.label })}
+            contentClassName="break-all"
+          />
+        ) : props.code ? (
+          <code>{props.value}</code>
+        ) : (
+          props.value
+        )}
       </dd>
     </div>
   )
@@ -1162,6 +1349,29 @@ async function submitAdminVerificationCode(params: {
   form.set('code', params.code)
 
   const response = await fetch('/api/admin/verification-codes', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json',
+    },
+    body: form,
+  })
+
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+
+  return (await response.json()) as { ok: true; id: string }
+}
+
+async function submitAdminIdentityAction(params: {
+  identityId: string
+  intent: 'archive'
+}) {
+  const form = new FormData()
+  form.set('identityId', params.identityId)
+  form.set('intent', params.intent)
+
+  const response = await fetch('/api/admin/identities', {
     method: 'POST',
     headers: {
       accept: 'application/json',

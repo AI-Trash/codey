@@ -11,6 +11,7 @@ import {
 import {
   AppWindowIcon,
   CalendarIcon,
+  GlobeIcon,
   KeyRoundIcon,
   ListIcon,
   SearchIcon,
@@ -35,6 +36,13 @@ import {
   CardTitle,
 } from '#/components/ui/card'
 import { Checkbox } from '#/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
 import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
@@ -62,10 +70,18 @@ export type ManagedOAuthClient = {
   deviceFlowEnabled: boolean
   tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
   allowedScopes: string[]
+  verificationDomainId: string | null
+  verificationDomain: string | null
   clientSecretPreview: string
   clientSecretUpdatedAt: string | Date
   createdAt: string | Date
   updatedAt: string | Date
+}
+
+export type ManagedVerificationDomainOption = {
+  id: string
+  domain: string
+  isDefault: boolean
 }
 
 type OAuthClientFormValues = {
@@ -74,6 +90,7 @@ type OAuthClientFormValues = {
   enabled: boolean
   tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
   allowedScopes: string
+  verificationDomainId: string
   clientCredentialsEnabled: boolean
   deviceFlowEnabled: boolean
 }
@@ -84,6 +101,7 @@ type OAuthClientPayload = {
   enabled: boolean
   tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
   allowedScopes: string[]
+  verificationDomainId?: string
   clientCredentialsEnabled: boolean
   deviceFlowEnabled: boolean
 }
@@ -140,6 +158,13 @@ export function OAuthClientsList({
           .accessor((client) => client.clientId)
           .displayName(m.oauth_clients_table_client_id())
           .icon(KeyRoundIcon)
+          .build(),
+        dtf
+          .text()
+          .id('verificationDomain')
+          .accessor((client) => getVerificationDomainLabel(client))
+          .displayName(m.oauth_clients_table_domain())
+          .icon(GlobeIcon)
           .build(),
         dtf
           .multiOption()
@@ -216,6 +241,7 @@ export function OAuthClientsList({
               <TableRow>
                 <TableHead>{m.oauth_clients_table_app()}</TableHead>
                 <TableHead>{m.oauth_clients_table_client_id()}</TableHead>
+                <TableHead>{m.oauth_clients_table_domain()}</TableHead>
                 <TableHead>{m.oauth_clients_table_grants()}</TableHead>
                 <TableHead>{m.oauth_clients_table_scopes()}</TableHead>
                 <TableHead>{m.oauth_clients_table_secret()}</TableHead>
@@ -247,6 +273,18 @@ export function OAuthClientsList({
                       <p className="text-xs text-muted-foreground">
                         {formatAuthMethod(client.tokenEndpointAuthMethod)}
                       </p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="space-y-1">
+                      <div className="font-medium text-foreground">
+                        {getVerificationDomainLabel(client)}
+                      </div>
+                      {!client.verificationDomain ? (
+                        <p className="text-xs text-muted-foreground">
+                          {m.oauth_domain_default_fallback()}
+                        </p>
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell className="align-top">
@@ -309,21 +347,21 @@ export function OAuthClientsList({
   )
 }
 
-export function NewOAuthClientPageContent({
+export function CreateOAuthClientDialog({
+  open,
+  onOpenChange,
   supportedScopes,
+  verificationDomains,
+  onClientCreated,
 }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   supportedScopes: string[]
+  verificationDomains: ManagedVerificationDomainOption[]
+  onClientCreated?: (client: ManagedOAuthClient) => void
 }) {
   const [form, setForm] = useState<OAuthClientFormValues>(() =>
-    createFormValues({
-      clientName: '',
-      description: '',
-      enabled: true,
-      tokenEndpointAuthMethod: 'client_secret_basic',
-      allowedScopes: supportedScopes.join('\n'),
-      clientCredentialsEnabled: true,
-      deviceFlowEnabled: false,
-    }),
+    createNewOAuthClientFormValues(supportedScopes, verificationDomains),
   )
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -332,10 +370,22 @@ export function NewOAuthClientPageContent({
     clientSecret: string
   } | null>(null)
 
+  useEffect(() => {
+    if (open) {
+      return
+    }
+
+    setForm(createNewOAuthClientFormValues(supportedScopes, verificationDomains))
+    setSubmitting(false)
+    setError(null)
+    setCreated(null)
+  }, [open, supportedScopes, verificationDomains])
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSubmitting(true)
     setError(null)
+    setCreated(null)
 
     try {
       const payload = toPayload(form)
@@ -356,6 +406,7 @@ export function NewOAuthClientPageContent({
         clientSecret: string
       }
       setCreated(data)
+      onClientCreated?.(data.client)
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -368,89 +419,119 @@ export function NewOAuthClientPageContent({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
-      <Card>
-        <CardHeader>
-          <CardDescription>{m.oauth_new_registration_kicker()}</CardDescription>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-[min(1120px,calc(100%-2rem))] gap-0 overflow-hidden p-0 sm:max-w-[min(1120px,calc(100%-2rem))]">
+        <DialogHeader className="gap-3 border-b px-6 py-5 pr-14">
+          <DialogDescription>{m.admin_apps_eyebrow()}</DialogDescription>
           <div className="flex items-start gap-2">
-            <CardTitle>{m.oauth_new_title()}</CardTitle>
+            <DialogTitle className="text-xl">
+              {m.admin_apps_new_title()}
+            </DialogTitle>
             <InfoTooltip
-              content={m.oauth_new_description()}
-              label={m.oauth_new_title()}
+              content={m.admin_apps_new_description()}
+              label={m.admin_apps_new_title()}
               className="mt-0.5"
             />
           </div>
-        </CardHeader>
-        <CardContent>
-          <OAuthClientForm
-            form={form}
-            submitting={submitting}
-            submitLabel={m.oauth_new_submit()}
-            supportedScopes={supportedScopes}
-            allowedScopesInputMode="tags"
-            error={error}
-            onChange={setForm}
-            onSubmit={handleSubmit}
-          />
-        </CardContent>
-      </Card>
+        </DialogHeader>
 
-      <div className="grid gap-4">
-        <Card>
-          <CardHeader>
-            <CardDescription>{m.oauth_defaults_kicker()}</CardDescription>
-            <CardTitle className="text-lg">
-              {m.oauth_defaults_title()}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm leading-6 text-muted-foreground">
-            <InfoBlock
-              title={m.oauth_defaults_client_credentials_title()}
-              detail={m.oauth_defaults_client_credentials_detail()}
-            />
-            <InfoBlock
-              title={m.oauth_defaults_device_flow_title()}
-              detail={m.oauth_defaults_device_flow_detail()}
-            />
-            <InfoBlock
-              title={m.oauth_defaults_secret_title()}
-              detail={m.oauth_defaults_secret_detail()}
-            />
-          </CardContent>
-        </Card>
+        <div className="overflow-y-auto p-6">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
+            <Card>
+              <CardHeader>
+                <CardDescription>{m.oauth_new_registration_kicker()}</CardDescription>
+                <div className="flex items-start gap-2">
+                  <CardTitle>{m.oauth_new_title()}</CardTitle>
+                  <InfoTooltip
+                    content={m.oauth_new_description()}
+                    label={m.oauth_new_title()}
+                    className="mt-0.5"
+                  />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <OAuthClientForm
+                  form={form}
+                  submitting={submitting}
+                  submitLabel={m.oauth_new_submit()}
+                  supportedScopes={supportedScopes}
+                  verificationDomains={verificationDomains}
+                  allowedScopesInputMode="tags"
+                  error={error}
+                  onChange={setForm}
+                  onSubmit={handleSubmit}
+                />
+              </CardContent>
+            </Card>
 
-        {created ? (
-          <SecretPanel
-            title={m.oauth_new_secret_panel_title()}
-            body={m.oauth_new_secret_panel_body()}
-            clientId={created.client.clientId}
-            secret={created.clientSecret}
-            preview={created.client.clientSecretPreview}
-            footer={
-              <div className="flex flex-wrap gap-2">
-                <Button asChild size="sm">
-                  <a href={`/admin/apps/${created.client.id}`}>
-                    {m.oauth_new_open_app_settings()}
-                  </a>
-                </Button>
-                <Button asChild size="sm" variant="outline">
-                  <a href="/admin/apps">{m.admin_back_to_apps()}</a>
-                </Button>
-              </div>
-            }
-          />
-        ) : null}
-      </div>
-    </div>
+            <div className="grid gap-4">
+              <Card>
+                <CardHeader>
+                  <CardDescription>{m.oauth_defaults_kicker()}</CardDescription>
+                  <CardTitle className="text-lg">
+                    {m.oauth_defaults_title()}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 text-sm leading-6 text-muted-foreground">
+                  <InfoBlock
+                    title={m.oauth_defaults_client_credentials_title()}
+                    detail={m.oauth_defaults_client_credentials_detail()}
+                  />
+                  <InfoBlock
+                    title={m.oauth_defaults_device_flow_title()}
+                    detail={m.oauth_defaults_device_flow_detail()}
+                  />
+                  <InfoBlock
+                    title={m.oauth_defaults_secret_title()}
+                    detail={m.oauth_defaults_secret_detail()}
+                  />
+                </CardContent>
+              </Card>
+
+              {created ? (
+                <SecretPanel
+                  title={m.oauth_new_secret_panel_title()}
+                  body={m.oauth_new_secret_panel_body()}
+                  clientId={created.client.clientId}
+                  secret={created.clientSecret}
+                  preview={created.client.clientSecretPreview}
+                  footer={
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild size="sm">
+                        <a href={`/admin/apps/${created.client.id}`}>
+                          {m.oauth_new_open_app_settings()}
+                        </a>
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          onOpenChange(false)
+                        }}
+                      >
+                        {m.ui_close()}
+                      </Button>
+                    </div>
+                  }
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 export function EditOAuthClientPageContent({
   initialClient,
   supportedScopes,
+  verificationDomains,
 }: {
   initialClient: ManagedOAuthClient
   supportedScopes: string[]
+  verificationDomains: ManagedVerificationDomainOption[]
 }) {
   const [client, setClient] = useState(initialClient)
   const [form, setForm] = useState<OAuthClientFormValues>(() =>
@@ -570,6 +651,7 @@ export function EditOAuthClientPageContent({
             submitting={saving}
             submitLabel={m.oauth_edit_save_settings()}
             supportedScopes={supportedScopes}
+            verificationDomains={verificationDomains}
             error={error}
             success={success}
             onChange={setForm}
@@ -623,6 +705,10 @@ export function EditOAuthClientPageContent({
               <SummaryItem
                 label={m.oauth_summary_allowed_scopes()}
                 value={client.allowedScopes.join(', ') || m.oauth_none()}
+              />
+              <SummaryItem
+                label={m.oauth_summary_verification_domain()}
+                value={getVerificationDomainLabel(client)}
               />
               <SummaryItem
                 label={m.oauth_clients_table_updated()}
@@ -693,6 +779,7 @@ function OAuthClientForm({
   submitting,
   submitLabel,
   supportedScopes,
+  verificationDomains,
   allowedScopesInputMode = 'text',
   error,
   success,
@@ -704,6 +791,7 @@ function OAuthClientForm({
   submitting: boolean
   submitLabel: string
   supportedScopes: string[]
+  verificationDomains: ManagedVerificationDomainOption[]
   allowedScopesInputMode?: 'text' | 'tags'
   error?: string | null
   success?: string | null
@@ -716,6 +804,8 @@ function OAuthClientForm({
   const parsedScopes = parseScopes(form.allowedScopes)
   const hasGrantEnabled =
     form.clientCredentialsEnabled || form.deviceFlowEnabled
+  const hasVerificationDomain = Boolean(form.verificationDomainId)
+  const hasVerificationDomainOptions = verificationDomains.length > 0
   const usesScopeTagSelector = allowedScopesInputMode === 'tags'
 
   return (
@@ -742,6 +832,36 @@ function OAuthClientForm({
           placeholder={m.oauth_field_description_placeholder()}
           className="min-h-28"
         />
+      </Field>
+
+      <Field
+        label={m.oauth_field_verification_domain()}
+        description={m.oauth_field_verification_domain_description()}
+      >
+        <NativeSelect
+          value={form.verificationDomainId}
+          onChange={(event) => {
+            const nextValue = event.target.value
+            onChange((current) => ({
+              ...current,
+              verificationDomainId: nextValue,
+            }))
+          }}
+          className="w-full"
+          required
+          disabled={!hasVerificationDomainOptions}
+        >
+          <NativeSelectOption value="">
+            {hasVerificationDomainOptions
+              ? m.oauth_field_verification_domain_placeholder()
+              : m.oauth_domains_none_available()}
+          </NativeSelectOption>
+          {verificationDomains.map((domain) => (
+            <NativeSelectOption key={domain.id} value={domain.id}>
+              {formatVerificationDomainOption(domain)}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
       </Field>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
@@ -846,6 +966,15 @@ function OAuthClientForm({
         </Alert>
       ) : null}
 
+      {!hasVerificationDomainOptions ? (
+        <Alert variant="destructive">
+          <AlertTitle>{m.oauth_domains_required_title()}</AlertTitle>
+          <AlertDescription>
+            {m.oauth_domains_required_description()}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {parsedScopes.length && !usesScopeTagSelector ? (
         <div className="flex flex-wrap gap-1.5">
           {parsedScopes.map((scope) => (
@@ -871,7 +1000,15 @@ function OAuthClientForm({
       ) : null}
 
       {children || (
-        <Button type="submit" disabled={submitting || !hasGrantEnabled}>
+        <Button
+          type="submit"
+          disabled={
+            submitting ||
+            !hasGrantEnabled ||
+            !hasVerificationDomain ||
+            !hasVerificationDomainOptions
+          }
+        >
           {submitting ? m.oauth_saving() : submitLabel}
         </Button>
       )}
@@ -1059,12 +1196,29 @@ function InfoBlock(props: { title: string; detail: string }) {
   )
 }
 
+function createNewOAuthClientFormValues(
+  supportedScopes: string[],
+  verificationDomains: ManagedVerificationDomainOption[],
+) {
+  return createFormValues({
+    clientName: '',
+    description: '',
+    enabled: true,
+    tokenEndpointAuthMethod: 'client_secret_basic',
+    allowedScopes: supportedScopes,
+    verificationDomainId: verificationDomains[0]?.id || '',
+    clientCredentialsEnabled: true,
+    deviceFlowEnabled: false,
+  })
+}
+
 function createFormValues(client: {
   clientName: string
   description?: string | null
   enabled: boolean
   tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
   allowedScopes: string[] | string
+  verificationDomainId?: string | null
   clientCredentialsEnabled: boolean
   deviceFlowEnabled: boolean
 }): OAuthClientFormValues {
@@ -1076,6 +1230,7 @@ function createFormValues(client: {
     allowedScopes: Array.isArray(client.allowedScopes)
       ? client.allowedScopes.join('\n')
       : client.allowedScopes,
+    verificationDomainId: client.verificationDomainId || '',
     clientCredentialsEnabled: client.clientCredentialsEnabled,
     deviceFlowEnabled: client.deviceFlowEnabled,
   }
@@ -1088,6 +1243,7 @@ function toPayload(form: OAuthClientFormValues): OAuthClientPayload {
     enabled: form.enabled,
     tokenEndpointAuthMethod: form.tokenEndpointAuthMethod,
     allowedScopes: parseScopes(form.allowedScopes),
+    verificationDomainId: form.verificationDomainId || undefined,
     clientCredentialsEnabled: form.clientCredentialsEnabled,
     deviceFlowEnabled: form.deviceFlowEnabled,
   }
@@ -1120,6 +1276,20 @@ function formatGrantList(
     client.clientCredentialsEnabled ? 'client_credentials' : null,
     client.deviceFlowEnabled ? 'device_flow' : null,
   ].filter(Boolean) as string[]
+}
+
+function getVerificationDomainLabel(
+  client: Pick<ManagedOAuthClient, 'verificationDomain'>,
+) {
+  return client.verificationDomain || m.oauth_domain_uses_default()
+}
+
+function formatVerificationDomainOption(
+  domain: ManagedVerificationDomainOption,
+) {
+  return domain.isDefault
+    ? `${domain.domain} (${m.oauth_domain_default_badge()})`
+    : domain.domain
 }
 
 function normalizeDate(value: string | Date | null | undefined) {
