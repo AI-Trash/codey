@@ -35,6 +35,10 @@ export const managedIdentityStatusEnum = pgEnum("managed_identity_status", [
   "REVIEW",
   "ARCHIVED",
 ]);
+export const managedIdentitySessionStatusEnum = pgEnum(
+  "managed_identity_session_status",
+  ["ACTIVE", "REVOKED"],
+);
 export const oauthClientAuthMethodEnum = pgEnum("oauth_client_auth_method", [
   "client_secret_basic",
   "client_secret_post",
@@ -341,6 +345,67 @@ export const managedIdentities = pgTable(
   ],
 );
 
+export const managedIdentitySessions = pgTable(
+  "managed_identity_sessions",
+  {
+    id: text("id").primaryKey(),
+    identityId: text("identity_id")
+      .notNull()
+      .references(() => managedIdentities.identityId, {
+        onDelete: "cascade",
+      }),
+    email: text("email").notNull(),
+    authMode: text("auth_mode").notNull(),
+    flowType: text("flow_type").notNull(),
+    accountId: text("account_id"),
+    sessionId: text("session_id"),
+    sessionData: jsonb("session_data")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    status: managedIdentitySessionStatusEnum("status")
+      .default("ACTIVE")
+      .notNull(),
+    lastRefreshAt: timestamp("last_refresh_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    lastSeenAt: timestamp("last_seen_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("managed_identity_sessions_identity_id_unique").on(
+      table.identityId,
+    ),
+    index("managed_identity_sessions_status_last_seen_at_idx").on(
+      table.status,
+      table.lastSeenAt,
+    ),
+    index("managed_identity_sessions_email_idx").on(table.email),
+    index("managed_identity_sessions_account_id_idx").on(table.accountId),
+    index("managed_identity_sessions_session_id_idx").on(table.sessionId),
+  ],
+);
+
 export const verificationDomains = pgTable(
   "verification_domains",
   {
@@ -578,6 +643,23 @@ export const deviceChallengesRelations = relations(
   }),
 );
 
+export const managedIdentitiesRelations = relations(
+  managedIdentities,
+  ({ many }) => ({
+    sessions: many(managedIdentitySessions),
+  }),
+);
+
+export const managedIdentitySessionsRelations = relations(
+  managedIdentitySessions,
+  ({ one }) => ({
+    identity: one(managedIdentities, {
+      fields: [managedIdentitySessions.identityId],
+      references: [managedIdentities.identityId],
+    }),
+  }),
+);
+
 export const verificationDomainsRelations = relations(
   verificationDomains,
   ({ many }) => ({
@@ -602,6 +684,8 @@ export type FlowAppRequestStatus =
   (typeof flowAppRequestStatusEnum.enumValues)[number];
 export type ManagedIdentityStatus =
   (typeof managedIdentityStatusEnum.enumValues)[number];
+export type ManagedIdentitySessionStatus =
+  (typeof managedIdentitySessionStatusEnum.enumValues)[number];
 export type OAuthClientAuthMethod =
   (typeof oauthClientAuthMethodEnum.enumValues)[number];
 
@@ -615,6 +699,8 @@ export type DeviceChallengeRow = typeof deviceChallenges.$inferSelect;
 export type AdminNotificationRow = typeof adminNotifications.$inferSelect;
 export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect;
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect;
+export type ManagedIdentitySessionRow =
+  typeof managedIdentitySessions.$inferSelect;
 export type VerificationDomainRow = typeof verificationDomains.$inferSelect;
 export type OAuthClientRow = typeof oauthClients.$inferSelect;
 export type OidcArtifactRow = typeof oidcArtifacts.$inferSelect;

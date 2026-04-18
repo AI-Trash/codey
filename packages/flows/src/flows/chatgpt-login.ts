@@ -15,10 +15,15 @@ import {
   runGuardedBranches,
 } from '../state-machine'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
+import { syncManagedSessionToCodeyApp } from '../modules/app-auth/managed-sessions'
 import {
   resolveStoredChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
 } from '../modules/credentials'
+import {
+  persistChatGPTSession,
+  type StoredChatGPTSessionSummary,
+} from '../modules/credentials/sessions'
 import {
   createVerificationProvider,
   type VerificationProvider,
@@ -51,6 +56,7 @@ import {
   waitForRetryOrPasskeyEntryCandidates,
   waitForVerificationCodeInputReady,
 } from '../modules/chatgpt/shared'
+import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
 import {
   captureVirtualPasskeyStore,
   loadVirtualPasskeyStore,
@@ -131,6 +137,7 @@ export interface ChatGPTLoginFlowContext<Result = unknown> {
   passkeyStore?: VirtualPasskeyStore
   assertionObserved?: boolean
   storedIdentity?: StoredChatGPTIdentitySummary
+  storedSession?: StoredChatGPTSessionSummary
   retryCount?: number
   retryReason?: string
   retryFromState?: ChatGPTLoginFlowState
@@ -167,6 +174,7 @@ export interface ChatGPTLoginFlowResult {
   method: 'passkey' | 'password' | 'verification'
   authenticated: boolean
   storedIdentity: StoredChatGPTIdentitySummary
+  storedSession?: StoredChatGPTSessionSummary
   machine: ChatGPTLoginFlowSnapshot<ChatGPTLoginFlowResult>
 }
 
@@ -983,6 +991,7 @@ export async function loginChatGPT(
     id: options.identityId,
     email: options.email,
   })
+  const sessionCapture = createChatGPTSessionCapture(page)
 
   try {
     machine.start(
@@ -1167,6 +1176,36 @@ export async function loginChatGPT(
     }
 
     const title = await page.title()
+    let storedSession: StoredChatGPTSessionSummary | undefined
+    let persistedSessionRecord:
+      | ReturnType<typeof persistChatGPTSession>['session']
+      | undefined
+
+    try {
+      const capturedSession = await sessionCapture.capture()
+      if (capturedSession) {
+        const persistedSession = persistChatGPTSession({
+          identityId: stored.summary.id,
+          email: stored.summary.email,
+          flowType: 'chatgpt-login',
+          snapshot: capturedSession,
+        })
+        persistedSessionRecord = persistedSession.session
+        storedSession = persistedSession.summary
+        options.progressReporter?.({
+          message: 'Persisted ChatGPT session snapshot locally',
+        })
+      } else {
+        options.progressReporter?.({
+          message: 'No ChatGPT session snapshot was captured after login',
+        })
+      }
+    } catch (error) {
+      options.progressReporter?.({
+        message: `ChatGPT session persistence failed: ${sanitizeErrorForOutput(error).message}`,
+      })
+    }
+
     try {
       const syncedIdentity = await syncManagedIdentityToCodeyApp({
         identityId: stored.summary.id,
@@ -1183,6 +1222,27 @@ export async function loginChatGPT(
         message: `Codey app identity sync failed: ${sanitizeErrorForOutput(error).message}`,
       })
     }
+
+    if (persistedSessionRecord && storedSession) {
+      try {
+        const syncedSession = await syncManagedSessionToCodeyApp({
+          identityId: stored.summary.id,
+          email: stored.summary.email,
+          flowType: 'chatgpt-login',
+          session: persistedSessionRecord,
+        })
+        if (syncedSession) {
+          options.progressReporter?.({
+            message: 'Synced ChatGPT session snapshot to Codey app',
+          })
+        }
+      } catch (error) {
+        options.progressReporter?.({
+          message: `Codey app session sync failed: ${sanitizeErrorForOutput(error).message}`,
+        })
+      }
+    }
+
     const result = {
       pageName: 'chatgpt-login' as const,
       url: page.url(),
@@ -1191,6 +1251,7 @@ export async function loginChatGPT(
       method: passkey.method,
       authenticated: true,
       storedIdentity: stored.summary,
+      storedSession,
       machine:
         undefined as unknown as ChatGPTLoginFlowSnapshot<ChatGPTLoginFlowResult>,
     }
@@ -1200,6 +1261,7 @@ export async function loginChatGPT(
         email: stored.identity.email,
         method: passkey.method,
         storedIdentity: stored.summary,
+        storedSession,
         url: result.url,
         title: result.title,
         lastMessage:
@@ -1224,6 +1286,7 @@ export async function loginChatGPT(
     })
     throw error
   } finally {
+    sessionCapture.dispose()
     detachProgress()
   }
 }

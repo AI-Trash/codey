@@ -33,7 +33,7 @@ import {
   PASSKEY_DONE_SELECTORS,
   PASSWORD_SUBMIT_SELECTORS,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
-  PROFILE_NAME,
+  buildProfileName,
   REGISTRATION_CONTINUE_SELECTORS,
   REGISTRATION_EMAIL_SELECTORS,
   SECURITY_ADD_SELECTORS,
@@ -287,8 +287,15 @@ async function fillFirstAvailable(
   return typeIfPresent(page, selectors, value, AUTH_INPUT_TYPING_OPTIONS)
 }
 
-export async function fillAgeGateName(page: Page): Promise<boolean> {
-  return fillFirstAvailable(page, AGE_GATE_NAME_SELECTORS, PROFILE_NAME)
+export async function fillAgeGateName(
+  page: Page,
+  profileSeed?: string,
+): Promise<boolean> {
+  return fillFirstAvailable(
+    page,
+    AGE_GATE_NAME_SELECTORS,
+    buildProfileName(profileSeed),
+  )
 }
 
 export async function fillAgeGateAge(page: Page): Promise<boolean> {

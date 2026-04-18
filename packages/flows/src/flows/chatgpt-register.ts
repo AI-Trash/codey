@@ -23,6 +23,10 @@ import {
   persistChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
 } from '../modules/credentials'
+import {
+  persistChatGPTSession,
+  type StoredChatGPTSessionSummary,
+} from '../modules/credentials/sessions'
 import type {
   StateMachineController,
   StateMachineSnapshot,
@@ -30,10 +34,12 @@ import type {
 import { loadVirtualPasskeyStore } from '../modules/webauthn/virtual-authenticator'
 import { getRuntimeConfig } from '../config'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
+import { syncManagedSessionToCodeyApp } from '../modules/app-auth/managed-sessions'
 import {
   createVerificationProvider,
   type VerificationProvider,
 } from '../modules/verification'
+import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
 import {
   clickAddPasskey,
   type ChatGPTAgeGateFieldMode,
@@ -186,6 +192,7 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   usedEmailFallback?: boolean
   assertionObserved?: boolean
   storedIdentity?: StoredChatGPTIdentitySummary
+  storedSession?: StoredChatGPTSessionSummary
   registration?: RegistrationResult
   sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult
   mailbox?: string
@@ -236,6 +243,7 @@ export interface ChatGPTRegistrationFlowResult {
   passkeyCreated: boolean
   passkeyStore?: VirtualPasskeyStore
   storedIdentity?: StoredChatGPTIdentitySummary
+  storedSession?: StoredChatGPTSessionSummary
   sameSessionPasskeyCheck?: SameSessionPasskeyCheckResult
   machine: ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>
 }
@@ -910,8 +918,9 @@ export async function resolveRegistrationEntrySurface(
 
 async function fillRegistrationAgeGateFields(
   page: Page,
+  email?: string,
 ): Promise<'birthday' | 'age' | null> {
-  await fillAgeGateName(page)
+  await fillAgeGateName(page, email)
   const candidates = await waitForAgeGateFieldCandidates(page, 3000)
   if (candidates.length === 0) {
     return null
@@ -995,6 +1004,7 @@ async function waitForAgeGateSubmissionOutcome(
 async function completeRegistrationAgeGate(
   page: Page,
   machine?: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
+  email?: string,
 ): Promise<void> {
   const ageGateReady = await waitForAnySelectorState(
     page,
@@ -1006,7 +1016,7 @@ async function completeRegistrationAgeGate(
     throw new Error('Age gate did not become ready.')
   }
 
-  let filledMode = await fillRegistrationAgeGateFields(page)
+  let filledMode = await fillRegistrationAgeGateFields(page, email)
   if (!filledMode) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await clickCompleteAccountCreation(page)
@@ -1016,7 +1026,7 @@ async function completeRegistrationAgeGate(
         'visible',
         DEFAULT_EVENT_TIMEOUT_MS,
       )
-      filledMode = await fillRegistrationAgeGateFields(page)
+      filledMode = await fillRegistrationAgeGateFields(page, email)
       if (filledMode) break
     }
   }
@@ -1067,7 +1077,7 @@ async function completeRegistrationAgeGate(
       return
     }
 
-    filledMode = await fillRegistrationAgeGateFields(page)
+    filledMode = await fillRegistrationAgeGateFields(page, email)
     if (!filledMode) {
       throw new Error('Age gate fields reappeared but could not be refilled.')
     }
@@ -1400,6 +1410,7 @@ export async function registerChatGPT(
     parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000
   const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
   const startedAt = new Date().toISOString()
+  const sessionCapture = createChatGPTSessionCapture(page)
 
   try {
     machine.start(
@@ -1717,7 +1728,7 @@ export async function registerChatGPT(
       url: page.url(),
     })
     await page.waitForLoadState('domcontentloaded').catch(() => undefined)
-    await completeRegistrationAgeGate(page, machine)
+    await completeRegistrationAgeGate(page, machine, email)
 
     await sendRegistrationMachine(
       machine,
@@ -1857,7 +1868,7 @@ export async function registerChatGPT(
         passkeyStore: resolvedPasskey.passkeyStore,
         sameSessionPasskeyCheck: resolvedSameSessionPasskeyCheck,
         url: page.url(),
-        lastMessage: 'Persisting ChatGPT identity',
+        lastMessage: 'Persisting ChatGPT identity and session',
       },
     )
 
@@ -1869,6 +1880,36 @@ export async function registerChatGPT(
       passkeyCreated: resolvedPasskey.passkeyCreated,
       passkeyStore: resolvedPasskey.passkeyStore,
     }).summary
+    let storedSession: StoredChatGPTSessionSummary | undefined
+    let persistedSessionRecord:
+      | ReturnType<typeof persistChatGPTSession>['session']
+      | undefined
+
+    try {
+      const capturedSession = await sessionCapture.capture()
+      if (capturedSession) {
+        const persistedSession = persistChatGPTSession({
+          identityId: storedIdentity.id,
+          email: storedIdentity.email,
+          flowType: 'chatgpt-register',
+          snapshot: capturedSession,
+        })
+        persistedSessionRecord = persistedSession.session
+        storedSession = persistedSession.summary
+        options.progressReporter?.({
+          message: 'Persisted ChatGPT session snapshot locally',
+        })
+      } else {
+        options.progressReporter?.({
+          message: 'No ChatGPT session snapshot was captured after registration',
+        })
+      }
+    } catch (error) {
+      options.progressReporter?.({
+        message: `ChatGPT session persistence failed: ${sanitizeErrorForOutput(error).message}`,
+      })
+    }
+
     try {
       const syncedIdentity = await syncManagedIdentityToCodeyApp({
         identityId: storedIdentity.id,
@@ -1885,6 +1926,26 @@ export async function registerChatGPT(
       options.progressReporter?.({
         message: `Codey app identity sync failed: ${sanitizeErrorForOutput(error).message}`,
       })
+    }
+
+    if (persistedSessionRecord && storedSession) {
+      try {
+        const syncedSession = await syncManagedSessionToCodeyApp({
+          identityId: storedIdentity.id,
+          email: storedIdentity.email,
+          flowType: 'chatgpt-register',
+          session: persistedSessionRecord,
+        })
+        if (syncedSession) {
+          options.progressReporter?.({
+            message: 'Synced ChatGPT session snapshot to Codey app',
+          })
+        }
+      } catch (error) {
+        options.progressReporter?.({
+          message: `Codey app session sync failed: ${sanitizeErrorForOutput(error).message}`,
+        })
+      }
     }
 
     const title = await page.title()
@@ -1904,6 +1965,7 @@ export async function registerChatGPT(
       passkeyCreated: resolvedPasskey.passkeyCreated,
       passkeyStore: resolvedPasskey.passkeyStore,
       storedIdentity,
+      storedSession,
       sameSessionPasskeyCheck: resolvedSameSessionPasskeyCheck,
       machine:
         undefined as unknown as ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>,
@@ -1918,6 +1980,7 @@ export async function registerChatGPT(
         passkeyCreated: resolvedPasskey.passkeyCreated,
         passkeyStore: resolvedPasskey.passkeyStore,
         storedIdentity,
+        storedSession,
         registration: result.registration,
         sameSessionPasskeyCheck: resolvedSameSessionPasskeyCheck,
         url: result.url,
@@ -1939,6 +2002,7 @@ export async function registerChatGPT(
     })
     throw error
   } finally {
+    sessionCapture.dispose()
     detachProgress()
   }
 }

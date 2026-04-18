@@ -72,6 +72,7 @@ const statusLabelMap = {
   reconnecting: () => m.status_reconnecting(),
   refreshing: () => m.status_refreshing(),
   resolved: () => m.status_resolved(),
+  revoked: () => m.status_revoked(),
   review: () => m.status_review(),
   synced: () => m.status_synced(),
   unknown: () => m.status_unknown(),

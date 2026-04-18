@@ -345,6 +345,12 @@ export function formatFlowCompletionSummary(
       ),
     )
     appendSummaryLine(lines, 'identity', asRecord(record.storedIdentity)?.id)
+    appendSummaryLine(
+      lines,
+      'session',
+      asRecord(record.storedSession)?.sessionId ||
+        asRecord(record.storedSession)?.accountId,
+    )
     appendSummaryLine(lines, 'page', record.url)
     return lines.join('\n')
   }
@@ -354,6 +360,12 @@ export function formatFlowCompletionSummary(
     appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))
     appendSummaryLine(lines, 'method', record.method)
     appendSummaryLine(lines, 'identity', asRecord(record.storedIdentity)?.id)
+    appendSummaryLine(
+      lines,
+      'session',
+      asRecord(record.storedSession)?.sessionId ||
+        asRecord(record.storedSession)?.accountId,
+    )
     appendSummaryLine(lines, 'page', record.url)
     return lines.join('\n')
   }

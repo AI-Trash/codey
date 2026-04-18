@@ -5,6 +5,7 @@ import {
   ChevronsUpDownIcon,
   FingerprintIcon,
   GlobeIcon,
+  KeyRoundIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MailIcon,
@@ -94,6 +95,12 @@ function getOperationsSubNavigation() {
       icon: FingerprintIcon,
       matches: (pathname: string) => pathname === '/admin/identities',
     },
+    {
+      label: m.admin_nav_sessions(),
+      to: '/admin/sessions',
+      icon: KeyRoundIcon,
+      matches: (pathname: string) => pathname === '/admin/sessions',
+    },
   ] as const
 }
 
@@ -128,7 +135,8 @@ function getAdminNavigation() {
       matches: (pathname: string) =>
         pathname === '/admin' ||
         pathname === '/admin/emails' ||
-        pathname === '/admin/identities',
+        pathname === '/admin/identities' ||
+        pathname === '/admin/sessions',
       children: operationsSubNavigation,
     },
     {
@@ -542,6 +550,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/identities') {
     return m.admin_nav_identities()
+  }
+
+  if (pathname === '/admin/sessions') {
+    return m.admin_nav_sessions()
   }
 
   if (pathname === '/admin/apps/new') {

@@ -6,6 +6,7 @@ import {
   ADULT_BIRTH_YEAR,
   ADULT_AGE,
   PROFILE_NAME,
+  buildProfileName,
 } from '../src/modules/chatgpt/common'
 import {
   fillAgeGateAge,
@@ -275,6 +276,19 @@ describe('age gate text inputs', () => {
 
     await expect(fillAgeGateName(page as never)).resolves.toBe(true)
     expect(nameInput.text).toBe(PROFILE_NAME)
+  })
+
+  it('derives a more natural profile name from the registration email', async () => {
+    const page = new FakePage()
+    const nameInput = new FakeLocator(page, {
+      visible: true,
+      editable: true,
+    })
+    const email = 'codey+1a2b3c@example.com'
+    page.locators['input[id*="name"]'] = nameInput
+
+    await expect(fillAgeGateName(page as never, email)).resolves.toBe(true)
+    expect(nameInput.text).toBe(buildProfileName(email))
   })
 
   it('types the visible age field so the value is present in the input', async () => {

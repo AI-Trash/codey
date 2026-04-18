@@ -24,9 +24,80 @@ export const ADULT_BIRTHDAY = '1999-01-01'
 export const ADULT_BIRTH_YEAR = '1999'
 export const ADULT_BIRTH_MONTH = '01'
 export const ADULT_BIRTH_DAY = '01'
-export const PROFILE_NAME = 'Codey Test'
+export const PROFILE_NAME = 'Alex Carter'
 export const MIN_ONBOARDING_CLICKS = 3
 export const DEFAULT_EVENT_TIMEOUT_MS = 5000
+
+const PROFILE_FIRST_NAMES = [
+  'Alex',
+  'Amelia',
+  'Aria',
+  'Ava',
+  'Chloe',
+  'Daniel',
+  'Ethan',
+  'Grace',
+  'Harper',
+  'Henry',
+  'Isla',
+  'Jack',
+  'Leo',
+  'Liam',
+  'Lucas',
+  'Mason',
+  'Mia',
+  'Noah',
+  'Nora',
+  'Owen',
+  'Riley',
+  'Sofia',
+  'Theo',
+  'Zoey',
+] as const
+
+const PROFILE_LAST_NAMES = [
+  'Bennett',
+  'Brooks',
+  'Carter',
+  'Clarke',
+  'Cooper',
+  'Davis',
+  'Ellis',
+  'Foster',
+  'Graham',
+  'Hayes',
+  'Hughes',
+  'Kelly',
+  'Morgan',
+  'Parker',
+  'Reed',
+  'Ross',
+  'Russell',
+  'Sawyer',
+  'Taylor',
+  'Turner',
+  'Walker',
+  'Ward',
+  'West',
+  'Wright',
+] as const
+
+export function buildProfileName(seed?: string): string {
+  const normalizedSeed = seed?.trim().toLowerCase()
+  if (!normalizedSeed) {
+    return PROFILE_NAME
+  }
+
+  const digest = crypto.createHash('sha256').update(normalizedSeed).digest()
+  const firstName =
+    PROFILE_FIRST_NAMES[digest.readUInt16BE(0) % PROFILE_FIRST_NAMES.length] ||
+    PROFILE_NAME.split(' ')[0]
+  const lastName =
+    PROFILE_LAST_NAMES[digest.readUInt16BE(2) % PROFILE_LAST_NAMES.length] ||
+    PROFILE_NAME.split(' ')[1]
+
+  return `${firstName} ${lastName}`
+}
 
 export function isChatGPTLoginUrl(url: string): boolean {
   return (

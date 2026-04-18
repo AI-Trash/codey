@@ -70,6 +70,11 @@ export interface AppManagedIdentitySyncResponse {
   id: string
 }
 
+export interface AppManagedSessionSyncResponse {
+  ok: boolean
+  id: string
+}
+
 function parseScopeList(value: string | undefined): string[] {
   if (!value) {
     return []
@@ -425,6 +430,40 @@ export class AppVerificationProviderClient {
           label: input.label,
           credentialCount: input.credentialCount,
           reservationId: input.reservationId,
+        }),
+      },
+      [VERIFICATION_RESERVE_SCOPE],
+    )
+  }
+
+  async upsertManagedSession(input: {
+    identityId: string
+    email: string
+    flowType: string
+    authMode: string
+    accountId?: string
+    sessionId?: string
+    expiresAt?: string
+    lastRefreshAt?: string
+    sessionData: Record<string, unknown>
+  }): Promise<AppManagedSessionSyncResponse> {
+    return this.getJson<AppManagedSessionSyncResponse>(
+      this.buildUrl('/api/managed-sessions'),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          identityId: input.identityId,
+          email: input.email,
+          flowType: input.flowType,
+          authMode: input.authMode,
+          accountId: input.accountId,
+          sessionId: input.sessionId,
+          expiresAt: input.expiresAt,
+          lastRefreshAt: input.lastRefreshAt,
+          sessionData: input.sessionData,
         }),
       },
       [VERIFICATION_RESERVE_SCOPE],
