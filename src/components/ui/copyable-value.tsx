@@ -3,6 +3,12 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { CheckIcon, ClipboardCopyIcon } from 'lucide-react'
 
 import { cn } from '#/lib/utils'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '#/components/ui/tooltip'
 
 type CopyableValueProps = {
   value?: string | null
@@ -10,9 +16,11 @@ type CopyableValueProps = {
   className?: string
   contentClassName?: string
   iconClassName?: string
+  copiedClassName?: string
   disabled?: boolean
   code?: boolean
   showIcon?: boolean
+  iconMode?: 'inline' | 'overlay'
   title: string
   onCopyError?: () => void
   onCopySuccess?: () => void
@@ -66,8 +74,7 @@ export function CopyableValue(props: CopyableValueProps) {
   }
 
   const content = props.displayValue ?? value
-
-  return (
+  const button = (
     <button
       type="button"
       onClick={() => {
@@ -76,14 +83,15 @@ export function CopyableValue(props: CopyableValueProps) {
       disabled={disabled}
       className={cn(
         'group inline-flex min-w-0 items-center gap-2 rounded-sm text-left transition-colors',
+        props.iconMode === 'overlay' && 'relative',
         disabled
           ? 'cursor-default text-muted-foreground'
           : 'cursor-copy hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         copied && !disabled && 'text-emerald-600 dark:text-emerald-300',
+        copied && !disabled && props.copiedClassName,
         props.className,
       )}
       aria-label={props.title}
-      title={props.title}
     >
       {props.code ? (
         <code className={cn('min-w-0', props.contentClassName)}>{content}</code>
@@ -93,16 +101,40 @@ export function CopyableValue(props: CopyableValueProps) {
 
       {!disabled && props.showIcon !== false ? (
         copied ? (
-          <CheckIcon className="size-3.5 shrink-0" />
+          <CheckIcon
+            className={cn(
+              'size-3.5 shrink-0',
+              props.iconMode === 'overlay' &&
+                'pointer-events-none absolute top-1/2 right-3 -translate-y-1/2',
+              props.iconClassName,
+            )}
+          />
         ) : (
           <ClipboardCopyIcon
             className={cn(
               'size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-70 group-focus-visible:opacity-70',
+              props.iconMode === 'overlay' &&
+                'pointer-events-none absolute top-1/2 right-3 -translate-y-1/2',
               props.iconClassName,
             )}
           />
         )
       ) : null}
     </button>
+  )
+
+  if (disabled) {
+    return button
+  }
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent side="top" sideOffset={8}>
+          {props.title}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }

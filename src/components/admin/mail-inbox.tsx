@@ -895,7 +895,7 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
             displayValue={code || m.admin_dashboard_code_input_placeholder()}
             disabled={!code}
             code
-            showIcon={false}
+            iconMode="overlay"
             title={m.mail_manual_code_copy_button()}
             onCopySuccess={() => {
               setStatus('success')
@@ -906,10 +906,12 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
               setMessage(m.mail_manual_code_copy_error())
             }}
             className={cn(
-              'h-8 rounded-md border bg-muted/40 px-3',
+              'h-8 justify-center rounded-md border border-border/70 bg-muted/40 px-3 pr-8',
               code ? 'text-foreground' : 'text-muted-foreground',
+              code && 'hover:bg-accent/50 active:bg-accent/70',
               props.compact ? 'w-[132px]' : 'w-full',
             )}
+            copiedClassName="border-emerald-500/70 bg-emerald-50/70 text-emerald-700 dark:border-emerald-500/60 dark:bg-emerald-500/10 dark:text-emerald-300"
             contentClassName="w-full text-center font-mono tracking-[0.28em]"
           />
         )}
