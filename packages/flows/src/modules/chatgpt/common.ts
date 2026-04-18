@@ -18,6 +18,8 @@ export const CHATGPT_OAUTH_AUTHORIZE_URL =
   'https://auth.openai.com/oauth/authorize'
 export const CHATGPT_CODEX_CONSENT_URL =
   'https://auth.openai.com/sign-in-with-chatgpt/codex/consent'
+export const CHATGPT_CODEX_ACCOUNT_CONSENT_URL =
+  'https://auth.openai.com/api/accounts/consent'
 export const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security'
 export const ADULT_AGE = '25'
 export const ADULT_BIRTHDAY = '1999-01-01'
@@ -111,6 +113,10 @@ export function isChatGPTLoginUrl(url: string): boolean {
 
 export function isChatGPTCodexConsentUrl(url: string): boolean {
   return url.startsWith(CHATGPT_CODEX_CONSENT_URL)
+}
+
+export function isChatGPTCodexAccountConsentUrl(url: string): boolean {
+  return url.startsWith(CHATGPT_CODEX_ACCOUNT_CONSENT_URL)
 }
 
 export const PASSWORD_INPUT_SELECTORS: SelectorTarget[] = [
@@ -291,6 +297,17 @@ export const CODEX_WORKSPACE_SUBMIT_SELECTORS: SelectorTarget[] = [
     options: { name: /继续|continue|sign in|allow|authorize/i },
   },
   { text: /继续|continue|sign in|allow|authorize/i },
+]
+export const CODEX_CONSENT_SUBMIT_SELECTORS: SelectorTarget[] = [
+  'form[action*="/api/accounts/consent"] button[type="submit"]',
+  'form button[type="submit"]',
+  'button[type="submit"]',
+  'input[type="submit"]',
+  {
+    role: 'button',
+    options: { name: /继续|continue|allow|authorize|accept|approve/i },
+  },
+  { text: /继续|continue|allow|authorize|accept|approve/i },
 ]
 export const ONBOARDING_ACTION_CANDIDATES: Array<{
   text: string

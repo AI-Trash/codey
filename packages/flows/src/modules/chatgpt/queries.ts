@@ -11,11 +11,13 @@ import {
   AGE_GATE_AGE_SELECTORS,
   AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
   AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
+  CODEX_CONSENT_SUBMIT_SELECTORS,
   CODEX_WORKSPACE_SELECTORS,
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_HOME_URL,
   DEFAULT_EVENT_TIMEOUT_MS,
+  isChatGPTCodexAccountConsentUrl,
   isChatGPTCodexConsentUrl,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
@@ -53,7 +55,10 @@ export type ChatGPTLoginEntrySurface =
   | 'passkey'
   | 'unknown'
 
-export type ChatGPTCodexOAuthSurface = ChatGPTLoginEntrySurface | 'workspace'
+export type ChatGPTCodexOAuthSurface =
+  | ChatGPTLoginEntrySurface
+  | 'workspace'
+  | 'consent'
 
 export type ChatGPTPasskeyTrigger = 'retry' | 'passkey' | 'none'
 
@@ -819,6 +824,17 @@ export async function isCodexWorkspacePickerReady(
   )
 }
 
+export async function isCodexConsentReady(page: Page): Promise<boolean> {
+  if (!isChatGPTCodexAccountConsentUrl(page.url())) {
+    return false
+  }
+
+  return (
+    (await hasEnabledSelector(page, CODEX_CONSENT_SUBMIT_SELECTORS)) ||
+    (await isAnySelectorVisible(page, CODEX_CONSENT_SUBMIT_SELECTORS))
+  )
+}
+
 export async function getCodexOAuthSurfaceCandidates(
   page: Page,
 ): Promise<Exclude<ChatGPTCodexOAuthSurface, 'unknown'>[]> {
@@ -826,6 +842,9 @@ export async function getCodexOAuthSurfaceCandidates(
 
   if (await isCodexWorkspacePickerReady(page)) {
     pushUniqueCandidate(candidates, 'workspace')
+  }
+  if (await isCodexConsentReady(page)) {
+    pushUniqueCandidate(candidates, 'consent')
   }
 
   for (const candidate of await getLoginEntryCandidates(page)) {

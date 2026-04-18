@@ -355,6 +355,7 @@ export const managedIdentitySessions = pgTable(
         onDelete: "cascade",
       }),
     email: text("email").notNull(),
+    clientId: text("client_id").default("unknown").notNull(),
     authMode: text("auth_mode").notNull(),
     flowType: text("flow_type").notNull(),
     accountId: text("account_id"),
@@ -393,14 +394,16 @@ export const managedIdentitySessions = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex("managed_identity_sessions_identity_id_unique").on(
+    uniqueIndex("managed_identity_sessions_identity_client_unique").on(
       table.identityId,
+      table.clientId,
     ),
     index("managed_identity_sessions_status_last_seen_at_idx").on(
       table.status,
       table.lastSeenAt,
     ),
     index("managed_identity_sessions_email_idx").on(table.email),
+    index("managed_identity_sessions_client_id_idx").on(table.clientId),
     index("managed_identity_sessions_account_id_idx").on(table.accountId),
     index("managed_identity_sessions_session_id_idx").on(table.sessionId),
   ],

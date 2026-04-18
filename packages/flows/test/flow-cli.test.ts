@@ -138,6 +138,10 @@ describe('flow cli helpers', () => {
       token: {
         accessToken: 'secret',
       },
+      codeyApp: {
+        identityId: 'identity-123',
+        sessionRecordId: 'managed-session-1',
+      },
       axonHub: {
         projectId: 'project-42',
         channel: {
@@ -167,6 +171,8 @@ describe('flow cli helpers', () => {
     expect(inviteSummary).not.toContain('token=secret')
 
     expect(oauthSummary).toContain('email: person@example.com')
+    expect(oauthSummary).toContain('shared identity: identity-123')
+    expect(oauthSummary).toContain('shared session: managed-session-1')
     expect(oauthSummary).toContain('channel: Codey')
     expect(oauthSummary).toContain('project: project-42')
     expect(oauthSummary).toContain('token: stored locally')

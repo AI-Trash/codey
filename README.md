@@ -176,7 +176,7 @@ pnpm --filter ./packages/flows exec jiti src/cli.ts daemon start --target octoca
 
 The daemon keeps an SSE connection to `/api/cli/events` and prints admin notifications as JSON.
 
-### Codex OAuth + AxonHub channel flow
+### Codex OAuth session sharing flow
 
 ```bash
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth
@@ -184,7 +184,7 @@ pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --email som
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --workspaceIndex 2
 ```
 
-This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, stores the resulting Codex token under `.codey/credentials/`, signs in to AxonHub admin, and creates a Codex channel using `credentials.oauth`. CLI output redacts access tokens, refresh tokens, and passwords.
+This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, stores the resulting Codex token under `.codey/credentials/`, syncs the token payload to the Codey app session surface when `CODEY_APP_*` is configured, and optionally creates an AxonHub Codex channel when full AxonHub admin config is present. CLI output redacts access tokens, refresh tokens, and passwords.
 
 When login is required, `flow codex-oauth` can target a specific stored ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `flow chatgpt-login`.
 
@@ -192,7 +192,7 @@ If OpenAI shows the Codex workspace picker, `flow codex-oauth` now auto-selects 
 
 When you run `flow codex-oauth --har true`, the CLI now keeps the browser open by default so the normal browser HAR is flushed when you close the browser window. Pass `--record false` if you want the browser to close automatically after the flow finishes.
 
-When `--har true` is enabled, the browser HAR still captures the in-browser OAuth navigation, and `codex-oauth` also writes a separate `*-flow-codex-oauth-api.har` sidecar under `artifacts/` for the token exchange and AxonHub API calls that run outside the browser context.
+When `--har true` is enabled, the browser HAR still captures the in-browser OAuth navigation, and `codex-oauth` also writes a separate `*-flow-codex-oauth-api.har` sidecar under `artifacts/` for the token exchange and any optional AxonHub API calls that run outside the browser context.
 
 Built-in defaults from `axonhub` are used for Codex OAuth, so these overrides are optional:
 
@@ -203,7 +203,9 @@ CODEX_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann
 CODEX_SCOPE=openid profile email offline_access
 ```
 
-Required environment variables for AxonHub channel creation:
+If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to sync the managed identity and OAuth token payload into the admin session page for sharing.
+
+To also create an AxonHub channel, provide:
 
 ```env
 AXONHUB_BASE_URL=http://localhost:8080

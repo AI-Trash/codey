@@ -304,16 +304,12 @@ function resolveRaisedError<
   Context extends object,
   Event extends string,
 >(
-  raised:
-    | unknown
-    | StateMachineRaisedErrorFactory<State, Context, Event>,
+  raised: unknown | StateMachineRaisedErrorFactory<State, Context, Event>,
   args: StateMachineRaisedErrorArgs<State, Context, Event>,
 ): unknown {
   const error =
     typeof raised === 'function'
-      ? (
-          raised as StateMachineRaisedErrorFactory<State, Context, Event>
-        )(args)
+      ? (raised as StateMachineRaisedErrorFactory<State, Context, Event>)(args)
       : raised
 
   return typeof error === 'string' ? new Error(error) : error
@@ -1226,13 +1222,12 @@ export function createUrlGuardFailureFragment<
   url: string
   message: string
   priority?: number
-  error?:
-    | string
-    | Error
-    | StateMachineRaisedErrorFactory<State, Context, Event>
+  error?: string | Error | StateMachineRaisedErrorFactory<State, Context, Event>
 }): StateMachineFragment<State, Context, Event> {
   const on = options.events.reduce<
-    Partial<Record<Event, StateMachineTransitionDefinition<State, Context, Event>>>
+    Partial<
+      Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+    >
   >((transitions, event) => {
     transitions[event] = {
       priority: options.priority ?? 1000,
@@ -1260,8 +1255,8 @@ export function createUrlGuardFailureFragment<
         raise: (args: StateMachineRaisedErrorArgs<State, Context, Event>) =>
           resolveRaisedError(
             options.error ??
-              ((args.context.lastMessage as string | undefined) ??
-                options.message),
+              (args.context.lastMessage as string | undefined) ??
+              options.message,
             args,
           ),
       },

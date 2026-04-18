@@ -440,6 +440,7 @@ export class AppVerificationProviderClient {
     identityId: string
     email: string
     flowType: string
+    clientId: string
     authMode: string
     accountId?: string
     sessionId?: string
@@ -458,6 +459,7 @@ export class AppVerificationProviderClient {
           identityId: input.identityId,
           email: input.email,
           flowType: input.flowType,
+          clientId: input.clientId,
           authMode: input.authMode,
           accountId: input.accountId,
           sessionId: input.sessionId,

@@ -81,7 +81,7 @@ function hasReusableCodeyAppAccess(
 export async function syncManagedSessionToCodeyApp(input: {
   identityId: string
   email: string
-  flowType: 'chatgpt-register' | 'chatgpt-login'
+  flowType: 'chatgpt-register' | 'chatgpt-login' | 'codex-oauth'
   session: StoredChatGPTSession
 }): Promise<{ ok: boolean; id: string } | null> {
   const config = resolveCodeyAppConfig()
@@ -94,6 +94,7 @@ export async function syncManagedSessionToCodeyApp(input: {
     identityId: input.identityId.trim(),
     email: input.email.trim().toLowerCase(),
     flowType: input.flowType,
+    clientId: input.session.clientId,
     authMode: input.session.auth.auth_mode,
     accountId: input.session.accountId,
     sessionId: input.session.sessionId,
@@ -101,4 +102,29 @@ export async function syncManagedSessionToCodeyApp(input: {
     lastRefreshAt: input.session.auth.last_refresh,
     sessionData: input.session.auth,
   })
+}
+
+export async function syncManagedSessionsToCodeyApp(input: {
+  identityId: string
+  email: string
+  flowType: 'chatgpt-register' | 'chatgpt-login'
+  sessions: StoredChatGPTSession[]
+}): Promise<number> {
+  let syncedCount = 0
+
+  for (const session of input.sessions) {
+    const result = await syncManagedSessionToCodeyApp({
+      identityId: input.identityId,
+      email: input.email,
+      flowType: input.flowType,
+      session,
+    })
+    if (!result) {
+      continue
+    }
+
+    syncedCount += 1
+  }
+
+  return syncedCount
 }

@@ -440,7 +440,7 @@ withCommonOptions(
   flowCli
     .command(
       'codex-oauth',
-      'Run local Codex OAuth, store the token, and create an AxonHub Codex channel',
+      'Run local Codex OAuth, store the token, sync it to Codey app, and optionally create an AxonHub Codex channel',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
@@ -470,11 +470,11 @@ withCommonOptions(
     )
     .option(
       '--projectId <id>',
-      'Optional AxonHub project context sent as X-Project-ID',
+      'Optional AxonHub project context sent as X-Project-ID when channel creation is enabled',
     )
     .option(
       '--channelName <name>',
-      'Override the AxonHub channel name for this run',
+      'Override the AxonHub channel name for this run when channel creation is enabled',
     )
     .example('codey flow codex-oauth --redirectPort 3005')
     .example('codey flow codex-oauth --authorizeUrlOnly true')

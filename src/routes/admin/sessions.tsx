@@ -110,6 +110,7 @@ type ManagedSessionSummary = {
   identityId: string
   identityLabel: string
   email: string
+  clientId: string
   authMode: string
   flowType: string
   accountId?: string | null
@@ -164,6 +165,13 @@ function AdminSessionsPage() {
         .id('flowType')
         .accessor((summary) => formatFlowType(summary.flowType))
         .displayName(m.admin_session_table_flow())
+        .icon(KeyRoundIcon)
+        .build(),
+      dtf
+        .text()
+        .id('clientId')
+        .accessor((summary) => summary.clientId)
+        .displayName(m.admin_session_table_client_id())
         .icon(KeyRoundIcon)
         .build(),
       dtf
@@ -261,12 +269,13 @@ function AdminSessionsPage() {
               />
             }
             renderTable={(rows) => (
-              <Table className="min-w-[1380px]">
+              <Table className="min-w-[1540px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_account()}</TableHead>
                     <TableHead>{m.admin_session_table_flow()}</TableHead>
+                    <TableHead>{m.admin_session_table_client_id()}</TableHead>
                     <TableHead>{m.admin_session_table_account_id()}</TableHead>
                     <TableHead>{m.admin_session_table_session_id()}</TableHead>
                     <TableHead>{m.admin_session_table_last_refresh()}</TableHead>
@@ -306,6 +315,13 @@ function AdminSessionsPage() {
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
                         {formatFlowType(summary.flowType)}
+                      </TableCell>
+                      <TableCell className="align-top text-sm text-muted-foreground">
+                        <CopyableValue
+                          value={summary.clientId}
+                          className="max-w-full"
+                          contentClassName="break-all"
+                        />
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
                         {summary.accountId ? (
@@ -437,6 +453,10 @@ function SessionPayloadDialog(props: { summary: ManagedSessionSummary }) {
             value={formatFlowType(props.summary.flowType)}
           />
           <SessionMetaItem
+            label={m.admin_session_table_client_id()}
+            value={props.summary.clientId}
+          />
+          <SessionMetaItem
             label={m.oauth_clients_table_status()}
             value={translateStatusLabel(props.summary.status)}
           />
@@ -563,6 +583,10 @@ function formatFlowType(value: string) {
 
   if (value === 'chatgpt-login') {
     return m.admin_sessions_flow_login()
+  }
+
+  if (value === 'codex-oauth') {
+    return m.admin_sessions_flow_codex_oauth()
   }
 
   return value

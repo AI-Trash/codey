@@ -225,10 +225,10 @@ describe('state machine', () => {
                     }),
                   ),
                 },
-            ],
-          }),
-        },
-      }),
+              ],
+            }),
+          },
+        }),
         defineStateMachineFragment<
           'idle' | 'preferred' | 'fallback',
           {
@@ -284,7 +284,7 @@ describe('state machine', () => {
           target: 'fatal',
           actions: assignContext<'idle' | 'fatal', { url?: string }, 'explode'>(
             () => ({
-            url: 'https://auth.openai.com/add-phone',
+              url: 'https://auth.openai.com/add-phone',
             }),
           ),
         },

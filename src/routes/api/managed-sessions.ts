@@ -8,6 +8,7 @@ import { readJsonBody } from "../../lib/server/request";
 interface ManagedSessionSyncBody {
   identityId?: string;
   email?: string;
+  clientId?: string;
   authMode?: string;
   flowType?: string;
   accountId?: string;
@@ -39,6 +40,13 @@ export const Route = createFileRoute("/api/managed-sessions")({
         const body = await readJsonBody<ManagedSessionSyncBody>(request);
         const identityId = String(body.identityId || "").trim();
         const email = String(body.email || "").trim().toLowerCase();
+        const sessionDataClientId =
+          typeof body.sessionData?.client_id === "string"
+            ? body.sessionData.client_id
+            : "";
+        const clientId =
+          String(body.clientId || "").trim() ||
+          sessionDataClientId.trim();
         const authMode = String(body.authMode || "").trim();
         const flowType = String(body.flowType || "").trim();
 
@@ -56,6 +64,7 @@ export const Route = createFileRoute("/api/managed-sessions")({
         const record = await syncManagedSession({
           identityId,
           email,
+          clientId,
           authMode,
           flowType,
           accountId: String(body.accountId || "").trim() || undefined,

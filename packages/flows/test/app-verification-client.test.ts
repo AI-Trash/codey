@@ -419,4 +419,105 @@ describe('AppVerificationProviderClient', () => {
       }),
     )
   })
+
+  it('can sync a managed session to the Codey app with a client id', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4317/oidc',
+            token_endpoint: 'http://localhost:4317/oidc/token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'token-123',
+            token_type: 'Bearer',
+            scope: 'verification:read verification:reserve',
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            id: 'managed-session-123',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new AppVerificationProviderClient({
+      baseUrl: 'http://localhost:4317',
+      clientId: 'codey_client',
+      clientSecret: 'codey_secret',
+    })
+
+    await expect(
+      client.upsertManagedSession({
+        identityId: 'identity-123',
+        email: 'user@example.com',
+        flowType: 'chatgpt-login',
+        clientId: 'app_X8zY6vW2pQ9tR3dE7nK1jL5gH',
+        authMode: 'chatgpt',
+        sessionId: 'authsess_123',
+        accountId: 'acct_123',
+        lastRefreshAt: '2026-04-18T17:52:36.000Z',
+        expiresAt: '2026-04-19T17:52:36.000Z',
+        sessionData: {
+          auth_mode: 'chatgpt',
+          client_id: 'app_X8zY6vW2pQ9tR3dE7nK1jL5gH',
+          tokens: {
+            access_token: 'jwt-access',
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: 'managed-session-123',
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:4317/api/managed-sessions',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          identityId: 'identity-123',
+          email: 'user@example.com',
+          flowType: 'chatgpt-login',
+          clientId: 'app_X8zY6vW2pQ9tR3dE7nK1jL5gH',
+          authMode: 'chatgpt',
+          accountId: 'acct_123',
+          sessionId: 'authsess_123',
+          expiresAt: '2026-04-19T17:52:36.000Z',
+          lastRefreshAt: '2026-04-18T17:52:36.000Z',
+          sessionData: {
+            auth_mode: 'chatgpt',
+            client_id: 'app_X8zY6vW2pQ9tR3dE7nK1jL5gH',
+            tokens: {
+              access_token: 'jwt-access',
+            },
+          },
+        }),
+      }),
+    )
+  })
 })

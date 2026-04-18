@@ -123,29 +123,39 @@ export async function createAuthorizationCallbackCapture(
     await page.unroute(callbackUrlPattern, routeHandler).catch(() => undefined)
   }
 
-  const settleWithResult = async (payload: AuthorizationCallbackPayload) => {
-    if (settled) return
+  const resolveCapturedResult = (payload: AuthorizationCallbackPayload) => {
+    if (settled) return false
     settled = true
-    await cleanup()
     resolveResult(payload)
+    return true
+  }
+
+  const rejectCapturedResult = (error: unknown) => {
+    if (settled) return false
+    settled = true
+    rejectResult(error instanceof Error ? error : new Error(String(error)))
+    return true
   }
 
   const settleWithError = async (error: unknown) => {
-    if (settled) return
-    settled = true
-    await cleanup()
-    rejectResult(error instanceof Error ? error : new Error(String(error)))
+    if (!rejectCapturedResult(error)) return
+    await cleanup().catch(() => undefined)
   }
 
   const routeHandler = async (route: Route) => {
     try {
       const payload = buildAuthorizationCallbackPayload(route.request().url())
-      await route.fulfill({
-        status: 200,
-        contentType: 'text/html; charset=utf-8',
-        body: successHtml || defaultAuthorizationSuccessHtml,
-      })
-      await settleWithResult(payload)
+      const captured = resolveCapturedResult(payload)
+      await route
+        .fulfill({
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: successHtml || defaultAuthorizationSuccessHtml,
+        })
+        .catch(() => undefined)
+      if (captured) {
+        await cleanup().catch(() => undefined)
+      }
     } catch (error) {
       await settleWithError(error)
     }

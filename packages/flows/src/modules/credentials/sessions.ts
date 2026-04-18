@@ -17,6 +17,7 @@ export interface StoredChatGPTSession {
   identityId: string
   email: string
   flowType: 'chatgpt-register' | 'chatgpt-login'
+  clientId: string
   auth: ChatGPTAuthSessionPayload
   sessionId?: string
   accountId?: string
@@ -31,6 +32,7 @@ export interface StoredChatGPTSessionSummary {
   identityId: string
   email: string
   flowType: 'chatgpt-register' | 'chatgpt-login'
+  clientId: string
   authMode: 'chatgpt'
   sessionId?: string
   accountId?: string
@@ -39,6 +41,12 @@ export interface StoredChatGPTSessionSummary {
   hasRefreshToken: boolean
   hasIdToken: boolean
   storePath: string
+}
+
+export interface PersistedChatGPTSessionsResult {
+  sessions: StoredChatGPTSession[]
+  summaries: StoredChatGPTSessionSummary[]
+  primarySummary?: StoredChatGPTSessionSummary
 }
 
 function getStoreRootPath(): string {
@@ -50,27 +58,37 @@ function getSessionsDirectoryPath(): string {
   return path.join(getStoreRootPath(), STORE_SESSIONS_DIR_NAME)
 }
 
+function sanitizeFileSegment(value: string, fallback: string): string {
+  const normalized =
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || fallback
+  return normalized
+}
+
 function createSessionFileName(input: {
   identityId: string
   email: string
+  clientId: string
 }): string {
   const normalizedEmail = input.email.trim().toLowerCase()
   const emailDigest = crypto
     .createHash('sha1')
-    .update(`${input.identityId}:${normalizedEmail}`)
+    .update(`${input.identityId}:${normalizedEmail}:${input.clientId}`)
     .digest('hex')
     .slice(0, 12)
-  const safeEmail =
-    normalizedEmail
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'session'
-  return `${safeEmail}--${emailDigest}.json`
+  const safeEmail = sanitizeFileSegment(normalizedEmail, 'session')
+  const safeClientId = sanitizeFileSegment(input.clientId, 'unknown-client')
+  return `${safeEmail}--${safeClientId}--${emailDigest}.json`
 }
 
 function getSessionStorePath(input: {
   identityId: string
   email: string
+  clientId: string
 }): string {
   return path.join(getSessionsDirectoryPath(), createSessionFileName(input))
 }
@@ -98,6 +116,7 @@ function summarize(
     identityId: session.identityId,
     email: session.email,
     flowType: session.flowType,
+    clientId: session.clientId,
     authMode: session.auth.auth_mode,
     sessionId: session.sessionId,
     accountId: session.accountId,
@@ -109,7 +128,7 @@ function summarize(
   }
 }
 
-export function persistChatGPTSession(input: {
+function buildStoredSession(input: {
   identityId: string
   email: string
   flowType: 'chatgpt-register' | 'chatgpt-login'
@@ -118,16 +137,21 @@ export function persistChatGPTSession(input: {
   session: StoredChatGPTSession
   summary: StoredChatGPTSessionSummary
 } {
+  const normalizedEmail = input.email.trim().toLowerCase()
+  const normalizedClientId = input.snapshot.clientId.trim() || 'unknown'
   const storePath = getSessionStorePath({
     identityId: input.identityId,
-    email: input.email,
+    email: normalizedEmail,
+    clientId: normalizedClientId,
   })
-  const createdAt = readExistingCreatedAt(storePath) || input.snapshot.capturedAt
+  const createdAt =
+    readExistingCreatedAt(storePath) || input.snapshot.capturedAt
   const session: StoredChatGPTSession = {
     version: STORE_VERSION,
     identityId: input.identityId,
-    email: input.email.trim().toLowerCase(),
+    email: normalizedEmail,
     flowType: input.flowType,
+    clientId: normalizedClientId,
     auth: input.snapshot.auth,
     sessionId: input.snapshot.sessionId,
     accountId: input.snapshot.accountId,
@@ -144,5 +168,55 @@ export function persistChatGPTSession(input: {
   return {
     session,
     summary: summarize(session, storePath),
+  }
+}
+
+export function persistChatGPTSessions(input: {
+  identityId: string
+  email: string
+  flowType: 'chatgpt-register' | 'chatgpt-login'
+  snapshots: ChatGPTSessionSnapshot[]
+}): PersistedChatGPTSessionsResult {
+  const persisted = input.snapshots.map((snapshot) =>
+    buildStoredSession({
+      identityId: input.identityId,
+      email: input.email,
+      flowType: input.flowType,
+      snapshot,
+    }),
+  )
+
+  return {
+    sessions: persisted.map((entry) => entry.session),
+    summaries: persisted.map((entry) => entry.summary),
+    primarySummary: persisted[0]?.summary,
+  }
+}
+
+export function persistChatGPTSession(input: {
+  identityId: string
+  email: string
+  flowType: 'chatgpt-register' | 'chatgpt-login'
+  snapshot: ChatGPTSessionSnapshot
+}): {
+  session: StoredChatGPTSession
+  summary: StoredChatGPTSessionSummary
+} {
+  const persisted = persistChatGPTSessions({
+    identityId: input.identityId,
+    email: input.email,
+    flowType: input.flowType,
+    snapshots: [input.snapshot],
+  })
+
+  const session = persisted.sessions[0]
+  const summary = persisted.primarySummary
+  if (!session || !summary) {
+    throw new Error('Unable to persist ChatGPT session snapshot')
+  }
+
+  return {
+    session,
+    summary,
   }
 }

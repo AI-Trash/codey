@@ -20,6 +20,7 @@ import {
   AGE_GATE_BIRTH_MONTH_SELECTORS,
   AGE_GATE_BIRTH_YEAR_SELECTORS,
   AGE_GATE_NAME_SELECTORS,
+  CODEX_CONSENT_SUBMIT_SELECTORS,
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
@@ -45,6 +46,7 @@ import { toLocator } from '../../utils/selectors'
 import {
   type ChatGPTPostEmailLoginStep,
   hasPasswordTimeoutErrorState,
+  isCodexConsentReady,
   isCodexWorkspacePickerReady,
   isLocatorEnabled,
   waitForAnySelectorState,
@@ -915,6 +917,23 @@ export async function continueCodexWorkspaceSelection(
     availableWorkspaces: selected.availableWorkspaces,
     selectedWorkspaceIndex: selected.selectedWorkspaceIndex,
   }
+}
+
+export async function continueCodexOAuthConsent(page: Page): Promise<void> {
+  if (!(await isCodexConsentReady(page))) {
+    throw new Error('Codex OAuth consent page was not ready.')
+  }
+
+  const submitReady = await waitForEnabledSelector(
+    page,
+    CODEX_CONSENT_SUBMIT_SELECTORS,
+    5000,
+  )
+  if (!submitReady) {
+    throw new Error('Codex OAuth consent button did not become enabled.')
+  }
+
+  await clickAny(page, CODEX_CONSENT_SUBMIT_SELECTORS)
 }
 
 async function clearOriginStorage(

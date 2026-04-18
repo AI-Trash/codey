@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "./db/client";
 import {
   managedIdentitySessions,
@@ -12,6 +12,7 @@ export interface AdminManagedSessionSummary {
   identityId: string;
   identityLabel: string;
   email: string;
+  clientId: string;
   authMode: string;
   flowType: string;
   accountId: string | null;
@@ -54,6 +55,7 @@ function buildManagedSessionSummary(row: {
   id: string;
   identityId: string;
   email: string;
+  clientId: string;
   authMode: string;
   flowType: string;
   accountId: string | null;
@@ -75,6 +77,7 @@ function buildManagedSessionSummary(row: {
     identityId: row.identityId,
     identityLabel: row.identity?.label || row.identity?.email || row.email,
     email: row.email,
+    clientId: row.clientId,
     authMode: row.authMode,
     flowType: row.flowType,
     accountId: row.accountId,
@@ -126,6 +129,7 @@ export async function findAdminManagedSessionSummary(id: string) {
 export async function syncManagedSession(params: {
   identityId: string;
   email: string;
+  clientId?: string | null;
   authMode: string;
   flowType: string;
   accountId?: string | null;
@@ -136,6 +140,14 @@ export async function syncManagedSession(params: {
 }) {
   const identityId = params.identityId.trim();
   const email = params.email.trim().toLowerCase();
+  const sessionDataClientId =
+    typeof params.sessionData.client_id === "string"
+      ? params.sessionData.client_id
+      : "";
+  const clientId =
+    params.clientId?.trim() ||
+    sessionDataClientId.trim() ||
+    "unknown";
   const authMode = params.authMode.trim() || "chatgpt";
   const flowType = params.flowType.trim();
   const accountId = params.accountId?.trim() || null;
@@ -144,7 +156,10 @@ export async function syncManagedSession(params: {
   const expiresAt = parseOptionalDate(params.expiresAt);
   const seenAt = new Date();
   const existing = await getDb().query.managedIdentitySessions.findFirst({
-    where: eq(managedIdentitySessions.identityId, identityId),
+    where: and(
+      eq(managedIdentitySessions.identityId, identityId),
+      eq(managedIdentitySessions.clientId, clientId),
+    ),
   });
 
   if (existing) {
@@ -152,6 +167,7 @@ export async function syncManagedSession(params: {
       .update(managedIdentitySessions)
       .set({
         email,
+        clientId,
         authMode,
         flowType,
         accountId,
@@ -163,7 +179,12 @@ export async function syncManagedSession(params: {
         lastSeenAt: seenAt,
         updatedAt: seenAt,
       })
-      .where(eq(managedIdentitySessions.identityId, identityId))
+      .where(
+        and(
+          eq(managedIdentitySessions.identityId, identityId),
+          eq(managedIdentitySessions.clientId, clientId),
+        ),
+      )
       .returning();
 
     if (record) {
@@ -177,6 +198,7 @@ export async function syncManagedSession(params: {
       id: createId(),
       identityId,
       email,
+      clientId,
       authMode,
       flowType,
       accountId,

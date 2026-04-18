@@ -15,13 +15,13 @@ import {
   runGuardedBranches,
 } from '../state-machine'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
-import { syncManagedSessionToCodeyApp } from '../modules/app-auth/managed-sessions'
+import { syncManagedSessionsToCodeyApp } from '../modules/app-auth/managed-sessions'
 import {
   resolveStoredChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
 } from '../modules/credentials'
 import {
-  persistChatGPTSession,
+  persistChatGPTSessions,
   type StoredChatGPTSessionSummary,
 } from '../modules/credentials/sessions'
 import {
@@ -1177,23 +1177,23 @@ export async function loginChatGPT(
 
     const title = await page.title()
     let storedSession: StoredChatGPTSessionSummary | undefined
-    let persistedSessionRecord:
-      | ReturnType<typeof persistChatGPTSession>['session']
+    let persistedSessionRecords:
+      | ReturnType<typeof persistChatGPTSessions>['sessions']
       | undefined
 
     try {
-      const capturedSession = await sessionCapture.capture()
-      if (capturedSession) {
-        const persistedSession = persistChatGPTSession({
+      const capturedSessions = await sessionCapture.capture()
+      if (capturedSessions.length > 0) {
+        const persistedSessions = persistChatGPTSessions({
           identityId: stored.summary.id,
           email: stored.summary.email,
           flowType: 'chatgpt-login',
-          snapshot: capturedSession,
+          snapshots: capturedSessions,
         })
-        persistedSessionRecord = persistedSession.session
-        storedSession = persistedSession.summary
+        persistedSessionRecords = persistedSessions.sessions
+        storedSession = persistedSessions.primarySummary
         options.progressReporter?.({
-          message: 'Persisted ChatGPT session snapshot locally',
+          message: `Persisted ${persistedSessions.sessions.length} ChatGPT session snapshot(s) locally`,
         })
       } else {
         options.progressReporter?.({
@@ -1223,17 +1223,17 @@ export async function loginChatGPT(
       })
     }
 
-    if (persistedSessionRecord && storedSession) {
+    if (persistedSessionRecords?.length) {
       try {
-        const syncedSession = await syncManagedSessionToCodeyApp({
+        const syncedSessionCount = await syncManagedSessionsToCodeyApp({
           identityId: stored.summary.id,
           email: stored.summary.email,
           flowType: 'chatgpt-login',
-          session: persistedSessionRecord,
+          sessions: persistedSessionRecords,
         })
-        if (syncedSession) {
+        if (syncedSessionCount > 0) {
           options.progressReporter?.({
-            message: 'Synced ChatGPT session snapshot to Codey app',
+            message: `Synced ${syncedSessionCount} ChatGPT session snapshot(s) to Codey app`,
           })
         }
       } catch (error) {
