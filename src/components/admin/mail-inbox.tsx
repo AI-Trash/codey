@@ -10,6 +10,7 @@ import {
 import DOMPurify from 'dompurify'
 import { extract as extractLetterMail } from 'letterparser'
 import {
+  ArchiveIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -73,6 +74,12 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '#/components/ui/tooltip'
 import { serializeDataTableFilters } from '#/lib/data-table-filters'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
@@ -500,24 +507,35 @@ export function AdminMailInbox(props: {
                           />
                         </TableCell>
                         <TableCell className="align-top text-right">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <ArchiveManagedIdentityButton
-                              identityId={email.managedIdentityId}
-                              identityStatus={email.managedIdentityStatus}
-                              onUpdated={invalidateInboxQueries}
-                              compact
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                openEmailDetails(email.id)
-                              }}
-                            >
-                              {m.mail_inbox_open_button()}
-                            </Button>
-                          </div>
+                          <TooltipProvider>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <ArchiveManagedIdentityButton
+                                identityId={email.managedIdentityId}
+                                identityStatus={email.managedIdentityStatus}
+                                onUpdated={invalidateInboxQueries}
+                                compact
+                              />
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon-sm"
+                                    aria-label={m.mail_inbox_open_button()}
+                                    title={m.mail_inbox_open_button()}
+                                    onClick={() => {
+                                      openEmailDetails(email.id)
+                                    }}
+                                  >
+                                    <MailIcon />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent sideOffset={6}>
+                                  {m.mail_inbox_open_button()}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TooltipProvider>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -912,42 +930,62 @@ function ArchiveManagedIdentityButton(props: ArchiveManagedIdentityButtonProps) 
   }
 
   return (
-    <div
-      className={cn(
-        'space-y-2',
-        props.compact ? 'max-w-fit text-left' : 'w-full max-w-[280px]',
-      )}
-    >
-      <Button
-        type="button"
-        size="sm"
-        variant={isArchived ? 'secondary' : 'outline'}
-        disabled={isArchived || status === 'submitting'}
-        onClick={() => {
-          void archiveIdentity()
-        }}
+    <TooltipProvider>
+      <div
+        className={cn(
+          'space-y-2',
+          props.compact ? 'max-w-fit text-left' : 'w-full max-w-[280px]',
+        )}
       >
-        {status === 'submitting' ? (
-          <LoaderCircleIcon className="animate-spin" />
-        ) : null}
-        {isArchived
-          ? m.mail_identity_archive_done()
-          : m.mail_identity_archive_button()}
-      </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant={isArchived ? 'secondary' : 'outline'}
+              disabled={status === 'submitting'}
+              aria-label={
+                isArchived
+                  ? m.mail_identity_archive_done()
+                  : m.mail_identity_archive_button()
+              }
+              title={
+                isArchived
+                  ? m.mail_identity_archive_done()
+                  : m.mail_identity_archive_button()
+              }
+              onClick={() => {
+                void archiveIdentity()
+              }}
+            >
+              {status === 'submitting' ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : (
+                <ArchiveIcon />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent sideOffset={6}>
+            {isArchived
+              ? m.mail_identity_archive_done()
+              : m.mail_identity_archive_button()}
+          </TooltipContent>
+        </Tooltip>
 
-      {message && (!props.compact || status === 'error') ? (
-        <p
-          className={cn(
-            'text-xs',
-            status === 'error'
-              ? 'text-destructive'
-              : 'text-emerald-600',
-          )}
-        >
-          {message}
-        </p>
-      ) : null}
-    </div>
+        {message && (!props.compact || status === 'error') ? (
+          <p
+            className={cn(
+              'text-xs',
+              status === 'error'
+                ? 'text-destructive'
+                : 'text-emerald-600',
+            )}
+          >
+            {message}
+          </p>
+        ) : null}
+      </div>
+    </TooltipProvider>
   )
 }
 

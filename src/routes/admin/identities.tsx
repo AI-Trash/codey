@@ -1,8 +1,22 @@
-import { useMemo } from 'react'
+import {
+  type ComponentProps,
+  type ReactNode,
+  useMemo,
+  useState,
+} from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
-import { CalendarIcon, HashIcon, SearchIcon, ShieldIcon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  CalendarIcon,
+  CheckIcon,
+  HashIcon,
+  SearchIcon,
+  ShieldIcon,
+  SquarePenIcon,
+  Trash2Icon,
+} from 'lucide-react'
 
 import {
   AdminMetricCard,
@@ -22,7 +36,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '#/components/ui/alert-dialog'
 import { Button } from '#/components/ui/button'
 import {
@@ -43,6 +56,12 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '#/components/ui/tooltip'
 import { translateStatusLabel } from '#/lib/i18n'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
@@ -304,53 +323,55 @@ function IdentityRowActions(props: { summary: IdentitySummary }) {
     summary.label !== summary.account ? summary.label : ''
 
   return (
-    <div className="grid min-w-[360px] gap-3">
-      <form
-        method="post"
-        action="/api/admin/identities"
-        className="flex flex-col gap-2 sm:flex-row sm:items-start"
-      >
-        <IdentityActionFields summary={summary} />
-        <Input
-          name="label"
-          defaultValue={labelDefaultValue}
-          placeholder={summary.account || m.admin_dashboard_identity_label()}
-          className="h-8"
-        />
-        <Button
-          type="submit"
-          name="intent"
-          value="save-label"
-          size="sm"
-          variant="outline"
-          className="sm:shrink-0"
+    <TooltipProvider>
+      <div className="grid min-w-[260px] gap-3">
+        <form
+          method="post"
+          action="/api/admin/identities"
+          className="flex items-start gap-2"
         >
-          {m.admin_identity_update_label_button()}
-        </Button>
-      </form>
+          <IdentityActionFields summary={summary} />
+          <Input
+            name="label"
+            defaultValue={labelDefaultValue}
+            placeholder={summary.account || m.admin_dashboard_identity_label()}
+            className="h-8 min-w-0"
+          />
+          <ActionIconButton
+            type="submit"
+            name="intent"
+            value="save-label"
+            label={m.admin_identity_update_label_button()}
+            icon={<SquarePenIcon />}
+          />
+        </form>
 
-      <div className="flex flex-wrap gap-2">
-        <IdentityStatusActionButton
-          summary={summary}
-          intent="activate"
-          active={summary.status === 'active'}
-          label={m.status_active()}
-        />
-        <IdentityStatusActionButton
-          summary={summary}
-          intent="review"
-          active={summary.status === 'review'}
-          label={m.status_review()}
-        />
-        <IdentityStatusActionButton
-          summary={summary}
-          intent="archive"
-          active={summary.status === 'archived'}
-          label={m.status_archived()}
-        />
-        <IdentityDeleteAction summary={summary} />
+        <div className="flex flex-wrap gap-2">
+          <IdentityStatusActionButton
+            summary={summary}
+            intent="activate"
+            active={summary.status === 'active'}
+            label={m.status_active()}
+            icon={<CheckIcon />}
+          />
+          <IdentityStatusActionButton
+            summary={summary}
+            intent="review"
+            active={summary.status === 'review'}
+            label={m.status_review()}
+            icon={<SearchIcon />}
+          />
+          <IdentityStatusActionButton
+            summary={summary}
+            intent="archive"
+            active={summary.status === 'archived'}
+            label={m.status_archived()}
+            icon={<ArchiveIcon />}
+          />
+          <IdentityDeleteAction summary={summary} />
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
 
@@ -373,31 +394,47 @@ function IdentityStatusActionButton(props: {
   intent: 'activate' | 'review' | 'archive'
   active: boolean
   label: string
+  icon: ReactNode
 }) {
   return (
     <form method="post" action="/api/admin/identities">
       <IdentityActionFields summary={props.summary} />
-      <Button
+      <ActionIconButton
         type="submit"
         name="intent"
         value={props.intent}
-        size="sm"
         variant={props.active ? 'default' : 'outline'}
-      >
-        {props.label}
-      </Button>
+        label={props.label}
+        icon={props.icon}
+      />
     </form>
   )
 }
 
 function IdentityDeleteAction(props: { summary: IdentitySummary }) {
+  const [open, setOpen] = useState(false)
+
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button type="button" size="sm" variant="destructive">
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="destructive"
+            aria-label={m.admin_identity_delete_button()}
+            title={m.admin_identity_delete_button()}
+            onClick={() => {
+              setOpen(true)
+            }}
+          >
+            <Trash2Icon />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent sideOffset={6}>
           {m.admin_identity_delete_button()}
-        </Button>
-      </AlertDialogTrigger>
+        </TooltipContent>
+      </Tooltip>
 
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
@@ -426,6 +463,34 @@ function IdentityDeleteAction(props: { summary: IdentitySummary }) {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+function ActionIconButton(props: {
+  type?: 'button' | 'submit' | 'reset'
+  name?: string
+  value?: string
+  variant?: ComponentProps<typeof Button>['variant']
+  label: string
+  icon: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type={props.type || 'button'}
+          name={props.name}
+          value={props.value}
+          size="icon-sm"
+          variant={props.variant || 'outline'}
+          aria-label={props.label}
+          title={props.label}
+        >
+          {props.icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent sideOffset={6}>{props.label}</TooltipContent>
+    </Tooltip>
   )
 }
 
