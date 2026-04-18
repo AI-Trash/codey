@@ -4,6 +4,7 @@ import {
   AppWindowIcon,
   ChevronsUpDownIcon,
   FingerprintIcon,
+  GlobeIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MailIcon,
@@ -119,6 +120,12 @@ function getOauthAppsSubNavigation() {
       icon: PlusCircleIcon,
       matches: (pathname: string) => pathname === '/admin/apps/new',
     },
+    {
+      label: m.admin_nav_domains(),
+      to: '/admin/domains',
+      icon: GlobeIcon,
+      matches: (pathname: string) => pathname === '/admin/domains',
+    },
   ] as const
 }
 
@@ -143,6 +150,7 @@ function getAdminNavigation() {
       icon: AppWindowIcon,
       matches: (pathname: string) =>
         pathname === '/admin/apps' ||
+        pathname === '/admin/domains' ||
         pathname === '/admin/apps/new' ||
         (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
       children: oauthAppsSubNavigation,
@@ -551,6 +559,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/apps/new') {
     return m.admin_nav_register_app()
+  }
+
+  if (pathname === '/admin/domains') {
+    return m.admin_nav_domains()
   }
 
   if (pathname.startsWith('/admin/apps/')) {

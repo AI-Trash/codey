@@ -3,6 +3,7 @@ import { createServerFn } from '@tanstack/react-start'
 import { AdminPageHeader } from '../../../components/admin/layout'
 import {
   AdminAuthRequired,
+  type ManagedVerificationDomainOption,
   NewOAuthClientPageContent,
 } from '../../../components/admin/oauth-clients'
 import { Button } from '../../../components/ui/button'
@@ -15,11 +16,13 @@ const loadOAuthClientRegistration = createServerFn({ method: 'GET' }).handler(
       { requireAdmin },
       { getAppEnv },
       { DEFAULT_OAUTH_SUPPORTED_SCOPES },
+      { listEnabledVerificationDomains },
     ] = await Promise.all([
       import('@tanstack/react-start/server'),
       import('../../../lib/server/auth'),
       import('../../../lib/server/env'),
       import('../../../lib/server/oauth-scopes'),
+      import('../../../lib/server/verification-domains'),
     ])
     const request = getRequest()
 
@@ -36,6 +39,8 @@ const loadOAuthClientRegistration = createServerFn({ method: 'GET' }).handler(
       supportedScopes: env.oauthSupportedScopes.length
         ? env.oauthSupportedScopes
         : DEFAULT_OAUTH_SUPPORTED_SCOPES,
+      verificationDomains:
+        (await listEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
     }
   },
 )
@@ -60,12 +65,20 @@ function AdminAppsNewPage() {
         description={m.admin_apps_new_description()}
         variant="plain"
         actions={
-          <Button asChild variant="outline">
-            <a href="/admin/apps">{m.admin_back_to_apps()}</a>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <a href="/admin/apps">{m.admin_back_to_apps()}</a>
+            </Button>
+            <Button asChild variant="outline">
+              <a href="/admin/domains">{m.admin_manage_domains()}</a>
+            </Button>
+          </>
         }
       />
-      <NewOAuthClientPageContent supportedScopes={data.supportedScopes} />
+      <NewOAuthClientPageContent
+        supportedScopes={data.supportedScopes}
+        verificationDomains={data.verificationDomains}
+      />
     </>
   )
 }

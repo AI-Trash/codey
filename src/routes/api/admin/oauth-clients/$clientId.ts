@@ -13,6 +13,7 @@ interface UpdateOAuthClientBody {
   description?: string | null;
   allowedScopes?: string[];
   enabled?: boolean;
+  verificationDomainId?: string;
   clientCredentialsEnabled?: boolean;
   deviceFlowEnabled?: boolean;
   tokenEndpointAuthMethod?: "client_secret_basic" | "client_secret_post";
@@ -81,6 +82,10 @@ export const Route = createFileRoute("/api/admin/oauth-clients/$clientId")({
               : undefined,
             enabled:
               typeof body.enabled === "boolean" ? body.enabled : undefined,
+            verificationDomainId:
+              typeof body.verificationDomainId === "string"
+                ? body.verificationDomainId
+                : undefined,
             clientCredentialsEnabled:
               typeof body.clientCredentialsEnabled === "boolean"
                 ? body.clientCredentialsEnabled

@@ -11,6 +11,7 @@ import {
 import {
   AppWindowIcon,
   CalendarIcon,
+  GlobeIcon,
   KeyRoundIcon,
   ListIcon,
   SearchIcon,
@@ -62,10 +63,18 @@ export type ManagedOAuthClient = {
   deviceFlowEnabled: boolean
   tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
   allowedScopes: string[]
+  verificationDomainId: string | null
+  verificationDomain: string | null
   clientSecretPreview: string
   clientSecretUpdatedAt: string | Date
   createdAt: string | Date
   updatedAt: string | Date
+}
+
+export type ManagedVerificationDomainOption = {
+  id: string
+  domain: string
+  isDefault: boolean
 }
 
 type OAuthClientFormValues = {
@@ -74,6 +83,7 @@ type OAuthClientFormValues = {
   enabled: boolean
   tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
   allowedScopes: string
+  verificationDomainId: string
   clientCredentialsEnabled: boolean
   deviceFlowEnabled: boolean
 }
@@ -84,6 +94,7 @@ type OAuthClientPayload = {
   enabled: boolean
   tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
   allowedScopes: string[]
+  verificationDomainId?: string
   clientCredentialsEnabled: boolean
   deviceFlowEnabled: boolean
 }
@@ -140,6 +151,13 @@ export function OAuthClientsList({
           .accessor((client) => client.clientId)
           .displayName(m.oauth_clients_table_client_id())
           .icon(KeyRoundIcon)
+          .build(),
+        dtf
+          .text()
+          .id('verificationDomain')
+          .accessor((client) => getVerificationDomainLabel(client))
+          .displayName(m.oauth_clients_table_domain())
+          .icon(GlobeIcon)
           .build(),
         dtf
           .multiOption()
@@ -216,6 +234,7 @@ export function OAuthClientsList({
               <TableRow>
                 <TableHead>{m.oauth_clients_table_app()}</TableHead>
                 <TableHead>{m.oauth_clients_table_client_id()}</TableHead>
+                <TableHead>{m.oauth_clients_table_domain()}</TableHead>
                 <TableHead>{m.oauth_clients_table_grants()}</TableHead>
                 <TableHead>{m.oauth_clients_table_scopes()}</TableHead>
                 <TableHead>{m.oauth_clients_table_secret()}</TableHead>
@@ -247,6 +266,18 @@ export function OAuthClientsList({
                       <p className="text-xs text-muted-foreground">
                         {formatAuthMethod(client.tokenEndpointAuthMethod)}
                       </p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="align-top">
+                    <div className="space-y-1">
+                      <div className="font-medium text-foreground">
+                        {getVerificationDomainLabel(client)}
+                      </div>
+                      {!client.verificationDomain ? (
+                        <p className="text-xs text-muted-foreground">
+                          {m.oauth_domain_default_fallback()}
+                        </p>
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell className="align-top">
@@ -311,8 +342,10 @@ export function OAuthClientsList({
 
 export function NewOAuthClientPageContent({
   supportedScopes,
+  verificationDomains,
 }: {
   supportedScopes: string[]
+  verificationDomains: ManagedVerificationDomainOption[]
 }) {
   const [form, setForm] = useState<OAuthClientFormValues>(() =>
     createFormValues({
@@ -321,6 +354,7 @@ export function NewOAuthClientPageContent({
       enabled: true,
       tokenEndpointAuthMethod: 'client_secret_basic',
       allowedScopes: supportedScopes.join('\n'),
+      verificationDomainId: verificationDomains[0]?.id || '',
       clientCredentialsEnabled: true,
       deviceFlowEnabled: false,
     }),
@@ -387,6 +421,7 @@ export function NewOAuthClientPageContent({
             submitting={submitting}
             submitLabel={m.oauth_new_submit()}
             supportedScopes={supportedScopes}
+            verificationDomains={verificationDomains}
             allowedScopesInputMode="tags"
             error={error}
             onChange={setForm}
@@ -448,9 +483,11 @@ export function NewOAuthClientPageContent({
 export function EditOAuthClientPageContent({
   initialClient,
   supportedScopes,
+  verificationDomains,
 }: {
   initialClient: ManagedOAuthClient
   supportedScopes: string[]
+  verificationDomains: ManagedVerificationDomainOption[]
 }) {
   const [client, setClient] = useState(initialClient)
   const [form, setForm] = useState<OAuthClientFormValues>(() =>
@@ -570,6 +607,7 @@ export function EditOAuthClientPageContent({
             submitting={saving}
             submitLabel={m.oauth_edit_save_settings()}
             supportedScopes={supportedScopes}
+            verificationDomains={verificationDomains}
             error={error}
             success={success}
             onChange={setForm}
@@ -623,6 +661,10 @@ export function EditOAuthClientPageContent({
               <SummaryItem
                 label={m.oauth_summary_allowed_scopes()}
                 value={client.allowedScopes.join(', ') || m.oauth_none()}
+              />
+              <SummaryItem
+                label={m.oauth_summary_verification_domain()}
+                value={getVerificationDomainLabel(client)}
               />
               <SummaryItem
                 label={m.oauth_clients_table_updated()}
@@ -693,6 +735,7 @@ function OAuthClientForm({
   submitting,
   submitLabel,
   supportedScopes,
+  verificationDomains,
   allowedScopesInputMode = 'text',
   error,
   success,
@@ -704,6 +747,7 @@ function OAuthClientForm({
   submitting: boolean
   submitLabel: string
   supportedScopes: string[]
+  verificationDomains: ManagedVerificationDomainOption[]
   allowedScopesInputMode?: 'text' | 'tags'
   error?: string | null
   success?: string | null
@@ -716,6 +760,8 @@ function OAuthClientForm({
   const parsedScopes = parseScopes(form.allowedScopes)
   const hasGrantEnabled =
     form.clientCredentialsEnabled || form.deviceFlowEnabled
+  const hasVerificationDomain = Boolean(form.verificationDomainId)
+  const hasVerificationDomainOptions = verificationDomains.length > 0
   const usesScopeTagSelector = allowedScopesInputMode === 'tags'
 
   return (
@@ -742,6 +788,36 @@ function OAuthClientForm({
           placeholder={m.oauth_field_description_placeholder()}
           className="min-h-28"
         />
+      </Field>
+
+      <Field
+        label={m.oauth_field_verification_domain()}
+        description={m.oauth_field_verification_domain_description()}
+      >
+        <NativeSelect
+          value={form.verificationDomainId}
+          onChange={(event) => {
+            const nextValue = event.target.value
+            onChange((current) => ({
+              ...current,
+              verificationDomainId: nextValue,
+            }))
+          }}
+          className="w-full"
+          required
+          disabled={!hasVerificationDomainOptions}
+        >
+          <NativeSelectOption value="">
+            {hasVerificationDomainOptions
+              ? m.oauth_field_verification_domain_placeholder()
+              : m.oauth_domains_none_available()}
+          </NativeSelectOption>
+          {verificationDomains.map((domain) => (
+            <NativeSelectOption key={domain.id} value={domain.id}>
+              {formatVerificationDomainOption(domain)}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
       </Field>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
@@ -846,6 +922,15 @@ function OAuthClientForm({
         </Alert>
       ) : null}
 
+      {!hasVerificationDomainOptions ? (
+        <Alert variant="destructive">
+          <AlertTitle>{m.oauth_domains_required_title()}</AlertTitle>
+          <AlertDescription>
+            {m.oauth_domains_required_description()}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {parsedScopes.length && !usesScopeTagSelector ? (
         <div className="flex flex-wrap gap-1.5">
           {parsedScopes.map((scope) => (
@@ -871,7 +956,15 @@ function OAuthClientForm({
       ) : null}
 
       {children || (
-        <Button type="submit" disabled={submitting || !hasGrantEnabled}>
+        <Button
+          type="submit"
+          disabled={
+            submitting ||
+            !hasGrantEnabled ||
+            !hasVerificationDomain ||
+            !hasVerificationDomainOptions
+          }
+        >
           {submitting ? m.oauth_saving() : submitLabel}
         </Button>
       )}
@@ -1065,6 +1158,7 @@ function createFormValues(client: {
   enabled: boolean
   tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post'
   allowedScopes: string[] | string
+  verificationDomainId?: string | null
   clientCredentialsEnabled: boolean
   deviceFlowEnabled: boolean
 }): OAuthClientFormValues {
@@ -1076,6 +1170,7 @@ function createFormValues(client: {
     allowedScopes: Array.isArray(client.allowedScopes)
       ? client.allowedScopes.join('\n')
       : client.allowedScopes,
+    verificationDomainId: client.verificationDomainId || '',
     clientCredentialsEnabled: client.clientCredentialsEnabled,
     deviceFlowEnabled: client.deviceFlowEnabled,
   }
@@ -1088,6 +1183,7 @@ function toPayload(form: OAuthClientFormValues): OAuthClientPayload {
     enabled: form.enabled,
     tokenEndpointAuthMethod: form.tokenEndpointAuthMethod,
     allowedScopes: parseScopes(form.allowedScopes),
+    verificationDomainId: form.verificationDomainId || undefined,
     clientCredentialsEnabled: form.clientCredentialsEnabled,
     deviceFlowEnabled: form.deviceFlowEnabled,
   }
@@ -1120,6 +1216,20 @@ function formatGrantList(
     client.clientCredentialsEnabled ? 'client_credentials' : null,
     client.deviceFlowEnabled ? 'device_flow' : null,
   ].filter(Boolean) as string[]
+}
+
+function getVerificationDomainLabel(
+  client: Pick<ManagedOAuthClient, 'verificationDomain'>,
+) {
+  return client.verificationDomain || m.oauth_domain_uses_default()
+}
+
+function formatVerificationDomainOption(
+  domain: ManagedVerificationDomainOption,
+) {
+  return domain.isDefault
+    ? `${domain.domain} (${m.oauth_domain_default_badge()})`
+    : domain.domain
 }
 
 function normalizeDate(value: string | Date | null | undefined) {

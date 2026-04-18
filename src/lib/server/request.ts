@@ -74,9 +74,16 @@ export async function requireVerificationAccess(
   request: Request,
   scopes: string[],
 ): Promise<Response | null> {
+  const result = await authorizeVerificationAccess(request, scopes);
+  return result instanceof Response ? result : null;
+}
+
+export async function authorizeVerificationAccess(
+  request: Request,
+  scopes: string[],
+): Promise<MachineAuthResult | Response> {
   if (hasAuthorizationHeader(request)) {
-    const result = await authorizeWithScopedBearer(request, scopes);
-    return result instanceof Response ? result : null;
+    return authorizeWithScopedBearer(request, scopes);
   }
 
   const apiKeyResult = requireVerificationApiKey(request);
@@ -84,7 +91,9 @@ export async function requireVerificationAccess(
     return apiKeyResult;
   }
 
-  return null;
+  return {
+    kind: "api_key",
+  };
 }
 
 export async function requireFlowAppAccess(

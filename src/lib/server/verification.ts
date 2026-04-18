@@ -34,6 +34,7 @@ import {
   publishAdminInboxEmailEvent,
 } from './admin-inbox-events'
 import { publishVerificationCodeEvent } from './verification-events'
+import { resolveReservationVerificationDomain } from './verification-domains'
 import { getDb } from './db/client'
 import { createId, randomCode } from './security'
 import { extractVerificationCodeFromText } from '../shared/verification-code'
@@ -388,29 +389,37 @@ function serializeAdminInboxEmail(
   }
 }
 
-function buildReservationEmail(id: string): {
+function getReservationAliasPrefix(): string {
+  const env = getAppEnv()
+  const configuredPrefix = env.verificationEmailPrefix?.trim()
+  if (configuredPrefix) {
+    return configuredPrefix
+  }
+
+  const mailbox = env.verificationMailbox?.trim()
+  if (mailbox) {
+    const atIndex = mailbox.lastIndexOf('@')
+    if (atIndex > 0) {
+      const localPart = mailbox.slice(0, atIndex).trim()
+      if (localPart) {
+        return localPart
+      }
+    }
+  }
+
+  return 'codey'
+}
+
+function buildReservationEmail(id: string, domain: string): {
   email: string
   prefix?: string
   mailbox?: string
 } {
-  const env = getAppEnv()
-  if (env.verificationMailbox) {
-    const [localPart, domain] = env.verificationMailbox.split('@')
-    if (!localPart || !domain) {
-      throw new Error(
-        `Invalid VERIFICATION_MAILBOX value: ${env.verificationMailbox}`,
-      )
-    }
-
-    return {
-      email: `${localPart}+${id}@${domain}`,
-      mailbox: env.verificationMailbox,
-    }
-  }
-
-  const domain = env.verificationDomain || 'example.invalid'
+  const prefix = getReservationAliasPrefix()
   return {
-    email: `${env.verificationEmailPrefix || 'codey'}+${id}@${domain}`,
+    email: `${prefix}+${id}@${domain}`,
+    prefix,
+    mailbox: `${prefix}@${domain}`,
   }
 }
 
@@ -539,13 +548,18 @@ function serializeVerificationCodeEvent(params: {
   }
 }
 
-export async function reserveVerificationEmailTarget() {
+export async function reserveVerificationEmailTarget(options?: {
+  clientId?: string | null
+}) {
   const env = getAppEnv()
   const expiresAt = new Date(
     Date.now() + env.verificationReservationTtlMinutes * 60 * 1000,
   )
   const tempId = randomCode(12)
-  const target = buildReservationEmail(tempId)
+  const verificationDomain = await resolveReservationVerificationDomain({
+    clientId: options?.clientId,
+  })
+  const target = buildReservationEmail(tempId, verificationDomain.domain)
 
   const [reservation] = await getDb()
     .insert(verificationEmailReservations)

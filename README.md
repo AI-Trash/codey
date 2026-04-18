@@ -65,7 +65,7 @@ GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
 
 VERIFICATION_PROVIDER=app
-VERIFICATION_MAILBOX=codey@your-domain.com
+VERIFICATION_EMAIL_PREFIX=codey
 CLOUDFLARE_EMAIL_WEBHOOK_SECRET=replace-with-a-long-random-secret
 
 CODEY_APP_BASE_URL=http://localhost:3000
@@ -79,6 +79,10 @@ CODEY_APP_RESERVE_EMAIL_PATH=/api/verification/email-reservations
 CODEY_APP_CODE_PATH=/api/verification/codes
 CODEY_APP_EVENTS_PATH=/api/verification/events
 ```
+
+Verification mail domains are now managed in the admin console at `/admin/domains` and stored in Postgres. Each managed OAuth app selects one of the registered domains when it is created or edited. `VERIFICATION_EMAIL_PREFIX` remains available to control the local-part prefix used before the generated `+id@domain` alias.
+
+If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MAILBOX` or `VERIFICATION_DOMAIN` values are only used as a compatibility seed when the database does not have any registered domains yet.
 
 `CODEY_APP_CLIENT_SECRET` is optional. When it is present, app-backed verification uses `client_credentials`. When it is omitted, the flow will prompt for a device-code approval and cache the resulting user session under `.codey/credentials/app-session.json`.
 
@@ -134,6 +138,7 @@ Then open:
 
 - `http://localhost:3000/admin/login` to sign in with GitHub
 - `http://localhost:3000/admin` to inspect device challenges, notifications, reservations, and verification codes
+- `http://localhost:3000/admin/domains` to register verification domains and choose defaults
 
 ## CLI usage
 

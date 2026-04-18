@@ -8,10 +8,15 @@ import {
   oauthClients,
   type OAuthClientAuthMethod,
   type OAuthClientRow,
+  type VerificationDomainRow,
 } from "./db/schema";
 import { getAppEnv } from "./env";
 import { DEFAULT_OAUTH_SUPPORTED_SCOPES } from "./oauth-scopes";
 import { createId, randomToken } from "./security";
+import {
+  resolveOAuthClientVerificationDomainId,
+  resolveVerificationDomainById,
+} from "./verification-domains";
 
 const DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -32,6 +37,7 @@ export interface CreateOAuthClientInput {
   description?: string;
   allowedScopes?: string[];
   enabled?: boolean;
+  verificationDomainId?: string;
   clientCredentialsEnabled?: boolean;
   deviceFlowEnabled?: boolean;
   tokenEndpointAuthMethod?: OAuthClientAuthMethod;
@@ -43,6 +49,7 @@ export interface UpdateOAuthClientInput {
   description?: string | null;
   allowedScopes?: string[];
   enabled?: boolean;
+  verificationDomainId?: string;
   clientCredentialsEnabled?: boolean;
   deviceFlowEnabled?: boolean;
   tokenEndpointAuthMethod?: OAuthClientAuthMethod;
@@ -60,6 +67,8 @@ export interface OAuthClientSummary {
   deviceFlowEnabled: boolean;
   tokenEndpointAuthMethod: OAuthClientAuthMethod;
   allowedScopes: string[];
+  verificationDomainId: string | null;
+  verificationDomain: string | null;
   clientSecretPreview: string;
   createdByUserId: string | null;
   updatedByUserId: string | null;
@@ -195,7 +204,11 @@ function buildManagedClientMetadata(
   };
 }
 
-function toSummary(row: OAuthClientRow): OAuthClientSummary {
+function toSummary(
+  row: OAuthClientRow & {
+    verificationDomain?: Pick<VerificationDomainRow, "id" | "domain"> | null;
+  },
+): OAuthClientSummary {
   return {
     id: row.id,
     clientId: row.clientId,
@@ -206,6 +219,8 @@ function toSummary(row: OAuthClientRow): OAuthClientSummary {
     deviceFlowEnabled: row.deviceFlowEnabled,
     tokenEndpointAuthMethod: row.tokenEndpointAuthMethod,
     allowedScopes: parseScopes(row.allowedScopes),
+    verificationDomainId: row.verificationDomainId,
+    verificationDomain: row.verificationDomain?.domain || null,
     clientSecretPreview: row.clientSecretPreview,
     createdByUserId: row.createdByUserId,
     updatedByUserId: row.updatedByUserId,
@@ -230,6 +245,9 @@ export function generateManagedOAuthClientSecret(): ManagedOAuthClientSecret {
 
 export async function listOAuthClients(): Promise<OAuthClientSummary[]> {
   const rows = await getDb().query.oauthClients.findMany({
+    with: {
+      verificationDomain: true,
+    },
     orderBy: [desc(oauthClients.createdAt)],
   });
   return rows.map(toSummary);
@@ -240,6 +258,9 @@ export async function getOAuthClientById(
 ): Promise<OAuthClientRecord | null> {
   const row = await getDb().query.oauthClients.findFirst({
     where: eq(oauthClients.id, id),
+    with: {
+      verificationDomain: true,
+    },
   });
   if (!row) {
     return null;
@@ -256,6 +277,9 @@ export async function getOAuthClientSummaryById(
 ): Promise<OAuthClientSummary | null> {
   const row = await getDb().query.oauthClients.findFirst({
     where: eq(oauthClients.id, id),
+    with: {
+      verificationDomain: true,
+    },
   });
   return row ? toSummary(row) : null;
 }
@@ -265,6 +289,9 @@ export async function getOAuthClientByClientId(
 ): Promise<OAuthClientRecord | null> {
   const row = await getDb().query.oauthClients.findFirst({
     where: eq(oauthClients.clientId, clientId),
+    with: {
+      verificationDomain: true,
+    },
   });
   if (!row || !row.enabled) {
     return null;
@@ -287,6 +314,12 @@ export async function createOAuthClient(input: CreateOAuthClientInput): Promise<
     input.allowedScopes || getDefaultAllowedScopes(),
   );
   const enabled = input.enabled ?? true;
+  const verificationDomainId = await resolveOAuthClientVerificationDomainId(
+    input.verificationDomainId,
+  );
+  const verificationDomain = await resolveVerificationDomainById(
+    verificationDomainId,
+  );
   const clientCredentialsEnabled = input.clientCredentialsEnabled ?? false;
   const deviceFlowEnabled = input.deviceFlowEnabled ?? false;
 
@@ -309,6 +342,7 @@ export async function createOAuthClient(input: CreateOAuthClientInput): Promise<
       clientSecretCiphertext: encryptClientSecret(generated.clientSecret),
       clientSecretPreview: generated.preview,
       allowedScopes,
+      verificationDomainId,
       createdByUserId: input.createdByUserId || null,
       updatedByUserId: input.createdByUserId || null,
       clientSecretUpdatedAt: now,
@@ -323,7 +357,10 @@ export async function createOAuthClient(input: CreateOAuthClientInput): Promise<
 
   return {
     client: {
-      ...toSummary(row),
+      ...toSummary({
+        ...row,
+        verificationDomain,
+      }),
       oidc: buildManagedClientMetadata(row, generated.clientSecret),
     },
     clientSecret: generated.clientSecret,
@@ -339,6 +376,9 @@ export async function updateOAuthClient(
 }> {
   const existing = await getDb().query.oauthClients.findFirst({
     where: eq(oauthClients.id, id),
+    with: {
+      verificationDomain: true,
+    },
   });
   if (!existing) {
     throw new Error("OAuth client not found");
@@ -353,6 +393,10 @@ export async function updateOAuthClient(
       ? existing.description
       : input.description?.trim() || null;
   const enabled = input.enabled ?? existing.enabled;
+  const verificationDomainId =
+    input.verificationDomainId === undefined
+      ? existing.verificationDomainId
+      : await resolveOAuthClientVerificationDomainId(input.verificationDomainId);
   const clientCredentialsEnabled =
     input.clientCredentialsEnabled ?? existing.clientCredentialsEnabled;
   const deviceFlowEnabled = input.deviceFlowEnabled ?? existing.deviceFlowEnabled;
@@ -387,6 +431,7 @@ export async function updateOAuthClient(
         input.allowedScopes === undefined
           ? existing.allowedScopes
           : serializeScopes(input.allowedScopes),
+      verificationDomainId,
       clientSecretCiphertext,
       clientSecretPreview,
       clientSecretUpdatedAt,
@@ -401,10 +446,19 @@ export async function updateOAuthClient(
   }
 
   const effectiveSecret = rotatedSecret || decryptClientSecret(row.clientSecretCiphertext);
+  const verificationDomain =
+    verificationDomainId && existing.verificationDomain?.id === verificationDomainId
+      ? existing.verificationDomain
+      : verificationDomainId
+        ? await resolveVerificationDomainById(verificationDomainId)
+        : null;
 
   return {
     client: {
-      ...toSummary(row),
+      ...toSummary({
+        ...row,
+        verificationDomain,
+      }),
       oidc: buildManagedClientMetadata(row, effectiveSecret),
     },
     rotatedSecret,

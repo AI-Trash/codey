@@ -72,6 +72,9 @@ function AdminAppsListPage() {
             <Button asChild variant="outline">
               <a href="/admin">{m.admin_back_to_operations()}</a>
             </Button>
+            <Button asChild variant="outline">
+              <a href="/admin/domains">{m.admin_manage_domains()}</a>
+            </Button>
             <Button asChild>
               <a href="/admin/apps/new">{m.admin_register_app()}</a>
             </Button>
