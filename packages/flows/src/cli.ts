@@ -32,6 +32,7 @@ import {
   prepareRuntimeConfig,
   printFlowCompletionSummary,
   redactForOutput,
+  sanitizeErrorForOutput,
   shouldKeepFlowOpen,
   type AuthOptions,
   type CommonOptions,

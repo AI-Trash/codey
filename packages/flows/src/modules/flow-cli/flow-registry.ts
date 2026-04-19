@@ -7,15 +7,71 @@ export type CliFlowCommandId =
 
 export type CliFlowOptionType = 'string' | 'number' | 'boolean' | 'stringList'
 
+export type CliFlowDisplayNameKey =
+  | 'chatgptRegister'
+  | 'chatgptLogin'
+  | 'chatgptLoginInvite'
+  | 'codexOauth'
+  | 'noop'
+
+export type CliFlowDescriptionKey =
+  | 'chatgptRegister'
+  | 'chatgptLogin'
+  | 'chatgptLoginInvite'
+  | 'codexOauth'
+  | 'noop'
+
+export type CliFlowOptionDisplayNameKey =
+  | 'chromeDefaultProfile'
+  | 'headless'
+  | 'slowMo'
+  | 'har'
+  | 'record'
+  | 'password'
+  | 'verificationTimeoutMs'
+  | 'pollIntervalMs'
+  | 'identityId'
+  | 'email'
+  | 'inviteEmail'
+  | 'inviteFile'
+  | 'workspaceIndex'
+  | 'redirectPort'
+  | 'authorizeUrlOnly'
+  | 'projectId'
+  | 'channelName'
+
+export type CliFlowOptionDescriptionKey =
+  | 'chromeDefaultProfile'
+  | 'headless'
+  | 'slowMo'
+  | 'har'
+  | 'record'
+  | 'password'
+  | 'verificationTimeoutMs'
+  | 'pollIntervalMs'
+  | 'identityId'
+  | 'email'
+  | 'inviteEmail'
+  | 'inviteFile'
+  | 'workspaceIndex'
+  | 'redirectPort'
+  | 'authorizeUrlOnly'
+  | 'projectId'
+  | 'channelName'
+
 export interface CliFlowOptionDefinition {
   key: string
   flag: string
   type: CliFlowOptionType
+  displayNameKey: CliFlowOptionDisplayNameKey
+  descriptionKey?: CliFlowOptionDescriptionKey
   common?: boolean
 }
 
 export interface CliFlowDefinition {
   id: CliFlowCommandId
+  displayNameKey: CliFlowDisplayNameKey
+  descriptionKey?: CliFlowDescriptionKey
   options: readonly string[]
 }
 
@@ -32,30 +88,40 @@ export const cliFlowCommonOptionDefinitions = [
     key: 'chromeDefaultProfile',
     flag: '--chromeDefaultProfile',
     type: 'boolean',
+    displayNameKey: 'chromeDefaultProfile',
+    descriptionKey: 'chromeDefaultProfile',
     common: true,
   },
   {
     key: 'headless',
     flag: '--headless',
     type: 'boolean',
+    displayNameKey: 'headless',
+    descriptionKey: 'headless',
     common: true,
   },
   {
     key: 'slowMo',
     flag: '--slowMo',
     type: 'number',
+    displayNameKey: 'slowMo',
+    descriptionKey: 'slowMo',
     common: true,
   },
   {
     key: 'har',
     flag: '--har',
     type: 'boolean',
+    displayNameKey: 'har',
+    descriptionKey: 'har',
     common: true,
   },
   {
     key: 'record',
     flag: '--record',
     type: 'boolean',
+    displayNameKey: 'record',
+    descriptionKey: 'record',
     common: true,
   },
 ] as const satisfies readonly CliFlowOptionDefinition[]
@@ -66,79 +132,111 @@ export const cliFlowOptionDefinitions = [
     key: 'password',
     flag: '--password',
     type: 'string',
+    displayNameKey: 'password',
+    descriptionKey: 'password',
   },
   {
     key: 'verificationTimeoutMs',
     flag: '--verificationTimeoutMs',
     type: 'number',
+    displayNameKey: 'verificationTimeoutMs',
+    descriptionKey: 'verificationTimeoutMs',
   },
   {
     key: 'pollIntervalMs',
     flag: '--pollIntervalMs',
     type: 'number',
+    displayNameKey: 'pollIntervalMs',
+    descriptionKey: 'pollIntervalMs',
   },
   {
     key: 'identityId',
     flag: '--identityId',
     type: 'string',
+    displayNameKey: 'identityId',
+    descriptionKey: 'identityId',
   },
   {
     key: 'email',
     flag: '--email',
     type: 'string',
+    displayNameKey: 'email',
+    descriptionKey: 'email',
   },
   {
     key: 'inviteEmail',
     flag: '--inviteEmail',
     type: 'stringList',
+    displayNameKey: 'inviteEmail',
+    descriptionKey: 'inviteEmail',
   },
   {
     key: 'inviteFile',
     flag: '--inviteFile',
     type: 'string',
+    displayNameKey: 'inviteFile',
+    descriptionKey: 'inviteFile',
   },
   {
     key: 'workspaceIndex',
     flag: '--workspaceIndex',
     type: 'number',
+    displayNameKey: 'workspaceIndex',
+    descriptionKey: 'workspaceIndex',
   },
   {
     key: 'redirectPort',
     flag: '--redirectPort',
     type: 'number',
+    displayNameKey: 'redirectPort',
+    descriptionKey: 'redirectPort',
   },
   {
     key: 'authorizeUrlOnly',
     flag: '--authorizeUrlOnly',
     type: 'boolean',
+    displayNameKey: 'authorizeUrlOnly',
+    descriptionKey: 'authorizeUrlOnly',
   },
   {
     key: 'projectId',
     flag: '--projectId',
     type: 'string',
+    displayNameKey: 'projectId',
+    descriptionKey: 'projectId',
   },
   {
     key: 'channelName',
     flag: '--channelName',
     type: 'string',
+    displayNameKey: 'channelName',
+    descriptionKey: 'channelName',
   },
 ] as const satisfies readonly CliFlowOptionDefinition[]
 
 export const cliFlowDefinitions = [
   {
     id: 'chatgpt-register',
+    displayNameKey: 'chatgptRegister',
+    descriptionKey: 'chatgptRegister',
     options: ['password', 'verificationTimeoutMs', 'pollIntervalMs'],
   },
   {
     id: 'chatgpt-login',
+    displayNameKey: 'chatgptLogin',
+    descriptionKey: 'chatgptLogin',
     options: ['identityId', 'email'],
   },
   {
     id: 'chatgpt-login-invite',
+    displayNameKey: 'chatgptLoginInvite',
+    descriptionKey: 'chatgptLoginInvite',
     options: ['identityId', 'email', 'inviteEmail', 'inviteFile'],
   },
   {
     id: 'codex-oauth',
+    displayNameKey: 'codexOauth',
+    descriptionKey: 'codexOauth',
     options: [
       'identityId',
       'email',
@@ -153,6 +251,8 @@ export const cliFlowDefinitions = [
   },
   {
     id: 'noop',
+    displayNameKey: 'noop',
+    descriptionKey: 'noop',
     options: [],
   },
 ] as const satisfies readonly CliFlowDefinition[]

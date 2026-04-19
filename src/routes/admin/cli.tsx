@@ -2,7 +2,12 @@ import { startTransition, useEffect, useMemo, useState } from 'react'
 
 import {
   type CliFlowCommandId,
+  type CliFlowDefinition,
+  type CliFlowDescriptionKey,
+  type CliFlowDisplayNameKey,
   type CliFlowOptionDefinition,
+  type CliFlowOptionDescriptionKey,
+  type CliFlowOptionDisplayNameKey,
   cliFlowDefinitions,
   listCliFlowOptionDefinitions,
 } from '../../../packages/flows/src/modules/flow-cli/flow-registry'
@@ -321,7 +326,7 @@ function AdminCliConnectionsPage() {
           setDispatchFlash({
             title: m.admin_cli_dispatch_success_title(),
             description: m.admin_cli_dispatch_success_description({
-              flow: flowId,
+              flow: getFlowDisplayName(flowId),
               cli: connection.cliName || m.admin_cli_unknown_cli(),
             }),
           })
@@ -585,13 +590,15 @@ function CliTaskDialog(props: {
                     <SelectContent>
                       {availableFlows.map((flowId) => (
                         <SelectItem key={flowId} value={flowId}>
-                          {flowId}
+                          {getFlowDisplayName(flowId)}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   <FieldDescription>
-                    {m.admin_cli_dispatch_flow_description()}
+                    {selectedFlowId
+                      ? getFlowDescription(selectedFlowId)
+                      : m.admin_cli_dispatch_flow_description()}
                   </FieldDescription>
                 </Field>
               </FieldGroup>
@@ -724,7 +731,9 @@ function DispatchOptionField(props: {
   if (props.option.type === 'boolean') {
     return (
       <Field>
-        <FieldLabel htmlFor={inputId}>{props.option.flag}</FieldLabel>
+        <FieldLabel htmlFor={inputId}>
+          {getOptionDisplayName(props.option)}
+        </FieldLabel>
         <Select
           value={props.value || BOOLEAN_DEFAULT_SENTINEL}
           onValueChange={(value) => {
@@ -745,6 +754,9 @@ function DispatchOptionField(props: {
             </SelectItem>
           </SelectContent>
         </Select>
+        <FieldDescription>
+          {formatOptionDescription(props.option)}
+        </FieldDescription>
       </Field>
     )
   }
@@ -752,7 +764,9 @@ function DispatchOptionField(props: {
   if (props.option.type === 'stringList') {
     return (
       <Field className="md:col-span-2">
-        <FieldLabel htmlFor={inputId}>{props.option.flag}</FieldLabel>
+        <FieldLabel htmlFor={inputId}>
+          {getOptionDisplayName(props.option)}
+        </FieldLabel>
         <Textarea
           id={inputId}
           value={props.value}
@@ -763,14 +777,14 @@ function DispatchOptionField(props: {
             props.onChange(event.currentTarget.value)
           }}
         />
-        <FieldDescription>{m.admin_cli_dispatch_string_list_hint()}</FieldDescription>
+        <FieldDescription>{formatOptionDescription(props.option)}</FieldDescription>
       </Field>
     )
   }
 
   return (
     <Field>
-      <FieldLabel htmlFor={inputId}>{props.option.flag}</FieldLabel>
+      <FieldLabel htmlFor={inputId}>{getOptionDisplayName(props.option)}</FieldLabel>
       <Input
         id={inputId}
         type={props.option.type === 'number' ? 'number' : 'text'}
@@ -781,6 +795,7 @@ function DispatchOptionField(props: {
           props.onChange(event.currentTarget.value)
         }}
       />
+      <FieldDescription>{formatOptionDescription(props.option)}</FieldDescription>
     </Field>
   )
 }
@@ -841,7 +856,11 @@ function buildDispatchOptions(
     if (definition.type === 'number') {
       const parsed = Number(rawValue)
       if (!Number.isFinite(parsed)) {
-        throw new Error(`${definition.flag} must be a number.`)
+        throw new Error(
+          m.admin_cli_dispatch_number_error({
+            field: getOptionDisplayName(definition),
+          }),
+        )
       }
       options[definition.key] = parsed
       continue
@@ -862,4 +881,101 @@ function buildDispatchOptions(
   }
 
   return options
+}
+
+const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
+  chatgptRegister: () => m.admin_cli_flow_chatgpt_register_name(),
+  chatgptLogin: () => m.admin_cli_flow_chatgpt_login_name(),
+  chatgptLoginInvite: () => m.admin_cli_flow_chatgpt_login_invite_name(),
+  codexOauth: () => m.admin_cli_flow_codex_oauth_name(),
+  noop: () => m.admin_cli_flow_noop_name(),
+}
+
+const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
+  chatgptRegister: () => m.admin_cli_flow_chatgpt_register_description(),
+  chatgptLogin: () => m.admin_cli_flow_chatgpt_login_description(),
+  chatgptLoginInvite: () => m.admin_cli_flow_chatgpt_login_invite_description(),
+  codexOauth: () => m.admin_cli_flow_codex_oauth_description(),
+  noop: () => m.admin_cli_flow_noop_description(),
+}
+
+const optionDisplayNameMap: Record<CliFlowOptionDisplayNameKey, () => string> = {
+  chromeDefaultProfile: () => m.admin_cli_option_chrome_default_profile_name(),
+  headless: () => m.admin_cli_option_headless_name(),
+  slowMo: () => m.admin_cli_option_slow_mo_name(),
+  har: () => m.admin_cli_option_har_name(),
+  record: () => m.admin_cli_option_record_name(),
+  password: () => m.admin_cli_option_password_name(),
+  verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
+  pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
+  identityId: () => m.admin_cli_option_identity_id_name(),
+  email: () => m.admin_cli_option_email_name(),
+  inviteEmail: () => m.admin_cli_option_invite_email_name(),
+  inviteFile: () => m.admin_cli_option_invite_file_name(),
+  workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
+  redirectPort: () => m.admin_cli_option_redirect_port_name(),
+  authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
+  projectId: () => m.admin_cli_option_project_id_name(),
+  channelName: () => m.admin_cli_option_channel_name_name(),
+}
+
+const optionDescriptionMap: Record<CliFlowOptionDescriptionKey, () => string> = {
+  chromeDefaultProfile: () =>
+    m.admin_cli_option_chrome_default_profile_description(),
+  headless: () => m.admin_cli_option_headless_description(),
+  slowMo: () => m.admin_cli_option_slow_mo_description(),
+  har: () => m.admin_cli_option_har_description(),
+  record: () => m.admin_cli_option_record_description(),
+  password: () => m.admin_cli_option_password_description(),
+  verificationTimeoutMs: () =>
+    m.admin_cli_option_verification_timeout_description(),
+  pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),
+  identityId: () => m.admin_cli_option_identity_id_description(),
+  email: () => m.admin_cli_option_email_description(),
+  inviteEmail: () => m.admin_cli_option_invite_email_description(),
+  inviteFile: () => m.admin_cli_option_invite_file_description(),
+  workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
+  redirectPort: () => m.admin_cli_option_redirect_port_description(),
+  authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_description(),
+  projectId: () => m.admin_cli_option_project_id_description(),
+  channelName: () => m.admin_cli_option_channel_name_description(),
+}
+
+function getFlowDisplayName(flowId: CliFlowCommandId): string {
+  const flowDefinition = cliFlowDefinitions.find((definition) => definition.id === flowId)
+  return flowDefinition ? resolveFlowDisplayName(flowDefinition) : flowId
+}
+
+function getFlowDescription(flowId: CliFlowCommandId): string {
+  const flowDefinition = cliFlowDefinitions.find((definition) => definition.id === flowId)
+  return flowDefinition
+    ? resolveFlowDescription(flowDefinition)
+    : m.admin_cli_dispatch_flow_description()
+}
+
+function resolveFlowDisplayName(flowDefinition: CliFlowDefinition): string {
+  return flowDisplayNameMap[flowDefinition.displayNameKey]()
+}
+
+function resolveFlowDescription(flowDefinition: CliFlowDefinition): string {
+  return flowDefinition.descriptionKey
+    ? flowDescriptionMap[flowDefinition.descriptionKey]()
+    : m.admin_cli_dispatch_flow_description()
+}
+
+function getOptionDisplayName(option: CliFlowOptionDefinition): string {
+  return optionDisplayNameMap[option.displayNameKey]()
+}
+
+function formatOptionDescription(option: CliFlowOptionDefinition): string {
+  const detail = option.descriptionKey
+    ? optionDescriptionMap[option.descriptionKey]()
+    : ''
+  const parts = [
+    detail,
+    option.type === 'stringList' ? m.admin_cli_dispatch_string_list_hint() : '',
+    m.admin_cli_dispatch_option_flag_hint({ flag: option.flag }),
+  ].filter(Boolean)
+
+  return parts.join(' ')
 }
