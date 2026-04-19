@@ -188,7 +188,7 @@ This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flo
 
 When login is required, `flow codex-oauth` can target a specific stored ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `flow chatgpt-login`.
 
-If OpenAI shows the Codex workspace picker, `flow codex-oauth` now auto-selects a workspace and submits the consent form. Use `--workspaceIndex <n>` to choose a different 1-based workspace position; if omitted, it selects the first workspace.
+If OpenAI shows the Codex workspace picker, `flow codex-oauth` now auto-selects a workspace. If OpenAI follows that with the Codex API organization picker or the consent form, the flow also auto-selects the first organization/project pair and submits the next step automatically. Use `--workspaceIndex <n>` to choose a different 1-based workspace position; if omitted, it selects the first workspace.
 
 When you run `flow codex-oauth --har true`, the CLI now keeps the browser open by default so the normal browser HAR is flushed when you close the browser window. Pass `--record false` if you want the browser to close automatically after the flow finishes.
 

@@ -38,7 +38,6 @@ export {
   persistChatGPTIdentity,
   resolveStoredChatGPTIdentity,
 } from './modules/credentials'
-export * from './modules/webauthn'
 export type * from './flows/chatgpt-register'
 export type * from './flows/chatgpt-login'
 export type * from './flows/chatgpt-login-invite'

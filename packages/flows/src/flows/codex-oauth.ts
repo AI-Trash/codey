@@ -52,20 +52,17 @@ import { createAuthorizationCallbackCapture } from '../modules/authorization/cod
 import { createNodeHarRecorder } from '../modules/authorization/har-recorder'
 import {
   clickLoginEntryIfPresent,
-  clickPasswordSubmit,
-  clickVerificationContinue,
+  completePasswordOrVerificationLoginFallback,
   continueCodexOAuthConsent,
+  continueCodexOrganizationSelection,
   continueCodexWorkspaceSelection,
   submitLoginEmail,
   type ChatGPTCodexOAuthSurface,
   type ChatGPTPostEmailLoginStep,
-  waitForCodexOAuthSurface,
+  waitForCodexOAuthSurfaceCandidates,
   waitForPasswordInputReady,
   waitForPostEmailLoginCandidates,
-  waitForVerificationCode,
   waitForVerificationCodeInputReady,
-  typePassword,
-  typeVerificationCode,
 } from '../modules/chatgpt/shared'
 import {
   createVerificationProvider,
@@ -82,6 +79,7 @@ export type CodexOAuthFlowState =
   | 'password-step'
   | 'verification-step'
   | 'workspace-step'
+  | 'organization-step'
   | 'consent-step'
   | 'waiting-for-callback'
   | 'retrying'
@@ -223,10 +221,14 @@ export type CodexOAuthFlowRunResult =
   | CodexOAuthFlowResult
   | CodexOAuthAuthorizeUrlResult
 
-type CodexOAuthLoginSurface = Exclude<ChatGPTCodexOAuthSurface, 'unknown'>
-type CodexOAuthLoginProgressStep = Extract<
+type CodexOAuthSurfaceCandidate = Exclude<
+  ChatGPTCodexOAuthSurface,
+  'unknown'
+>
+type CodexOAuthLoginSurface = CodexOAuthSurfaceCandidate
+type CodexOAuthLoginProgressStep = Exclude<
   ChatGPTPostEmailLoginStep,
-  'authenticated' | 'password' | 'verification' | 'retry'
+  'unknown'
 >
 
 interface CodexOAuthSurfaceInput<Result = unknown> {
@@ -329,6 +331,12 @@ function createCodexOAuthSurfaceTransitions<Result>() {
       },
       {
         priority: 45,
+        when: ({ input }) => input.surface === 'organization',
+        target: 'organization-step',
+        actions: assignSurfaceContext('Codex API organization selection ready'),
+      },
+      {
+        priority: 44,
         when: ({ input }) => input.surface === 'consent',
         target: 'consent-step',
         actions: assignSurfaceContext('Codex OAuth consent ready'),
@@ -569,8 +577,14 @@ function redactChannelCredentials(
 type CodexOAuthStep =
   | { kind: 'callback'; callback: CodexOAuthCallbackPayload }
   | { kind: 'callback-navigation' }
-  | { kind: 'post-login-step'; step: CodexOAuthLoginProgressStep }
-  | { kind: 'surface'; surface: CodexOAuthLoginSurface }
+  | {
+      kind: 'post-login-candidates'
+      candidates: CodexOAuthLoginProgressStep[]
+    }
+  | {
+      kind: 'surface-candidates'
+      candidates: CodexOAuthSurfaceCandidate[]
+    }
 
 function normalizeCallbackPort(protocol: string, port: string): string {
   if (port) {
@@ -659,20 +673,21 @@ async function waitForCodexOAuthStep(
     }
   }
 
-  const waitForSurface = waitForCodexOAuthSurface(page, timeoutMs).then(
-    (surface) => {
-      if (surface === 'unknown') {
-        throw new Error(
-          'Codex OAuth page did not reach a supported login, workspace, or callback surface.',
-        )
-      }
+  const waitForSurface = waitForCodexOAuthSurfaceCandidates(
+    page,
+    timeoutMs,
+  ).then((candidates) => {
+    if (candidates.length === 0) {
+      throw new Error(
+        'Codex OAuth page did not reach a supported login, workspace, or callback surface.',
+      )
+    }
 
-      return {
-        kind: 'surface' as const,
-        surface,
-      }
-    },
-  )
+    return {
+      kind: 'surface-candidates' as const,
+      candidates,
+    }
+  })
 
   const waitForCallbackNavigation = new Promise<CodexOAuthStep>((resolve) => {
     void waitForCodexOAuthCallbackNavigation(page, redirectUri, timeoutMs).then(
@@ -716,20 +731,21 @@ async function waitForCodexOAuthLoginProgressStep(
     }
   }
 
-  const waitForSurface = waitForCodexOAuthSurface(page, timeoutMs).then(
-    (surface) => {
-      if (surface === 'unknown') {
-        throw new Error(
-          'Codex OAuth page did not reach a supported login, workspace, consent, or callback surface.',
-        )
-      }
+  const waitForSurface = waitForCodexOAuthSurfaceCandidates(
+    page,
+    timeoutMs,
+  ).then((candidates) => {
+    if (candidates.length === 0) {
+      throw new Error(
+        'Codex OAuth page did not reach a supported login, workspace, consent, or callback surface.',
+      )
+    }
 
-      return {
-        kind: 'surface' as const,
-        surface,
-      }
-    },
-  )
+    return {
+      kind: 'surface-candidates' as const,
+      candidates,
+    }
+  })
 
   const waitForCallbackNavigation = new Promise<CodexOAuthStep>((resolve) => {
     void waitForCodexOAuthCallbackNavigation(page, redirectUri, timeoutMs).then(
@@ -745,14 +761,13 @@ async function waitForCodexOAuthLoginProgressStep(
 
   const waitForPostLoginStep = new Promise<CodexOAuthStep>((resolve) => {
     void waitForPostEmailLoginCandidates(page, timeoutMs).then((candidates) => {
-      const step = candidates[0]
-      if (!step) {
+      if (candidates.length === 0) {
         return
       }
 
       resolve({
-        kind: 'post-login-step',
-        step,
+        kind: 'post-login-candidates',
+        candidates,
       })
     })
   })
@@ -852,6 +867,31 @@ async function completeCodexOAuthWorkspaceSelection(
   )
 }
 
+async function completeCodexOAuthOrganizationSelection(
+  page: Page,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
+  redirectUri: string,
+): Promise<void> {
+  await sendCodexOAuthMachine(machine, 'organization-step', 'context.updated', {
+    url: sanitizeUrl(page.url()),
+    redirectUri,
+    lastMessage: 'Selecting Codex API organization #1 and project #1',
+  })
+
+  const selection = await continueCodexOrganizationSelection(page, 1, 1)
+
+  await sendCodexOAuthMachine(
+    machine,
+    'waiting-for-callback',
+    'context.updated',
+    {
+      url: sanitizeUrl(page.url()),
+      redirectUri,
+      lastMessage: `Selected Codex API organization #${selection.selectedOrganizationIndex} and project #${selection.selectedProjectIndex}; waiting for Codex OAuth callback`,
+    },
+  )
+}
+
 function resolveCodexOAuthStoredIdentitySelection(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
@@ -926,6 +966,7 @@ async function submitCodexOAuthStoredPassword(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
   redirectUri: string,
+  progress: CodexOAuthStoredLoginProgress,
 ): Promise<StoredChatGPTIdentitySummary> {
   const stored = requireCodexOAuthStoredLoginIdentity(machine, options)
 
@@ -937,19 +978,36 @@ async function submitCodexOAuthStoredPassword(
     lastMessage: 'Submitting stored ChatGPT password',
   })
 
-  const passwordReady = await waitForPasswordInputReady(page, 10000)
-  if (!passwordReady) {
-    throw new Error('ChatGPT password step did not become ready.')
-  }
+  progress.startedAt ??= new Date().toISOString()
+  const verificationTimeoutMs =
+    parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000
+  const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
 
-  const typed = await typePassword(page, stored.identity.password)
-  if (!typed) {
-    throw new Error(
-      'ChatGPT password field was visible but could not be typed into.',
-    )
-  }
+  const fallback = await completePasswordOrVerificationLoginFallback(page, {
+    email: stored.identity.email,
+    password: stored.identity.password,
+    step: 'password',
+    startedAt: progress.startedAt,
+    getVerificationProvider: () => {
+      progress.verificationProvider ??=
+        createVerificationProvider(getRuntimeConfig())
+      return progress.verificationProvider
+    },
+    verificationTimeoutMs,
+    pollIntervalMs,
+  })
 
-  await clickPasswordSubmit(page)
+  await sendCodexOAuthMachine(machine, 'password-step', 'context.updated', {
+    url: sanitizeUrl(page.url()),
+    redirectUri,
+    email: stored.identity.email,
+    storedIdentity: stored.summary,
+    method: fallback.method,
+    lastMessage:
+      fallback.method === 'verification'
+        ? 'Stored ChatGPT password required email verification and completed it'
+        : 'Stored ChatGPT password submitted',
+  })
 
   return stored.summary
 }
@@ -977,22 +1035,31 @@ async function submitCodexOAuthStoredVerification(
   }
 
   progress.startedAt ??= new Date().toISOString()
-  progress.verificationProvider ??=
-    createVerificationProvider(getRuntimeConfig())
-
   const verificationTimeoutMs =
     parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000
   const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
-  const code = await waitForVerificationCode({
-    verificationProvider: progress.verificationProvider,
+  const fallback = await completePasswordOrVerificationLoginFallback(page, {
     email: stored.identity.email,
+    password: stored.identity.password,
+    step: 'verification',
     startedAt: progress.startedAt,
-    timeoutMs: verificationTimeoutMs,
+    getVerificationProvider: () => {
+      progress.verificationProvider ??=
+        createVerificationProvider(getRuntimeConfig())
+      return progress.verificationProvider
+    },
+    verificationTimeoutMs,
     pollIntervalMs,
   })
 
-  await typeVerificationCode(page, code)
-  await clickVerificationContinue(page)
+  await sendCodexOAuthMachine(machine, 'verification-step', 'context.updated', {
+    url: sanitizeUrl(page.url()),
+    redirectUri,
+    email: stored.identity.email,
+    storedIdentity: stored.summary,
+    method: fallback.method,
+    lastMessage: 'ChatGPT verification code submitted',
+  })
 
   return stored.summary
 }
@@ -1062,7 +1129,10 @@ async function resolveCodexOAuthNextStep(
         | 'password'
         | 'verification'
         | 'retry'
+        | 'unsupported-surface'
+        | 'unsupported-post-login'
         | 'workspace'
+        | 'organization'
         | 'consent'
       >(
         [
@@ -1090,7 +1160,8 @@ async function resolveCodexOAuthNextStep(
             branch: 'workspace' as const,
             priority: 60,
             guard: ({ input }) =>
-              input.kind === 'surface' && input.surface === 'workspace',
+              input.kind === 'surface-candidates' &&
+              input.candidates.includes('workspace'),
             run: async () => {
               await sendCodexOAuthSurfaceReady(
                 machine,
@@ -1114,10 +1185,38 @@ async function resolveCodexOAuthNextStep(
             },
           },
           {
+            branch: 'organization' as const,
+            priority: 58,
+            guard: ({ input }) =>
+              input.kind === 'surface-candidates' &&
+              input.candidates.includes('organization'),
+            run: async () => {
+              await sendCodexOAuthSurfaceReady(
+                machine,
+                page,
+                'organization',
+                redirectUri,
+              )
+              await completeCodexOAuthOrganizationSelection(
+                page,
+                machine,
+                redirectUri,
+              )
+              return waitForCodexOAuthStep(
+                page,
+                waitForCallback,
+                redirectUri,
+                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
+                getResolvedCallback,
+              )
+            },
+          },
+          {
             branch: 'consent' as const,
             priority: 55,
             guard: ({ input }) =>
-              input.kind === 'surface' && input.surface === 'consent',
+              input.kind === 'surface-candidates' &&
+              input.candidates.includes('consent'),
             run: async () => {
               await sendCodexOAuthSurfaceReady(
                 machine,
@@ -1144,14 +1243,12 @@ async function resolveCodexOAuthNextStep(
             branch: 'authenticated' as const,
             priority: 50,
             guard: ({ input }) =>
-              (input.kind === 'surface' && input.surface === 'authenticated') ||
-              (input.kind === 'post-login-step' &&
-                input.step === 'authenticated'),
+              (input.kind === 'surface-candidates' &&
+                input.candidates.includes('authenticated')) ||
+              (input.kind === 'post-login-candidates' &&
+                input.candidates.includes('authenticated')),
             run: async () => {
-              if (
-                currentStep.kind === 'surface' &&
-                currentStep.surface === 'authenticated'
-              ) {
+              if (currentStep.kind === 'surface-candidates') {
                 await sendCodexOAuthSurfaceReady(
                   machine,
                   page,
@@ -1182,10 +1279,40 @@ async function resolveCodexOAuthNextStep(
             },
           },
           {
+            branch: 'email' as const,
+            priority: 45,
+            guard: ({ input }) =>
+              input.kind === 'surface-candidates' &&
+              input.candidates.includes('email'),
+            run: async () => {
+              await sendCodexOAuthSurfaceReady(
+                machine,
+                page,
+                'email',
+                redirectUri,
+              )
+              await submitCodexOAuthStoredLoginEmail(
+                page,
+                machine,
+                options,
+                redirectUri,
+                progress,
+              )
+              return waitForCodexOAuthLoginProgressStep(
+                page,
+                waitForCallback,
+                redirectUri,
+                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
+                getResolvedCallback,
+              )
+            },
+          },
+          {
             branch: 'login' as const,
             priority: 40,
             guard: ({ input }) =>
-              input.kind === 'surface' && input.surface === 'login',
+              input.kind === 'surface-candidates' &&
+              input.candidates.includes('login'),
             run: async () => {
               await sendCodexOAuthSurfaceReady(
                 machine,
@@ -1211,30 +1338,27 @@ async function resolveCodexOAuthNextStep(
                 getResolvedCallback,
               )
               if (
-                postLoginStep.kind === 'surface' &&
-                postLoginStep.surface === 'login'
+                postLoginStep.kind === 'surface-candidates' &&
+                postLoginStep.candidates.every((candidate) => candidate === 'login') &&
+                postLoginStep.candidates.includes('login')
               ) {
                 throw new GuardedBranchError(
                   'login',
-                  'OpenAI login entry did not advance to an authenticated, workspace, or email surface.',
+                  'OpenAI login entry did not advance to an authenticated, workspace, organization, consent, or email surface.',
                 )
               }
               return postLoginStep
             },
           },
           {
-            branch: 'email' as const,
-            priority: 30,
-            guard: ({ input }) =>
-              input.kind === 'surface' && input.surface === 'email',
+            branch: 'password' as const,
+            priority: 25,
+            guard: async ({ input }) =>
+              input.kind === 'post-login-candidates' &&
+              (input.candidates.includes('password') ||
+                (await waitForPasswordInputReady(page, 500))),
             run: async () => {
-              await sendCodexOAuthSurfaceReady(
-                machine,
-                page,
-                'email',
-                redirectUri,
-              )
-              await submitCodexOAuthStoredLoginEmail(
+              await submitCodexOAuthStoredPassword(
                 page,
                 machine,
                 options,
@@ -1251,31 +1375,12 @@ async function resolveCodexOAuthNextStep(
             },
           },
           {
-            branch: 'password' as const,
-            priority: 25,
-            guard: ({ input }) =>
-              input.kind === 'post-login-step' && input.step === 'password',
-            run: async () => {
-              await submitCodexOAuthStoredPassword(
-                page,
-                machine,
-                options,
-                redirectUri,
-              )
-              return waitForCodexOAuthLoginProgressStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
             branch: 'verification' as const,
             priority: 24,
-            guard: ({ input }) =>
-              input.kind === 'post-login-step' && input.step === 'verification',
+            guard: async ({ input }) =>
+              input.kind === 'post-login-candidates' &&
+              (input.candidates.includes('verification') ||
+                (await waitForVerificationCodeInputReady(page, 500))),
             run: async () => {
               await submitCodexOAuthStoredVerification(
                 page,
@@ -1297,7 +1402,8 @@ async function resolveCodexOAuthNextStep(
             branch: 'retry' as const,
             priority: 23,
             guard: ({ input }) =>
-              input.kind === 'post-login-step' && input.step === 'retry',
+              input.kind === 'post-login-candidates' &&
+              input.candidates.includes('retry'),
             run: async () => {
               await machine.send('codex.oauth.retry.requested', {
                 reason: 'post-login:retry',
@@ -1321,6 +1427,26 @@ async function resolveCodexOAuthNextStep(
                 redirectUri,
                 CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
                 getResolvedCallback,
+              )
+            },
+          },
+          {
+            branch: 'unsupported-surface' as const,
+            priority: 22,
+            guard: ({ input }) => input.kind === 'surface-candidates',
+            run: async ({ input }) => {
+              throw new Error(
+                `Codex OAuth reached unsupported surface candidates: ${input.candidates.join(', ')}`,
+              )
+            },
+          },
+          {
+            branch: 'unsupported-post-login' as const,
+            priority: 21,
+            guard: ({ input }) => input.kind === 'post-login-candidates',
+            run: async ({ input }) => {
+              throw new Error(
+                `Codex OAuth reached unsupported post-email login candidates: ${input.candidates.join(', ')}`,
               )
             },
           },

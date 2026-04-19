@@ -4,7 +4,6 @@ import path from 'path'
 
 import { getRuntimeConfig } from '../../config'
 import { ensureDir, writeFileAtomic } from '../../utils/fs'
-import type { VirtualPasskeyStore } from '../webauthn'
 
 const STORE_VERSION = 1
 const STORE_DIR = '.codey/credentials'
@@ -19,12 +18,10 @@ export interface StoredChatGPTIdentity {
   updatedAt: string
   email: string
   password: string
-  passkeyStore?: VirtualPasskeyStore
   metadata: {
     prefix?: string
     mailbox?: string
     source: 'chatgpt-register'
-    passkeyCreated: boolean
     chatgptUrl?: string
   }
 }
@@ -49,7 +46,6 @@ export interface StoredChatGPTIdentitySummary {
   email: string
   createdAt: string
   updatedAt: string
-  hasPasskey: boolean
   credentialCount: number
   storePath: string
   encrypted: boolean
@@ -60,8 +56,6 @@ export interface PersistChatGPTIdentityInput {
   password: string
   prefix?: string
   mailbox?: string
-  passkeyStore?: VirtualPasskeyStore
-  passkeyCreated?: boolean
 }
 
 export interface ResolveChatGPTIdentityOptions {
@@ -244,8 +238,7 @@ function summarize(
     email: identity.email,
     createdAt: identity.createdAt,
     updatedAt: identity.updatedAt,
-    hasPasskey: Boolean(identity.passkeyStore?.credentials.length),
-    credentialCount: identity.passkeyStore?.credentials.length || 0,
+    credentialCount: 0,
     storePath,
     encrypted,
   }
@@ -315,12 +308,10 @@ export function persistChatGPTIdentity(
     updatedAt: now,
     email: input.email,
     password: input.password,
-    passkeyStore: input.passkeyStore,
     metadata: {
       prefix: input.prefix,
       mailbox: input.mailbox,
       source: 'chatgpt-register',
-      passkeyCreated: input.passkeyCreated ?? false,
       chatgptUrl: getRuntimeConfig().openai.chatgptUrl,
     },
   }

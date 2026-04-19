@@ -4,14 +4,12 @@ import type { SelectorTarget } from '../../types'
 import { sleep } from '../../utils/wait'
 import type { VerificationProvider } from '../verification'
 import {
-  captureVirtualPasskeyStore,
-  type VirtualPasskeyStore,
-} from '../webauthn/virtual-authenticator'
-import {
   AGE_GATE_AGE_SELECTORS,
   AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
   AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
   CODEX_CONSENT_SUBMIT_SELECTORS,
+  CODEX_ORGANIZATION_SELECTORS,
+  CODEX_ORGANIZATION_SUBMIT_SELECTORS,
   CODEX_WORKSPACE_SELECTORS,
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
@@ -19,24 +17,21 @@ import {
   DEFAULT_EVENT_TIMEOUT_MS,
   isChatGPTCodexAccountConsentUrl,
   isChatGPTCodexConsentUrl,
+  isChatGPTCodexOrganizationUrl,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
   LOGIN_ENTRY_SELECTORS,
-  LOGIN_NEXT_STEP_SELECTORS,
   ONBOARDING_SIGNAL_SELECTORS,
-  PASSKEY_ENTRY_SELECTORS,
   PASSWORD_INPUT_SELECTORS,
   PASSWORD_TIMEOUT_ERROR_SELECTORS,
   PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
-  SECURITY_READY_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
 } from './common'
 
 export type ChatGPTPostEmailLoginStep =
   | 'authenticated'
-  | 'passkey'
   | 'password'
   | 'verification'
   | 'retry'
@@ -45,22 +40,19 @@ export type ChatGPTPostEmailLoginStep =
 export type ChatGPTLoginSurface =
   | 'authenticated'
   | 'email'
-  | 'passkey'
   | 'unknown'
 
 export type ChatGPTLoginEntrySurface =
   | 'authenticated'
   | 'login'
   | 'email'
-  | 'passkey'
   | 'unknown'
 
 export type ChatGPTCodexOAuthSurface =
   | ChatGPTLoginEntrySurface
   | 'workspace'
+  | 'organization'
   | 'consent'
-
-export type ChatGPTPasskeyTrigger = 'retry' | 'passkey' | 'none'
 
 export type ChatGPTRegistrationEntrySurface =
   | 'authenticated'
@@ -84,7 +76,6 @@ async function isLoginEmailFieldReady(page: Page): Promise<boolean> {
 async function hasVisibleLoginAction(page: Page): Promise<boolean> {
   return (
     (await isAnySelectorVisible(page, LOGIN_CONTINUE_SELECTORS)) ||
-    (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) ||
     (await isAnySelectorVisible(page, LOGIN_ENTRY_SELECTORS))
   )
 }
@@ -543,8 +534,8 @@ export async function getPostEmailLoginStepCandidates(
   if (await waitForAuthenticatedSession(page, 250)) {
     pushUniqueCandidate(candidates, 'authenticated')
   }
-  if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) {
-    pushUniqueCandidate(candidates, 'passkey')
+  if (await isAnySelectorVisible(page, CHATGPT_AUTHENTICATED_SELECTORS)) {
+    pushUniqueCandidate(candidates, 'authenticated')
   }
   if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS)) {
     pushUniqueCandidate(candidates, 'verification')
@@ -552,17 +543,11 @@ export async function getPostEmailLoginStepCandidates(
   if (await hasEnabledSelector(page, PASSWORD_INPUT_SELECTORS)) {
     pushUniqueCandidate(candidates, 'password')
   }
-  if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) {
-    pushUniqueCandidate(candidates, 'passkey')
-  }
   if (await isAnySelectorVisible(page, PASSWORD_INPUT_SELECTORS)) {
     pushUniqueCandidate(candidates, 'password')
   }
   if ((await getExplicitLoginEmailRetryState(page)) !== 'none') {
     pushUniqueCandidate(candidates, 'retry')
-  }
-  if (await isAnySelectorVisible(page, LOGIN_NEXT_STEP_SELECTORS)) {
-    pushUniqueCandidate(candidates, 'passkey')
   }
 
   return candidates
@@ -597,35 +582,6 @@ export async function waitForPostEmailLoginStep(
   return (
     (await waitForPostEmailLoginCandidates(page, timeoutMs))[0] ?? 'unknown'
   )
-}
-
-export async function waitForPasskeyCreation(
-  page: Page,
-  session: Awaited<
-    ReturnType<
-      typeof import('../webauthn/virtual-authenticator').loadVirtualPasskeyStore
-    >
-  >['session'],
-  authenticatorId: string,
-  timeoutMs = 20000,
-): Promise<VirtualPasskeyStore> {
-  const deadline = Date.now() + timeoutMs
-  let pauseMs = 100
-  while (Date.now() < deadline) {
-    const store = await captureVirtualPasskeyStore(
-      session as never,
-      authenticatorId,
-    )
-    if (store.credentials.length > 0) return store
-    await Promise.any([
-      page.waitForLoadState('domcontentloaded', {
-        timeout: Math.min(pauseMs, Math.max(1, deadline - Date.now())),
-      }),
-      sleep(Math.min(pauseMs, Math.max(1, deadline - Date.now()))),
-    ]).catch(() => undefined)
-    pauseMs = Math.min(pauseMs * 2, 1000)
-  }
-  return captureVirtualPasskeyStore(session as never, authenticatorId)
 }
 
 export async function waitForAuthenticatedSession(
@@ -757,14 +713,8 @@ export async function getLoginSurfaceCandidates(
   if (await waitForAuthenticatedSession(page, 500)) {
     pushUniqueCandidate(candidates, 'authenticated')
   }
-  if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) {
-    pushUniqueCandidate(candidates, 'passkey')
-  }
   if (await isLoginEmailFieldReady(page)) {
     pushUniqueCandidate(candidates, 'email')
-  }
-  if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) {
-    pushUniqueCandidate(candidates, 'passkey')
   }
   if (
     candidates.length === 0 &&
@@ -788,17 +738,11 @@ export async function getLoginEntryCandidates(
   if (await hasEnabledSelector(page, LOGIN_ENTRY_SELECTORS)) {
     pushUniqueCandidate(candidates, 'login')
   }
-  if (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS)) {
-    pushUniqueCandidate(candidates, 'passkey')
-  }
   if (await isLoginEmailFieldReady(page)) {
     pushUniqueCandidate(candidates, 'email')
   }
   if (await isAnySelectorVisible(page, LOGIN_ENTRY_SELECTORS)) {
     pushUniqueCandidate(candidates, 'login')
-  }
-  if (await isAnySelectorVisible(page, PASSKEY_ENTRY_SELECTORS)) {
-    pushUniqueCandidate(candidates, 'passkey')
   }
   if (
     candidates.length === 0 &&
@@ -824,6 +768,19 @@ export async function isCodexWorkspacePickerReady(
   )
 }
 
+export async function isCodexOrganizationPickerReady(
+  page: Page,
+): Promise<boolean> {
+  if (!isChatGPTCodexOrganizationUrl(page.url())) {
+    return false
+  }
+
+  return (
+    (await isAnySelectorVisible(page, CODEX_ORGANIZATION_SELECTORS)) ||
+    (await hasEnabledSelector(page, CODEX_ORGANIZATION_SUBMIT_SELECTORS))
+  )
+}
+
 export async function isCodexConsentReady(page: Page): Promise<boolean> {
   if (!isChatGPTCodexAccountConsentUrl(page.url())) {
     return false
@@ -842,6 +799,9 @@ export async function getCodexOAuthSurfaceCandidates(
 
   if (await isCodexWorkspacePickerReady(page)) {
     pushUniqueCandidate(candidates, 'workspace')
+  }
+  if (await isCodexOrganizationPickerReady(page)) {
+    pushUniqueCandidate(candidates, 'organization')
   }
   if (await isCodexConsentReady(page)) {
     pushUniqueCandidate(candidates, 'consent')
@@ -877,20 +837,29 @@ export async function waitForLoginEntrySurface(
   return (await waitForLoginEntryCandidates(page, timeoutMs))[0] ?? 'unknown'
 }
 
-export async function waitForCodexOAuthSurface(
+export async function waitForCodexOAuthSurfaceCandidates(
   page: Page,
   timeoutMs = 15000,
-): Promise<ChatGPTCodexOAuthSurface> {
+): Promise<Exclude<ChatGPTCodexOAuthSurface, 'unknown'>[]> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const candidates = await getCodexOAuthSurfaceCandidates(page)
     if (candidates.length > 0) {
-      return candidates[0]
+      return candidates
     }
     await sleep(250)
   }
 
-  return (await getCodexOAuthSurfaceCandidates(page))[0] ?? 'unknown'
+  return getCodexOAuthSurfaceCandidates(page)
+}
+
+export async function waitForCodexOAuthSurface(
+  page: Page,
+  timeoutMs = 15000,
+): Promise<ChatGPTCodexOAuthSurface> {
+  return (
+    (await waitForCodexOAuthSurfaceCandidates(page, timeoutMs))[0] ?? 'unknown'
+  )
 }
 
 export async function waitForLoginSurfaceCandidates(
@@ -916,78 +885,6 @@ export async function waitForLoginSurface(
   return (await waitForLoginSurfaceCandidates(page, timeoutMs))[0] ?? 'unknown'
 }
 
-export async function waitForPasskeyEntryReady(
-  page: Page,
-  timeoutMs = 20000,
-): Promise<boolean> {
-  const ready = await waitForAnySelectorState(
-    page,
-    PASSKEY_ENTRY_SELECTORS,
-    'visible',
-    timeoutMs,
-  )
-  if (!ready) return false
-  return waitForEnabledSelector(page, PASSKEY_ENTRY_SELECTORS, timeoutMs)
-}
-
-export async function getRetryOrPasskeyEntryCandidates(
-  page: Page,
-  allowPasskeyEntry = true,
-): Promise<Exclude<ChatGPTPasskeyTrigger, 'none'>[]> {
-  const candidates: Exclude<ChatGPTPasskeyTrigger, 'none'>[] = []
-
-  if (
-    (await hasEnabledSelector(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) ||
-    (await hasPasswordTimeoutErrorState(page))
-  ) {
-    pushUniqueCandidate(candidates, 'retry')
-  }
-  if (
-    allowPasskeyEntry &&
-    (await hasEnabledSelector(page, PASSKEY_ENTRY_SELECTORS))
-  ) {
-    pushUniqueCandidate(candidates, 'passkey')
-  }
-
-  return candidates
-}
-
-export async function waitForRetryOrPasskeyEntryCandidates(
-  page: Page,
-  timeoutMs = 10000,
-  allowPasskeyEntry = true,
-): Promise<Exclude<ChatGPTPasskeyTrigger, 'none'>[]> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const candidates = await getRetryOrPasskeyEntryCandidates(
-      page,
-      allowPasskeyEntry,
-    )
-    if (candidates.length > 0) {
-      return candidates
-    }
-    await sleep(250)
-  }
-
-  return getRetryOrPasskeyEntryCandidates(page, allowPasskeyEntry)
-}
-
-export async function waitForRetryOrPasskeyEntryReady(
-  page: Page,
-  timeoutMs = 10000,
-  allowPasskeyEntry = true,
-): Promise<ChatGPTPasskeyTrigger> {
-  return (
-    (
-      await waitForRetryOrPasskeyEntryCandidates(
-        page,
-        timeoutMs,
-        allowPasskeyEntry,
-      )
-    )[0] ?? 'none'
-  )
-}
-
 export async function waitForVerificationCode(params: {
   verificationProvider: VerificationProvider
   email: string
@@ -1003,17 +900,6 @@ export async function waitForVerificationCode(params: {
     pollIntervalMs: params.pollIntervalMs,
     onPollAttempt: params.onPollAttempt,
   })
-}
-
-export async function isSecuritySettingsReady(page: Page): Promise<boolean> {
-  const addVisible = await page
-    .locator('button')
-    .filter({ hasText: /安全密钥和通行密钥|security keys and passkeys/i })
-    .first()
-    .isVisible()
-    .catch(() => false)
-  if (addVisible) return true
-  return waitForAnySelectorState(page, SECURITY_READY_SELECTORS, 'visible', 250)
 }
 
 export async function waitForPasswordInputReady(

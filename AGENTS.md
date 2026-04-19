@@ -19,7 +19,7 @@
 
 ## Flow state machines
 
-- Treat flow branching as a state-machine concern. Do not add new `if/else` trees in flow runners to decide between states such as email/password/verification/retry/passkey.
+- Treat flow branching as a state-machine concern. Do not add new `if/else` trees in flow runners to decide between states such as email/password/verification/retry.
 - Encode branch selection as guarded transitions with explicit priority. When multiple transitions exist for the same event, guards must be evaluated in priority order and only the first passing transition should be selected.
 - Keep guards pure. In `packages/flows`, guards should consume query results or candidate lists returned by `queries.ts`; prefer helpers such as `get*Candidates()` / `waitFor*Candidates()` over embedding DOM checks directly in mutation code.
 - Keep retry and fallback bookkeeping in machine context, not in ad-hoc local variables only. This includes `retryCount`, `retryReason`, `retryFromState`, `lastAttempt`, and `lastMessage`.

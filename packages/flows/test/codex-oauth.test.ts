@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const getRuntimeConfig = vi.fn()
 const waitForCodexOAuthSurface = vi.fn()
+const waitForCodexOAuthSurfaceCandidates = vi.fn()
 const clickLoginEntryIfPresent = vi.fn()
 const clickPasswordSubmit = vi.fn()
 const clickVerificationContinue = vi.fn()
+const completePasswordOrVerificationLoginFallback = vi.fn()
+const continueCodexOrganizationSelection = vi.fn()
 const continueCodexWorkspaceSelection = vi.fn()
 const continueCodexOAuthConsent = vi.fn()
 const submitLoginEmail = vi.fn()
@@ -33,12 +36,15 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   clickLoginEntryIfPresent,
   clickPasswordSubmit,
   clickVerificationContinue,
+  completePasswordOrVerificationLoginFallback,
   continueCodexOAuthConsent,
+  continueCodexOrganizationSelection,
   continueCodexWorkspaceSelection,
   submitLoginEmail,
   typePassword,
   typeVerificationCode,
   waitForCodexOAuthSurface,
+  waitForCodexOAuthSurfaceCandidates,
   waitForPasswordInputReady,
   waitForPostEmailLoginCandidates,
   waitForVerificationCode,
@@ -171,16 +177,26 @@ describe('runCodexOAuthFlow', () => {
 
     clickPasswordSubmit.mockResolvedValue(undefined)
     clickVerificationContinue.mockResolvedValue(true)
+    completePasswordOrVerificationLoginFallback.mockResolvedValue({
+      method: 'password',
+    })
+    continueCodexOrganizationSelection.mockResolvedValue({
+      availableOrganizations: 1,
+      selectedOrganizationIndex: 1,
+      availableProjects: 1,
+      selectedProjectIndex: 1,
+    })
     submitLoginEmail.mockResolvedValue(undefined)
     typePassword.mockResolvedValue(true)
     typeVerificationCode.mockResolvedValue(undefined)
+    waitForCodexOAuthSurfaceCandidates.mockResolvedValue([])
     waitForPasswordInputReady.mockResolvedValue(false)
     waitForPostEmailLoginCandidates.mockResolvedValue([])
     waitForVerificationCode.mockResolvedValue('654321')
     waitForVerificationCodeInputReady.mockResolvedValue(false)
   })
 
-  it('waits for a late login surface and advances stored identity login one step at a time before exchanging the callback', async () => {
+  it('advances stored identity login even when an earlier post-email candidate is a false positive', async () => {
     let currentUrl = 'https://auth.openai.com/oauth/authorize'
     let resolveCallback!: (value: {
       code: string
@@ -203,10 +219,10 @@ describe('runCodexOAuthFlow', () => {
       abort: vi.fn().mockResolvedValue(undefined),
     })
 
-    waitForCodexOAuthSurface.mockImplementation(
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(
       async (_page: unknown, timeoutMs: number) => {
         if (timeoutMs >= 180000) {
-          return 'email'
+          return ['email']
         }
         return new Promise<never>(() => undefined)
       },
@@ -226,10 +242,8 @@ describe('runCodexOAuthFlow', () => {
         await options?.onRetry?.(1, 'retry')
       },
     )
-    waitForPostEmailLoginCandidates.mockResolvedValueOnce(['password'])
-    waitForPasswordInputReady.mockResolvedValue(true)
-    typePassword.mockResolvedValue(true)
-    clickPasswordSubmit.mockImplementation(async () => {
+    waitForPostEmailLoginCandidates.mockResolvedValueOnce(['retry', 'password'])
+    completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
       currentUrl =
         'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
       resolveCallback({
@@ -238,6 +252,10 @@ describe('runCodexOAuthFlow', () => {
         callbackUrl: currentUrl,
         rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
       })
+      return {
+        method: 'verification',
+        verificationCode: '654321',
+      }
     })
 
     exchangeCodexAuthorizationCode.mockResolvedValue({
@@ -269,7 +287,10 @@ describe('runCodexOAuthFlow', () => {
         timeoutMs: 180000,
       }),
     )
-    expect(waitForCodexOAuthSurface).toHaveBeenCalledWith(page, 180000)
+    expect(waitForCodexOAuthSurfaceCandidates).toHaveBeenCalledWith(
+      page,
+      180000,
+    )
     expect(submitLoginEmail).toHaveBeenCalledWith(
       page,
       'person@example.com',
@@ -278,9 +299,16 @@ describe('runCodexOAuthFlow', () => {
       }),
     )
     expect(waitForPostEmailLoginCandidates).toHaveBeenCalledWith(page, 15000)
-    expect(waitForPasswordInputReady).toHaveBeenCalledWith(page, 10000)
-    expect(typePassword).toHaveBeenCalledWith(page, 'person-password')
-    expect(clickPasswordSubmit).toHaveBeenCalledWith(page)
+    expect(completePasswordOrVerificationLoginFallback).toHaveBeenCalledWith(
+      page,
+      expect.objectContaining({
+        email: 'person@example.com',
+        password: 'person-password',
+        step: 'password',
+        verificationTimeoutMs: 180000,
+        pollIntervalMs: 5000,
+      }),
+    )
     expect(resolveStoredChatGPTIdentity).toHaveBeenCalledWith({
       id: 'identity-123',
       email: 'person@example.com',
@@ -343,13 +371,13 @@ describe('runCodexOAuthFlow', () => {
     })
 
     let surfaceChecks = 0
-    waitForCodexOAuthSurface.mockImplementation(async () => {
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(async () => {
       surfaceChecks += 1
       if (surfaceChecks === 1) {
-        return 'login'
+        return ['login']
       }
       if (surfaceChecks === 2) {
-        return 'email'
+        return ['email']
       }
       return new Promise<never>(() => undefined)
     })
@@ -358,9 +386,7 @@ describe('runCodexOAuthFlow', () => {
       return true
     })
     waitForPostEmailLoginCandidates.mockResolvedValueOnce(['password'])
-    waitForPasswordInputReady.mockResolvedValue(true)
-    typePassword.mockResolvedValue(true)
-    clickPasswordSubmit.mockImplementation(async () => {
+    completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
       currentUrl =
         'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
       resolveCallback({
@@ -369,6 +395,9 @@ describe('runCodexOAuthFlow', () => {
         callbackUrl: currentUrl,
         rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
       })
+      return {
+        method: 'password',
+      }
     })
 
     exchangeCodexAuthorizationCode.mockResolvedValue({
@@ -395,11 +424,26 @@ describe('runCodexOAuthFlow', () => {
     })
 
     expect(clickLoginEntryIfPresent).toHaveBeenCalledOnce()
-    expect(waitForCodexOAuthSurface).toHaveBeenNthCalledWith(1, page, 180000)
-    expect(waitForCodexOAuthSurface).toHaveBeenNthCalledWith(2, page, 15000)
+    expect(waitForCodexOAuthSurfaceCandidates).toHaveBeenNthCalledWith(
+      1,
+      page,
+      180000,
+    )
+    expect(waitForCodexOAuthSurfaceCandidates).toHaveBeenNthCalledWith(
+      2,
+      page,
+      15000,
+    )
     expect(submitLoginEmail).toHaveBeenCalledOnce()
     expect(waitForPostEmailLoginCandidates).toHaveBeenCalledWith(page, 15000)
-    expect(clickPasswordSubmit).toHaveBeenCalledOnce()
+    expect(completePasswordOrVerificationLoginFallback).toHaveBeenCalledWith(
+      page,
+      expect.objectContaining({
+        email: 'person@example.com',
+        password: 'person-password',
+        step: 'password',
+      }),
+    )
     expect(
       result.machine.history.some(
         (entry) =>
@@ -422,6 +466,101 @@ describe('runCodexOAuthFlow', () => {
     ).toBe(true)
   })
 
+  it('reuses the shared verification flow when OpenAI asks for email verification', async () => {
+    let currentUrl = 'https://auth.openai.com/oauth/authorize'
+    let resolveCallback!: (value: {
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }) => void
+
+    const callbackResult = new Promise<{
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }>((resolve) => {
+      resolveCallback = resolve
+    })
+
+    createAuthorizationCallbackCapture.mockResolvedValue({
+      result: callbackResult,
+      abort: vi.fn().mockResolvedValue(undefined),
+    })
+
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(
+      async (_page: unknown, timeoutMs: number) => {
+        if (timeoutMs >= 180000) {
+          return ['email']
+        }
+        return new Promise<never>(() => undefined)
+      },
+    )
+    waitForPostEmailLoginCandidates.mockResolvedValueOnce(['verification'])
+    waitForVerificationCodeInputReady.mockResolvedValue(true)
+    completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
+      currentUrl =
+        'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
+      resolveCallback({
+        code: 'oauth-code',
+        state: 'oauth-state',
+        callbackUrl: currentUrl,
+        rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
+      })
+      return {
+        method: 'verification',
+        verificationCode: '654321',
+      }
+    })
+
+    exchangeCodexAuthorizationCode.mockResolvedValue({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      expiresIn: 3600,
+      scope: 'openid profile email offline_access',
+      tokenType: 'Bearer',
+      createdAt: '2026-04-17T00:00:00.000Z',
+    })
+
+    const page = {
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url
+      }),
+      url: vi.fn(() => currentUrl),
+      title: vi.fn(async () => 'Authorization received'),
+    } as never
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    const result = await runCodexOAuthFlow(page, {
+      identityId: 'identity-123',
+      email: 'person@example.com',
+    })
+
+    expect(waitForVerificationCodeInputReady).toHaveBeenCalledWith(page, 10000)
+    expect(completePasswordOrVerificationLoginFallback).toHaveBeenCalledWith(
+      page,
+      expect.objectContaining({
+        email: 'person@example.com',
+        password: 'person-password',
+        step: 'verification',
+        verificationTimeoutMs: 180000,
+        pollIntervalMs: 5000,
+      }),
+    )
+    expect(
+      result.machine.history.some(
+        (entry) =>
+          entry.event === 'context.updated' &&
+          entry.to === 'verification-step',
+      ),
+    ).toBe(true)
+    expect(result).toMatchObject({
+      pageName: 'codex-oauth',
+      email: 'person@example.com',
+    })
+  })
+
   it('can stop after generating the oauth url and return it for manual verification', async () => {
     const page = {
       goto: vi.fn(),
@@ -441,7 +580,7 @@ describe('runCodexOAuthFlow', () => {
         'https://auth.openai.com/oauth/authorize?client_id=codex-client-id',
     })
     expect(createAuthorizationCallbackCapture).not.toHaveBeenCalled()
-    expect(waitForCodexOAuthSurface).not.toHaveBeenCalled()
+    expect(waitForCodexOAuthSurfaceCandidates).not.toHaveBeenCalled()
     expect(exchangeCodexAuthorizationCode).not.toHaveBeenCalled()
     expect(page.goto).not.toHaveBeenCalled()
     expect(result.machine).toMatchObject({
@@ -481,7 +620,7 @@ describe('runCodexOAuthFlow', () => {
       abort: vi.fn().mockResolvedValue(undefined),
     })
 
-    waitForCodexOAuthSurface.mockResolvedValue('workspace')
+    waitForCodexOAuthSurfaceCandidates.mockResolvedValue(['workspace'])
     continueCodexWorkspaceSelection.mockImplementation(async () => {
       currentUrl =
         'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
@@ -561,7 +700,7 @@ describe('runCodexOAuthFlow', () => {
       abort: vi.fn().mockResolvedValue(undefined),
     })
 
-    waitForCodexOAuthSurface.mockResolvedValue('workspace')
+    waitForCodexOAuthSurfaceCandidates.mockResolvedValue(['workspace'])
     continueCodexWorkspaceSelection.mockImplementation(async () => {
       currentUrl =
         'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
@@ -626,14 +765,14 @@ describe('runCodexOAuthFlow', () => {
     })
 
     let surfaceChecks = 0
-    waitForCodexOAuthSurface.mockImplementation(async () => {
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(async () => {
       surfaceChecks += 1
       if (surfaceChecks === 1) {
-        return 'workspace'
+        return ['workspace']
       }
 
       await new Promise((resolve) => setTimeout(resolve, 25))
-      return 'email'
+      return ['email']
     })
 
     continueCodexWorkspaceSelection.mockImplementation(async () => {
@@ -712,11 +851,11 @@ describe('runCodexOAuthFlow', () => {
       abort: vi.fn().mockResolvedValue(undefined),
     })
 
-    waitForCodexOAuthSurface.mockImplementation(async () => {
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(async () => {
       if (currentUrl.includes('/api/accounts/consent')) {
-        return 'consent'
+        return ['consent']
       }
-      return 'workspace'
+      return ['workspace']
     })
 
     continueCodexWorkspaceSelection.mockImplementation(async () => {
@@ -770,6 +909,94 @@ describe('runCodexOAuthFlow', () => {
     ).toBe(true)
   })
 
+  it('continues the organization page automatically after workspace selection', async () => {
+    let currentUrl =
+      'https://auth.openai.com/sign-in-with-chatgpt/codex/consent'
+    let resolveCallback!: (value: {
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }) => void
+
+    const callbackResult = new Promise<{
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }>((resolve) => {
+      resolveCallback = resolve
+    })
+
+    createAuthorizationCallbackCapture.mockResolvedValue({
+      result: callbackResult,
+      abort: vi.fn().mockResolvedValue(undefined),
+    })
+
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(async () => {
+      if (currentUrl.includes('/sign-in-with-chatgpt/codex/organization')) {
+        return ['organization']
+      }
+      return ['workspace']
+    })
+
+    continueCodexWorkspaceSelection.mockImplementation(async () => {
+      currentUrl =
+        'https://auth.openai.com/sign-in-with-chatgpt/codex/organization'
+      return {
+        availableWorkspaces: 2,
+        selectedWorkspaceIndex: 1,
+      }
+    })
+
+    continueCodexOrganizationSelection.mockImplementation(async () => {
+      currentUrl =
+        'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
+      resolveCallback({
+        code: 'oauth-code',
+        state: 'oauth-state',
+        callbackUrl: currentUrl,
+        rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
+      })
+      return {
+        availableOrganizations: 1,
+        selectedOrganizationIndex: 1,
+        availableProjects: 1,
+        selectedProjectIndex: 1,
+      }
+    })
+
+    exchangeCodexAuthorizationCode.mockResolvedValue({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      expiresIn: 3600,
+      scope: 'openid profile email offline_access',
+      tokenType: 'Bearer',
+      createdAt: '2026-04-17T00:00:00.000Z',
+    })
+
+    const page = {
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url
+      }),
+      url: vi.fn(() => currentUrl),
+      title: vi.fn(async () => 'Authorization received'),
+    } as never
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    const result = await runCodexOAuthFlow(page, {})
+
+    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(page, 1)
+    expect(continueCodexOrganizationSelection).toHaveBeenCalledWith(page, 1, 1)
+    expect(
+      result.machine.history.some(
+        (entry) =>
+          entry.event === 'codex.oauth.surface.ready' &&
+          entry.to === 'organization-step',
+      ),
+    ).toBe(true)
+  })
+
   it('shares the Codex OAuth session with Codey app and skips incomplete AxonHub config', async () => {
     let currentUrl =
       'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
@@ -783,7 +1010,7 @@ describe('runCodexOAuthFlow', () => {
       }),
       abort: vi.fn().mockResolvedValue(undefined),
     })
-    waitForCodexOAuthSurface.mockResolvedValue('authenticated')
+    waitForCodexOAuthSurfaceCandidates.mockResolvedValue(['authenticated'])
 
     getRuntimeConfig.mockReturnValue({
       artifactsDir: 'C:/tmp/artifacts',

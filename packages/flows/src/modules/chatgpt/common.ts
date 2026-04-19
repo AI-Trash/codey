@@ -1,11 +1,5 @@
 import crypto from 'crypto'
-import type { CDPSession } from 'patchright'
 import type { SelectorTarget } from '../../types'
-import {
-  captureVirtualPasskeyStore,
-  type VirtualPasskeyStore,
-} from '../webauthn/virtual-authenticator'
-import { sleep } from '../../utils/wait'
 
 export const CHATGPT_HOME_URL = 'https://chatgpt.com/'
 export const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login'
@@ -18,9 +12,10 @@ export const CHATGPT_OAUTH_AUTHORIZE_URL =
   'https://auth.openai.com/oauth/authorize'
 export const CHATGPT_CODEX_CONSENT_URL =
   'https://auth.openai.com/sign-in-with-chatgpt/codex/consent'
+export const CHATGPT_CODEX_ORGANIZATION_URL =
+  'https://auth.openai.com/sign-in-with-chatgpt/codex/organization'
 export const CHATGPT_CODEX_ACCOUNT_CONSENT_URL =
   'https://auth.openai.com/api/accounts/consent'
-export const CHATGPT_SECURITY_URL = 'https://chatgpt.com/#settings/Security'
 export const ADULT_AGE = '25'
 export const ADULT_BIRTHDAY = '1999-01-01'
 export const ADULT_BIRTH_YEAR = '1999'
@@ -115,6 +110,10 @@ export function isChatGPTCodexConsentUrl(url: string): boolean {
   return url.startsWith(CHATGPT_CODEX_CONSENT_URL)
 }
 
+export function isChatGPTCodexOrganizationUrl(url: string): boolean {
+  return url.startsWith(CHATGPT_CODEX_ORGANIZATION_URL)
+}
+
 export function isChatGPTCodexAccountConsentUrl(url: string): boolean {
   return url.startsWith(CHATGPT_CODEX_ACCOUNT_CONSENT_URL)
 }
@@ -185,24 +184,11 @@ export const LOGIN_CONTINUE_SELECTORS: SelectorTarget[] = [
   },
   { text: /继续|continue|next|login|log in|sign in/i },
 ]
-export const PASSKEY_ENTRY_SELECTORS: SelectorTarget[] = [
-  {
-    role: 'button',
-    options: {
-      name: /passkey|sign in with passkey|use a passkey|使用 passkey|使用通行密钥|通行密钥|密钥/i,
-    },
-  },
-  { text: /passkey|使用 passkey|使用通行密钥|通行密钥|密钥/i },
-]
 export const CHATGPT_AUTHENTICATED_SELECTORS: SelectorTarget[] = [
   '[data-testid="accounts-profile-button"]',
   '[data-testid="composer-root"]',
   'textarea',
   '[data-testid="conversation-turn-0"]',
-]
-export const LOGIN_NEXT_STEP_SELECTORS: SelectorTarget[] = [
-  ...PASSKEY_ENTRY_SELECTORS,
-  ...CHATGPT_AUTHENTICATED_SELECTORS,
 ]
 export const AGE_GATE_INPUT_SELECTORS: SelectorTarget[] = [
   'input[name="name"]',
@@ -297,6 +283,34 @@ export const CODEX_WORKSPACE_SUBMIT_SELECTORS: SelectorTarget[] = [
     options: { name: /继续|continue|sign in|allow|authorize/i },
   },
   { text: /继续|continue|sign in|allow|authorize/i },
+]
+export const CODEX_ORGANIZATION_SELECTORS: SelectorTarget[] = [
+  'input[type="radio"][name="organization_id"]',
+  'input[type="hidden"][name="organization_id"]',
+  'select[name="organization_id"]',
+  'input[type="radio"][name="project_id"]',
+  'input[type="hidden"][name="project_id"]',
+  'select[name="project_id"]',
+  {
+    role: 'heading',
+    options: {
+      name: /api organization|select a project|wants access to your api organization/i,
+    },
+  },
+  {
+    text: /api organization|select a project|wants access to your api organization/i,
+  },
+]
+export const CODEX_ORGANIZATION_SUBMIT_SELECTORS: SelectorTarget[] = [
+  'form[action*="/api/accounts/organization/select"] button[type="submit"]',
+  'form button[type="submit"]',
+  'button[type="submit"]',
+  'input[type="submit"]',
+  {
+    role: 'button',
+    options: { name: /继续|continue|sign in|allow|authorize|approve/i },
+  },
+  { text: /继续|continue|sign in|allow|authorize|approve/i },
 ]
 export const CODEX_CONSENT_SUBMIT_SELECTORS: SelectorTarget[] = [
   'form[action*="/api/accounts/consent"] button[type="submit"]',
@@ -402,22 +416,6 @@ export const ONBOARDING_SIGNAL_SELECTORS: SelectorTarget[] = [
     text: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
   },
 ]
-export const SECURITY_READY_SELECTORS: SelectorTarget[] = [
-  '[data-testid="security-tab"]',
-  {
-    role: 'button',
-    options: { name: /安全密钥和通行密钥|security keys and passkeys/i },
-  },
-  { text: /安全密钥和通行密钥|security keys and passkeys/i },
-]
-export const SECURITY_ADD_SELECTORS: SelectorTarget[] = [
-  'button:has(div:has-text("添加"))',
-  { text: /^添加$|^add$/i },
-]
-export const PASSKEY_DONE_SELECTORS: SelectorTarget[] = [
-  { role: 'button', options: { name: /完成|done|close|关闭/i } },
-  { text: /完成|done|close|关闭/i },
-]
 
 export function logStep(step: string, details?: Record<string, unknown>): void {
   console.log(JSON.stringify({ scope: 'chatgpt-register', step, ...details }))
@@ -432,79 +430,6 @@ function randomString(length = 8): string {
 
 export function buildPassword(): string {
   return `Codey!${randomString(10)}A1`
-}
-
-export interface PasskeyAssertionTracker {
-  waitForAssertion(timeoutMs?: number): Promise<boolean>
-  dispose(): void
-}
-
-export function createPasskeyAssertionTracker(
-  session: CDPSession,
-  authenticatorId: string,
-  baselineStore?: VirtualPasskeyStore,
-): PasskeyAssertionTracker {
-  let asserted = false
-  const baselineCounts = new Map(
-    (baselineStore?.credentials || []).map((credential) => [
-      credential.credentialId,
-      credential.signCount,
-    ]),
-  )
-  const handler = () => {
-    asserted = true
-  }
-
-  session.on('WebAuthn.credentialAsserted', handler)
-
-  return {
-    async waitForAssertion(timeoutMs = 10000): Promise<boolean> {
-      const deadline = Date.now() + timeoutMs
-      while (Date.now() < deadline) {
-        if (asserted) return true
-        const currentStore = await captureVirtualPasskeyStore(
-          session,
-          authenticatorId,
-        )
-        for (const credential of currentStore.credentials) {
-          const previousSignCount =
-            baselineCounts.get(credential.credentialId) ?? -1
-          if (credential.signCount > previousSignCount) {
-            asserted = true
-            baselineCounts.set(credential.credentialId, credential.signCount)
-            return true
-          }
-        }
-        await sleep(250)
-      }
-      return asserted
-    },
-    dispose(): void {
-      const eventEmitter = session as unknown as {
-        off?: (event: string, listener: () => void) => void
-        removeListener?: (event: string, listener: () => void) => void
-      }
-      eventEmitter.off?.('WebAuthn.credentialAsserted', handler)
-      eventEmitter.removeListener?.('WebAuthn.credentialAsserted', handler)
-    },
-  }
-}
-
-export function summarizePasskeyCredentials(
-  store?: VirtualPasskeyStore,
-): Array<Record<string, unknown>> {
-  return (store?.credentials || []).map((credential) => ({
-    credentialId: credential.credentialId,
-    rpId: credential.rpId,
-    userHandle: credential.userHandle,
-    signCount: credential.signCount,
-    isResidentCredential: credential.isResidentCredential,
-    backupEligibility: credential.backupEligibility,
-    backupState: credential.backupState,
-    userName: credential.userName,
-    userDisplayName: credential.userDisplayName,
-    hasLargeBlob: Boolean(credential.largeBlob),
-  }))
 }
 
 const CHATGPT_SUBJECT_CODE_PATTERN = /(\d(?:[\s-]?\d){5})\s*$/

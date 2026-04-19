@@ -21,23 +21,20 @@ import {
   AGE_GATE_BIRTH_YEAR_SELECTORS,
   AGE_GATE_NAME_SELECTORS,
   CODEX_CONSENT_SUBMIT_SELECTORS,
+  CODEX_ORGANIZATION_SUBMIT_SELECTORS,
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
-  CHATGPT_SECURITY_URL,
   COMPLETE_ACCOUNT_SELECTORS,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
   LOGIN_ENTRY_SELECTORS,
   ONBOARDING_ACTION_CANDIDATES,
-  PASSKEY_ENTRY_SELECTORS,
-  PASSKEY_DONE_SELECTORS,
   PASSWORD_SUBMIT_SELECTORS,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   buildProfileName,
   REGISTRATION_CONTINUE_SELECTORS,
   REGISTRATION_EMAIL_SELECTORS,
-  SECURITY_ADD_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
   CHATGPT_HOME_URL,
 } from './common'
@@ -47,6 +44,7 @@ import {
   type ChatGPTPostEmailLoginStep,
   hasPasswordTimeoutErrorState,
   isCodexConsentReady,
+  isCodexOrganizationPickerReady,
   isCodexWorkspacePickerReady,
   isLocatorEnabled,
   waitForAnySelectorState,
@@ -69,6 +67,19 @@ const AUTH_INPUT_TYPING_OPTIONS = {
 interface CodexWorkspaceSelectionResult {
   availableWorkspaces: number
   selectedWorkspaceIndex: number
+}
+
+interface CodexOrganizationSelectionResult {
+  availableOrganizations: number
+  selectedOrganizationIndex: number
+  availableProjects: number
+  selectedProjectIndex: number
+}
+
+interface NamedSelectionResult {
+  availableOptions: number
+  selectedOptionIndex: number
+  status: 'selected' | 'out_of_range' | 'missing'
 }
 
 export async function clickSignupEntry(page: Page): Promise<void> {
@@ -575,19 +586,6 @@ export async function clickOnboardingAction(
   return null
 }
 
-export async function gotoSecuritySettings(page: Page): Promise<void> {
-  await page.goto(CHATGPT_SECURITY_URL, { waitUntil: 'domcontentloaded' })
-  await page.waitForLoadState('networkidle').catch(() => undefined)
-}
-
-export async function clickAddPasskey(page: Page): Promise<boolean> {
-  return clickIfPresent(page, SECURITY_ADD_SELECTORS)
-}
-
-export async function clickPasskeyDoneIfPresent(page: Page): Promise<boolean> {
-  return clickIfPresent(page, PASSKEY_DONE_SELECTORS)
-}
-
 export async function typeLoginEmail(
   page: Page,
   email: string,
@@ -602,10 +600,6 @@ export async function typeLoginEmail(
 
 export async function clickLoginContinue(page: Page): Promise<boolean> {
   return clickIfPresent(page, LOGIN_CONTINUE_SELECTORS)
-}
-
-export async function clickPasskeyEntry(page: Page): Promise<boolean> {
-  return clickIfPresent(page, PASSKEY_ENTRY_SELECTORS)
 }
 
 export async function recoverLoginEmailSubmissionSurface(
@@ -916,6 +910,182 @@ export async function continueCodexWorkspaceSelection(
   return {
     availableWorkspaces: selected.availableWorkspaces,
     selectedWorkspaceIndex: selected.selectedWorkspaceIndex,
+  }
+}
+
+async function setNamedCodexSelection(
+  page: Page,
+  fieldName: 'organization_id' | 'project_id',
+  requestedIndex: number,
+): Promise<NamedSelectionResult> {
+  return page.evaluate(
+    ({ fieldName: name, requestedIndex: index }) => {
+      const radioInputs = Array.from(
+        document.querySelectorAll(`input[type="radio"][name="${name}"]`),
+      ) as HTMLInputElement[]
+
+      if (radioInputs.length > 0) {
+        if (index > radioInputs.length) {
+          return {
+            availableOptions: radioInputs.length,
+            selectedOptionIndex: 0,
+            status: 'out_of_range' as const,
+          }
+        }
+
+        const radio = radioInputs[index - 1]
+        radio.checked = true
+        radio.dispatchEvent(new Event('input', { bubbles: true }))
+        radio.dispatchEvent(new Event('change', { bubbles: true }))
+        radio.click()
+
+        return {
+          availableOptions: radioInputs.length,
+          selectedOptionIndex: index,
+          status: 'selected' as const,
+        }
+      }
+
+      const select = document.querySelector(
+        `select[name="${name}"]`,
+      ) as HTMLSelectElement | null
+      if (select) {
+        const availableOptions = select.options.length
+        if (index > availableOptions) {
+          return {
+            availableOptions,
+            selectedOptionIndex: 0,
+            status: 'out_of_range' as const,
+          }
+        }
+
+        select.value = select.options[index - 1]?.value || ''
+        select.dispatchEvent(new Event('input', { bubbles: true }))
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+
+        return {
+          availableOptions,
+          selectedOptionIndex: index,
+          status: 'selected' as const,
+        }
+      }
+
+      const hiddenInput = document.querySelector(
+        `input[name="${name}"]`,
+      ) as HTMLInputElement | null
+      if (hiddenInput?.value) {
+        return {
+          availableOptions: 1,
+          selectedOptionIndex: index === 1 ? 1 : 0,
+          status:
+            index === 1 ? ('selected' as const) : ('out_of_range' as const),
+        }
+      }
+
+      return {
+        availableOptions: 0,
+        selectedOptionIndex: 0,
+        status: 'missing' as const,
+      }
+    },
+    { fieldName, requestedIndex },
+  )
+}
+
+async function waitForNamedCodexSelection(
+  page: Page,
+  fieldName: 'organization_id' | 'project_id',
+  requestedIndex: number,
+  timeoutMs = 5000,
+): Promise<NamedSelectionResult> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const selection = await setNamedCodexSelection(page, fieldName, requestedIndex)
+    if (selection.status !== 'missing') {
+      return selection
+    }
+    await sleep(100)
+  }
+
+  return setNamedCodexSelection(page, fieldName, requestedIndex)
+}
+
+export async function continueCodexOrganizationSelection(
+  page: Page,
+  organizationIndex = 1,
+  projectIndex = 1,
+): Promise<CodexOrganizationSelectionResult> {
+  if (!Number.isInteger(organizationIndex) || organizationIndex < 1) {
+    throw new Error(
+      'Codex organization selection requires a positive 1-based organization index.',
+    )
+  }
+
+  if (!Number.isInteger(projectIndex) || projectIndex < 1) {
+    throw new Error(
+      'Codex organization selection requires a positive 1-based project index.',
+    )
+  }
+
+  if (!(await isCodexOrganizationPickerReady(page))) {
+    throw new Error('Codex organization picker was not ready.')
+  }
+
+  const selectedOrganization = await waitForNamedCodexSelection(
+    page,
+    'organization_id',
+    organizationIndex,
+  )
+
+  if (selectedOrganization.status === 'missing') {
+    throw new Error(
+      'Codex organization picker did not expose an organization_id input.',
+    )
+  }
+
+  if (selectedOrganization.status === 'out_of_range') {
+    throw new Error(
+      `Requested organization #${organizationIndex}, but only ${selectedOrganization.availableOptions} organizations were available.`,
+    )
+  }
+
+  const selectedProject = await waitForNamedCodexSelection(
+    page,
+    'project_id',
+    projectIndex,
+  )
+
+  if (selectedProject.status === 'missing') {
+    throw new Error(
+      'Codex organization picker did not expose a project_id input.',
+    )
+  }
+
+  if (selectedProject.status === 'out_of_range') {
+    throw new Error(
+      `Requested project #${projectIndex}, but only ${selectedProject.availableOptions} projects were available.`,
+    )
+  }
+
+  const submitReady = await waitForEnabledSelector(
+    page,
+    CODEX_ORGANIZATION_SUBMIT_SELECTORS,
+    5000,
+  )
+  if (!submitReady) {
+    throw new Error(
+      'Codex organization submit button did not become enabled.',
+    )
+  }
+
+  await clickAny(page, CODEX_ORGANIZATION_SUBMIT_SELECTORS)
+
+  return {
+    availableOrganizations: selectedOrganization.availableOptions,
+    selectedOrganizationIndex: selectedOrganization.selectedOptionIndex,
+    availableProjects: selectedProject.availableOptions,
+    selectedProjectIndex: selectedProject.selectedOptionIndex,
   }
 }
 

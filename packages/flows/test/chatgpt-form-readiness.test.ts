@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  getCodexOAuthSurfaceCandidates,
   getLoginEntryCandidates,
   waitForEditableSelector,
   waitForLoginEmailFormReady,
@@ -58,6 +59,13 @@ class FakePage {
   constructor(
     private readonly locators: Record<string, FakeLocator>,
     private readonly currentUrl = 'https://auth.openai.com/log-in-or-create-account',
+    private readonly semanticLocators: {
+      role?: FakeLocator
+      text?: FakeLocator
+      label?: FakeLocator
+      placeholder?: FakeLocator
+      testId?: FakeLocator
+    } = {},
   ) {}
 
   locator(selector: string): FakeLocator {
@@ -69,23 +77,23 @@ class FakePage {
   }
 
   getByRole(): FakeLocator {
-    return this.hiddenLocator
+    return this.semanticLocators.role ?? this.hiddenLocator
   }
 
   getByText(): FakeLocator {
-    return this.hiddenLocator
+    return this.semanticLocators.text ?? this.hiddenLocator
   }
 
   getByLabel(): FakeLocator {
-    return this.hiddenLocator
+    return this.semanticLocators.label ?? this.hiddenLocator
   }
 
   getByPlaceholder(): FakeLocator {
-    return this.hiddenLocator
+    return this.semanticLocators.placeholder ?? this.hiddenLocator
   }
 
   getByTestId(): FakeLocator {
-    return this.hiddenLocator
+    return this.semanticLocators.testId ?? this.hiddenLocator
   }
 }
 
@@ -155,5 +163,26 @@ describe('waitForEditableSelector', () => {
     await expect(getLoginEntryCandidates(page as never)).resolves.toContain(
       'email',
     )
+  })
+
+  it('detects the codex organization picker from the organization route', async () => {
+    const organizationLocator = new FakeLocator({
+      visible: true,
+    })
+    const submitLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const page = new FakePage(
+      {
+        'select[name="organization_id"]': organizationLocator,
+        'button[type="submit"]': submitLocator,
+      },
+      'https://auth.openai.com/sign-in-with-chatgpt/codex/organization',
+    )
+
+    await expect(
+      getCodexOAuthSurfaceCandidates(page as never),
+    ).resolves.toContain('organization')
   })
 })
