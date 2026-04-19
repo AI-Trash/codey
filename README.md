@@ -148,17 +148,17 @@ Then open:
 ### Flow commands
 
 ```bash
-pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-register --verificationTimeoutMs 180000
-pnpm --filter ./packages/flows exec jiti src/cli.ts flow chatgpt-login
-pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --projectId gid://axonhub/project/123
+pnpm flow chatgpt-register --verificationTimeoutMs 180000
+pnpm flow chatgpt-login
+pnpm flow codex-oauth --projectId gid://axonhub/project/123
 ```
 
 ### Exchange commands
 
 ```bash
-pnpm --filter ./packages/flows exec jiti src/cli.ts exchange verify
-pnpm --filter ./packages/flows exec jiti src/cli.ts exchange folders
-pnpm --filter ./packages/flows exec jiti src/cli.ts exchange messages --maxItems 20
+pnpm codey exchange verify
+pnpm codey exchange folders
+pnpm codey exchange messages --maxItems 20
 ```
 
 ### CLI auth commands
@@ -166,25 +166,27 @@ pnpm --filter ./packages/flows exec jiti src/cli.ts exchange messages --maxItems
 Authenticate the CLI against the app with a device-code style flow:
 
 ```bash
-pnpm --filter ./packages/flows exec jiti src/cli.ts auth login --target octocat
-pnpm --filter ./packages/flows exec jiti src/cli.ts auth status
-pnpm --filter ./packages/flows exec jiti src/cli.ts auth logout
+pnpm codey auth login --target octocat
+pnpm codey auth status
+pnpm codey auth logout
 ```
 
 ### CLI daemon notifications
 
 ```bash
-pnpm --filter ./packages/flows exec jiti src/cli.ts daemon start --target octocat
+pnpm codey daemon start --target octocat
 ```
 
 The daemon keeps an SSE connection to `/api/cli/events` and prints admin notifications as JSON.
+When `CODEY_APP_CLIENT_SECRET` is configured, the daemon authenticates with `client_credentials`.
+Otherwise it reuses the stored session from `pnpm codey auth login`.
 
 ### Codex OAuth session sharing flow
 
 ```bash
-pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth
-pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --email someone@example.com
-pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --workspaceIndex 2
+pnpm flow codex-oauth
+pnpm flow codex-oauth --email someone@example.com
+pnpm flow codex-oauth --workspaceIndex 2
 ```
 
 This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, saves the resulting Codex OAuth session directly into the Codey app for sharing, and optionally creates an AxonHub Codex channel when full AxonHub admin config is present. CLI output redacts access tokens, refresh tokens, and passwords.

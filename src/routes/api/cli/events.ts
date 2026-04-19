@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { listCliNotifications } from "../../../lib/server/admin";
-import { requireCliSessionUser } from "../../../lib/server/auth";
 import { text } from "../../../lib/server/http";
+import { NOTIFICATIONS_READ_SCOPE } from "../../../lib/server/oauth-scopes";
 import { getBearerTokenContext } from "../../../lib/server/oauth-resource";
+import { getCliSessionUser } from "../../../lib/server/auth";
 import {
   markCliConnectionDisconnected,
   registerCliConnection,
@@ -24,12 +25,15 @@ export const Route = createFileRoute("/api/cli/events")({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        let sessionUser;
-        try {
-          sessionUser = await requireCliSessionUser(request);
-        } catch (error) {
+        const sessionUser = await getCliSessionUser(request);
+        const bearerContext = await getBearerTokenContext(request);
+        const serviceClientAuthorized =
+          bearerContext?.kind === "client_credentials" &&
+          bearerContext.scope.includes(NOTIFICATIONS_READ_SCOPE);
+
+        if (!sessionUser && !serviceClientAuthorized) {
           return text(
-            error instanceof Error ? error.message : "Unauthorized",
+            "CLI authentication required",
             401,
           );
         }
@@ -37,14 +41,13 @@ export const Route = createFileRoute("/api/cli/events")({
         const url = new URL(request.url);
         const target =
           url.searchParams.get("target") ||
-          sessionUser.user.githubLogin ||
-          sessionUser.user.email ||
+          sessionUser?.user.githubLogin ||
+          sessionUser?.user.email ||
           undefined;
         const cliName =
           url.searchParams.get("cliName") ||
           readOptionalHeader(request, "x-codey-cli-name") ||
           "codey";
-        const bearerContext = await getBearerTokenContext(request);
         let cursor = url.searchParams.get("after")
           ? new Date(url.searchParams.get("after") as string)
           : new Date();
@@ -53,11 +56,15 @@ export const Route = createFileRoute("/api/cli/events")({
           request,
           subscribe: async ({ send, close }) => {
             const connection = await registerCliConnection({
-              sessionRef: sessionUser.session.id,
-              userId: sessionUser.user.id,
+              sessionRef:
+                sessionUser?.session.id ||
+                (serviceClientAuthorized && bearerContext?.clientId
+                  ? `client_credentials:${bearerContext.clientId}`
+                  : null),
+              userId: sessionUser?.user.id || null,
               authClientId:
                 bearerContext?.clientId ||
-                (sessionUser.session.id.startsWith("oidc:")
+                (sessionUser?.session.id.startsWith("oidc:")
                   ? sessionUser.session.id.slice("oidc:".length)
                   : null),
               cliName,

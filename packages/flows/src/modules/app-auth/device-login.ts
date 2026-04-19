@@ -2,6 +2,7 @@ import { getRuntimeConfig } from '../../config'
 import { sleep } from '../../utils/wait'
 import { resolveAppUrl } from './http'
 import {
+  exchangeOidcClientCredentials,
   exchangeOidcDeviceCode,
   OidcRequestError,
   startOidcDeviceAuthorization,
@@ -18,8 +19,18 @@ import {
   isAppSessionExpired,
   readAppSession,
   saveAppSession,
+  type StoredAppSession,
 } from './token-store'
 import { streamSse } from './sse'
+
+const NOTIFICATIONS_READ_SCOPE = 'notifications:read'
+
+export interface CliNotificationsAuthState {
+  mode: 'client_credentials' | 'device_session'
+  accessToken: string
+  clientId?: string
+  session?: StoredAppSession
+}
 
 function getCodeyAppConfig() {
   const config = getRuntimeConfig()
@@ -41,6 +52,46 @@ function getCodeyAppConfig() {
   }
 }
 
+function parseScopeList(value: string | undefined): string[] {
+  if (!value) {
+    return []
+  }
+
+  return value
+    .split(/\s+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function buildRequestedScope(
+  baseScope: string | undefined,
+  requiredScopes: string[],
+): string | undefined {
+  const requestedScopes = new Set([
+    ...parseScopeList(baseScope),
+    ...requiredScopes,
+  ])
+  return requestedScopes.size
+    ? Array.from(requestedScopes).join(' ')
+    : undefined
+}
+
+function hasRequiredScopes(
+  grantedScope: string | undefined,
+  requiredScopes: string[],
+): boolean {
+  if (!requiredScopes.length) {
+    return true
+  }
+
+  const granted = parseScopeList(grantedScope)
+  return requiredScopes.every((scope) => granted.includes(scope))
+}
+
+function getRequiredCliNotificationScopes(): string[] {
+  return [NOTIFICATIONS_READ_SCOPE]
+}
+
 function getAppOidcConfig(input: { scope?: string } = {}) {
   const config = getCodeyAppConfig()
   return {
@@ -52,6 +103,48 @@ function getAppOidcConfig(input: { scope?: string } = {}) {
     scope: input.scope || config.scope,
     resource: config.resource,
     tokenEndpointAuthMethod: config.tokenEndpointAuthMethod,
+  }
+}
+
+function hasClientCredentialsConfig(): boolean {
+  const config = getCodeyAppConfig()
+  return Boolean(config.clientId?.trim() && config.clientSecret?.trim())
+}
+
+export async function resolveCliNotificationsAuthState(): Promise<CliNotificationsAuthState> {
+  const requiredScopes = getRequiredCliNotificationScopes()
+  const config = getCodeyAppConfig()
+
+  if (hasClientCredentialsConfig()) {
+    const tokenSet = await exchangeOidcClientCredentials({
+      ...getAppOidcConfig({
+        scope: buildRequestedScope(config.scope, requiredScopes),
+      }),
+    })
+
+    return {
+      mode: 'client_credentials',
+      accessToken: tokenSet.accessToken,
+      clientId: config.clientId?.trim(),
+    }
+  }
+
+  const session = readAppSession()
+  if (isAppSessionExpired(session)) {
+    throw new Error(
+      'Stored app session is expired. Run `codey auth login` again.',
+    )
+  }
+  if (!hasRequiredScopes(session.tokenSet.scope, requiredScopes)) {
+    throw new Error(
+      `Stored app session is missing the required ${NOTIFICATIONS_READ_SCOPE} scope. Run \`codey auth login --scope ${NOTIFICATIONS_READ_SCOPE}\` again.`,
+    )
+  }
+
+  return {
+    mode: 'device_session',
+    accessToken: getAppSessionAccessToken(session),
+    session,
   }
 }
 
@@ -199,20 +292,17 @@ export async function* streamCliNotifications(
     target?: string
     cliName?: string
   } = {},
+  authState?: CliNotificationsAuthState,
 ): AsyncGenerator<AdminNotificationEvent, void, void> {
   const config = getCodeyAppConfig()
-  const session = readAppSession()
-  if (isAppSessionExpired(session)) {
-    throw new Error(
-      'Stored app session is expired. Run `codey auth login` again.',
-    )
-  }
+  const resolvedAuthState =
+    authState || (await resolveCliNotificationsAuthState())
   const target =
     input.target ||
-    session.target ||
-    session.subject ||
-    session.user?.githubLogin ||
-    session.user?.email ||
+    resolvedAuthState.session?.target ||
+    resolvedAuthState.session?.subject ||
+    resolvedAuthState.session?.user?.githubLogin ||
+    resolvedAuthState.session?.user?.email ||
     undefined
   const eventsUrl = new URL(
     resolveAppUrl(config.cliEventsPath || '/api/cli/events'),
@@ -224,7 +314,7 @@ export async function* streamCliNotifications(
   const response = await fetch(eventsUrl, {
     headers: {
       Accept: 'text/event-stream',
-      Authorization: `Bearer ${getAppSessionAccessToken(session)}`,
+      Authorization: `Bearer ${resolvedAuthState.accessToken}`,
       ...(input.cliName ? { 'X-Codey-CLI-Name': input.cliName } : {}),
     },
   })

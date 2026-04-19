@@ -13,6 +13,7 @@ import {
 } from './flows'
 import { ExchangeClient } from './modules/exchange'
 import {
+  resolveCliNotificationsAuthState,
   exchangeDeviceChallenge,
   startDeviceLogin,
   streamCliNotifications,
@@ -269,14 +270,24 @@ async function runDaemonCommand(
   }
 
   const cliName = options.cliName || getDefaultCliName()
-  const session = readAppSession()
+  const authState = await resolveCliNotificationsAuthState()
   console.log(
     JSON.stringify(
       {
         command: 'daemon:start',
         config: redactForOutput(config),
         cliName,
-        session: redactForOutput(session),
+        auth: redactForOutput({
+          mode: authState.mode,
+          clientId: authState.clientId,
+          target: authState.session?.target,
+          subject: authState.session?.subject,
+          expiresAt: authState.session?.tokenSet.expiresAt,
+        }),
+        session:
+          authState.mode === 'device_session'
+            ? redactForOutput(authState.session)
+            : undefined,
         status: 'listening',
       },
       null,
@@ -287,7 +298,7 @@ async function runDaemonCommand(
   for await (const notification of streamCliNotifications({
     cliName,
     target: options.target,
-  })) {
+  }, authState)) {
     console.log(
       JSON.stringify(
         {

@@ -7,9 +7,12 @@ import {
   getOidcDiscovery,
   resolveOidcIssuer,
 } from '../src/modules/app-auth/oidc'
+import { resolveCliNotificationsAuthState } from '../src/modules/app-auth/device-login'
 import {
   clearAppSession,
+  createStoredAppSession,
   readAppSession,
+  saveAppSession,
 } from '../src/modules/app-auth/token-store'
 import {
   resolveConfig,
@@ -200,6 +203,101 @@ describe('app auth OIDC helpers', () => {
     expect(session.tokenSet.accessToken).toBe('token-123')
     expect(session.tokenSet.tokenType).toBe('Bearer')
     expect(session.target).toBe('octocat')
+  })
+
+  it('uses client credentials for daemon notifications when configured', async () => {
+    const rootDir = path.join(tempRoot, 'daemon-client-credentials')
+    const config = createConfig(rootDir)
+    setRuntimeConfig({
+      ...config,
+      app: {
+        ...config.app,
+        baseUrl: 'http://localhost:4301',
+      },
+    })
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    fetchSpy
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4301/oidc',
+            token_endpoint: 'http://localhost:4301/oidc/token',
+            device_authorization_endpoint: 'http://localhost:4301/oidc/device/auth',
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'service-token',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            scope: 'notifications:read',
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        ),
+      )
+
+    await expect(resolveCliNotificationsAuthState()).resolves.toMatchObject({
+      mode: 'client_credentials',
+      accessToken: 'service-token',
+      clientId: 'codey_cli',
+    })
+
+    const tokenRequest = fetchSpy.mock.calls[1]
+    expect(tokenRequest?.[0]).toBe('http://localhost:4301/oidc/token')
+    expect(tokenRequest?.[1]).toMatchObject({
+      method: 'POST',
+    })
+    expect(tokenRequest?.[1]?.body).toBeInstanceOf(URLSearchParams)
+    const body = tokenRequest?.[1]?.body as URLSearchParams
+    expect(body.get('grant_type')).toBe('client_credentials')
+    expect(body.get('scope')).toBe('notifications:read')
+  })
+
+  it('reuses the stored device session for daemon notifications without client credentials', async () => {
+    const rootDir = path.join(tempRoot, 'daemon-device-session')
+    const config = createConfig(rootDir)
+    setRuntimeConfig({
+      ...config,
+      app: {
+        ...config.app,
+        clientSecret: undefined,
+      },
+    })
+
+    saveAppSession(
+      createStoredAppSession({
+        tokenSet: {
+          accessToken: 'session-token',
+          tokenType: 'Bearer',
+          scope: 'notifications:read',
+          obtainedAt: '2026-04-19T00:00:00.000Z',
+          expiresAt: '2026-04-20T00:00:00.000Z',
+        },
+        target: 'octocat',
+      }),
+    )
+
+    await expect(resolveCliNotificationsAuthState()).resolves.toMatchObject({
+      mode: 'device_session',
+      accessToken: 'session-token',
+      session: expect.objectContaining({
+        target: 'octocat',
+      }),
+    })
   })
 
   it('reads unified CODEY_APP_* env vars into shared app config', async () => {
