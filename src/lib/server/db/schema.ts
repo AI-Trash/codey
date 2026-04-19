@@ -276,8 +276,13 @@ export const adminNotifications = pgTable("admin_notifications", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   body: text("body").notNull(),
+  kind: text("kind").default("message").notNull(),
   flowType: text("flow_type"),
   target: text("target"),
+  cliConnectionId: text("cli_connection_id").references(() => cliConnections.id, {
+    onDelete: "set null",
+  }),
+  payload: jsonb("payload").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", {
     withTimezone: true,
     mode: "date",
@@ -531,6 +536,11 @@ export const cliConnections = pgTable(
     cliName: text("cli_name"),
     target: text("target"),
     userAgent: text("user_agent"),
+    registeredFlows: text("registered_flows")
+      .array()
+      .$type<string[]>()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
     connectionPath: text("connection_path").notNull(),
     connectedAt: timestamp("connected_at", {
       withTimezone: true,

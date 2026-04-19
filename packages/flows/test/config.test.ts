@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { defaultCodexOAuthConfig, resolveConfig } from '../src/config'
+import { buildRuntimeConfig } from '../src/modules/flow-cli/helpers'
+import {
+  resolveChromeProfileLaunchConfig,
+  resolveDefaultChromeUserDataDir,
+} from '../src/utils/chrome-profile'
 
 async function withEnv<T>(
   values: Record<string, string | undefined>,
@@ -69,5 +74,53 @@ describe('resolveConfig codex defaults', () => {
     expect(config.codex?.clientId).toBe(defaultCodexOAuthConfig.clientId)
     expect(config.codex?.scope).toBe(defaultCodexOAuthConfig.scope)
     expect(config.codex?.redirectPort).toBe(1455)
+  })
+})
+
+describe('chrome profile launch config', () => {
+  it('maps chromeDefaultProfile to the local Chrome Default profile', async () => {
+    const userDataDir =
+      'C:\\Users\\Summp\\AppData\\Local\\Google\\Chrome\\User Data'
+    const config = await withEnv(
+      {
+        CHROME_USER_DATA_DIR: userDataDir,
+      },
+      () =>
+        buildRuntimeConfig('flow:chatgpt-login', {
+          chromeDefaultProfile: true,
+        }),
+    )
+
+    expect(config.browser.userDataDir).toBe(userDataDir)
+    expect(config.browser.profileDirectory).toBe('Default')
+  })
+
+  it('derives the default Chrome user data directory from the platform', () => {
+    expect(
+      resolveDefaultChromeUserDataDir(
+        'win32',
+        {
+          LOCALAPPDATA: 'C:\\Users\\Summp\\AppData\\Local',
+        },
+        'C:\\Users\\Summp',
+      ),
+    ).toBe('C:\\Users\\Summp\\AppData\\Local\\Google\\Chrome\\User Data')
+  })
+
+  it('resolves a Default profile launch config when the switch is enabled', () => {
+    expect(
+      resolveChromeProfileLaunchConfig({
+        useDefaultProfile: true,
+        platform: 'win32',
+        env: {
+          LOCALAPPDATA: 'C:\\Users\\Summp\\AppData\\Local',
+        },
+        homeDir: 'C:\\Users\\Summp',
+      }),
+    ).toEqual({
+      userDataDir:
+        'C:\\Users\\Summp\\AppData\\Local\\Google\\Chrome\\User Data',
+      profileDirectory: 'Default',
+    })
   })
 })

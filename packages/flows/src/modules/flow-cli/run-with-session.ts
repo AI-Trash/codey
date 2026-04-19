@@ -27,12 +27,17 @@ function keepSessionAlive(session: Session): void {
     attachPageListener(page)
   }
 
+  const handleContextClose = () => {
+    void cleanup()
+  }
+
   const detachListeners = () => {
     if (listenersDetached) return
     listenersDetached = true
     process.off('SIGINT', handleSigint)
     process.off('SIGTERM', handleSigterm)
-    session.browser.off('disconnected', handleBrowserDisconnected)
+    session.browser?.off('disconnected', handleBrowserDisconnected)
+    session.context.off('close', handleContextClose)
     session.context.off('page', handleContextPage)
     for (const page of session.context.pages()) {
       page.off('close', handlePageClose)
@@ -65,7 +70,8 @@ function keepSessionAlive(session: Session): void {
 
   process.once('SIGINT', handleSigint)
   process.once('SIGTERM', handleSigterm)
-  session.browser.once('disconnected', handleBrowserDisconnected)
+  session.browser?.once('disconnected', handleBrowserDisconnected)
+  session.context.once('close', handleContextClose)
   session.context.on('page', handleContextPage)
   for (const page of session.context.pages()) {
     attachPageListener(page)

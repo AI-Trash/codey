@@ -1,5 +1,11 @@
 import { startTransition, useEffect, useMemo, useState } from 'react'
 
+import {
+  type CliFlowCommandId,
+  type CliFlowOptionDefinition,
+  cliFlowDefinitions,
+  listCliFlowOptionDefinitions,
+} from '../../../packages/flows/src/modules/flow-cli/flow-registry'
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
@@ -18,6 +24,7 @@ import {
   formatAdminDate,
 } from '#/components/admin/layout'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -27,6 +34,30 @@ import {
   CardTitle,
 } from '#/components/ui/card'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '#/components/ui/field'
+import { Input } from '#/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#/components/ui/select'
+import {
   Table,
   TableBody,
   TableCell,
@@ -34,9 +65,11 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
+import { Textarea } from '#/components/ui/textarea'
 import { m } from '#/paraglide/messages'
 
 const CLI_CONNECTION_POLL_INTERVAL_MS = 10_000
+const BOOLEAN_DEFAULT_SENTINEL = '__default__'
 
 const loadAdminCliConnections = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -78,6 +111,7 @@ type CliConnectionSummary = {
   cliName: string | null
   target: string | null
   userAgent: string | null
+  registeredFlows: string[]
   connectionPath: string
   status: 'active' | 'offline'
   connectedAt: string
@@ -94,6 +128,13 @@ type CliConnectionState = {
   recentConnections: CliConnectionSummary[]
 }
 
+type DispatchFlash = {
+  title: string
+  description: string
+}
+
+type DraftOptionState = Record<string, string>
+
 function AdminCliConnectionsPage() {
   const data = Route.useLoaderData()
 
@@ -103,6 +144,9 @@ function AdminCliConnectionsPage() {
 
   const [state, setState] = useState(data.state as CliConnectionState)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [selectedConnection, setSelectedConnection] =
+    useState<CliConnectionSummary | null>(null)
+  const [dispatchFlash, setDispatchFlash] = useState<DispatchFlash | null>(null)
 
   async function refreshConnections() {
     setIsRefreshing(true)
@@ -218,6 +262,13 @@ function AdminCliConnectionsPage() {
         }
       />
 
+      {dispatchFlash ? (
+        <Alert>
+          <AlertTitle>{dispatchFlash.title}</AlertTitle>
+          <AlertDescription>{dispatchFlash.description}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <section className="grid gap-4 md:grid-cols-3">
         <AdminMetricCard
           label={m.admin_cli_metric_connected_label()}
@@ -243,6 +294,10 @@ function AdminCliConnectionsPage() {
         emptyDescription={m.admin_cli_empty_connected_description()}
         connections={state.activeConnections}
         showDisconnectedAt={false}
+        onDispatch={(connection) => {
+          setDispatchFlash(null)
+          setSelectedConnection(connection)
+        }}
       />
 
       <CliConnectionsTableCard
@@ -252,6 +307,26 @@ function AdminCliConnectionsPage() {
         emptyDescription={m.admin_cli_empty_recent_description()}
         connections={state.recentConnections}
         showDisconnectedAt
+      />
+
+      <CliTaskDialog
+        connection={selectedConnection}
+        open={Boolean(selectedConnection)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedConnection(null)
+          }
+        }}
+        onDispatched={(flowId, connection) => {
+          setDispatchFlash({
+            title: m.admin_cli_dispatch_success_title(),
+            description: m.admin_cli_dispatch_success_description({
+              flow: flowId,
+              cli: connection.cliName || m.admin_cli_unknown_cli(),
+            }),
+          })
+          setSelectedConnection(null)
+        }}
       />
     </div>
   )
@@ -264,6 +339,7 @@ function CliConnectionsTableCard(props: {
   emptyDescription: string
   connections: CliConnectionSummary[]
   showDisconnectedAt: boolean
+  onDispatch?: (connection: CliConnectionSummary) => void
 }) {
   return (
     <Card>
@@ -287,74 +363,101 @@ function CliConnectionsTableCard(props: {
                   {props.showDisconnectedAt ? (
                     <TableHead>{m.admin_cli_table_disconnected_at()}</TableHead>
                   ) : null}
+                  {props.onDispatch ? (
+                    <TableHead>{m.admin_cli_table_actions()}</TableHead>
+                  ) : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {props.connections.map((connection) => (
-                  <TableRow key={connection.id}>
-                    <TableCell>
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <span className="inline-flex items-center gap-2 font-medium">
-                          <BotIcon className="size-4 text-muted-foreground" />
-                          {connection.cliName || m.admin_cli_unknown_cli()}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {connection.connectionPath}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <span className="inline-flex items-center gap-2 font-medium">
-                          <UserRoundIcon className="size-4 text-muted-foreground" />
-                          {connection.userLabel}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {formatSecondaryIdentity(connection)}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <span className="font-medium">
-                          {connection.target || m.admin_cli_unknown_target()}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {connection.sessionRef || m.oauth_none()}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <span className="inline-flex items-center gap-2 font-medium">
-                          <ShieldIcon className="size-4 text-muted-foreground" />
-                          {connection.authClientId ||
-                            m.admin_cli_unknown_auth_client()}
-                        </span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {connection.userAgent || m.oauth_none()}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge value={connection.status} />
-                    </TableCell>
-                    <TableCell>
-                      <DateCell value={connection.connectedAt} icon={ActivityIcon} />
-                    </TableCell>
-                    <TableCell>
-                      <DateCell value={connection.lastSeenAt} icon={RefreshCcwIcon} />
-                    </TableCell>
-                    {props.showDisconnectedAt ? (
+                {props.connections.map((connection) => {
+                  const dispatchableCount = getDispatchableFlowIds(connection).length
+
+                  return (
+                    <TableRow key={connection.id}>
                       <TableCell>
-                        <DateCell
-                          value={connection.disconnectedAt}
-                          icon={ActivityIcon}
-                        />
+                        <div className="flex min-w-0 flex-col gap-1">
+                          <span className="inline-flex items-center gap-2 font-medium">
+                            <BotIcon className="size-4 text-muted-foreground" />
+                            {connection.cliName || m.admin_cli_unknown_cli()}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {connection.connectionPath}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {m.admin_cli_registered_flows_count({
+                              count: String(dispatchableCount),
+                            })}
+                          </span>
+                        </div>
                       </TableCell>
-                    ) : null}
-                  </TableRow>
-                ))}
+                      <TableCell>
+                        <div className="flex min-w-0 flex-col gap-1">
+                          <span className="inline-flex items-center gap-2 font-medium">
+                            <UserRoundIcon className="size-4 text-muted-foreground" />
+                            {connection.userLabel}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {formatSecondaryIdentity(connection)}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex min-w-0 flex-col gap-1">
+                          <span className="font-medium">
+                            {connection.target || m.admin_cli_unknown_target()}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {connection.sessionRef || m.oauth_none()}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex min-w-0 flex-col gap-1">
+                          <span className="inline-flex items-center gap-2 font-medium">
+                            <ShieldIcon className="size-4 text-muted-foreground" />
+                            {connection.authClientId ||
+                              m.admin_cli_unknown_auth_client()}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {connection.userAgent || m.oauth_none()}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge value={connection.status} />
+                      </TableCell>
+                      <TableCell>
+                        <DateCell value={connection.connectedAt} icon={ActivityIcon} />
+                      </TableCell>
+                      <TableCell>
+                        <DateCell value={connection.lastSeenAt} icon={RefreshCcwIcon} />
+                      </TableCell>
+                      {props.showDisconnectedAt ? (
+                        <TableCell>
+                          <DateCell
+                            value={connection.disconnectedAt}
+                            icon={ActivityIcon}
+                          />
+                        </TableCell>
+                      ) : null}
+                      {props.onDispatch ? (
+                        <TableCell className="w-[132px]">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={dispatchableCount === 0}
+                            onClick={() => {
+                              props.onDispatch?.(connection)
+                            }}
+                          >
+                            {m.admin_cli_dispatch_action()}
+                          </Button>
+                        </TableCell>
+                      ) : null}
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
@@ -366,6 +469,319 @@ function CliConnectionsTableCard(props: {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function CliTaskDialog(props: {
+  connection: CliConnectionSummary | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onDispatched: (flowId: CliFlowCommandId, connection: CliConnectionSummary) => void
+}) {
+  const availableFlows = useMemo(() => {
+    return props.connection ? getDispatchableFlowIds(props.connection) : []
+  }, [props.connection])
+  const [selectedFlowId, setSelectedFlowId] = useState<CliFlowCommandId | ''>('')
+  const [draftValues, setDraftValues] = useState<DraftOptionState>({})
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setSelectedFlowId(availableFlows[0] || '')
+    setDraftValues({})
+    setSubmitting(false)
+    setSubmitError(null)
+  }, [props.connection?.id, availableFlows])
+
+  const optionDefinitions = useMemo(() => {
+    return selectedFlowId ? listCliFlowOptionDefinitions(selectedFlowId) : []
+  }, [selectedFlowId])
+  const commonOptionDefinitions = optionDefinitions.filter(
+    (definition) => definition.common,
+  )
+  const flowOptionDefinitions = optionDefinitions.filter(
+    (definition) => !definition.common,
+  )
+
+  async function submitTask() {
+    if (!props.connection || !selectedFlowId) {
+      return
+    }
+
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const response = await fetch(
+        `/api/admin/cli-connections/${encodeURIComponent(props.connection.id)}/tasks`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            flowId: selectedFlowId,
+            options: buildDispatchOptions(selectedFlowId, draftValues),
+          }),
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      props.onDispatched(selectedFlowId, props.connection)
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : m.admin_cli_dispatch_error_fallback(),
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-[min(960px,calc(100%-2rem))] overflow-y-auto sm:max-w-[min(960px,calc(100%-2rem))]">
+        <DialogHeader>
+          <DialogTitle>{m.admin_cli_dispatch_dialog_title()}</DialogTitle>
+          <DialogDescription>
+            {props.connection
+              ? m.admin_cli_dispatch_dialog_description({
+                  cli: props.connection.cliName || m.admin_cli_unknown_cli(),
+                  target:
+                    props.connection.target || m.admin_cli_unknown_target(),
+                })
+              : m.admin_cli_dispatch_dialog_idle_description()}
+          </DialogDescription>
+        </DialogHeader>
+
+        {props.connection ? (
+          <div className="space-y-6">
+            <FieldSet>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="dispatch-flow-id">
+                    {m.admin_cli_dispatch_flow_label()}
+                  </FieldLabel>
+                  <Select
+                    value={selectedFlowId}
+                    onValueChange={(value) => {
+                      setSelectedFlowId(value as CliFlowCommandId)
+                      setSubmitError(null)
+                    }}
+                    disabled={!availableFlows.length || submitting}
+                  >
+                    <SelectTrigger
+                      id="dispatch-flow-id"
+                      className="w-full justify-between"
+                    >
+                      <SelectValue
+                        placeholder={m.admin_cli_dispatch_flow_placeholder()}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableFlows.map((flowId) => (
+                        <SelectItem key={flowId} value={flowId}>
+                          {flowId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>
+                    {m.admin_cli_dispatch_flow_description()}
+                  </FieldDescription>
+                </Field>
+              </FieldGroup>
+            </FieldSet>
+
+            {selectedFlowId ? (
+              <>
+                <DispatchOptionSection
+                  title={m.admin_cli_dispatch_common_section_title()}
+                  options={commonOptionDefinitions}
+                  draftValues={draftValues}
+                  disabled={submitting}
+                  onChange={(key, value) => {
+                    setDraftValues((current) => ({
+                      ...current,
+                      [key]: value,
+                    }))
+                  }}
+                />
+
+                <DispatchOptionSection
+                  title={m.admin_cli_dispatch_flow_section_title()}
+                  options={flowOptionDefinitions}
+                  emptyMessage={m.admin_cli_dispatch_flow_section_empty()}
+                  draftValues={draftValues}
+                  disabled={submitting}
+                  onChange={(key, value) => {
+                    setDraftValues((current) => ({
+                      ...current,
+                      [key]: value,
+                    }))
+                  }}
+                />
+              </>
+            ) : null}
+
+            {submitError ? (
+              <Alert variant="destructive">
+                <AlertTitle>{m.admin_cli_dispatch_error_title()}</AlertTitle>
+                <AlertDescription>{submitError}</AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+        ) : null}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              props.onOpenChange(false)
+            }}
+            disabled={submitting}
+          >
+            {m.ui_close()}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              void submitTask()
+            }}
+            disabled={!props.connection || !selectedFlowId || submitting}
+          >
+            {submitting
+              ? m.admin_cli_dispatch_submitting()
+              : m.admin_cli_dispatch_submit()}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DispatchOptionSection(props: {
+  title: string
+  options: CliFlowOptionDefinition[]
+  emptyMessage?: string
+  draftValues: DraftOptionState
+  disabled: boolean
+  onChange: (key: string, value: string) => void
+}) {
+  if (!props.options.length) {
+    return props.emptyMessage ? (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">{props.title}</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <p className="text-sm text-muted-foreground">{props.emptyMessage}</p>
+        </CardContent>
+      </Card>
+    ) : null
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">{props.title}</CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <FieldSet>
+          <FieldLegend className="sr-only">{props.title}</FieldLegend>
+          <FieldGroup className="grid gap-4 md:grid-cols-2">
+            {props.options.map((option) => (
+              <DispatchOptionField
+                key={option.key}
+                option={option}
+                value={props.draftValues[option.key] || ''}
+                disabled={props.disabled}
+                onChange={(value) => {
+                  props.onChange(option.key, value)
+                }}
+              />
+            ))}
+          </FieldGroup>
+        </FieldSet>
+      </CardContent>
+    </Card>
+  )
+}
+
+function DispatchOptionField(props: {
+  option: CliFlowOptionDefinition
+  value: string
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const inputId = `dispatch-option-${props.option.key}`
+
+  if (props.option.type === 'boolean') {
+    return (
+      <Field>
+        <FieldLabel htmlFor={inputId}>{props.option.flag}</FieldLabel>
+        <Select
+          value={props.value || BOOLEAN_DEFAULT_SENTINEL}
+          onValueChange={(value) => {
+            props.onChange(value === BOOLEAN_DEFAULT_SENTINEL ? '' : value)
+          }}
+          disabled={props.disabled}
+        >
+          <SelectTrigger id={inputId} className="w-full justify-between">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={BOOLEAN_DEFAULT_SENTINEL}>
+              {m.admin_cli_dispatch_boolean_default()}
+            </SelectItem>
+            <SelectItem value="true">{m.admin_cli_dispatch_boolean_true()}</SelectItem>
+            <SelectItem value="false">
+              {m.admin_cli_dispatch_boolean_false()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+    )
+  }
+
+  if (props.option.type === 'stringList') {
+    return (
+      <Field className="md:col-span-2">
+        <FieldLabel htmlFor={inputId}>{props.option.flag}</FieldLabel>
+        <Textarea
+          id={inputId}
+          value={props.value}
+          disabled={props.disabled}
+          rows={4}
+          placeholder={'a@example.com\nb@example.com'}
+          onChange={(event) => {
+            props.onChange(event.currentTarget.value)
+          }}
+        />
+        <FieldDescription>{m.admin_cli_dispatch_string_list_hint()}</FieldDescription>
+      </Field>
+    )
+  }
+
+  return (
+    <Field>
+      <FieldLabel htmlFor={inputId}>{props.option.flag}</FieldLabel>
+      <Input
+        id={inputId}
+        type={props.option.type === 'number' ? 'number' : 'text'}
+        inputMode={props.option.type === 'number' ? 'numeric' : undefined}
+        value={props.value}
+        disabled={props.disabled}
+        onChange={(event) => {
+          props.onChange(event.currentTarget.value)
+        }}
+      />
+    </Field>
   )
 }
 
@@ -391,4 +807,59 @@ function formatSecondaryIdentity(connection: CliConnectionSummary) {
   }
 
   return connection.email || m.oauth_none()
+}
+
+function getDispatchableFlowIds(
+  connection: CliConnectionSummary,
+): CliFlowCommandId[] {
+  const reported = new Set(connection.registeredFlows)
+
+  return cliFlowDefinitions
+    .filter((definition) => reported.has(definition.id))
+    .map((definition) => definition.id)
+}
+
+function buildDispatchOptions(
+  flowId: CliFlowCommandId,
+  draftValues: DraftOptionState,
+) {
+  const options: Record<string, unknown> = {}
+
+  for (const definition of listCliFlowOptionDefinitions(flowId)) {
+    const rawValue = draftValues[definition.key]
+    if (!rawValue?.trim()) {
+      continue
+    }
+
+    if (definition.type === 'boolean') {
+      if (rawValue === 'true' || rawValue === 'false') {
+        options[definition.key] = rawValue === 'true'
+      }
+      continue
+    }
+
+    if (definition.type === 'number') {
+      const parsed = Number(rawValue)
+      if (!Number.isFinite(parsed)) {
+        throw new Error(`${definition.flag} must be a number.`)
+      }
+      options[definition.key] = parsed
+      continue
+    }
+
+    if (definition.type === 'stringList') {
+      const parsed = rawValue
+        .split(/[\n,]/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+      if (parsed.length) {
+        options[definition.key] = parsed
+      }
+      continue
+    }
+
+    options[definition.key] = rawValue.trim()
+  }
+
+  return options
 }

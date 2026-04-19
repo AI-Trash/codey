@@ -45,7 +45,10 @@ export interface AdminNotificationEvent {
   id: string
   title: string
   body: string
+  kind?: string | null
   flowType?: string | null
   target?: string | null
+  cliConnectionId?: string | null
+  payload?: Record<string, unknown> | null
   createdAt: string
 }

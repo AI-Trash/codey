@@ -22,6 +22,7 @@ import {
   type StoredAppSession,
 } from './token-store'
 import { streamSse } from './sse'
+import { listCliFlowCommandIds } from '../flow-cli/flow-registry'
 
 const NOTIFICATIONS_READ_SCOPE = 'notifications:read'
 
@@ -316,6 +317,7 @@ export async function* streamCliNotifications(
       Accept: 'text/event-stream',
       Authorization: `Bearer ${resolvedAuthState.accessToken}`,
       ...(input.cliName ? { 'X-Codey-CLI-Name': input.cliName } : {}),
+      'X-Codey-Registered-Flows': listCliFlowCommandIds().join(','),
     },
   })
 

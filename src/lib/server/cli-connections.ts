@@ -17,6 +17,7 @@ export interface AdminCliConnectionSummary {
   cliName: string | null;
   target: string | null;
   userAgent: string | null;
+  registeredFlows: string[];
   connectionPath: string;
   status: "active" | "offline";
   connectedAt: string;
@@ -79,6 +80,9 @@ function mapSummary(row: Awaited<ReturnType<typeof listRecentCliConnectionRows>>
     cliName: row.cliName,
     target: row.target,
     userAgent: row.userAgent,
+    registeredFlows: Array.isArray(row.registeredFlows)
+      ? row.registeredFlows.filter((value): value is string => Boolean(value))
+      : [],
     connectionPath: row.connectionPath,
     status: getCliConnectionStatus(row),
     connectedAt: row.connectedAt.toISOString(),
@@ -107,6 +111,7 @@ export async function registerCliConnection(input: {
   cliName?: string | null;
   target?: string | null;
   userAgent?: string | null;
+  registeredFlows?: string[] | null;
   connectionPath: string;
 }) {
   const [connection] = await getDb()
@@ -119,6 +124,15 @@ export async function registerCliConnection(input: {
       cliName: toOptionalString(input.cliName),
       target: toOptionalString(input.target),
       userAgent: toOptionalString(input.userAgent),
+      registeredFlows: Array.isArray(input.registeredFlows)
+        ? Array.from(
+            new Set(
+              input.registeredFlows
+                .map((value) => toOptionalString(value))
+                .filter((value): value is string => Boolean(value)),
+            ),
+          )
+        : [],
       connectionPath: input.connectionPath,
     })
     .returning();
@@ -184,4 +198,17 @@ export async function listAdminCliConnectionState() {
     activeConnections,
     recentConnections,
   };
+}
+
+export async function getAdminCliConnectionSummaryById(
+  connectionId: string,
+): Promise<AdminCliConnectionSummary | null> {
+  const row = await getDb().query.cliConnections.findFirst({
+    with: {
+      user: true,
+    },
+    where: eq(cliConnections.id, connectionId),
+  });
+
+  return row ? mapSummary(row) : null;
 }

@@ -150,8 +150,11 @@ Then open:
 ```bash
 pnpm flow chatgpt-register --verificationTimeoutMs 180000
 pnpm flow chatgpt-login
+pnpm flow chatgpt-login --chromeDefaultProfile true
 pnpm flow codex-oauth --projectId gid://axonhub/project/123
 ```
+
+Pass `--chromeDefaultProfile true` when you want a flow to launch Chrome against your local `Default` profile instead of an isolated temporary session. If Chrome reports that the profile is already in use, close your regular Chrome windows first and retry the flow.
 
 ### Exchange commands
 

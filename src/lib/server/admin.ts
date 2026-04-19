@@ -171,8 +171,11 @@ export async function listAdminDashboardData() {
 export async function createAdminNotification(params: {
   title: string;
   body: string;
+  kind?: string;
   flowType?: string;
   target?: string;
+  cliConnectionId?: string;
+  payload?: Record<string, unknown>;
 }) {
   const [notification] = await getDb()
     .insert(adminNotifications)
@@ -180,8 +183,11 @@ export async function createAdminNotification(params: {
       id: createId(),
       title: params.title,
       body: params.body,
+      kind: params.kind || "message",
       flowType: params.flowType,
       target: params.target,
+      cliConnectionId: params.cliConnectionId,
+      payload: params.payload,
     })
     .returning();
 
@@ -212,6 +218,7 @@ export async function createFlowAppRequest(params: {
 
 export async function listCliNotifications(params: {
   target?: string;
+  connectionId?: string;
   after?: Date;
 }) {
   const targetFilter = params.target
@@ -224,12 +231,22 @@ export async function listCliNotifications(params: {
         isNull(adminNotifications.target),
         eq(adminNotifications.target, "all"),
       );
+  const connectionFilter = params.connectionId
+    ? or(
+        isNull(adminNotifications.cliConnectionId),
+        eq(adminNotifications.cliConnectionId, params.connectionId),
+      )
+    : isNull(adminNotifications.cliConnectionId);
 
   return getDb().query.adminNotifications.findMany({
     where:
-      params.after && targetFilter
-        ? and(targetFilter, gt(adminNotifications.createdAt, params.after))
-        : targetFilter,
+      params.after
+        ? and(
+            targetFilter,
+            connectionFilter,
+            gt(adminNotifications.createdAt, params.after),
+          )
+        : and(targetFilter, connectionFilter),
     orderBy: [asc(adminNotifications.createdAt)],
     limit: 50,
   });

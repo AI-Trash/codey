@@ -4,28 +4,30 @@ import {
   type CliRuntimeConfig,
 } from '../../config'
 import type { MachineStatus, StateMachineController } from '../../state-machine'
+import { resolveChromeProfileLaunchConfig } from '../../utils/chrome-profile'
 
 export interface CommonOptions {
   config?: string
   profile?: string
+  chromeDefaultProfile?: string | boolean
   headless?: string | boolean
-  slowMo?: string | boolean
+  slowMo?: string | number | boolean
   har?: string | boolean
   progressReporter?: FlowProgressReporter
 }
 
 export interface FlowOptions extends CommonOptions {
   record?: string | boolean
-  waitMs?: string | boolean
-  verificationTimeoutMs?: string | boolean
-  pollIntervalMs?: string | boolean
+  waitMs?: string | number | boolean
+  verificationTimeoutMs?: string | number | boolean
+  pollIntervalMs?: string | number | boolean
   authorizeUrlOnly?: string | boolean
   password?: string
   identityId?: string
   email?: string
-  workspaceIndex?: string | boolean
+  workspaceIndex?: string | number | boolean
   target?: string
-  redirectPort?: string | boolean
+  redirectPort?: string | number | boolean
   projectId?: string
   channelName?: string
   inviteEmail?: string | string[]
@@ -41,7 +43,7 @@ export interface AuthOptions extends CommonOptions {
 
 export interface ExchangeOptions extends CommonOptions {
   folderId?: string
-  maxItems?: string | boolean
+  maxItems?: string | number | boolean
   unreadOnly?: string | boolean
 }
 
@@ -154,9 +156,13 @@ export function parseBooleanFlag(
 }
 
 export function parseNumberFlag(
-  value: string | boolean | undefined,
+  value: string | number | boolean | undefined,
   fallback?: number,
 ): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback
+  }
+
   if (typeof value !== 'string') return fallback
   const num = Number(value)
   return Number.isFinite(num) ? num : fallback
@@ -203,6 +209,11 @@ export function buildRuntimeConfig(
   command: string,
   options: CommonOptions,
 ): CliRuntimeConfig {
+  const chromeProfile = resolveChromeProfileLaunchConfig({
+    useDefaultProfile:
+      parseBooleanFlag(options.chromeDefaultProfile, false) ?? false,
+  })
+
   return resolveConfig({
     command,
     configFile: options.config,
@@ -212,6 +223,8 @@ export function buildRuntimeConfig(
         headless: parseBooleanFlag(options.headless),
         slowMo: parseNumberFlag(options.slowMo),
         recordHar: parseBooleanFlag(options.har),
+        userDataDir: chromeProfile?.userDataDir,
+        profileDirectory: chromeProfile?.profileDirectory,
       },
     },
   })

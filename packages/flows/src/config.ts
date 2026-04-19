@@ -10,6 +10,8 @@ export interface BrowserCliConfig {
   defaultTimeoutMs: number
   navigationTimeoutMs: number
   recordHar: boolean
+  userDataDir?: string
+  profileDirectory?: string
 }
 
 export interface OpenAIFlowConfig {

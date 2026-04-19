@@ -78,6 +78,13 @@
       "when": 1776610009478,
       "tag": "0010_brave_tenebrous",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1776615136570,
+      "tag": "0011_pink_wolf_cub",
+      "breakpoints": true
     }
   ]
 }

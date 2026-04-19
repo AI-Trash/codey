@@ -21,6 +21,22 @@ function readOptionalHeader(request: Request, name: string): string | undefined 
   return normalized || undefined;
 }
 
+function readListHeader(request: Request, name: string): string[] {
+  const value = readOptionalHeader(request, name);
+  if (!value) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
 export const Route = createFileRoute("/api/cli/events")({
   server: {
     handlers: {
@@ -70,6 +86,10 @@ export const Route = createFileRoute("/api/cli/events")({
               cliName,
               target,
               userAgent: readOptionalHeader(request, "user-agent"),
+              registeredFlows: readListHeader(
+                request,
+                "x-codey-registered-flows",
+              ),
               connectionPath: "/api/cli/events",
             });
 
@@ -98,6 +118,7 @@ export const Route = createFileRoute("/api/cli/events")({
 
                 const notifications = await listCliNotifications({
                   target,
+                  connectionId: connection.id,
                   after: cursor,
                 });
 
@@ -115,8 +136,11 @@ export const Route = createFileRoute("/api/cli/events")({
                     id: next.id,
                     title: next.title,
                     body: next.body,
+                    kind: next.kind,
                     flowType: next.flowType,
                     target: next.target,
+                    cliConnectionId: next.cliConnectionId,
+                    payload: next.payload,
                     createdAt: next.createdAt.toISOString(),
                   },
                 });

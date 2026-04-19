@@ -11,6 +11,9 @@ export function parseCommonCliArgs(argv: string[]): CommonOptions {
     } else if (current === '--profile' && next) {
       options.profile = next
       index += 1
+    } else if (current === '--chromeDefaultProfile' && next) {
+      options.chromeDefaultProfile = next
+      index += 1
     } else if (current === '--headless' && next) {
       options.headless = next
       index += 1

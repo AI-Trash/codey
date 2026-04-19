@@ -4,6 +4,7 @@ import { cac } from 'cac'
 import { loadWorkspaceEnv } from './utils/env'
 loadWorkspaceEnv()
 
+import { setRuntimeConfig } from './config'
 import {
   loginChatGPTAndInviteMembers,
   loginChatGPT,
@@ -37,10 +38,15 @@ import {
   type ExchangeOptions,
   type FlowOptions,
 } from './modules/flow-cli/helpers'
+import {
+  isCliFlowTaskPayload,
+  type CliFlowCommandId,
+} from './modules/flow-cli/flow-registry'
 import { runWithSession } from './modules/flow-cli/run-with-session'
+import { sleep } from './utils/wait'
 
 async function runFlowCommand(
-  subcommand: string,
+  subcommand: CliFlowCommandId,
   options: FlowOptions,
 ): Promise<void> {
   const runtimeOptions: FlowOptions = {
@@ -98,6 +104,35 @@ async function runFlowCommand(
       'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )
   }
+}
+
+function resolveFlowCommandOptions(
+  subcommand: CliFlowCommandId,
+  options: FlowOptions,
+): FlowOptions {
+  if (subcommand === 'codex-oauth') {
+    return keepBrowserOpenForHarWhenUnspecified(
+      applyFlowOptionDefaults(options),
+    )
+  }
+
+  if (subcommand === 'noop') {
+    return applyFlowOptionDefaults(options, {
+      har: true,
+      record: true,
+    })
+  }
+
+  return applyFlowOptionDefaults(options)
+}
+
+async function executeFlowSubcommand(
+  subcommand: CliFlowCommandId,
+  options: FlowOptions,
+): Promise<void> {
+  const resolvedOptions = resolveFlowCommandOptions(subcommand, options)
+  prepareRuntimeConfig(`flow:${subcommand}`, resolvedOptions)
+  await runFlowCommand(subcommand, resolvedOptions)
 }
 
 async function runExchangeCommand(
@@ -270,45 +305,120 @@ async function runDaemonCommand(
   }
 
   const cliName = options.cliName || getDefaultCliName()
-  const authState = await resolveCliNotificationsAuthState()
-  console.log(
-    JSON.stringify(
-      {
-        command: 'daemon:start',
-        config: redactForOutput(config),
-        cliName,
-        auth: redactForOutput({
-          mode: authState.mode,
-          clientId: authState.clientId,
-          target: authState.session?.target,
-          subject: authState.session?.subject,
-          expiresAt: authState.session?.tokenSet.expiresAt,
-        }),
-        session:
-          authState.mode === 'device_session'
-            ? redactForOutput(authState.session)
-            : undefined,
-        status: 'listening',
-      },
-      null,
-      2,
-    ),
-  )
+  let announced = false
 
-  for await (const notification of streamCliNotifications({
-    cliName,
-    target: options.target,
-  }, authState)) {
+  while (true) {
+    setRuntimeConfig(config)
+    const authState = await resolveCliNotificationsAuthState()
+
     console.log(
       JSON.stringify(
         {
-          command: 'daemon:event',
-          notification,
+          command: announced ? 'daemon:reconnect' : 'daemon:start',
+          config: redactForOutput(config),
+          cliName,
+          auth: redactForOutput({
+            mode: authState.mode,
+            clientId: authState.clientId,
+            target: authState.session?.target,
+            subject: authState.session?.subject,
+            expiresAt: authState.session?.tokenSet.expiresAt,
+          }),
+          session:
+            authState.mode === 'device_session'
+              ? redactForOutput(authState.session)
+              : undefined,
+          status: 'listening',
         },
         null,
         2,
       ),
     )
+    announced = true
+
+    try {
+      for await (const notification of streamCliNotifications(
+        {
+          cliName,
+          target: options.target,
+        },
+        authState,
+      )) {
+        console.log(
+          JSON.stringify(
+            {
+              command: 'daemon:event',
+              notification,
+            },
+            null,
+            2,
+          ),
+        )
+
+        if (!isCliFlowTaskPayload(notification.payload)) {
+          continue
+        }
+
+        const flowId = notification.payload.flowId
+        const taskOptions = notification.payload.options as FlowOptions
+
+        console.log(
+          JSON.stringify(
+            {
+              command: 'daemon:task:start',
+              notificationId: notification.id,
+              flowId,
+              options: redactForOutput(taskOptions),
+            },
+            null,
+            2,
+          ),
+        )
+
+        try {
+          await executeFlowSubcommand(flowId, taskOptions)
+          console.log(
+            JSON.stringify(
+              {
+                command: 'daemon:task:completed',
+                notificationId: notification.id,
+                flowId,
+              },
+              null,
+              2,
+            ),
+          )
+        } catch (error) {
+          console.error(
+            JSON.stringify(
+              {
+                command: 'daemon:task:error',
+                notificationId: notification.id,
+                flowId,
+                error: sanitizeErrorForOutput(error).message,
+              },
+              null,
+              2,
+            ),
+          )
+        } finally {
+          setRuntimeConfig(config)
+        }
+      }
+    } catch (error) {
+      console.error(
+        JSON.stringify(
+          {
+            command: 'daemon:stream:error',
+            error: sanitizeErrorForOutput(error).message,
+          },
+          null,
+          2,
+        ),
+      )
+    }
+
+    await sleep(1000)
   }
 }
 
@@ -325,7 +435,11 @@ function withCommonOptions<
 >(command: TCommand): TCommand {
   return command
     .option('--config <file>', 'JSON config file')
-    .option('--profile <name>', 'Reserved for future profile selection')
+    .option('--profile <name>', 'Reserved for future config profile selection')
+    .option(
+      '--chromeDefaultProfile <bool>',
+      'Use the local Chrome Default profile for browser-based flow startup',
+    )
     .option('--headless <bool>', 'Override browser headless')
     .option('--slowMo <ms>', 'Override browser slow motion delay')
 }
@@ -354,9 +468,7 @@ withCommonOptions(
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const resolvedOptions = applyFlowOptionDefaults(options)
-      prepareRuntimeConfig('flow:chatgpt-register', resolvedOptions)
-      await runFlowCommand('chatgpt-register', resolvedOptions)
+      await executeFlowSubcommand('chatgpt-register', options)
     })(),
   )
 })
@@ -385,9 +497,7 @@ withCommonOptions(
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const resolvedOptions = applyFlowOptionDefaults(options)
-      prepareRuntimeConfig('flow:chatgpt-login', resolvedOptions)
-      await runFlowCommand('chatgpt-login', resolvedOptions)
+      await executeFlowSubcommand('chatgpt-login', options)
     })(),
   )
 })
@@ -431,9 +541,7 @@ withCommonOptions(
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const resolvedOptions = applyFlowOptionDefaults(options)
-      prepareRuntimeConfig('flow:chatgpt-login-invite', resolvedOptions)
-      await runFlowCommand('chatgpt-login-invite', resolvedOptions)
+      await executeFlowSubcommand('chatgpt-login-invite', options)
     })(),
   )
 })
@@ -482,11 +590,7 @@ withCommonOptions(
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const resolvedOptions = keepBrowserOpenForHarWhenUnspecified(
-        applyFlowOptionDefaults(options),
-      )
-      prepareRuntimeConfig('flow:codex-oauth', resolvedOptions)
-      await runFlowCommand('codex-oauth', resolvedOptions)
+      await executeFlowSubcommand('codex-oauth', options)
     })(),
   )
 })
@@ -507,12 +611,7 @@ withCommonOptions(
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      const resolvedOptions = applyFlowOptionDefaults(options, {
-        har: true,
-        record: true,
-      })
-      prepareRuntimeConfig('flow:noop', resolvedOptions)
-      await runFlowCommand('noop', resolvedOptions)
+      await executeFlowSubcommand('noop', options)
     })(),
   )
 })

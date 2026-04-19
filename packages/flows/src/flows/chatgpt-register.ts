@@ -1047,7 +1047,7 @@ export async function registerChatGPT(
     options.progressReporter,
   )
   const verificationProvider = createVerificationProvider(config)
-  const { email, prefix, mailbox, reservationId } =
+  const { email, prefix, mailbox } =
     await verificationProvider.prepareEmailTarget()
   const password = options.password || buildPassword()
   const verificationTimeoutMs =
