@@ -67,7 +67,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '#/components/ui/tooltip'
-import { translateStatusLabel } from '#/lib/i18n'
+import {
+  translateManagedIdentityPlanLabel,
+  translateStatusLabel,
+} from '#/lib/i18n'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
@@ -109,6 +112,7 @@ type IdentitySummary = {
   flowCount?: number | null
   lastSeenAt?: string | Date | null
   status?: string | null
+  plan?: 'free' | 'plus' | 'team' | null
 }
 
 const managedIdentityStatusOptions = [
@@ -132,6 +136,23 @@ const managedIdentityStatusOptions = [
 type ManagedIdentityStatus =
   (typeof managedIdentityStatusOptions)[number]['value']
 
+const managedIdentityPlanOptions = [
+  {
+    value: 'free',
+    label: () => m.admin_identity_plan_free(),
+  },
+  {
+    value: 'plus',
+    label: () => m.admin_identity_plan_plus(),
+  },
+  {
+    value: 'team',
+    label: () => m.admin_identity_plan_team(),
+  },
+] as const
+
+type ManagedIdentityPlan = (typeof managedIdentityPlanOptions)[number]['value']
+
 function normalizeManagedIdentityStatus(
   status?: string | null,
 ): ManagedIdentityStatus {
@@ -146,6 +167,20 @@ function isManagedIdentityStatus(
   value: string,
 ): value is ManagedIdentityStatus {
   return managedIdentityStatusOptions.some((option) => option.value === value)
+}
+
+function normalizeManagedIdentityPlan(
+  plan?: string | null,
+): ManagedIdentityPlan {
+  if (plan === 'plus' || plan === 'team') {
+    return plan
+  }
+
+  return 'free'
+}
+
+function isManagedIdentityPlan(value: string): value is ManagedIdentityPlan {
+  return managedIdentityPlanOptions.some((option) => option.value === value)
 }
 
 function getManagedIdentityIntent(status: ManagedIdentityStatus) {
@@ -202,6 +237,17 @@ function AdminIdentitiesPage() {
         )
         .displayName(m.admin_dashboard_table_provider())
         .icon(SearchIcon)
+        .build(),
+      dtf
+        .option()
+        .id('plan')
+        .accessor((summary) => normalizeManagedIdentityPlan(summary.plan))
+        .displayName(m.admin_dashboard_table_plan())
+        .icon(SearchIcon)
+        .transformOptionFn((plan) => ({
+          label: translateManagedIdentityPlanLabel(plan),
+          value: plan,
+        }))
         .build(),
       dtf
         .number()
@@ -293,12 +339,13 @@ function AdminIdentitiesPage() {
               />
             }
             renderTable={(rows) => (
-              <Table className="min-w-[1200px]">
+              <Table className="min-w-[1320px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_account()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_provider()}</TableHead>
+                    <TableHead>{m.admin_dashboard_table_plan()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_flows()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_last_seen()}</TableHead>
                     <TableHead>{m.oauth_clients_table_status()}</TableHead>
@@ -340,6 +387,9 @@ function AdminIdentitiesPage() {
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
                         {summary.provider || m.admin_dashboard_saved_identity()}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <IdentityPlanSelect summary={summary} />
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
                         {summary.flowCount && summary.flowCount > 0
@@ -453,6 +503,47 @@ function IdentityStatusSelect(props: { summary: IdentitySummary }) {
         </SelectTrigger>
         <SelectContent align="start">
           {managedIdentityStatusOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label()}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </form>
+  )
+}
+
+function IdentityPlanSelect(props: { summary: IdentitySummary }) {
+  const formRef = useRef<HTMLFormElement>(null)
+  const planInputRef = useRef<HTMLInputElement>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const currentPlan = normalizeManagedIdentityPlan(props.summary.plan)
+
+  return (
+    <form ref={formRef} method="post" action="/api/admin/identities">
+      <IdentityActionFields summary={props.summary} />
+      <input type="hidden" name="intent" value="save-plan" />
+      <input ref={planInputRef} type="hidden" name="plan" value={currentPlan} />
+
+      <Select
+        defaultValue={currentPlan}
+        disabled={submitting}
+        onValueChange={(nextPlan) => {
+          const planInput = planInputRef.current
+          if (!planInput || !isManagedIdentityPlan(nextPlan)) {
+            return
+          }
+
+          planInput.value = nextPlan
+          setSubmitting(true)
+          formRef.current?.requestSubmit()
+        }}
+      >
+        <SelectTrigger size="sm" className="w-[110px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="start">
+          {managedIdentityPlanOptions.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label()}
             </SelectItem>

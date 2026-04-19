@@ -6,6 +6,7 @@ import { decryptSecret, encryptSecret } from "./encrypted-secrets";
 import { managedIdentities, verificationEmailReservations } from "./db/schema";
 import { createId } from "./security";
 import { m } from "#/paraglide/messages";
+import type { ManagedIdentityPlan } from "./db/schema";
 
 export interface AdminIdentitySummary {
   id: string;
@@ -15,6 +16,7 @@ export interface AdminIdentitySummary {
   flowCount: number;
   lastSeenAt: string;
   status: string;
+  plan: ManagedIdentityPlan;
 }
 
 export interface ManagedIdentityCredentialMetadata {
@@ -33,6 +35,7 @@ export interface ManagedIdentityCredentialSummary {
   createdAt: string;
   updatedAt: string;
   status: string;
+  plan: ManagedIdentityPlan;
   metadata?: ManagedIdentityCredentialMetadata;
 }
 
@@ -87,6 +90,7 @@ function buildManagedIdentitySummary(row: {
   label: string | null;
   credentialCount: number;
   status: string;
+  plan: ManagedIdentityPlan;
   lastSeenAt: Date;
 }): AdminIdentitySummary {
   return {
@@ -97,6 +101,7 @@ function buildManagedIdentitySummary(row: {
     flowCount: row.credentialCount,
     lastSeenAt: row.lastSeenAt.toISOString(),
     status: mapManagedStatus(row.status),
+    plan: row.plan,
   } satisfies AdminIdentitySummary;
 }
 
@@ -108,6 +113,7 @@ function buildManagedIdentityCredentialSummary(row: {
   passwordCiphertext: string | null;
   credentialMetadata: Record<string, unknown> | null;
   status: string;
+  plan: ManagedIdentityPlan;
   createdAt: Date;
   updatedAt: Date;
 }): ManagedIdentityCredentialSummary {
@@ -120,6 +126,7 @@ function buildManagedIdentityCredentialSummary(row: {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     status: mapManagedStatus(row.status),
+    plan: row.plan,
     metadata: normalizeCredentialMetadata(row.credentialMetadata),
   };
 }
@@ -132,6 +139,7 @@ function buildManagedIdentityCredentialRecord(row: {
   passwordCiphertext: string | null;
   credentialMetadata: Record<string, unknown> | null;
   status: string;
+  plan: ManagedIdentityPlan;
   createdAt: Date;
   updatedAt: Date;
 }): ManagedIdentityCredentialRecord {
@@ -227,9 +235,11 @@ export async function upsertManagedIdentity(params: {
   email: string;
   label?: string;
   status?: "ACTIVE" | "REVIEW" | "ARCHIVED";
+  plan?: ManagedIdentityPlan;
 }) {
   const label = params.label?.trim() || undefined;
   const status = params.status || "ACTIVE";
+  const plan = params.plan || "free";
 
   const [record] = await getDb()
     .insert(managedIdentities)
@@ -239,6 +249,7 @@ export async function upsertManagedIdentity(params: {
       email: normalizeEmail(params.email),
       label,
       status,
+      plan,
     })
     .onConflictDoUpdate({
       target: managedIdentities.identityId,
@@ -246,6 +257,7 @@ export async function upsertManagedIdentity(params: {
         email: normalizeEmail(params.email),
         label,
         status,
+        plan,
         updatedAt: new Date(),
       },
     })
@@ -268,6 +280,7 @@ export async function updateManagedIdentity(params: {
   identityId: string;
   label?: string | null;
   status?: "ACTIVE" | "REVIEW" | "ARCHIVED";
+  plan?: ManagedIdentityPlan;
 }) {
   const existing = await getDb().query.managedIdentities.findFirst({
     where: eq(managedIdentities.identityId, params.identityId),
@@ -279,11 +292,13 @@ export async function updateManagedIdentity(params: {
   const label =
     params.label === undefined ? existing.label : params.label?.trim() || null;
   const status = params.status ?? existing.status;
+  const plan = params.plan ?? existing.plan;
   const [record] = await getDb()
     .update(managedIdentities)
     .set({
       label,
       status,
+      plan,
       updatedAt: new Date(),
     })
     .where(eq(managedIdentities.identityId, params.identityId))
@@ -306,6 +321,7 @@ export async function syncManagedIdentity(params: {
   email: string;
   credentialCount?: number;
   label?: string;
+  plan?: ManagedIdentityPlan;
   password?: string;
   metadata?: Record<string, unknown>;
   reservationId?: string;
@@ -315,6 +331,7 @@ export async function syncManagedIdentity(params: {
   const reservationId = params.reservationId?.trim() || null;
   const credentialCount = normalizeCredentialCount(params.credentialCount);
   const label = params.label?.trim() || null;
+  const plan = params.plan;
   const password = normalizePassword(params.password);
   const passwordCiphertext = password
     ? encryptSecret(
@@ -353,6 +370,7 @@ export async function syncManagedIdentity(params: {
         credentialMetadata:
           metadata ? { ...metadata } : existing.credentialMetadata,
         credentialCount: credentialCount ?? existing.credentialCount,
+        plan: plan ?? existing.plan,
         lastSeenAt: seenAt,
         updatedAt: seenAt,
       })
@@ -376,6 +394,7 @@ export async function syncManagedIdentity(params: {
       credentialMetadata: metadata ? { ...metadata } : null,
       credentialCount: credentialCount ?? 0,
       status: "ACTIVE",
+      plan: plan ?? "free",
       lastSeenAt: seenAt,
     })
     .returning();

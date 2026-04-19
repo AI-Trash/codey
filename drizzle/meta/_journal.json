@@ -64,6 +64,13 @@
       "when": 1776600104499,
       "tag": "0008_confused_ink",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776608567315,
+      "tag": "0009_faithful_havok",
+      "breakpoints": true
     }
   ]
 }

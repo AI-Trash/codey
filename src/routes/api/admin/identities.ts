@@ -8,6 +8,21 @@ import {
   upsertManagedIdentity,
 } from "../../../lib/server/identities";
 
+function readManagedIdentityPlan(
+  value: FormDataEntryValue | null,
+): "free" | "plus" | "team" {
+  const normalized = String(value || "free").trim().toLowerCase();
+  if (
+    normalized === "free" ||
+    normalized === "plus" ||
+    normalized === "team"
+  ) {
+    return normalized;
+  }
+
+  return "free";
+}
+
 function readManagedIdentityStatus(
   value: FormDataEntryValue | null,
 ): "ACTIVE" | "REVIEW" | "ARCHIVED" {
@@ -89,6 +104,11 @@ export const Route = createFileRoute("/api/admin/identities")({
                 identityId,
                 label: String(form.get("label") || ""),
               })
+            : intent === "save-plan"
+              ? await updateManagedIdentity({
+                  identityId,
+                  plan: readManagedIdentityPlan(form.get("plan")),
+                })
             : intent === "activate"
               ? await updateManagedIdentity({
                   identityId,
@@ -110,6 +130,7 @@ export const Route = createFileRoute("/api/admin/identities")({
                         identityId,
                         email,
                         label: String(form.get("label") || ""),
+                        plan: readManagedIdentityPlan(form.get("plan")),
                         status: readManagedIdentityStatus(form.get("status")),
                       });
 

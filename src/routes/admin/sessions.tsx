@@ -8,8 +8,8 @@ import {
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
-  BanIcon,
   CalendarIcon,
+  DownloadIcon,
   EyeIcon,
   FingerprintIcon,
   KeyRoundIcon,
@@ -72,6 +72,11 @@ import {
   TooltipTrigger,
 } from '#/components/ui/tooltip'
 import { translateStatusLabel } from '#/lib/i18n'
+import {
+  buildManagedSessionAuthJson,
+  buildManagedSessionAuthJsonFileName,
+  isCodexAuthManagedSession,
+} from '#/lib/managed-session-export'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
@@ -124,6 +129,38 @@ type ManagedSessionSummary = {
   sessionData: Record<string, unknown>
 }
 
+function downloadManagedSessionAuthJson(summary: ManagedSessionSummary) {
+  const payload = buildManagedSessionAuthJson(summary)
+  if (!payload) {
+    return
+  }
+
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], {
+    type: 'application/json',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = buildManagedSessionAuthJsonFileName(summary)
+  link.style.display = 'none'
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url)
+  }, 0)
+}
+
+function downloadManagedSessionBatch(summaries: ManagedSessionSummary[]) {
+  for (const summary of summaries) {
+    if (!isCodexAuthManagedSession(summary)) {
+      continue
+    }
+
+    downloadManagedSessionAuthJson(summary)
+  }
+}
+
 function AdminSessionsPage() {
   const data = Route.useLoaderData()
 
@@ -138,9 +175,6 @@ function AdminSessionsPage() {
   ).length
   const expiredCount = sessions.filter(
     (summary) => summary.status === 'expired',
-  ).length
-  const revokedCount = sessions.filter(
-    (summary) => summary.status === 'revoked',
   ).length
 
   const sessionColumns = useMemo(() => {
@@ -230,7 +264,7 @@ function AdminSessionsPage() {
         }
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <AdminMetricCard
           label={m.admin_session_metric_total_label()}
           value={String(sessions.length)}
@@ -245,11 +279,6 @@ function AdminSessionsPage() {
           label={m.admin_session_metric_expired_label()}
           value={String(expiredCount)}
           description={m.admin_session_metric_expired_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_session_metric_revoked_label()}
-          value={String(revokedCount)}
-          description={m.admin_session_metric_revoked_description()}
         />
       </section>
 
@@ -268,6 +297,9 @@ function AdminSessionsPage() {
                 description={m.admin_session_empty_description()}
               />
             }
+            renderActions={(rows) => (
+              <SessionBatchExportAction rows={rows as ManagedSessionSummary[]} />
+            )}
             renderTable={(rows) => (
               <Table className="min-w-[1540px]">
                 <TableHeader>
@@ -372,40 +404,53 @@ function AdminSessionsPage() {
 }
 
 function SessionRowActions(props: { summary: ManagedSessionSummary }) {
-  const { summary } = props
-  const isRevoked = summary.status === 'revoked'
-
   return (
     <TooltipProvider>
-      <div className="flex min-w-[220px] items-start gap-2">
-        <SessionPayloadDialog summary={summary} />
-        <form method="post" action="/api/admin/sessions">
-          <SessionActionFields summary={summary} />
-          <ActionIconButton
-            type="submit"
-            name="intent"
-            value={isRevoked ? 'activate' : 'revoke'}
-            variant={isRevoked ? 'outline' : 'secondary'}
-            label={
-              isRevoked
-                ? m.admin_session_activate_button()
-                : m.admin_session_revoke_button()
-            }
-            icon={isRevoked ? <RefreshCcwIcon /> : <BanIcon />}
-          />
-        </form>
-        <SessionDeleteAction summary={summary} />
+      <div className="flex min-w-[148px] items-start gap-2">
+        <SessionPayloadDialog summary={props.summary} />
+        {isCodexAuthManagedSession(props.summary) ? (
+          <SessionExportAction summary={props.summary} />
+        ) : null}
+        <SessionDeleteAction summary={props.summary} />
       </div>
     </TooltipProvider>
   )
 }
 
-function SessionActionFields(props: { summary: ManagedSessionSummary }) {
+function SessionBatchExportAction(props: { rows: ManagedSessionSummary[] }) {
+  const exportableRows = props.rows.filter((summary) =>
+    isCodexAuthManagedSession(summary),
+  )
+
   return (
-    <>
-      <input type="hidden" name="id" value={props.summary.id} />
-      <input type="hidden" name="redirectTo" value="/admin/sessions" />
-    </>
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      disabled={exportableRows.length === 0}
+      onClick={() => {
+        downloadManagedSessionBatch(exportableRows)
+      }}
+    >
+      <DownloadIcon />
+      {m.admin_session_export_visible_codex_button({
+        count: exportableRows.length,
+      })}
+    </Button>
+  )
+}
+
+function SessionExportAction(props: { summary: ManagedSessionSummary }) {
+  return (
+    <ActionIconButton
+      type="button"
+      variant="outline"
+      label={m.admin_session_export_button()}
+      icon={<DownloadIcon />}
+      onClick={() => {
+        downloadManagedSessionAuthJson(props.summary)
+      }}
+    />
   )
 }
 
@@ -531,7 +576,8 @@ function SessionDeleteAction(props: { summary: ManagedSessionSummary }) {
         <AlertDialogFooter>
           <AlertDialogCancel>{m.ui_close()}</AlertDialogCancel>
           <form method="post" action="/api/admin/sessions">
-            <SessionActionFields summary={props.summary} />
+            <input type="hidden" name="id" value={props.summary.id} />
+            <input type="hidden" name="redirectTo" value="/admin/sessions" />
             <Button
               type="submit"
               name="intent"
@@ -553,6 +599,8 @@ function ActionIconButton(props: {
   name?: string
   value?: string
   variant?: ComponentProps<typeof Button>['variant']
+  disabled?: boolean
+  onClick?: ComponentProps<typeof Button>['onClick']
   label: string
   icon: ReactNode
 }) {
@@ -565,8 +613,10 @@ function ActionIconButton(props: {
           value={props.value}
           size="icon-sm"
           variant={props.variant || 'outline'}
+          disabled={props.disabled}
           aria-label={props.label}
           title={props.label}
+          onClick={props.onClick}
         >
           {props.icon}
         </Button>

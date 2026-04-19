@@ -79,6 +79,12 @@ const statusLabelMap = {
   warning: () => m.status_warning(),
 } satisfies Record<string, () => string>
 
+const managedIdentityPlanLabelMap = {
+  free: () => m.admin_identity_plan_free(),
+  plus: () => m.admin_identity_plan_plus(),
+  team: () => m.admin_identity_plan_team(),
+} satisfies Record<string, () => string>
+
 export function translateStatusLabel(value?: string | null) {
   if (!value) {
     return m.status_unknown()
@@ -86,6 +92,21 @@ export function translateStatusLabel(value?: string | null) {
 
   const normalized = value.replaceAll('_', ' ').trim().toLowerCase()
   const message = statusLabelMap[normalized]
+
+  if (message) {
+    return message()
+  }
+
+  return value
+}
+
+export function translateManagedIdentityPlanLabel(value?: string | null) {
+  if (!value) {
+    return m.admin_identity_plan_free()
+  }
+
+  const normalized = value.trim().toLowerCase()
+  const message = managedIdentityPlanLabelMap[normalized]
 
   if (message) {
     return message()

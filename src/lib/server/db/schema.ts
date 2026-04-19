@@ -35,6 +35,11 @@ export const managedIdentityStatusEnum = pgEnum("managed_identity_status", [
   "REVIEW",
   "ARCHIVED",
 ]);
+export const managedIdentityPlanEnum = pgEnum("managed_identity_plan", [
+  "free",
+  "plus",
+  "team",
+]);
 export const managedIdentitySessionStatusEnum = pgEnum(
   "managed_identity_session_status",
   ["ACTIVE", "REVOKED"],
@@ -320,6 +325,7 @@ export const managedIdentities = pgTable(
     >(),
     credentialCount: integer("credential_count").default(0).notNull(),
     status: managedIdentityStatusEnum("status").default("ACTIVE").notNull(),
+    plan: managedIdentityPlanEnum("plan").default("free").notNull(),
     lastSeenAt: timestamp("last_seen_at", {
       withTimezone: true,
       mode: "date",
@@ -691,6 +697,8 @@ export type FlowAppRequestStatus =
   (typeof flowAppRequestStatusEnum.enumValues)[number];
 export type ManagedIdentityStatus =
   (typeof managedIdentityStatusEnum.enumValues)[number];
+export type ManagedIdentityPlan =
+  (typeof managedIdentityPlanEnum.enumValues)[number];
 export type ManagedIdentitySessionStatus =
   (typeof managedIdentitySessionStatusEnum.enumValues)[number];
 export type OAuthClientAuthMethod =

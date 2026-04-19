@@ -1,10 +1,7 @@
 import "@tanstack/react-start/server-only";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "./db/client";
-import {
-  managedIdentitySessions,
-  type ManagedIdentitySessionStatus,
-} from "./db/schema";
+import { managedIdentitySessions } from "./db/schema";
 import { createId } from "./security";
 
 export interface AdminManagedSessionSummary {
@@ -36,14 +33,7 @@ function parseOptionalDate(value?: string | null): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function mapSessionStatus(
-  status: ManagedIdentitySessionStatus,
-  expiresAt?: Date | null,
-): string {
-  if (status === "REVOKED") {
-    return "revoked";
-  }
-
+function mapSessionStatus(expiresAt?: Date | null): string {
   if (expiresAt && expiresAt.getTime() <= Date.now()) {
     return "expired";
   }
@@ -82,7 +72,7 @@ function buildManagedSessionSummary(row: {
     flowType: row.flowType,
     accountId: row.accountId,
     sessionId: row.sessionId,
-    status: mapSessionStatus(row.status, row.expiresAt),
+    status: mapSessionStatus(row.expiresAt),
     lastRefreshAt: row.lastRefreshAt?.toISOString() || null,
     expiresAt: row.expiresAt?.toISOString() || null,
     lastSeenAt: row.lastSeenAt.toISOString(),
@@ -218,29 +208,6 @@ export async function syncManagedSession(params: {
   }
 
   return created;
-}
-
-export async function updateManagedSessionStatus(params: {
-  id: string;
-  status: ManagedIdentitySessionStatus;
-}) {
-  const existing = await getDb().query.managedIdentitySessions.findFirst({
-    where: eq(managedIdentitySessions.id, params.id),
-  });
-  if (!existing) {
-    return null;
-  }
-
-  const [record] = await getDb()
-    .update(managedIdentitySessions)
-    .set({
-      status: params.status,
-      updatedAt: new Date(),
-    })
-    .where(eq(managedIdentitySessions.id, params.id))
-    .returning();
-
-  return record ?? existing;
 }
 
 export async function deleteManagedSession(id: string) {

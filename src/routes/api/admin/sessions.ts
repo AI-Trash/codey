@@ -4,7 +4,6 @@ import { json, redirect, text } from "../../../lib/server/http";
 import {
   deleteManagedSession,
   findAdminManagedSessionSummary,
-  updateManagedSessionStatus,
 } from "../../../lib/server/managed-sessions";
 
 function readRedirectTo(value: FormDataEntryValue | null): string | undefined {
@@ -62,29 +61,7 @@ export const Route = createFileRoute("/api/admin/sessions")({
           );
         }
 
-        const record =
-          intent === "activate"
-            ? await updateManagedSessionStatus({
-                id,
-                status: "ACTIVE",
-              })
-            : intent === "revoke"
-              ? await updateManagedSessionStatus({
-                  id,
-                  status: "REVOKED",
-                })
-              : null;
-
-        if (!record) {
-          return text("Unable to update managed session", 400);
-        }
-
-        const accept = request.headers.get("accept") || "";
-        if (accept.includes("application/json")) {
-          return json({ ok: true, id: record.id });
-        }
-
-        return redirect(readRedirectTo(form.get("redirectTo")) || "/admin/sessions");
+        return text("Unsupported session action", 400);
       },
     },
   },

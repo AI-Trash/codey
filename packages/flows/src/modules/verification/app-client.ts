@@ -77,6 +77,8 @@ export interface AppManagedIdentityMetadata {
   chatgptUrl?: string
 }
 
+export type AppManagedIdentityPlan = 'free' | 'plus' | 'team'
+
 export interface AppManagedIdentitySummaryRecord {
   id: string
   email: string
@@ -86,6 +88,7 @@ export interface AppManagedIdentitySummaryRecord {
   createdAt: string
   updatedAt: string
   status: string
+  plan: AppManagedIdentityPlan
   metadata?: AppManagedIdentityMetadata
 }
 
@@ -445,6 +448,7 @@ export class AppVerificationProviderClient {
     identityId: string
     email: string
     label?: string
+    plan?: AppManagedIdentityPlan
     password?: string
     metadata?: AppManagedIdentityMetadata
     credentialCount?: number
@@ -461,6 +465,7 @@ export class AppVerificationProviderClient {
           identityId: input.identityId,
           email: input.email,
           label: input.label,
+          plan: input.plan,
           password: input.password,
           metadata: input.metadata,
           credentialCount: input.credentialCount,

@@ -13,6 +13,7 @@ interface ManagedIdentitySyncBody {
   identityId?: string;
   email?: string;
   label?: string;
+  plan?: string;
   password?: string;
   metadata?: Record<string, unknown>;
   credentialCount?: number;
@@ -21,6 +22,29 @@ interface ManagedIdentitySyncBody {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readManagedIdentityPlan(
+  value: unknown,
+): "free" | "plus" | "team" | undefined | null {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (
+    normalized === "free" ||
+    normalized === "plus" ||
+    normalized === "team"
+  ) {
+    return normalized;
+  }
+
+  return null;
 }
 
 export const Route = createFileRoute("/api/managed-identities")({
@@ -88,11 +112,17 @@ export const Route = createFileRoute("/api/managed-identities")({
         if (body.metadata !== undefined && !isRecord(body.metadata)) {
           return text("metadata must be an object", 400);
         }
+        const plan = readManagedIdentityPlan(body.plan);
+
+        if (body.plan !== undefined && plan === null) {
+          return text("plan must be one of free, plus, or team", 400);
+        }
 
         const record = await syncManagedIdentity({
           identityId,
           email,
           label: String(body.label || "").trim() || undefined,
+          plan: plan ?? undefined,
           password: String(body.password || "").trim() || undefined,
           metadata: body.metadata,
           credentialCount,

@@ -85,6 +85,7 @@ export function ClientFilterableAdminTable<
   columnsConfig: TColumns
   emptyState: ReactNode
   renderTable: (rows: TData[]) => ReactNode
+  renderActions?: (rows: TData[]) => ReactNode
 }) {
   const table = useAdminDataTableFilters({
     strategy: 'client',
@@ -98,7 +99,18 @@ export function ClientFilterableAdminTable<
 
   return (
     <div className="space-y-4">
-      <AdminDataTableFilterBar table={table} />
+      {props.renderActions ? (
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <AdminDataTableFilterBar table={table} />
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {props.renderActions(table.rows)}
+          </div>
+        </div>
+      ) : (
+        <AdminDataTableFilterBar table={table} />
+      )}
       {table.rows.length > 0 ? (
         props.renderTable(table.rows)
       ) : (
