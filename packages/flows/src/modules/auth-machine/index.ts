@@ -7,6 +7,7 @@ import {
   createRetryTransition,
   createSelfPatchTransitionMap,
   createStateMachine,
+  declareStateMachineStates,
   defineStateMachineFragment,
   type StateMachineController,
   type StateMachineSnapshot,
@@ -87,6 +88,22 @@ export interface RegistrationMachineOptions {
   id?: string
   options?: RegistrationOptions
 }
+
+const authMachineStates = [
+  'idle',
+  'opening',
+  'ready',
+  'retrying',
+  'add-phone-required',
+  'typing-email',
+  'typing-password',
+  'typing-organization',
+  'toggling-remember-me',
+  'submitting',
+  'post-submit',
+  'completed',
+  'failed',
+] as const satisfies readonly AuthMachineState[]
 
 const authEventTargets = {
   'action.started': 'opening',
@@ -179,6 +196,11 @@ function buildBaseMachine<Result>(
           kind,
           ...context,
         } as AuthMachineContext<Result>,
+        states: declareStateMachineStates<
+          AuthMachineState,
+          AuthMachineContext<Result>,
+          AuthMachineEvent
+        >(authMachineStates),
       },
       createAuthLifecycleFragment<Result>(),
       createAuthAddPhoneFailureFragment<Result>(),

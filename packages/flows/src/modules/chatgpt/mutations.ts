@@ -1056,10 +1056,31 @@ export async function continueCodexOrganizationSelection(
     projectIndex,
   )
 
+  let availableProjects = selectedProject.availableOptions
+  let selectedProjectIndex = selectedProject.selectedOptionIndex
+  let submitReady = false
+
   if (selectedProject.status === 'missing') {
-    throw new Error(
-      'Codex organization picker did not expose a project_id input.',
+    if (projectIndex !== 1) {
+      throw new Error(
+        'Codex organization picker did not expose a project_id input.',
+      )
+    }
+
+    submitReady = await waitForEnabledSelector(
+      page,
+      CODEX_ORGANIZATION_SUBMIT_SELECTORS,
+      5000,
     )
+
+    if (!submitReady) {
+      throw new Error(
+        'Codex organization picker did not expose a project_id input, and the submit button did not become enabled for the default project.',
+      )
+    }
+
+    availableProjects = 1
+    selectedProjectIndex = 1
   }
 
   if (selectedProject.status === 'out_of_range') {
@@ -1068,11 +1089,14 @@ export async function continueCodexOrganizationSelection(
     )
   }
 
-  const submitReady = await waitForEnabledSelector(
-    page,
-    CODEX_ORGANIZATION_SUBMIT_SELECTORS,
-    5000,
-  )
+  if (!submitReady) {
+    submitReady = await waitForEnabledSelector(
+      page,
+      CODEX_ORGANIZATION_SUBMIT_SELECTORS,
+      5000,
+    )
+  }
+
   if (!submitReady) {
     throw new Error(
       'Codex organization submit button did not become enabled.',
@@ -1084,8 +1108,8 @@ export async function continueCodexOrganizationSelection(
   return {
     availableOrganizations: selectedOrganization.availableOptions,
     selectedOrganizationIndex: selectedOrganization.selectedOptionIndex,
-    availableProjects: selectedProject.availableOptions,
-    selectedProjectIndex: selectedProject.selectedOptionIndex,
+    availableProjects,
+    selectedProjectIndex,
   }
 }
 

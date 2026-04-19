@@ -1,4 +1,9 @@
-import { createStore, type StoreApi } from 'zustand/vanilla'
+import {
+  assign as assignXStateContext,
+  createActor,
+  createMachine as createXStateMachine,
+  type AnyStateMachine,
+} from 'xstate'
 
 export type MachineStatus = 'idle' | 'running' | 'succeeded' | 'failed'
 
@@ -245,7 +250,8 @@ export interface StateMachineController<
   Event extends string = string,
 > {
   readonly id: string
-  readonly store: StoreApi<StateMachineSnapshot<State, Context, Event>>
+  readonly store: StateMachineStore<StateMachineSnapshot<State, Context, Event>>
+  readonly statechart: AnyStateMachine
   getSnapshot(): StateMachineSnapshot<State, Context, Event>
   subscribe(
     listener: (snapshot: StateMachineSnapshot<State, Context, Event>) => void,
@@ -274,6 +280,11 @@ export interface StateMachineController<
     nextState: State,
     options?: StateMachineCompletionOptions<Context, Event>,
   ): StateMachineSnapshot<State, Context, Event>
+}
+
+export interface StateMachineStore<Snapshot> {
+  getState(): Snapshot
+  subscribe(listener: (snapshot: Snapshot) => void): () => void
 }
 
 function now(): string {
@@ -339,6 +350,80 @@ function normalizeTransitionDefinitions<
     | StateMachineTransitionDefinition<State, Context, Event>[],
 ): StateMachineTransitionDefinition<State, Context, Event>[] {
   return normalizeArray(value)
+}
+
+interface WritableStateMachineStore<
+  Snapshot,
+> extends StateMachineStore<Snapshot> {
+  setState(snapshot: Snapshot): void
+}
+
+function createStateMachineStore<Snapshot>(
+  initialSnapshot: Snapshot,
+): WritableStateMachineStore<Snapshot> {
+  let current = initialSnapshot
+  const listeners = new Set<(snapshot: Snapshot) => void>()
+
+  return {
+    getState: () => current,
+    setState(snapshot) {
+      current = snapshot
+      for (const listener of listeners) {
+        listener(current)
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+  }
+}
+
+const STATE_MACHINE_DYNAMIC_TARGET = Symbol('state-machine.dynamic-target')
+const STATE_MACHINE_DEFAULT_TARGET = Symbol('state-machine.default-target')
+
+type StateMachineDynamicTargetKind = 'patch' | 'self-patch'
+
+type StateMachineInternalTransitionDefinition<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+> = StateMachineTransitionDefinition<State, Context, Event> & {
+  [STATE_MACHINE_DYNAMIC_TARGET]?: StateMachineDynamicTargetKind
+  [STATE_MACHINE_DEFAULT_TARGET]?: State
+}
+
+interface StateMachineRuntimeEvent<
+  Context extends object,
+  Event extends string = string,
+> {
+  type: Event
+  input?: unknown
+  options?: StateMachineSendOptions<Context, Event>
+}
+
+function isThenable<T>(value: MaybePromise<T>): value is Promise<T> {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    'then' in value &&
+    typeof (value as Promise<T>).then === 'function',
+  )
+}
+
+function expectSynchronousResult<T>(
+  value: MaybePromise<T>,
+  kind: 'guard' | 'action' | 'target',
+): T {
+  if (isThenable(value)) {
+    throw new Error(
+      `XState-backed state machines require synchronous ${kind} functions.`,
+    )
+  }
+
+  return value
 }
 
 export interface GuardedBranchArgs<
@@ -518,9 +603,77 @@ export function createStateMachine<
     history: [],
   })
 
-  const store = createStore<StateMachineSnapshot<State, Context, Event>>(() =>
-    createInitialSnapshot(),
-  )
+  const store = createStateMachineStore<
+    StateMachineSnapshot<State, Context, Event>
+  >(createInitialSnapshot())
+
+  function createResolvedTransition(
+    event: Event,
+    target: State,
+    source: 'state' | 'global',
+    priority: number,
+    order: number,
+    definition: StateMachineInternalTransitionDefinition<State, Context, Event>,
+  ): StateMachineResolvedTransition<State, Context, Event> {
+    return {
+      event,
+      target,
+      source,
+      priority,
+      order,
+      action: definition.action,
+      meta: definition.meta,
+      reenter: definition.reenter,
+      definition,
+    }
+  }
+
+  function getTransitionCandidates(
+    state: State,
+    event: Event,
+  ): Array<{
+    definition: StateMachineInternalTransitionDefinition<State, Context, Event>
+    event: Event
+    source: 'state' | 'global'
+    order: number
+    priority: number
+  }> {
+    const stateConfig = config.states?.[state]
+    const scopedTransitions = normalizeTransitionDefinitions(
+      stateConfig?.on?.[event],
+    ).map((definition, index) => ({
+      definition: definition as StateMachineInternalTransitionDefinition<
+        State,
+        Context,
+        Event
+      >,
+      event,
+      source: 'state' as const,
+      order: index,
+      priority: definition.priority ?? 0,
+    }))
+    const globalBaseOrder = scopedTransitions.length
+    const globalTransitions = normalizeTransitionDefinitions(
+      config.on?.[event],
+    ).map((definition, index) => ({
+      definition: definition as StateMachineInternalTransitionDefinition<
+        State,
+        Context,
+        Event
+      >,
+      event,
+      source: 'global' as const,
+      order: globalBaseOrder + index,
+      priority: definition.priority ?? 0,
+    }))
+
+    return [...scopedTransitions, ...globalTransitions].sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return right.priority - left.priority
+      }
+      return left.order - right.order
+    })
+  }
 
   function commit(
     nextState: State,
@@ -567,6 +720,40 @@ export function createStateMachine<
     return snapshot
   }
 
+  async function resolveTransitionTarget<Input = unknown>(
+    definition: StateMachineInternalTransitionDefinition<State, Context, Event>,
+    event: Event,
+    input: Input,
+    currentState: State,
+    source: 'state' | 'global',
+    priority: number,
+    order: number,
+    snapshot: StateMachineSnapshot<State, Context, Event>,
+  ): Promise<State> {
+    if (typeof definition.target !== 'function') {
+      return definition.target ?? currentState
+    }
+
+    const provisional = definition.target({
+      context: snapshot.context,
+      event,
+      input,
+      from: currentState,
+      to: currentState,
+      snapshot,
+      transition: createResolvedTransition(
+        event,
+        currentState,
+        source,
+        priority,
+        order,
+        definition,
+      ),
+    })
+
+    return await provisional
+  }
+
   async function resolveTransition<Input = unknown>(
     event: Event,
     input?: Input,
@@ -575,71 +762,28 @@ export function createStateMachine<
   > {
     const snapshot = store.getState()
     const currentState = snapshot.state
-    const stateConfig = config.states?.[currentState]
-    const scopedTransitions = normalizeTransitionDefinitions(
-      stateConfig?.on?.[event],
-    ).map((definition, index) => ({
-      definition,
-      event,
-      source: 'state' as const,
-      order: index,
-      priority: definition.priority ?? 0,
-    }))
-    const globalBaseOrder = scopedTransitions.length
-    const globalTransitions = normalizeTransitionDefinitions(
-      config.on?.[event],
-    ).map((definition, index) => ({
-      definition,
-      event,
-      source: 'global' as const,
-      order: globalBaseOrder + index,
-      priority: definition.priority ?? 0,
-    }))
-
-    const candidates = [...scopedTransitions, ...globalTransitions].sort(
-      (left, right) => {
-        if (left.priority !== right.priority) {
-          return right.priority - left.priority
-        }
-        return left.order - right.order
-      },
-    )
+    const candidates = getTransitionCandidates(currentState, event)
 
     for (const candidate of candidates) {
-      const provisionalTarget =
-        typeof candidate.definition.target === 'function'
-          ? await candidate.definition.target({
-              context: snapshot.context,
-              event,
-              input,
-              from: currentState,
-              to: currentState,
-              snapshot,
-              transition: {
-                event,
-                target: currentState,
-                source: candidate.source,
-                priority: candidate.priority,
-                order: candidate.order,
-                action: candidate.definition.action,
-                meta: candidate.definition.meta,
-                reenter: candidate.definition.reenter,
-                definition: candidate.definition,
-              },
-            })
-          : (candidate.definition.target ?? currentState)
-
-      const resolved: StateMachineResolvedTransition<State, Context, Event> = {
+      const provisionalTarget = await resolveTransitionTarget(
+        candidate.definition,
         event,
-        target: provisionalTarget,
-        source: candidate.source,
-        priority: candidate.priority,
-        order: candidate.order,
-        action: candidate.definition.action,
-        meta: candidate.definition.meta,
-        reenter: candidate.definition.reenter,
-        definition: candidate.definition,
-      }
+        input,
+        currentState,
+        candidate.source,
+        candidate.priority,
+        candidate.order,
+        snapshot,
+      )
+
+      const resolved = createResolvedTransition(
+        event,
+        provisionalTarget,
+        candidate.source,
+        candidate.priority,
+        candidate.order,
+        candidate.definition,
+      )
 
       let passed = true
       for (const guard of normalizeArray(candidate.definition.guard)) {
@@ -666,27 +810,316 @@ export function createStateMachine<
     return undefined
   }
 
-  async function runLifecycleActions<Input = unknown>(
-    currentContext: Context,
-    actions: Array<StateMachineAction<State, Context, Event, Input>>,
-    args: Omit<StateMachineActionArgs<State, Context, Event, Input>, 'context'>,
-  ): Promise<Context> {
-    let nextContext = currentContext
-    for (const action of actions) {
-      const result = await action({
-        ...args,
-        context: nextContext,
-      })
-      if (result) {
-        nextContext = resolveContextPatch(nextContext, result)
+  function collectKnownStates(): Set<State> {
+    const knownStates = new Set<State>([config.initialState])
+
+    const collectFromDefinitions = (
+      definitions?:
+        | StateMachineTransitionDefinition<State, Context, Event>
+        | StateMachineTransitionDefinition<State, Context, Event>[],
+    ) => {
+      for (const definition of normalizeTransitionDefinitions(
+        definitions,
+      ) as Array<
+        StateMachineInternalTransitionDefinition<State, Context, Event>
+      >) {
+        if (typeof definition.target === 'string') {
+          knownStates.add(definition.target)
+        }
+        if (definition[STATE_MACHINE_DEFAULT_TARGET]) {
+          knownStates.add(definition[STATE_MACHINE_DEFAULT_TARGET] as State)
+        }
       }
     }
-    return nextContext
+
+    for (const state of Object.keys(config.states ?? {}) as State[]) {
+      knownStates.add(state)
+      const stateConfig = config.states?.[state]
+      if (!stateConfig?.on) continue
+      for (const event of Object.keys(stateConfig.on) as Event[]) {
+        collectFromDefinitions(stateConfig.on[event])
+      }
+    }
+
+    for (const event of Object.keys(config.on ?? {}) as Event[]) {
+      collectFromDefinitions(config.on?.[event])
+    }
+
+    return knownStates
+  }
+
+  const knownStates = collectKnownStates()
+
+  function createRuntimeSnapshot(state: State, context: Context) {
+    return {
+      status: 'active' as const,
+      value: state,
+      historyValue: {},
+      context,
+      children: {},
+    }
+  }
+
+  function getRuntimeInputTarget(
+    runtimeEvent: StateMachineRuntimeEvent<Context, Event>,
+  ): State | undefined {
+    if (!isStateMachinePatchInput<State, Context>(runtimeEvent.input)) {
+      return undefined
+    }
+
+    return runtimeEvent.input.target
+  }
+
+  function compileXStateAction<Input = unknown>(
+    action: StateMachineAction<State, Context, Event, Input>,
+    resolved: StateMachineResolvedTransition<State, Context, Event>,
+    phase: StateMachineLifecyclePhase,
+  ) {
+    return assignXStateContext(
+      ({
+        context,
+        event: runtimeEvent,
+      }: {
+        context: Context
+        event: StateMachineRuntimeEvent<Context, Event>
+      }) => {
+        const result = action({
+          context,
+          event: runtimeEvent.type,
+          input: runtimeEvent.input as Input,
+          from: store.getState().state,
+          to: resolved.target,
+          phase,
+          snapshot: store.getState(),
+          transition: resolved,
+        })
+        const patch = expectSynchronousResult(result, 'action')
+        return patch ? patch : {}
+      },
+    )
+  }
+
+  function compileXStateGuard(
+    guard:
+      | StateMachineTransitionGuard<State, Context, Event>
+      | StateMachineTransitionGuard<State, Context, Event>[],
+    resolved: StateMachineResolvedTransition<State, Context, Event>,
+    inputTarget?: State,
+  ) {
+    return ({
+      context,
+      event: runtimeEvent,
+    }: {
+      context: Context
+      event: StateMachineRuntimeEvent<Context, Event>
+    }) => {
+      if (
+        inputTarget !== undefined &&
+        getRuntimeInputTarget(runtimeEvent) !== inputTarget
+      ) {
+        return false
+      }
+
+      for (const candidate of normalizeArray(guard)) {
+        const passed = candidate({
+          context,
+          event: runtimeEvent.type,
+          input: runtimeEvent.input,
+          from: store.getState().state,
+          to: resolved.target,
+          snapshot: store.getState(),
+          transition: resolved,
+        })
+        if (!expectSynchronousResult(passed, 'guard')) {
+          return false
+        }
+      }
+
+      return true
+    }
+  }
+
+  function createPrepatchedContextAction() {
+    return assignXStateContext(
+      ({
+        context,
+        event: runtimeEvent,
+      }: {
+        context: Context
+        event: StateMachineRuntimeEvent<Context, Event>
+      }) => {
+        if (runtimeEvent.options?.replaceContext) {
+          return runtimeEvent.options.replaceContext
+        }
+
+        if (!runtimeEvent.options?.patch) {
+          return {}
+        }
+
+        return resolveContextPatch(context, runtimeEvent.options.patch)
+      },
+    )
+  }
+
+  function compileTransitionConfigs(
+    currentState: State,
+    candidate: ReturnType<typeof getTransitionCandidates>[number],
+  ): Record<string, unknown>[] {
+    const definition = candidate.definition
+    const defaultTarget =
+      definition[STATE_MACHINE_DYNAMIC_TARGET] === 'self-patch'
+        ? currentState
+        : ((definition[STATE_MACHINE_DEFAULT_TARGET] ?? currentState) as State)
+
+    const compileConfig = (target: State, inputTarget?: State) => {
+      const resolved = createResolvedTransition(
+        candidate.event,
+        target,
+        candidate.source,
+        candidate.priority,
+        candidate.order,
+        definition,
+      )
+      const reenter = resolved.reenter === true || target !== currentState
+      const currentStateConfig = config.states?.[currentState]
+      const nextStateConfig = config.states?.[target]
+      const actions: unknown[] = [createPrepatchedContextAction()]
+
+      if (reenter) {
+        actions.push(
+          ...normalizeArray(currentStateConfig?.exitActions).map((action) =>
+            compileXStateAction(action, resolved, 'exit'),
+          ),
+        )
+      }
+
+      actions.push(
+        ...normalizeArray(definition.actions).map((action) =>
+          compileXStateAction(action, resolved, 'transition'),
+        ),
+      )
+
+      if (reenter) {
+        actions.push(
+          ...normalizeArray(nextStateConfig?.entryActions).map((action) =>
+            compileXStateAction(action, resolved, 'entry'),
+          ),
+        )
+      }
+
+      const xstateGuard =
+        definition.guard || inputTarget !== undefined
+          ? compileXStateGuard(definition.guard ?? [], resolved, inputTarget)
+          : undefined
+
+      return {
+        target,
+        reenter: definition.reenter === true,
+        guard: xstateGuard,
+        actions,
+        meta: definition.meta,
+      }
+    }
+
+    if (!definition[STATE_MACHINE_DYNAMIC_TARGET]) {
+      if (typeof definition.target === 'function') {
+        throw new Error(
+          `Machine "${config.id}" uses an unsupported dynamic target for event "${candidate.event}".`,
+        )
+      }
+
+      return [compileConfig((definition.target ?? currentState) as State)]
+    }
+
+    const expandedTargets = [...knownStates].filter(
+      (target) => target !== defaultTarget,
+    )
+
+    return [
+      ...expandedTargets.map((target) => compileConfig(target, target)),
+      compileConfig(defaultTarget),
+    ]
+  }
+
+  const eventNames = new Set<Event>([
+    ...(Object.keys(config.on ?? {}) as Event[]),
+    ...Object.values(config.states ?? {}).flatMap(
+      (stateConfig) => Object.keys(stateConfig?.on ?? {}) as Event[],
+    ),
+  ])
+
+  const statechart = createXStateMachine({
+    id: config.id,
+    types: {} as {
+      context: Context
+      events: StateMachineRuntimeEvent<Context, Event>
+      input: Context
+    },
+    context: ({ input }) => ({ ...initialContext, ...input }) as Context,
+    initial: config.initialState,
+    states: Object.fromEntries(
+      [...knownStates].map((state) => {
+        const on = Object.fromEntries(
+          [...eventNames]
+            .map((event) => {
+              const candidates = getTransitionCandidates(state, event)
+              if (candidates.length === 0) {
+                return undefined
+              }
+
+              return [
+                event,
+                candidates.flatMap((candidate) =>
+                  compileTransitionConfigs(state, candidate),
+                ),
+              ]
+            })
+            .filter((entry): entry is [Event, Record<string, unknown>[]] =>
+              Boolean(entry),
+            ),
+        )
+
+        return [state, Object.keys(on).length > 0 ? { on } : {}]
+      }),
+    ),
+  })
+
+  let runtime = knownStates.has(config.initialState)
+    ? createActor(statechart, {
+        snapshot: createRuntimeSnapshot(config.initialState, {
+          ...initialContext,
+        } as Context),
+      })
+    : undefined
+  runtime?.start()
+
+  function replaceRuntime(state: State, context: Context): void {
+    runtime?.stop()
+    if (!knownStates.has(state)) {
+      runtime = undefined
+      return
+    }
+
+    runtime = createActor(statechart, {
+      snapshot: createRuntimeSnapshot(state, context),
+    })
+    runtime.start()
+  }
+
+  function requireRuntimeActor(): NonNullable<typeof runtime> {
+    if (!runtime) {
+      throw new Error(
+        `Machine "${config.id}" is currently in state "${store.getState().state}", which is not present in the compiled XState graph.`,
+      )
+    }
+
+    return runtime
   }
 
   const controller: StateMachineController<State, Context, Event> = {
     id: config.id,
     store,
+    statechart,
     getSnapshot: () => store.getState(),
     subscribe(listener) {
       return store.subscribe(listener)
@@ -699,16 +1132,18 @@ export function createStateMachine<
             context: { ...snapshot.context, ...context } as Context,
           }
         : snapshot
+      replaceRuntime(nextSnapshot.state, nextSnapshot.context)
       store.setState(nextSnapshot)
       return nextSnapshot
     },
     start(context, meta) {
       const timestamp = now()
+      const nextContext = { ...initialContext, ...context } as Context
       const snapshot: StateMachineSnapshot<State, Context, Event> = {
         id: config.id,
         status: 'running',
         state: config.initialState,
-        context: { ...initialContext, ...context } as Context,
+        context: nextContext,
         updatedAt: timestamp,
         startedAt: timestamp,
         history: [
@@ -724,6 +1159,7 @@ export function createStateMachine<
         ],
         lastEvent: 'machine.started' as Event,
       }
+      replaceRuntime(config.initialState, nextContext)
       store.setState(snapshot)
       return snapshot
     },
@@ -740,7 +1176,6 @@ export function createStateMachine<
         return snapshot
       }
 
-      const currentStateConfig = config.states?.[snapshot.state]
       const nextStateConfig = config.states?.[selected.target]
       const reenter =
         selected.reenter === true || selected.target !== snapshot.state
@@ -753,57 +1188,27 @@ export function createStateMachine<
         ...selected.meta,
         ...options.meta,
       }
+      const actor = requireRuntimeActor()
 
-      let nextContext =
-        options.replaceContext ??
-        resolveContextPatch(snapshot.context, options.patch)
+      if (!knownStates.has(selected.target)) {
+        throw new Error(
+          `Machine "${config.id}" resolved event "${event}" to unknown target state "${selected.target}".`,
+        )
+      }
 
-      const lifecycleArgs = {
-        event,
+      actor.send({
+        type: event,
         input,
-        from: snapshot.state,
-        to: selected.target,
-        snapshot,
-        transition: selected,
-      }
-
-      if (reenter) {
-        nextContext = await runLifecycleActions(
-          nextContext,
-          normalizeArray(currentStateConfig?.exitActions),
-          {
-            ...lifecycleArgs,
-            phase: 'exit',
-          },
-        )
-      }
-
-      nextContext = await runLifecycleActions(
-        nextContext,
-        normalizeArray(selected.definition.actions),
-        {
-          ...lifecycleArgs,
-          phase: 'transition',
-        },
-      )
-
-      if (reenter) {
-        nextContext = await runLifecycleActions(
-          nextContext,
-          normalizeArray(nextStateConfig?.entryActions),
-          {
-            ...lifecycleArgs,
-            phase: 'entry',
-          },
-        )
-      }
+        options,
+      })
+      const runtimeSnapshot = actor.getSnapshot()
 
       const committedSnapshot = commit(selected.target, {
         ...options,
         event,
         status: nextStatus,
         action: options.action ?? selected.action,
-        replaceContext: nextContext,
+        replaceContext: runtimeSnapshot.context as Context,
         meta: mergedMeta,
       })
 
@@ -821,12 +1226,14 @@ export function createStateMachine<
       return committedSnapshot
     },
     succeed(nextState, options) {
-      return commit(nextState, {
+      const snapshot = commit(nextState, {
         ...options,
         status: 'succeeded',
         finishedAt: now(),
         clearError: true,
       })
+      replaceRuntime(snapshot.state, snapshot.context)
+      return snapshot
     },
     fail(error, nextState, options) {
       const snapshot = commit(nextState, {
@@ -839,6 +1246,7 @@ export function createStateMachine<
         ...snapshot,
         error: serializeError(error),
       }
+      replaceRuntime(failedSnapshot.state, failedSnapshot.context)
       store.setState(failedSnapshot)
       return failedSnapshot
     },
@@ -854,6 +1262,18 @@ export interface StateMachineFragment<
 > {
   on?: StateMachineConfig<State, Context, Event>['on']
   states?: StateMachineConfig<State, Context, Event>['states']
+}
+
+export function declareStateMachineStates<
+  State extends string,
+  Context extends object,
+  Event extends string = string,
+>(
+  states: readonly State[],
+): NonNullable<StateMachineConfig<State, Context, Event>['states']> {
+  return Object.fromEntries(states.map((state) => [state, {}])) as NonNullable<
+    StateMachineConfig<State, Context, Event>['states']
+  >
 }
 
 export function defineStateMachineFragment<
@@ -1045,7 +1465,11 @@ export function createPatchTransition<
     value: unknown,
   ) => value is Input
 
-  return {
+  const transition: StateMachineInternalTransitionDefinition<
+    State,
+    Context,
+    Event
+  > = {
     target: ({ input }) =>
       matchesInput(input) ? (input.target ?? defaultTarget) : defaultTarget,
     actions: assignContextFromInput<
@@ -1055,6 +1479,10 @@ export function createPatchTransition<
       StateMachinePatchInput<State, Context>
     >(matchesInput, (_context, { input }) => input.patch ?? {}),
   }
+
+  transition[STATE_MACHINE_DYNAMIC_TARGET] = 'patch'
+  transition[STATE_MACHINE_DEFAULT_TARGET] = defaultTarget
+  return transition
 }
 
 export function createSelfPatchTransition<
@@ -1075,7 +1503,11 @@ export function createSelfPatchTransition<
     value: unknown,
   ) => value is Input
 
-  return {
+  const transition: StateMachineInternalTransitionDefinition<
+    State,
+    Context,
+    Event
+  > = {
     target: ({ from, input }) =>
       matchesInput(input) ? (input.target ?? from) : from,
     actions: assignContextFromInput<
@@ -1085,6 +1517,9 @@ export function createSelfPatchTransition<
       StateMachinePatchInput<State, Context>
     >(matchesInput, (_context, { input }) => input.patch ?? {}),
   }
+
+  transition[STATE_MACHINE_DYNAMIC_TARGET] = 'self-patch'
+  return transition
 }
 
 export function createPatchTransitionMap<
@@ -1364,7 +1799,7 @@ export function createGuardedCaseTransitions<
 }): StateMachineTransitionDefinition<State, Context, Event>[] {
   return options.cases.map(({ when, guard, ...definition }) => ({
     ...definition,
-    guard: async (args) => {
+    guard: (args) => {
       if (!options.isInput(args.input)) {
         return false
       }
@@ -1376,13 +1811,16 @@ export function createGuardedCaseTransitions<
 
       if (
         when &&
-        !(await when({ context: typedArgs.context, input: typedArgs.input }))
+        !expectSynchronousResult(
+          when({ context: typedArgs.context, input: typedArgs.input }),
+          'guard',
+        )
       ) {
         return false
       }
 
       for (const candidate of normalizeArray(guard)) {
-        if (!(await candidate(typedArgs))) {
+        if (!expectSynchronousResult(candidate(typedArgs), 'guard')) {
           return false
         }
       }

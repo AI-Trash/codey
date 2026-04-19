@@ -10,6 +10,7 @@ import {
   createRetryTransition,
   createSelfPatchTransitionMap,
   createStateMachine,
+  declareStateMachineStates,
   defineStateMachineFragment,
   GuardedBranchError,
   runGuardedBranches,
@@ -234,6 +235,25 @@ const chatgptLoginAddPhoneGuardEvents = [
   ...chatgptLoginMutableContextEvents,
 ] as const satisfies ChatGPTLoginFlowEvent[]
 
+const chatgptLoginStates = [
+  'idle',
+  'opening-entry',
+  'email-step',
+  'password-step',
+  'verification-polling',
+  'verification-code-entry',
+  'age-gate',
+  'post-signup-home',
+  'security-settings',
+  'persisting-identity',
+  'login-surface',
+  'retrying',
+  'add-phone-required',
+  'authenticated',
+  'completed',
+  'failed',
+] as const satisfies readonly ChatGPTLoginFlowState[]
+
 function createChatGPTLoginEmailSubmittedTransitions<Result>() {
   const assignPostEmailContext = (
     lastMessage: string,
@@ -379,6 +399,11 @@ export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLogi
           kind: 'chatgpt-login',
         },
         historyLimit: 200,
+        states: declareStateMachineStates<
+          ChatGPTLoginFlowState,
+          ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
+          ChatGPTLoginFlowEvent
+        >(chatgptLoginStates),
       },
       createChatGPTLoginLifecycleFragment<ChatGPTLoginFlowResult>(),
       createChatGPTLoginAddPhoneFailureFragment<ChatGPTLoginFlowResult>(),

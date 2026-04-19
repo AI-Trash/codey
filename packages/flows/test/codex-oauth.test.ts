@@ -1080,6 +1080,90 @@ describe('runCodexOAuthFlow', () => {
     ).toBe(true)
   })
 
+  it('prefers the oauth callback over an organization-branch error once localhost is reached', async () => {
+    let currentUrl =
+      'https://auth.openai.com/sign-in-with-chatgpt/codex/consent'
+    let resolveCallback!: (value: {
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }) => void
+
+    const callbackResult = new Promise<{
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }>((resolve) => {
+      resolveCallback = resolve
+    })
+
+    createAuthorizationCallbackCapture.mockResolvedValue({
+      result: callbackResult,
+      abort: vi.fn().mockResolvedValue(undefined),
+    })
+
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(async () => {
+      if (currentUrl.includes('/sign-in-with-chatgpt/codex/organization')) {
+        return ['organization']
+      }
+      return ['workspace']
+    })
+
+    continueCodexWorkspaceSelection.mockImplementation(async () => {
+      currentUrl =
+        'https://auth.openai.com/sign-in-with-chatgpt/codex/organization'
+      return {
+        availableWorkspaces: 2,
+        selectedWorkspaceIndex: 1,
+      }
+    })
+
+    continueCodexOrganizationSelection.mockImplementation(async () => {
+      currentUrl =
+        'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
+      resolveCallback({
+        code: 'oauth-code',
+        state: 'oauth-state',
+        callbackUrl: currentUrl,
+        rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
+      })
+      throw new Error(
+        'Codex organization picker did not expose a project_id input, and the submit button did not become enabled for the default project.',
+      )
+    })
+
+    exchangeCodexAuthorizationCode.mockResolvedValue({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      expiresIn: 3600,
+      scope: 'openid profile email offline_access',
+      tokenType: 'Bearer',
+      createdAt: '2026-04-17T00:00:00.000Z',
+    })
+
+    const page = {
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url
+      }),
+      url: vi.fn(() => currentUrl),
+      title: vi.fn(async () => 'Authorization received'),
+    } as never
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    const result = await runCodexOAuthFlow(page, {})
+
+    expect(continueCodexOrganizationSelection).toHaveBeenCalledWith(page, 1, 1)
+    expect(exchangeCodexAuthorizationCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'oauth-code',
+        redirectUri: 'http://localhost:1455/auth/callback',
+      }),
+    )
+    expect(result.url).toContain('http://localhost:1455/auth/callback')
+  })
+
   it('shares the Codex OAuth session with Codey app and skips incomplete AxonHub config', async () => {
     let currentUrl =
       'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'

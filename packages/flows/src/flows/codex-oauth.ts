@@ -10,6 +10,7 @@ import {
   createRetryTransition,
   createSelfPatchTransitionMap,
   createStateMachine,
+  declareStateMachineStates,
   defineStateMachineFragment,
   GuardedBranchError,
   runGuardedBranches,
@@ -279,6 +280,28 @@ const codexOAuthAddPhoneGuardEvents = [
   ...codexOAuthMutableContextEvents,
 ] as const satisfies CodexOAuthFlowEvent[]
 
+const codexOAuthStates = [
+  'idle',
+  'starting-oauth',
+  'login-entry',
+  'email-step',
+  'password-step',
+  'verification-step',
+  'workspace-step',
+  'organization-step',
+  'consent-step',
+  'waiting-for-callback',
+  'retrying',
+  'add-phone-required',
+  'exchanging-token',
+  'persisting-token',
+  'sharing-session',
+  'signing-in-admin',
+  'creating-channel',
+  'completed',
+  'failed',
+] as const satisfies readonly CodexOAuthFlowState[]
+
 function isCodexOAuthSurfaceInput<Result>(
   value: unknown,
 ): value is CodexOAuthSurfaceInput<Result> {
@@ -426,6 +449,11 @@ export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowR
           kind: 'codex-oauth',
         },
         historyLimit: 100,
+        states: declareStateMachineStates<
+          CodexOAuthFlowState,
+          CodexOAuthFlowContext<CodexOAuthFlowRunResult>,
+          CodexOAuthFlowEvent
+        >(codexOAuthStates),
       },
       createCodexOAuthLifecycleFragment<CodexOAuthFlowRunResult>(),
       createCodexOAuthAddPhoneFailureFragment<CodexOAuthFlowRunResult>(),
@@ -1093,6 +1121,56 @@ function wrapRecoverableCodexOAuthBranchError<Branch extends string>(
   )
 }
 
+async function resolveCodexOAuthCallbackStepIfReady(
+  page: Page,
+  waitForCallback: Promise<CodexOAuthCallbackPayload>,
+  redirectUri: string,
+  getResolvedCallback: () => CodexOAuthCallbackPayload | undefined,
+  timeoutMs = 1500,
+): Promise<CodexOAuthStep | undefined> {
+  const resolvedCallback = getResolvedCallback()
+  if (resolvedCallback) {
+    return {
+      kind: 'callback',
+      callback: resolvedCallback,
+    }
+  }
+
+  const matchedCallbackUrl = await waitForCodexOAuthCallbackNavigation(
+    page,
+    redirectUri,
+    timeoutMs,
+  )
+  if (!matchedCallbackUrl) {
+    return undefined
+  }
+
+  const callback = await new Promise<CodexOAuthCallbackPayload | undefined>(
+    (resolve) => {
+      const timer = setTimeout(() => resolve(undefined), timeoutMs)
+      void waitForCallback.then(
+        (payload) => {
+          clearTimeout(timer)
+          resolve(payload)
+        },
+        () => {
+          clearTimeout(timer)
+          resolve(undefined)
+        },
+      )
+    },
+  )
+
+  if (!callback) {
+    return undefined
+  }
+
+  return {
+    kind: 'callback',
+    callback,
+  }
+}
+
 async function resolveCodexOAuthNextStep(
   page: Page,
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
@@ -1159,12 +1237,26 @@ async function resolveCodexOAuthNextStep(
                 'workspace',
                 redirectUri,
               )
-              await completeCodexOAuthWorkspaceSelection(
-                page,
-                machine,
-                options,
-                redirectUri,
-              )
+              try {
+                await completeCodexOAuthWorkspaceSelection(
+                  page,
+                  machine,
+                  options,
+                  redirectUri,
+                )
+              } catch (error) {
+                const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
+                  page,
+                  waitForCallback,
+                  redirectUri,
+                  getResolvedCallback,
+                )
+                if (callbackStep) {
+                  return callbackStep
+                }
+                throw wrapRecoverableCodexOAuthBranchError('workspace', error)
+              }
+
               return waitForCodexOAuthStep(
                 page,
                 waitForCallback,
@@ -1187,11 +1279,28 @@ async function resolveCodexOAuthNextStep(
                 'organization',
                 redirectUri,
               )
-              await completeCodexOAuthOrganizationSelection(
-                page,
-                machine,
-                redirectUri,
-              )
+              try {
+                await completeCodexOAuthOrganizationSelection(
+                  page,
+                  machine,
+                  redirectUri,
+                )
+              } catch (error) {
+                const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
+                  page,
+                  waitForCallback,
+                  redirectUri,
+                  getResolvedCallback,
+                )
+                if (callbackStep) {
+                  return callbackStep
+                }
+                throw wrapRecoverableCodexOAuthBranchError(
+                  'organization',
+                  error,
+                )
+              }
+
               return waitForCodexOAuthStep(
                 page,
                 waitForCallback,
@@ -1217,6 +1326,15 @@ async function resolveCodexOAuthNextStep(
               try {
                 await continueCodexOAuthConsent(page)
               } catch (error) {
+                const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
+                  page,
+                  waitForCallback,
+                  redirectUri,
+                  getResolvedCallback,
+                )
+                if (callbackStep) {
+                  return callbackStep
+                }
                 throw wrapRecoverableCodexOAuthBranchError('consent', error)
               }
 

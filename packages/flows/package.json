@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "dotenv": "catalog:",
-    "zustand": "catalog:"
+    "xstate": "catalog:"
   },
   "devDependencies": {
     "@microsoft/microsoft-graph-client": "catalog:",
