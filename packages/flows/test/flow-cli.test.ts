@@ -29,6 +29,27 @@ describe('flow cli helpers', () => {
     expect(explicit.record).toBe(false)
   })
 
+  it('defaults record to true when chromeDefaultProfile is enabled', () => {
+    expect(
+      applyFlowOptionDefaults<FlowOptions>({
+        chromeDefaultProfile: true,
+      }),
+    ).toMatchObject({
+      chromeDefaultProfile: true,
+      record: true,
+    })
+
+    expect(
+      applyFlowOptionDefaults<FlowOptions>({
+        chromeDefaultProfile: 'true',
+        record: 'false',
+      }),
+    ).toMatchObject({
+      chromeDefaultProfile: 'true',
+      record: 'false',
+    })
+  })
+
   it('treats record as the keep-open switch', () => {
     expect(shouldKeepFlowOpen({})).toBe(false)
     expect(shouldKeepFlowOpen({ record: true })).toBe(true)

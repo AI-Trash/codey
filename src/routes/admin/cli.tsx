@@ -22,7 +22,6 @@ import {
 } from 'lucide-react'
 
 import {
-  AdminMetricCard,
   AdminPageHeader,
   EmptyState,
   StatusBadge,
@@ -91,7 +90,7 @@ const loadAdminCliConnections = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      await requireAdminPermission(request, 'OPERATIONS')
+      await requireAdminPermission(request, 'CLI_OPERATIONS')
     } catch {
       return { authorized: false as const }
     }
@@ -130,7 +129,6 @@ type CliConnectionSummary = {
 type CliConnectionState = {
   snapshotAt: string
   activeConnections: CliConnectionSummary[]
-  recentConnections: CliConnectionSummary[]
 }
 
 type DispatchFlash = {
@@ -216,20 +214,6 @@ function AdminCliConnectionsPage() {
     }
   }, [])
 
-  const uniqueTargets = useMemo(() => {
-    return new Set(
-      state.activeConnections
-        .map((connection) =>
-          connection.target ||
-          connection.githubLogin ||
-          connection.email ||
-          connection.userId ||
-          null,
-        )
-        .filter((value): value is string => Boolean(value)),
-    ).size
-  }, [state.activeConnections])
-
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <AdminPageHeader
@@ -274,44 +258,16 @@ function AdminCliConnectionsPage() {
         </Alert>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <AdminMetricCard
-          label={m.admin_cli_metric_connected_label()}
-          value={String(state.activeConnections.length)}
-          description={m.admin_cli_metric_connected_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_cli_metric_targets_label()}
-          value={String(uniqueTargets)}
-          description={m.admin_cli_metric_targets_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_cli_metric_recent_label()}
-          value={String(state.recentConnections.length)}
-          description={m.admin_cli_metric_recent_description()}
-        />
-      </section>
-
       <CliConnectionsTableCard
         title={m.admin_cli_connected_section_title()}
         description={m.admin_cli_connected_section_description()}
         emptyTitle={m.admin_cli_empty_connected_title()}
         emptyDescription={m.admin_cli_empty_connected_description()}
         connections={state.activeConnections}
-        showDisconnectedAt={false}
         onDispatch={(connection) => {
           setDispatchFlash(null)
           setSelectedConnection(connection)
         }}
-      />
-
-      <CliConnectionsTableCard
-        title={m.admin_cli_recent_section_title()}
-        description={m.admin_cli_recent_section_description()}
-        emptyTitle={m.admin_cli_empty_recent_title()}
-        emptyDescription={m.admin_cli_empty_recent_description()}
-        connections={state.recentConnections}
-        showDisconnectedAt
       />
 
       <CliTaskDialog
@@ -343,7 +299,6 @@ function CliConnectionsTableCard(props: {
   emptyTitle: string
   emptyDescription: string
   connections: CliConnectionSummary[]
-  showDisconnectedAt: boolean
   onDispatch?: (connection: CliConnectionSummary) => void
 }) {
   return (
@@ -365,9 +320,6 @@ function CliConnectionsTableCard(props: {
                   <TableHead>{m.admin_cli_table_status()}</TableHead>
                   <TableHead>{m.admin_cli_table_connected_at()}</TableHead>
                   <TableHead>{m.admin_cli_table_last_seen()}</TableHead>
-                  {props.showDisconnectedAt ? (
-                    <TableHead>{m.admin_cli_table_disconnected_at()}</TableHead>
-                  ) : null}
                   {props.onDispatch ? (
                     <TableHead>{m.admin_cli_table_actions()}</TableHead>
                   ) : null}
@@ -437,14 +389,6 @@ function CliConnectionsTableCard(props: {
                       <TableCell>
                         <DateCell value={connection.lastSeenAt} icon={RefreshCcwIcon} />
                       </TableCell>
-                      {props.showDisconnectedAt ? (
-                        <TableCell>
-                          <DateCell
-                            value={connection.disconnectedAt}
-                            icon={ActivityIcon}
-                          />
-                        </TableCell>
-                      ) : null}
                       {props.onDispatch ? (
                         <TableCell className="w-[132px]">
                           <Button

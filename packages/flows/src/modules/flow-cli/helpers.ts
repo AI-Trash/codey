@@ -173,10 +173,25 @@ export function applyFlowOptionDefaults<
     record?: string | boolean
   },
 >(options: T, defaults: Partial<T> = {}): T {
-  return {
+  const resolvedOptions = {
     ...defaults,
     ...options,
   } as T
+
+  if (options.record !== undefined) {
+    return resolvedOptions
+  }
+
+  // Reusing a real Chrome profile usually means the operator wants to
+  // keep working in that session after the automated steps finish.
+  if (parseBooleanFlag(resolvedOptions.chromeDefaultProfile, false)) {
+    return {
+      ...resolvedOptions,
+      record: true,
+    } as T
+  }
+
+  return resolvedOptions
 }
 
 export function keepBrowserOpenForHarWhenUnspecified<
@@ -225,6 +240,7 @@ export function buildRuntimeConfig(
         recordHar: parseBooleanFlag(options.har),
         userDataDir: chromeProfile?.userDataDir,
         profileDirectory: chromeProfile?.profileDirectory,
+        cloneUserDataDirToTemp: chromeProfile ? true : undefined,
       },
     },
   })

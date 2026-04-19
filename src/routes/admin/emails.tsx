@@ -24,7 +24,7 @@ const loadAdminMailInbox = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      await requireAdminPermission(request, 'OPERATIONS')
+      await requireAdminPermission(request, 'MAIL_INBOX')
     } catch {
       return { authorized: false as const }
     }

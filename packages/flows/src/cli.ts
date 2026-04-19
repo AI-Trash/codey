@@ -439,7 +439,7 @@ function withCommonOptions<
     .option('--profile <name>', 'Reserved for future config profile selection')
     .option(
       '--chromeDefaultProfile <bool>',
-      'Use the local Chrome Default profile for browser-based flow startup',
+      'Use the local Chrome Default profile for browser-based flow startup (implies --record true unless explicitly disabled)',
     )
     .option('--headless <bool>', 'Override browser headless')
     .option('--slowMo <ms>', 'Override browser slow motion delay')

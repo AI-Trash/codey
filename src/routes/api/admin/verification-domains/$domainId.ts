@@ -18,7 +18,7 @@ export const Route = createFileRoute(
     handlers: {
       PATCH: async ({ request, params }) => {
         try {
-          await requireAdminPermission(request, "OAUTH_APPS");
+          await requireAdminPermission(request, "VERIFICATION_DOMAINS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

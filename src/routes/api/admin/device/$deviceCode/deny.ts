@@ -8,7 +8,7 @@ export const Route = createFileRoute("/api/admin/device/$deviceCode/deny")({
     handlers: {
       POST: async ({ request, params }) => {
         try {
-          await requireAdminPermission(request, "OPERATIONS");
+          await requireAdminPermission(request, "CLI_OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

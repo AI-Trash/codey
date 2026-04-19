@@ -154,7 +154,7 @@ pnpm flow chatgpt-login --chromeDefaultProfile true
 pnpm flow codex-oauth --projectId gid://axonhub/project/123
 ```
 
-Pass `--chromeDefaultProfile true` when you want a flow to launch Chrome against your local `Default` profile instead of an isolated temporary session. If Chrome reports that the profile is already in use, close your regular Chrome windows first and retry the flow.
+Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
 
 ### Exchange commands
 

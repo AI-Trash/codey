@@ -27,9 +27,6 @@ import {
 } from '#/components/ui/breadcrumb'
 import {
   Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '#/components/ui/card'
 import {
   DropdownMenu,
@@ -96,7 +93,7 @@ export type AdminShellUser = {
 function getAdminNavigation(currentUser?: AdminShellUser | null) {
   const navigation = []
 
-  if (hasAdminPermission(currentUser, 'OPERATIONS')) {
+  if (hasAdminPermission(currentUser, 'MAIL_INBOX')) {
     navigation.push(
       {
       label: m.admin_nav_mail_inbox(),
@@ -105,18 +102,31 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
       matches: (pathname: string) =>
         pathname === '/admin' || pathname === '/admin/emails',
     },
-      {
+    )
+  }
+
+  if (hasAdminPermission(currentUser, 'MANAGED_IDENTITIES')) {
+    navigation.push({
       label: m.admin_nav_identities(),
       to: '/admin/identities',
       icon: FingerprintIcon,
       matches: (pathname: string) => pathname === '/admin/identities',
-    },
+    })
+  }
+
+  if (hasAdminPermission(currentUser, 'CLI_OPERATIONS')) {
+    navigation.push(
       {
       label: m.admin_nav_cli_connections(),
       to: '/admin/cli',
       icon: BotIcon,
       matches: (pathname: string) => pathname === '/admin/cli',
     },
+    )
+  }
+
+  if (hasAdminPermission(currentUser, 'MANAGED_SESSIONS')) {
+    navigation.push(
       {
       label: m.admin_nav_sessions(),
       to: '/admin/sessions',
@@ -126,7 +136,7 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
     )
   }
 
-  if (hasAdminPermission(currentUser, 'OAUTH_APPS')) {
+  if (hasAdminPermission(currentUser, 'OAUTH_CLIENTS')) {
     navigation.push({
       label: m.admin_nav_app_registry(),
       to: '/admin/apps',
@@ -136,6 +146,9 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
         pathname === '/admin/apps/new' ||
         (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
     })
+  }
+
+  if (hasAdminPermission(currentUser, 'VERIFICATION_DOMAINS')) {
     navigation.push({
       label: m.admin_nav_domains(),
       to: '/admin/domains',
@@ -144,7 +157,7 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
     })
   }
 
-  if (hasAdminPermission(currentUser, 'USERS')) {
+  if (hasAdminPermission(currentUser, 'USER_ACCESS')) {
     navigation.push({
       label: m.admin_nav_users(),
       to: '/admin/users',
@@ -479,31 +492,6 @@ function AdminUserMenu(props: { user: AdminShellUser }) {
         </DropdownMenu>
       </SidebarMenuItem>
     </SidebarMenu>
-  )
-}
-
-export function AdminMetricCard(props: {
-  label: string
-  value: string
-  description: string
-}) {
-  return (
-    <Card>
-      <CardHeader className="gap-2">
-        <div className="flex items-center gap-2">
-          <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
-            {props.label}
-          </CardDescription>
-          <InfoTooltip
-            content={props.description}
-            label={props.label}
-            className="size-4"
-            iconClassName="size-3"
-          />
-        </div>
-        <CardTitle className="text-3xl">{props.value}</CardTitle>
-      </CardHeader>
-    </Card>
   )
 }
 

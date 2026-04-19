@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
+import { hasAdminPermission } from '#/lib/admin-access'
 
 import {
-  AdminMetricCard,
   AdminPageHeader,
 } from '../../../components/admin/layout'
 import {
@@ -41,28 +41,32 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
     import('../../../lib/server/verification-domains'),
   ])
   const request = getRequest()
+  const env = getAppEnv()
 
   try {
-    await requireAdminPermission(request, 'OAUTH_APPS')
+    const admin = await requireAdminPermission(request, 'OAUTH_CLIENTS')
+
+    return {
+      authorized: true as const,
+      clients: (await listOAuthClients()) as ManagedOAuthClient[],
+      supportedScopes: env.oauthSupportedScopes.length
+        ? env.oauthSupportedScopes
+        : DEFAULT_OAUTH_SUPPORTED_SCOPES,
+      verificationDomains:
+        (await listEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
+      canManageDomains: hasAdminPermission(
+        admin.user,
+        'VERIFICATION_DOMAINS',
+      ),
+    }
   } catch {
     return {
       authorized: false as const,
       clients: [] as ManagedOAuthClient[],
       supportedScopes: [] as string[],
       verificationDomains: [] as ManagedVerificationDomainOption[],
+      canManageDomains: false,
     }
-  }
-
-  const env = getAppEnv()
-
-  return {
-    authorized: true as const,
-    clients: (await listOAuthClients()) as ManagedOAuthClient[],
-    supportedScopes: env.oauthSupportedScopes.length
-      ? env.oauthSupportedScopes
-      : DEFAULT_OAUTH_SUPPORTED_SCOPES,
-    verificationDomains:
-      (await listEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
   }
 })
 
@@ -93,12 +97,6 @@ function AdminAppsListPage() {
     return <AdminAuthRequired />
   }
 
-  const enabledCount = clients.filter((client) => client.enabled).length
-  const deviceFlowCount = clients.filter((client) => client.deviceFlowEnabled).length
-  const serviceCount = clients.filter(
-    (client) => client.clientCredentialsEnabled,
-  ).length
-
   function setCreateDialogOpen(open: boolean) {
     void navigate({
       to: '/admin/apps',
@@ -119,11 +117,13 @@ function AdminAppsListPage() {
         actions={
           <>
             <Button asChild variant="outline">
-              <a href="/admin/emails">{m.admin_nav_mail_inbox()}</a>
+              <a href="/admin">{m.admin_back_to_operations()}</a>
             </Button>
-            <Button asChild variant="outline">
-              <a href="/admin/domains">{m.admin_manage_domains()}</a>
-            </Button>
+            {data.canManageDomains ? (
+              <Button asChild variant="outline">
+                <a href="/admin/domains">{m.admin_manage_domains()}</a>
+              </Button>
+            ) : null}
             <Button
               type="button"
               onClick={() => {
@@ -135,29 +135,6 @@ function AdminAppsListPage() {
           </>
         }
       />
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AdminMetricCard
-          label={m.admin_apps_metric_registered_label()}
-          value={String(clients.length)}
-          description={m.admin_apps_metric_registered_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_apps_metric_enabled_label()}
-          value={String(enabledCount)}
-          description={m.admin_apps_metric_enabled_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_apps_metric_device_flow_label()}
-          value={String(deviceFlowCount)}
-          description={m.admin_apps_metric_device_flow_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_apps_metric_service_auth_label()}
-          value={String(serviceCount)}
-          description={m.admin_apps_metric_service_auth_description()}
-        />
-      </section>
 
       <Card>
         <CardHeader>

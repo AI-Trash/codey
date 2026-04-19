@@ -8,7 +8,7 @@ export const Route = createFileRoute("/api/admin/cli-connections")({
     handlers: {
       GET: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "OPERATIONS");
+          await requireAdminPermission(request, "CLI_OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Admin access required",

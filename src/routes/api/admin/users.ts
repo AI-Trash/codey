@@ -19,7 +19,7 @@ export const Route = createFileRoute("/api/admin/users")({
       POST: async ({ request }) => {
         let admin;
         try {
-          admin = await requireAdminPermission(request, "USERS");
+          admin = await requireAdminPermission(request, "USER_ACCESS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",
@@ -45,7 +45,12 @@ export const Route = createFileRoute("/api/admin/users")({
 
           const accept = request.headers.get("accept") || "";
           if (accept.includes("application/json")) {
-            return json({ ok: true, user: result.user, policy: result.policy });
+            return json({
+              ok: true,
+              user: result.user,
+              policy: result.policy,
+              updatedSelf: result.updatedSelf,
+            });
           }
 
           return redirect(readRedirectTo(form.get("redirectTo")) || "/admin/users");

@@ -113,9 +113,12 @@ export async function updateAdminUserPermissions(params: {
   const removesUserManagement =
     hasAdminPermission(
       { role: target.role, permissions: currentPermissions },
-      "USERS",
+      "USER_ACCESS",
     ) &&
-    !hasAdminPermission({ role: nextRole, permissions: nextPermissions }, "USERS");
+    !hasAdminPermission(
+      { role: nextRole, permissions: nextPermissions },
+      "USER_ACCESS",
+    );
 
   if (removesUserManagement) {
     const allUsers = await db.query.users.findMany({
@@ -135,7 +138,7 @@ export async function updateAdminUserPermissions(params: {
           role: user.role,
           permissions: user.permissions,
         },
-        "USERS",
+        "USER_ACCESS",
       );
     });
 

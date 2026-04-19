@@ -1,16 +1,37 @@
 export const adminPermissionValues = [
-  'OPERATIONS',
-  'OAUTH_APPS',
-  'USERS',
+  'MAIL_INBOX',
+  'MANAGED_IDENTITIES',
+  'CLI_OPERATIONS',
+  'MANAGED_SESSIONS',
+  'OAUTH_CLIENTS',
+  'VERIFICATION_DOMAINS',
+  'USER_ACCESS',
 ] as const
 
-export const defaultAdminRouteByPermission: Record<AdminPermission, string> = {
-  OPERATIONS: '/admin/emails',
-  OAUTH_APPS: '/admin/apps',
-  USERS: '/admin/users',
+export type AdminPermission = (typeof adminPermissionValues)[number]
+
+const legacyAdminPermissionAliases: Record<string, readonly AdminPermission[]> = {
+  OPERATIONS: [
+    'MAIL_INBOX',
+    'MANAGED_IDENTITIES',
+    'CLI_OPERATIONS',
+    'MANAGED_SESSIONS',
+  ],
+  OAUTH_APPS: ['OAUTH_CLIENTS', 'VERIFICATION_DOMAINS'],
+  USERS: ['USER_ACCESS'],
 }
 
-export type AdminPermission = (typeof adminPermissionValues)[number]
+const adminPermissionSet = new Set<string>(adminPermissionValues)
+
+export const defaultAdminRouteByPermission: Record<AdminPermission, string> = {
+  MAIL_INBOX: '/admin/emails',
+  MANAGED_IDENTITIES: '/admin/identities',
+  CLI_OPERATIONS: '/admin/cli',
+  MANAGED_SESSIONS: '/admin/sessions',
+  OAUTH_CLIENTS: '/admin/apps',
+  VERIFICATION_DOMAINS: '/admin/domains',
+  USER_ACCESS: '/admin/users',
+}
 
 export type AdminAccessUserLike = {
   role: 'ADMIN' | 'USER'
@@ -28,8 +49,26 @@ export function normalizeAdminPermissions(
     return []
   }
 
+  const normalizedPermissions = new Set<AdminPermission>()
+
+  for (const permission of permissions) {
+    if (adminPermissionSet.has(permission)) {
+      normalizedPermissions.add(permission as AdminPermission)
+      continue
+    }
+
+    const legacyPermissions = legacyAdminPermissionAliases[permission]
+    if (!legacyPermissions) {
+      continue
+    }
+
+    for (const legacyPermission of legacyPermissions) {
+      normalizedPermissions.add(legacyPermission)
+    }
+  }
+
   return adminPermissionValues.filter((permission) =>
-    permissions.includes(permission),
+    normalizedPermissions.has(permission),
   )
 }
 
@@ -72,16 +111,10 @@ export function hasAnyAdminPermission(
 export function getDefaultAdminRoute(
   user: AdminAccessUserLike | null | undefined,
 ): string {
-  if (hasAdminPermission(user, 'OPERATIONS')) {
-    return defaultAdminRouteByPermission.OPERATIONS
-  }
-
-  if (hasAdminPermission(user, 'OAUTH_APPS')) {
-    return defaultAdminRouteByPermission.OAUTH_APPS
-  }
-
-  if (hasAdminPermission(user, 'USERS')) {
-    return defaultAdminRouteByPermission.USERS
+  for (const permission of adminPermissionValues) {
+    if (hasAdminPermission(user, permission)) {
+      return defaultAdminRouteByPermission[permission]
+    }
   }
 
   return '/admin/login'

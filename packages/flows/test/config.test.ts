@@ -93,6 +93,7 @@ describe('chrome profile launch config', () => {
 
     expect(config.browser.userDataDir).toBe(userDataDir)
     expect(config.browser.profileDirectory).toBe('Default')
+    expect(config.browser.cloneUserDataDirToTemp).toBe(true)
   })
 
   it('derives the default Chrome user data directory from the platform', () => {

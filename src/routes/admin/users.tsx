@@ -1,10 +1,11 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
   CalendarIcon,
   ShieldIcon,
+  SquarePenIcon,
   UserRoundIcon,
   UsersIcon,
 } from 'lucide-react'
@@ -20,8 +21,16 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
+import { Checkbox } from '#/components/ui/checkbox'
 import {
-  AdminMetricCard,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
+import {
   AdminPageHeader,
   EmptyState,
   formatAdminDate,
@@ -29,7 +38,11 @@ import {
 import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
-import { getDefaultAdminRoute, type AdminPermission } from '#/lib/admin-access'
+import {
+  adminPermissionValues,
+  getDefaultAdminRoute,
+  type AdminPermission,
+} from '#/lib/admin-access'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
@@ -43,7 +56,7 @@ const loadAdminUsers = createServerFn({ method: 'GET' }).handler(async () => {
   const request = getRequest()
 
   try {
-    const sessionUser = await requireAdminPermission(request, 'USERS')
+    const sessionUser = await requireAdminPermission(request, 'USER_ACCESS')
     const { policy, users } = await listAdminUsers()
 
     return {
@@ -77,20 +90,30 @@ type AdminUserSummary = {
   updatedAt: string
 }
 
+type UpdateAdminUserPermissionsResponse = {
+  ok: true
+  user: AdminUserSummary
+  updatedSelf?: boolean
+}
+
 function AdminUsersPage() {
   const data = Route.useLoaderData()
+  const navigate = Route.useNavigate()
 
   if (!data.authorized) {
     return <AdminAuthRequired />
   }
 
-  const users = data.users as AdminUserSummary[]
   const locale = getLocale()
-  const consoleAccessCount = users.filter((user) => user.hasConsoleAccess).length
-  const pendingAccessCount = users.filter((user) => !user.hasConsoleAccess).length
-  const userManagerCount = users.filter((user) =>
-    user.permissions.includes('USERS'),
-  ).length
+  const [users, setUsers] = useState(() => data.users as AdminUserSummary[])
+  const [editingUserId, setEditingUserId] = useState<string | null>(null)
+
+  useEffect(() => {
+    setUsers(data.users as AdminUserSummary[])
+  }, [data.users])
+
+  const editingUser =
+    users.find((user) => user.id === editingUserId) || null
 
   const userColumns = useMemo(() => {
     const dtf = createColumnConfigHelper<AdminUserSummary>()
@@ -172,29 +195,6 @@ function AdminUsersPage() {
           <AlertDescription>{m.admin_users_allowlist_description()}</AlertDescription>
         </Alert>
       ) : null}
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AdminMetricCard
-          label={m.admin_users_metric_total_label()}
-          value={String(users.length)}
-          description={m.admin_users_metric_total_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_users_metric_console_access_label()}
-          value={String(consoleAccessCount)}
-          description={m.admin_users_metric_console_access_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_users_metric_pending_label()}
-          value={String(pendingAccessCount)}
-          description={m.admin_users_metric_pending_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_users_metric_user_managers_label()}
-          value={String(userManagerCount)}
-          description={m.admin_users_metric_user_managers_description()}
-        />
-      </section>
 
       <Card className="min-h-0 flex-1">
         <CardHeader>
@@ -280,7 +280,7 @@ function AdminUsersPage() {
                           </Badge>
                         </td>
                         <td className="p-2 align-middle">
-                          <div className="flex max-w-[340px] flex-wrap gap-2">
+                          <div className="flex max-w-[380px] flex-wrap gap-2">
                             {user.permissions.length ? (
                               user.permissions.map((permission) => (
                                 <Badge key={permission} variant="outline">
@@ -306,7 +306,17 @@ function AdminUsersPage() {
                               {m.admin_users_allowlist_row_locked()}
                             </p>
                           ) : (
-                            <UserPermissionsForm user={user} />
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setEditingUserId(user.id)
+                              }}
+                            >
+                              <SquarePenIcon />
+                              {m.admin_users_edit_button()}
+                            </Button>
                           )}
                         </td>
                       </tr>
@@ -318,57 +328,297 @@ function AdminUsersPage() {
           />
         </CardContent>
       </Card>
+
+      <UserPermissionsDialog
+        user={editingUser}
+        currentUserId={data.currentUserId}
+        open={editingUser !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingUserId(null)
+          }
+        }}
+        onSaved={(result) => {
+          setUsers((current) =>
+            current.map((user) =>
+              user.id === result.user.id ? result.user : user,
+            ),
+          )
+          setEditingUserId(null)
+
+          if (!result.updatedSelf) {
+            return
+          }
+
+          const nextRoute = getDefaultAdminRoute({
+            role: result.user.role,
+            permissions: result.user.permissions,
+          })
+          if (nextRoute !== '/admin/users') {
+            void navigate({ to: nextRoute })
+          }
+        }}
+      />
     </div>
   )
 }
 
-function UserPermissionsForm(props: { user: AdminUserSummary }) {
-  return (
-    <form method="post" action="/api/admin/users" className="grid gap-3">
-      <input type="hidden" name="userId" value={props.user.id} />
-      <input type="hidden" name="redirectTo" value="/admin/users" />
-      <div className="flex min-w-[320px] flex-wrap gap-2">
-        {(['OPERATIONS', 'OAUTH_APPS', 'USERS'] as const).map((permission) => {
-          const id = `${props.user.id}-${permission.toLowerCase()}`
+function UserPermissionsDialog(props: {
+  user: AdminUserSummary | null
+  currentUserId: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSaved: (result: {
+    user: AdminUserSummary
+    updatedSelf: boolean
+  }) => void
+}) {
+  const [selectedPermissions, setSelectedPermissions] = useState<
+    AdminPermission[]
+  >([])
+  const [submitting, setSubmitting] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
-          return (
-            <label
-              key={permission}
-              htmlFor={id}
-              className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-foreground"
-            >
-              <input
-                id={id}
-                type="checkbox"
-                name="permissions"
-                value={permission}
-                defaultChecked={props.user.permissions.includes(permission)}
-                className="size-4 rounded border-input"
+  useEffect(() => {
+    setSelectedPermissions(props.user?.permissions || [])
+    setSubmitting(false)
+    setSaveError(null)
+  }, [props.user?.id, props.user?.updatedAt])
+
+  if (!props.user) {
+    return null
+  }
+
+  const nextRole =
+    selectedPermissions.length > 0
+      ? m.admin_sidebar_role_admin()
+      : m.admin_sidebar_role_user()
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    setSaveError(null)
+
+    try {
+      const form = new FormData()
+      form.set('userId', props.user.id)
+
+      for (const permission of selectedPermissions) {
+        form.append('permissions', permission)
+      }
+
+      const response = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+        },
+        body: form,
+      })
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      const result =
+        (await response.json()) as UpdateAdminUserPermissionsResponse
+
+      props.onSaved({
+        user: result.user,
+        updatedSelf: Boolean(result.updatedSelf),
+      })
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : m.admin_users_save_error_fallback(),
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="max-w-[min(720px,calc(100%-2rem))] gap-5">
+        <DialogHeader>
+          <DialogTitle>
+            {m.admin_users_dialog_title({
+              user: getUserPrimaryLabel(props.user),
+            })}
+          </DialogTitle>
+          <DialogDescription>
+            {m.admin_users_dialog_description()}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          <div className="rounded-lg border bg-muted/20 p-4">
+            <div className="flex items-start gap-3">
+              <Avatar className="mt-0.5" size="sm">
+                <AvatarImage src={props.user.avatarUrl || undefined} />
+                <AvatarFallback>{getUserInitials(props.user)}</AvatarFallback>
+              </Avatar>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">
+                    {getUserPrimaryLabel(props.user)}
+                  </span>
+                  <Badge
+                    variant={selectedPermissions.length > 0 ? 'default' : 'outline'}
+                  >
+                    {nextRole}
+                  </Badge>
+                  {props.user.id === props.currentUserId ? (
+                    <Badge variant="outline">{m.admin_users_you_badge()}</Badge>
+                  ) : null}
+                  {props.user.isAllowlistedAdmin ? (
+                    <Badge variant="outline">
+                      {m.admin_users_allowlist_badge()}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {getUserSecondaryLabel(props.user)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3">
+            {adminPermissionValues.map((permission) => (
+              <PermissionCheckboxRow
+                key={permission}
+                checked={selectedPermissions.includes(permission)}
+                label={getPermissionLabel(permission)}
+                description={getPermissionDescription(permission)}
+                onCheckedChange={(checked) => {
+                  setSelectedPermissions((current) => {
+                    const nextPermissions = checked
+                      ? [...current, permission]
+                      : current.filter((item) => item !== permission)
+
+                    return adminPermissionValues.filter((item) =>
+                      nextPermissions.includes(item),
+                    )
+                  })
+                }}
+                disabled={submitting}
               />
-              <span>{getPermissionLabel(permission)}</span>
-            </label>
-          )
-        })}
+            ))}
+          </div>
+
+          {saveError ? (
+            <Alert variant="destructive">
+              <AlertTitle>{m.admin_users_save_failed_title()}</AlertTitle>
+              <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              props.onOpenChange(false)
+            }}
+            disabled={submitting}
+          >
+            {m.ui_close()}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              void handleSubmit()
+            }}
+            disabled={submitting}
+          >
+            {submitting ? m.oauth_saving() : m.admin_users_save_button()}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PermissionCheckboxRow(props: {
+  checked: boolean
+  label: string
+  description: string
+  onCheckedChange: (checked: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border p-4">
+      <Checkbox
+        checked={props.checked}
+        disabled={props.disabled}
+        onCheckedChange={(checked) => {
+          props.onCheckedChange(checked === true)
+        }}
+        className="mt-0.5"
+      />
+      <div className="grid gap-1">
+        <div className="text-sm font-medium text-foreground">{props.label}</div>
+        <p className="text-sm text-muted-foreground">{props.description}</p>
       </div>
-      <div>
-        <Button type="submit" size="sm">
-          {m.admin_users_save_button()}
-        </Button>
-      </div>
-    </form>
+    </div>
   )
 }
 
 function getPermissionLabel(permission: AdminPermission) {
-  if (permission === 'OPERATIONS') {
-    return m.admin_users_permission_operations()
+  if (permission === 'MAIL_INBOX') {
+    return m.admin_users_permission_mail_inbox()
   }
 
-  if (permission === 'OAUTH_APPS') {
-    return m.admin_users_permission_oauth_apps()
+  if (permission === 'MANAGED_IDENTITIES') {
+    return m.admin_users_permission_managed_identities()
   }
 
-  return m.admin_users_permission_users()
+  if (permission === 'CLI_OPERATIONS') {
+    return m.admin_users_permission_cli_operations()
+  }
+
+  if (permission === 'MANAGED_SESSIONS') {
+    return m.admin_users_permission_managed_sessions()
+  }
+
+  if (permission === 'OAUTH_CLIENTS') {
+    return m.admin_users_permission_oauth_clients()
+  }
+
+  if (permission === 'VERIFICATION_DOMAINS') {
+    return m.admin_users_permission_verification_domains()
+  }
+
+  return m.admin_users_permission_user_access()
+}
+
+function getPermissionDescription(permission: AdminPermission) {
+  if (permission === 'MAIL_INBOX') {
+    return m.admin_users_permission_mail_inbox_description()
+  }
+
+  if (permission === 'MANAGED_IDENTITIES') {
+    return m.admin_users_permission_managed_identities_description()
+  }
+
+  if (permission === 'CLI_OPERATIONS') {
+    return m.admin_users_permission_cli_operations_description()
+  }
+
+  if (permission === 'MANAGED_SESSIONS') {
+    return m.admin_users_permission_managed_sessions_description()
+  }
+
+  if (permission === 'OAUTH_CLIENTS') {
+    return m.admin_users_permission_oauth_clients_description()
+  }
+
+  if (permission === 'VERIFICATION_DOMAINS') {
+    return m.admin_users_permission_verification_domains_description()
+  }
+
+  return m.admin_users_permission_user_access_description()
 }
 
 function getUserPrimaryLabel(user: AdminUserSummary) {
@@ -413,7 +663,11 @@ function getUserSearchText(user: AdminUserSummary) {
     user.email,
     user.githubLogin,
     user.id,
-    ...user.permissions,
+    ...user.permissions.flatMap((permission) => [
+      permission,
+      getPermissionLabel(permission),
+      getPermissionDescription(permission),
+    ]),
   ]
     .filter(Boolean)
     .join(' ')

@@ -56,7 +56,7 @@ export const Route = createFileRoute("/api/admin/identities")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "OPERATIONS");
+          await requireAdminPermission(request, "MANAGED_IDENTITIES");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

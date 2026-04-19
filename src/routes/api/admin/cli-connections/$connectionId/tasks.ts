@@ -10,7 +10,7 @@ export const Route = createFileRoute(
     handlers: {
       POST: async ({ request, params }) => {
         try {
-          await requireAdminPermission(request, "OPERATIONS");
+          await requireAdminPermission(request, "CLI_OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Admin access required",

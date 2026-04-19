@@ -8,7 +8,7 @@ export const Route = createFileRoute("/api/admin/verification-codes")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "OPERATIONS");
+          await requireAdminPermission(request, "MAIL_INBOX");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

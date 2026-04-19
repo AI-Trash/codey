@@ -7,41 +7,11 @@ function keepSessionAlive(session: Session): void {
   let closing = false
   let listenersDetached = false
 
-  const handlePageClose = () => {
-    queueMicrotask(() => {
-      if (closing) return
-      const hasOpenPages = session.context
-        .pages()
-        .some((page) => !page.isClosed())
-      if (!hasOpenPages) {
-        void cleanup()
-      }
-    })
-  }
-
-  const attachPageListener = (page: Session['page']) => {
-    page.on('close', handlePageClose)
-  }
-
-  const handleContextPage = (page: Session['page']) => {
-    attachPageListener(page)
-  }
-
-  const handleContextClose = () => {
-    void cleanup()
-  }
-
   const detachListeners = () => {
     if (listenersDetached) return
     listenersDetached = true
     process.off('SIGINT', handleSigint)
     process.off('SIGTERM', handleSigterm)
-    session.browser?.off('disconnected', handleBrowserDisconnected)
-    session.context.off('close', handleContextClose)
-    session.context.off('page', handleContextPage)
-    for (const page of session.context.pages()) {
-      page.off('close', handlePageClose)
-    }
   }
 
   const cleanup = async () => {
@@ -64,18 +34,12 @@ function keepSessionAlive(session: Session): void {
     })
   }
 
-  const handleBrowserDisconnected = () => {
-    void cleanup()
-  }
-
   process.once('SIGINT', handleSigint)
   process.once('SIGTERM', handleSigterm)
-  session.browser?.once('disconnected', handleBrowserDisconnected)
-  session.context.once('close', handleContextClose)
-  session.context.on('page', handleContextPage)
-  for (const page of session.context.pages()) {
-    attachPageListener(page)
-  }
+  // In keep-open mode the operator is driving the browser manually. Avoid
+  // inferring shutdown from Patchright connection events because Chrome
+  // internal pages such as chrome://extensions can invalidate the automation
+  // connection even while the visible browser window is still usable.
   process.stdin.resume()
 }
 

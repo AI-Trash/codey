@@ -19,7 +19,7 @@ export const Route = createFileRoute("/api/admin/verification-domains")({
     handlers: {
       GET: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "OAUTH_APPS");
+          await requireAdminPermission(request, "VERIFICATION_DOMAINS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",
@@ -33,7 +33,7 @@ export const Route = createFileRoute("/api/admin/verification-domains")({
       },
       POST: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "OAUTH_APPS");
+          await requireAdminPermission(request, "VERIFICATION_DOMAINS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

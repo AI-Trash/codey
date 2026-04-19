@@ -20,7 +20,6 @@ import {
 } from 'lucide-react'
 
 import {
-  AdminMetricCard,
   AdminPageHeader,
   EmptyState,
   StatusBadge,
@@ -92,7 +91,7 @@ const loadAdminSessions = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      await requireAdminPermission(request, 'OPERATIONS')
+      await requireAdminPermission(request, 'MANAGED_SESSIONS')
     } catch {
       return { authorized: false as const }
     }
@@ -170,12 +169,6 @@ function AdminSessionsPage() {
 
   const sessions = data.sessions as ManagedSessionSummary[]
   const locale = getLocale()
-  const activeCount = sessions.filter(
-    (summary) => summary.status === 'active',
-  ).length
-  const expiredCount = sessions.filter(
-    (summary) => summary.status === 'expired',
-  ).length
 
   const sessionColumns = useMemo(() => {
     const dtf = createColumnConfigHelper<ManagedSessionSummary>()
@@ -258,28 +251,10 @@ function AdminSessionsPage() {
         variant="plain"
         actions={
           <Button asChild variant="outline">
-            <a href="/admin/emails">{m.admin_back_to_operations()}</a>
+            <a href="/admin">{m.admin_back_to_operations()}</a>
           </Button>
         }
       />
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <AdminMetricCard
-          label={m.admin_session_metric_total_label()}
-          value={String(sessions.length)}
-          description={m.admin_session_metric_total_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_session_metric_active_label()}
-          value={String(activeCount)}
-          description={m.admin_session_metric_active_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_session_metric_expired_label()}
-          value={String(expiredCount)}
-          description={m.admin_session_metric_expired_description()}
-        />
-      </section>
 
       <Card className="min-h-0 flex-1">
         <CardHeader>

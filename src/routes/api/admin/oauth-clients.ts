@@ -23,7 +23,7 @@ export const Route = createFileRoute("/api/admin/oauth-clients")({
     handlers: {
       GET: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "OAUTH_APPS");
+          await requireAdminPermission(request, "OAUTH_CLIENTS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",
@@ -38,7 +38,7 @@ export const Route = createFileRoute("/api/admin/oauth-clients")({
       POST: async ({ request }) => {
         let admin;
         try {
-          admin = await requireAdminPermission(request, "OAUTH_APPS");
+          admin = await requireAdminPermission(request, "OAUTH_CLIENTS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

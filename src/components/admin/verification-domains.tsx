@@ -11,6 +11,14 @@ import {
   CardTitle,
 } from '#/components/ui/card'
 import { Checkbox } from '#/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import {
@@ -39,29 +47,88 @@ type VerificationDomainFormValues = {
 
 export function VerificationDomainsPageContent({
   initialDomains,
+  createdDomain,
 }: {
   initialDomains: ManagedVerificationDomain[]
+  createdDomain?: ManagedVerificationDomain | null
 }) {
   const [domains, setDomains] = useState(() => sortDomains(initialDomains))
-  const [form, setForm] = useState<VerificationDomainFormValues>({
-    domain: '',
-    description: '',
-    enabled: true,
-    isDefault: initialDomains.length === 0,
-  })
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
-  const [createSuccess, setCreateSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     setDomains(sortDomains(initialDomains))
   }, [initialDomains])
 
+  useEffect(() => {
+    if (!createdDomain) {
+      return
+    }
+
+    setDomains((current) =>
+      sortDomains(mergeUpdatedDomain([createdDomain, ...current], createdDomain)),
+    )
+  }, [createdDomain])
+
+  function handleDomainUpdated(updatedDomain: ManagedVerificationDomain) {
+    setDomains((current) =>
+      sortDomains(mergeUpdatedDomain(current, updatedDomain)),
+    )
+  }
+
+  return (
+    <div className="grid gap-4">
+      {domains.length ? (
+        domains.map((domain) => (
+          <VerificationDomainCard
+            key={domain.id}
+            domain={domain}
+            onUpdated={handleDomainUpdated}
+          />
+        ))
+      ) : (
+        <Card>
+          <CardContent className="pt-6">
+            <EmptyState
+              title={m.domain_empty_title()}
+              description={m.domain_empty_description()}
+            />
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+export function CreateVerificationDomainDialog({
+  open,
+  onOpenChange,
+  hasExistingDomains,
+  onDomainCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  hasExistingDomains: boolean
+  onDomainCreated?: (domain: ManagedVerificationDomain) => void
+}) {
+  const [form, setForm] = useState<VerificationDomainFormValues>(() =>
+    createNewVerificationDomainFormValues(hasExistingDomains),
+  )
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      return
+    }
+
+    setForm(createNewVerificationDomainFormValues(hasExistingDomains))
+    setCreating(false)
+    setError(null)
+  }, [open, hasExistingDomains])
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setCreating(true)
-    setCreateError(null)
-    setCreateSuccess(null)
+    setError(null)
 
     try {
       const response = await fetch('/api/admin/verification-domains', {
@@ -85,127 +152,90 @@ export function VerificationDomainsPageContent({
         domain: ManagedVerificationDomain
       }
 
-      setDomains((current) =>
-        sortDomains(mergeUpdatedDomain([data.domain, ...current], data.domain)),
-      )
-      setForm({
-        domain: '',
-        description: '',
-        enabled: true,
-        isDefault: false,
-      })
-      setCreateSuccess(m.domain_create_success())
-    } catch (error) {
-      setCreateError(
-        error instanceof Error ? error.message : m.domain_create_error(),
+      onDomainCreated?.(data.domain)
+      onOpenChange(false)
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : m.domain_create_error(),
       )
     } finally {
       setCreating(false)
     }
   }
 
-  function handleDomainUpdated(updatedDomain: ManagedVerificationDomain) {
-    setDomains((current) =>
-      sortDomains(mergeUpdatedDomain(current, updatedDomain)),
-    )
-  }
-
   return (
-    <div className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
-      <Card>
-        <CardHeader>
-          <CardDescription>{m.domain_create_kicker()}</CardDescription>
-          <CardTitle>{m.domain_create_title()}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="grid gap-4" onSubmit={handleCreate}>
-            <Field label={m.domain_field_domain()}>
-              <Input
-                value={form.domain}
-                onChange={(event) => {
-                  const nextValue = event.target.value
-                  setForm((current) => ({ ...current, domain: nextValue }))
-                }}
-                placeholder={m.domain_field_domain_placeholder()}
-                required
-              />
-            </Field>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-[min(720px,calc(100%-2rem))] overflow-y-auto sm:max-w-[min(720px,calc(100%-2rem))]">
+        <DialogHeader>
+          <DialogDescription>{m.domain_create_kicker()}</DialogDescription>
+          <DialogTitle>{m.domain_create_title()}</DialogTitle>
+        </DialogHeader>
 
-            <Field label={m.domain_field_description()}>
-              <Textarea
-                value={form.description}
-                onChange={(event) => {
-                  const nextValue = event.target.value
-                  setForm((current) => ({
-                    ...current,
-                    description: nextValue,
-                  }))
-                }}
-                placeholder={m.domain_field_description_placeholder()}
-                className="min-h-24"
-              />
-            </Field>
-
-            <CheckboxRow
-              checked={form.enabled}
-              label={m.domain_toggle_enabled_title()}
-              description={m.domain_toggle_enabled_description()}
-              onCheckedChange={(checked) => {
-                setForm((current) => ({ ...current, enabled: checked }))
+        <form className="grid gap-4" onSubmit={handleCreate}>
+          <Field label={m.domain_field_domain()}>
+            <Input
+              value={form.domain}
+              onChange={(event) => {
+                const nextValue = event.target.value
+                setForm((current) => ({ ...current, domain: nextValue }))
               }}
+              placeholder={m.domain_field_domain_placeholder()}
+              required
             />
+          </Field>
 
-            <CheckboxRow
-              checked={form.isDefault}
-              label={m.domain_toggle_default_title()}
-              description={m.domain_toggle_default_description()}
-              onCheckedChange={(checked) => {
-                setForm((current) => ({ ...current, isDefault: checked }))
+          <Field label={m.domain_field_description()}>
+            <Textarea
+              value={form.description}
+              onChange={(event) => {
+                const nextValue = event.target.value
+                setForm((current) => ({
+                  ...current,
+                  description: nextValue,
+                }))
               }}
+              placeholder={m.domain_field_description_placeholder()}
+              className="min-h-24"
             />
+          </Field>
 
-            {createError ? (
-              <Alert variant="destructive">
-                <AlertTitle>{m.domain_save_failed_title()}</AlertTitle>
-                <AlertDescription>{createError}</AlertDescription>
-              </Alert>
-            ) : null}
+          <CheckboxRow
+            checked={form.enabled}
+            label={m.domain_toggle_enabled_title()}
+            description={m.domain_toggle_enabled_description()}
+            onCheckedChange={(checked) => {
+              setForm((current) => ({ ...current, enabled: checked }))
+            }}
+            disabled={creating}
+          />
 
-            {createSuccess ? (
-              <Alert>
-                <AlertTitle>{m.oauth_saved_title()}</AlertTitle>
-                <AlertDescription>{createSuccess}</AlertDescription>
-              </Alert>
-            ) : null}
+          <CheckboxRow
+            checked={form.isDefault}
+            label={m.domain_toggle_default_title()}
+            description={m.domain_toggle_default_description()}
+            onCheckedChange={(checked) => {
+              setForm((current) => ({ ...current, isDefault: checked }))
+            }}
+            disabled={creating}
+          />
 
+          {error ? (
+            <Alert variant="destructive">
+              <AlertTitle>{m.domain_save_failed_title()}</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <DialogFooter showCloseButton>
             <Button type="submit" disabled={creating}>
               {creating ? m.domain_creating() : m.domain_create_submit()}
             </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4">
-        {domains.length ? (
-          domains.map((domain) => (
-            <VerificationDomainCard
-              key={domain.id}
-              domain={domain}
-              onUpdated={handleDomainUpdated}
-            />
-          ))
-        ) : (
-          <Card>
-            <CardContent className="pt-6">
-              <EmptyState
-                title={m.domain_empty_title()}
-                description={m.domain_empty_description()}
-              />
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -435,6 +465,17 @@ function toFormValues(
     description: domain.description || '',
     enabled: domain.enabled,
     isDefault: domain.isDefault,
+  }
+}
+
+function createNewVerificationDomainFormValues(
+  hasExistingDomains: boolean,
+): VerificationDomainFormValues {
+  return {
+    domain: '',
+    description: '',
+    enabled: true,
+    isDefault: !hasExistingDomains,
   }
 }
 

@@ -1,7 +1,7 @@
 import { Navigate, createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 
-import { hasAdminPermission } from '#/lib/admin-access'
+import { getDefaultAdminRoute } from '#/lib/admin-access'
 
 const loadAdminLanding = createServerFn({ method: 'GET' }).handler(async () => {
   const [{ getRequest }, { getSessionUser }] = await Promise.all([
@@ -12,9 +12,7 @@ const loadAdminLanding = createServerFn({ method: 'GET' }).handler(async () => {
   const sessionUser = await getSessionUser(request)
 
   return {
-    hasOperationsAccess: hasAdminPermission(sessionUser?.user, 'OPERATIONS'),
-    hasOAuthAppsAccess: hasAdminPermission(sessionUser?.user, 'OAUTH_APPS'),
-    hasUsersAccess: hasAdminPermission(sessionUser?.user, 'USERS'),
+    defaultRoute: getDefaultAdminRoute(sessionUser?.user),
   }
 })
 
@@ -26,17 +24,5 @@ export const Route = createFileRoute('/admin/')({
 function AdminIndexRedirect() {
   const data = Route.useLoaderData()
 
-  if (data.hasOperationsAccess) {
-    return <Navigate to="/admin/emails" replace />
-  }
-
-  if (data.hasOAuthAppsAccess) {
-    return <Navigate to="/admin/apps" replace />
-  }
-
-  if (data.hasUsersAccess) {
-    return <Navigate to="/admin/users" replace />
-  }
-
-  return <Navigate to="/admin/login" replace />
+  return <Navigate to={data.defaultRoute} replace />
 }

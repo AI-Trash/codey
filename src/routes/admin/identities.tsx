@@ -18,7 +18,6 @@ import {
 } from 'lucide-react'
 
 import {
-  AdminMetricCard,
   AdminPageHeader,
   EmptyState,
   formatAdminDate,
@@ -86,7 +85,7 @@ const loadAdminIdentities = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      await requireAdminPermission(request, 'OPERATIONS')
+      await requireAdminPermission(request, 'MANAGED_IDENTITIES')
     } catch {
       return { authorized: false as const }
     }
@@ -200,16 +199,6 @@ function AdminIdentitiesPage() {
   const identitySummaries = data.identitySummaries as IdentitySummary[]
   const locale = getLocale()
 
-  const activeCount = identitySummaries.filter(
-    (summary) => summary.status === 'active',
-  ).length
-  const reviewCount = identitySummaries.filter(
-    (summary) => summary.status === 'review',
-  ).length
-  const archivedCount = identitySummaries.filter(
-    (summary) => summary.status === 'archived',
-  ).length
-
   const identityColumns = useMemo(() => {
     const dtf = createColumnConfigHelper<IdentitySummary>()
     return [
@@ -285,33 +274,10 @@ function AdminIdentitiesPage() {
         variant="plain"
         actions={
           <Button asChild variant="outline">
-            <a href="/admin/emails">{m.admin_back_to_operations()}</a>
+            <a href="/admin">{m.admin_back_to_operations()}</a>
           </Button>
         }
       />
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <AdminMetricCard
-          label={m.admin_identity_metric_total_label()}
-          value={String(identitySummaries.length)}
-          description={m.admin_identity_metric_total_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_identity_metric_active_label()}
-          value={String(activeCount)}
-          description={m.admin_identity_metric_active_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_identity_metric_review_label()}
-          value={String(reviewCount)}
-          description={m.admin_identity_metric_review_description()}
-        />
-        <AdminMetricCard
-          label={m.admin_identity_metric_archived_label()}
-          value={String(archivedCount)}
-          description={m.admin_identity_metric_archived_description()}
-        />
-      </section>
 
       <Card className="min-h-0 flex-1">
         <CardHeader>

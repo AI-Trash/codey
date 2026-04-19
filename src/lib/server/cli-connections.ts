@@ -6,7 +6,6 @@ import { cliConnections } from "./db/schema";
 import { createId } from "./security";
 
 const ACTIVE_CONNECTION_STALE_MS = 30_000;
-const RECENT_CONNECTION_LIMIT = 20;
 const ACTIVE_CONNECTION_LIMIT = 50;
 
 export interface AdminCliConnectionSummary {
@@ -171,32 +170,23 @@ export async function markCliConnectionDisconnected(connectionId: string) {
 
 export async function listAdminCliConnectionState() {
   const activeCutoff = getActiveCutoff();
-  const [activeRows, recentRows] = await Promise.all([
-    getDb().query.cliConnections.findMany({
-      with: {
-        user: true,
-      },
-      where: and(
-        isNull(cliConnections.disconnectedAt),
-        gt(cliConnections.lastSeenAt, activeCutoff),
-      ),
-      orderBy: [desc(cliConnections.lastSeenAt)],
-      limit: ACTIVE_CONNECTION_LIMIT,
-    }),
-    listRecentCliConnectionRows(100),
-  ]);
+  const activeRows = await getDb().query.cliConnections.findMany({
+    with: {
+      user: true,
+    },
+    where: and(
+      isNull(cliConnections.disconnectedAt),
+      gt(cliConnections.lastSeenAt, activeCutoff),
+    ),
+    orderBy: [desc(cliConnections.lastSeenAt)],
+    limit: ACTIVE_CONNECTION_LIMIT,
+  });
 
   const activeConnections = activeRows.map(mapSummary);
-  const activeIds = new Set(activeConnections.map((connection) => connection.id));
-  const recentConnections = recentRows
-    .map(mapSummary)
-    .filter((connection) => !activeIds.has(connection.id))
-    .slice(0, RECENT_CONNECTION_LIMIT);
 
   return {
     snapshotAt: new Date().toISOString(),
     activeConnections,
-    recentConnections,
   };
 }
 

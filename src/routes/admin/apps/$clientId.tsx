@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
+import { hasAdminPermission } from '#/lib/admin-access'
 import { AdminPageHeader } from '../../../components/admin/layout'
 import {
   AdminAuthRequired,
@@ -38,31 +39,39 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
     const request = getRequest()
 
     try {
-      await requireAdminPermission(request, 'OAUTH_APPS')
-    } catch {
-      return { authorized: false as const }
-    }
+      const admin = await requireAdminPermission(request, 'OAUTH_CLIENTS')
 
-    const client = await getOAuthClientSummaryById(data.clientId)
-    if (!client) {
+      const client = await getOAuthClientSummaryById(data.clientId)
+      if (!client) {
+        return {
+          authorized: true as const,
+          client: null,
+          supportedScopes: [] as string[],
+          verificationDomains: [] as ManagedVerificationDomainOption[],
+          canManageDomains: hasAdminPermission(
+            admin.user,
+            'VERIFICATION_DOMAINS',
+          ),
+        }
+      }
+
+      const env = getAppEnv()
+
       return {
         authorized: true as const,
-        client: null,
-        supportedScopes: [] as string[],
-        verificationDomains: [] as ManagedVerificationDomainOption[],
+        client: client as ManagedOAuthClient,
+        supportedScopes: env.oauthSupportedScopes.length
+          ? env.oauthSupportedScopes
+          : DEFAULT_OAUTH_SUPPORTED_SCOPES,
+        verificationDomains:
+          (await listEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
+        canManageDomains: hasAdminPermission(
+          admin.user,
+          'VERIFICATION_DOMAINS',
+        ),
       }
-    }
-
-    const env = getAppEnv()
-
-    return {
-      authorized: true as const,
-      client: client as ManagedOAuthClient,
-      supportedScopes: env.oauthSupportedScopes.length
-        ? env.oauthSupportedScopes
-        : DEFAULT_OAUTH_SUPPORTED_SCOPES,
-      verificationDomains:
-        (await listEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
+    } catch {
+      return { authorized: false as const }
     }
   })
 
@@ -113,9 +122,11 @@ function AdminAppsDetailPage() {
             <Button asChild variant="outline">
               <a href="/admin/apps">{m.admin_back_to_apps()}</a>
             </Button>
-            <Button asChild variant="outline">
-              <a href="/admin/domains">{m.admin_manage_domains()}</a>
-            </Button>
+            {data.canManageDomains ? (
+              <Button asChild variant="outline">
+                <a href="/admin/domains">{m.admin_manage_domains()}</a>
+              </Button>
+            ) : null}
             <Button asChild variant="outline">
               <a href="/admin/apps?create=true">
                 {m.admin_register_another_app()}

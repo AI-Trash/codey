@@ -1,8 +1,9 @@
 import fs from 'fs'
 import path from 'path'
-import { chromium, type Browser, type BrowserContext } from 'patchright'
+import { chromium, type Browser, type BrowserContext, type Page } from 'patchright'
 import { getRuntimeConfig } from '../config'
 import { ensureDir } from '../utils/fs'
+import { cloneChromeUserDataDirToTemp } from '../utils/chrome-user-data-dir'
 import type { Session } from '../types'
 
 function timeStamp(): string {
@@ -52,6 +53,18 @@ function buildContextOptions(
   }
 }
 
+async function resolveSessionPage(context: BrowserContext): Promise<Page> {
+  const existingPage = context
+    .pages()
+    .find((candidate) => !candidate.isClosed())
+
+  if (existingPage) {
+    return existingPage
+  }
+
+  return context.newPage()
+}
+
 export async function newSession(
   options: {
     artifactName?: string
@@ -65,40 +78,57 @@ export async function newSession(
   const contextOptions = buildContextOptions(harPath, options.context)
   let browser: Browser | null = null
   let context: BrowserContext
+  let userDataDirCleanup: (() => Promise<void>) | undefined
 
-  if (config.browser.userDataDir) {
-    if (
-      config.browser.profileDirectory &&
-      !fs.existsSync(
-        path.join(config.browser.userDataDir, config.browser.profileDirectory),
+  try {
+    if (config.browser.userDataDir) {
+      let launchUserDataDir = config.browser.userDataDir
+      let launchProfileDirectory = config.browser.profileDirectory
+
+      if (config.browser.cloneUserDataDirToTemp) {
+        const clonedUserDataDir = await cloneChromeUserDataDirToTemp({
+          sourceUserDataDir: config.browser.userDataDir,
+          profileDirectory: config.browser.profileDirectory,
+        })
+        launchUserDataDir = clonedUserDataDir.userDataDir
+        launchProfileDirectory = clonedUserDataDir.profileDirectory
+        userDataDirCleanup = clonedUserDataDir.cleanup
+      }
+
+      if (
+        launchProfileDirectory &&
+        !fs.existsSync(path.join(launchUserDataDir, launchProfileDirectory))
+      ) {
+        throw new Error(
+          `Chrome profile directory not found: ${path.join(launchUserDataDir, launchProfileDirectory)}`,
+        )
+      }
+
+      context = await chromium.launchPersistentContext(
+        launchUserDataDir,
+        {
+          channel: 'chrome',
+          headless: config.browser.headless,
+          slowMo: config.browser.slowMo,
+          ...(launchProfileDirectory
+            ? {
+                args: [`--profile-directory=${launchProfileDirectory}`],
+              }
+            : {}),
+          ...contextOptions,
+        },
       )
-    ) {
-      throw new Error(
-        `Chrome profile directory not found: ${path.join(config.browser.userDataDir, config.browser.profileDirectory)}`,
-      )
+      browser = context.browser()
+    } else {
+      browser = await launchBrowser()
+      context = await browser.newContext(contextOptions)
     }
-
-    context = await chromium.launchPersistentContext(
-      config.browser.userDataDir,
-      {
-        channel: 'chrome',
-        headless: config.browser.headless,
-        slowMo: config.browser.slowMo,
-        ...(config.browser.profileDirectory
-          ? {
-              args: [`--profile-directory=${config.browser.profileDirectory}`],
-            }
-          : {}),
-        ...contextOptions,
-      },
-    )
-    browser = context.browser()
-  } else {
-    browser = await launchBrowser()
-    context = await browser.newContext(contextOptions)
+  } catch (error) {
+    await userDataDirCleanup?.().catch(() => undefined)
+    throw error
   }
 
-  const page = await context.newPage()
+  const page = await resolveSessionPage(context)
   page.setDefaultTimeout(config.browser.defaultTimeoutMs)
   page.setDefaultNavigationTimeout(config.browser.navigationTimeoutMs)
   let closePromise: Promise<void> | undefined
@@ -113,6 +143,7 @@ export async function newSession(
         closePromise = (async () => {
           await context.close().catch(() => {})
           await browser?.close().catch(() => {})
+          await userDataDirCleanup?.().catch(() => undefined)
         })()
       }
 

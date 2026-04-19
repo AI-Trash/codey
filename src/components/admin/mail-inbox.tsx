@@ -302,8 +302,6 @@ export function AdminMailInbox(props: {
     }
   }, [props.initialCursor, queryClient])
 
-  const codeReadyCount = data.emails.filter((email) => email.latestCode).length
-  const htmlPreviewCount = data.emails.filter((email) => email.htmlBody).length
   const hasActiveFilters = Boolean(deferredSearch || filters.length > 0)
   const invalidateInboxQueries = async () => {
     await queryClient.invalidateQueries({
@@ -318,29 +316,6 @@ export function AdminMailInbox(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <section className="grid shrink-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label={m.mail_inbox_metric_matched_label()}
-          value={String(data.totalCount)}
-          description={m.mail_inbox_metric_matched_description()}
-        />
-        <MetricCard
-          label={m.mail_inbox_metric_current_page_label()}
-          value={`${data.page} / ${Math.max(1, data.pageCount || 1)}`}
-          description={m.mail_inbox_metric_current_page_description()}
-        />
-        <MetricCard
-          label={m.mail_inbox_metric_codes_label()}
-          value={String(codeReadyCount)}
-          description={m.mail_inbox_metric_codes_description()}
-        />
-        <MetricCard
-          label={m.mail_inbox_metric_html_label()}
-          value={String(htmlPreviewCount)}
-          description={m.mail_inbox_metric_html_description()}
-        />
-      </section>
-
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CardHeader className="shrink-0 gap-4">
           <div className="space-y-1">
@@ -605,31 +580,6 @@ export function AdminMailInbox(props: {
         onIdentityUpdated={invalidateInboxQueries}
       />
     </div>
-  )
-}
-
-function MetricCard(props: {
-  label: string
-  value: string
-  description: string
-}) {
-  return (
-    <Card>
-      <CardHeader className="gap-2">
-        <div className="flex items-center gap-2">
-          <CardDescription className="text-xs font-medium tracking-[0.14em] uppercase">
-            {props.label}
-          </CardDescription>
-          <InfoTooltip
-            content={props.description}
-            label={props.label}
-            className="size-4"
-            iconClassName="size-3"
-          />
-        </div>
-        <CardTitle className="text-3xl">{props.value}</CardTitle>
-      </CardHeader>
-    </Card>
   )
 }
 

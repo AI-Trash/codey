@@ -12,6 +12,7 @@ export interface BrowserCliConfig {
   recordHar: boolean
   userDataDir?: string
   profileDirectory?: string
+  cloneUserDataDirToTemp?: boolean
 }
 
 export interface OpenAIFlowConfig {

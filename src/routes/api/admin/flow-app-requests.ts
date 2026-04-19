@@ -9,7 +9,7 @@ export const Route = createFileRoute("/api/admin/flow-app-requests")({
       POST: async ({ request }) => {
         let admin;
         try {
-          admin = await requireAdminPermission(request, "OPERATIONS");
+          admin = await requireAdminPermission(request, "CLI_OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",
