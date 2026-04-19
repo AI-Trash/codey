@@ -2,6 +2,7 @@ import type { Page } from 'patchright'
 import { loadWorkspaceEnv } from '../../utils/env'
 import {
   applyFlowOptionDefaults,
+  attachFlowArtifactPaths,
   createConsoleFlowProgressReporter,
   printFlowCompletionSummary,
   prepareRuntimeConfig,
@@ -42,13 +43,18 @@ export async function runSingleFileFlow<
   } as TOptions
   prepareRuntimeConfig(definition.command, resolvedOptions)
   let result!: TResult
+  let browserHarPath: string | undefined
   await runWithSession(
     { artifactName: definition.command, context: {} },
     async (session) => {
+      browserHarPath = session.harPath
       result = await definition.run(session.page, runtimeOptions)
     },
     { closeOnComplete: !shouldKeepFlowOpen(runtimeOptions) },
   )
+  result = attachFlowArtifactPaths(result, {
+    harPath: browserHarPath,
+  })
   printFlowCompletionSummary(definition.command, result)
   if (shouldKeepFlowOpen(runtimeOptions)) {
     console.error(

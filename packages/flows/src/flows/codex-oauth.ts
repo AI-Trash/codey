@@ -23,6 +23,7 @@ import {
   keepBrowserOpenForHarWhenUnspecified,
   parseBooleanFlag,
   parseNumberFlag,
+  printFlowArtifactPath,
   sanitizeErrorForOutput,
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
@@ -221,15 +222,9 @@ export type CodexOAuthFlowRunResult =
   | CodexOAuthFlowResult
   | CodexOAuthAuthorizeUrlResult
 
-type CodexOAuthSurfaceCandidate = Exclude<
-  ChatGPTCodexOAuthSurface,
-  'unknown'
->
+type CodexOAuthSurfaceCandidate = Exclude<ChatGPTCodexOAuthSurface, 'unknown'>
 type CodexOAuthLoginSurface = CodexOAuthSurfaceCandidate
-type CodexOAuthLoginProgressStep = Exclude<
-  ChatGPTPostEmailLoginStep,
-  'unknown'
->
+type CodexOAuthLoginProgressStep = Exclude<ChatGPTPostEmailLoginStep, 'unknown'>
 
 interface CodexOAuthSurfaceInput<Result = unknown> {
   surface: CodexOAuthLoginSurface
@@ -924,14 +919,9 @@ function requireCodexOAuthStoredLoginIdentity(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
 ): ResolvedChatGPTIdentity {
-  const selected = resolveCodexOAuthStoredIdentitySelection(machine, options)
-  if (!selected.id && !selected.email) {
-    throw new Error(
-      'Codex OAuth login continuation requires a stored ChatGPT identity. Pass --identityId or --email.',
-    )
-  }
-
-  return resolveStoredChatGPTIdentity(selected)
+  return resolveStoredChatGPTIdentity(
+    resolveCodexOAuthStoredIdentitySelection(machine, options),
+  )
 }
 
 async function submitCodexOAuthStoredLoginEmail(
@@ -1339,7 +1329,9 @@ async function resolveCodexOAuthNextStep(
               )
               if (
                 postLoginStep.kind === 'surface-candidates' &&
-                postLoginStep.candidates.every((candidate) => candidate === 'login') &&
+                postLoginStep.candidates.every(
+                  (candidate) => candidate === 'login',
+                ) &&
                 postLoginStep.candidates.includes('login')
               ) {
                 throw new GuardedBranchError(
@@ -1486,6 +1478,7 @@ export async function runCodexOAuthFlow(
   const config = getRuntimeConfig()
   const codexConfig = getRequiredCodexConfig()
   const apiHarRecorder = createNodeHarRecorder('flow-codex-oauth-api')
+  printFlowArtifactPath('API HAR', apiHarRecorder?.path, 'flow:codex-oauth')
   const machine = createCodexOAuthMachine()
   const detachProgress = attachStateMachineProgressReporter(
     machine,

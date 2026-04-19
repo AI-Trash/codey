@@ -20,6 +20,7 @@ import {
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
 import {
   applyFlowOptionDefaults,
+  attachFlowArtifactPaths,
   createConsoleFlowProgressReporter,
   execute,
   keepBrowserOpenForHarWhenUnspecified,
@@ -47,10 +48,12 @@ async function runFlowCommand(
       createConsoleFlowProgressReporter(`flow:${subcommand}`),
   }
   let result: unknown
+  let browserHarPath: string | undefined
 
   await runWithSession(
     { artifactName: subcommand, context: {} },
     async (session) => {
+      browserHarPath = session.harPath
       if (subcommand === 'chatgpt-register') {
         result = await registerChatGPT(session.page, runtimeOptions)
         return
@@ -84,6 +87,9 @@ async function runFlowCommand(
     { closeOnComplete: !shouldKeepFlowOpen(runtimeOptions) },
   )
 
+  result = attachFlowArtifactPaths(result, {
+    harPath: browserHarPath,
+  })
   printFlowCompletionSummary(`flow:${subcommand}`, result)
   if (shouldKeepFlowOpen(runtimeOptions)) {
     console.error(
@@ -433,7 +439,7 @@ withCommonOptions(
     )
     .option(
       '--email <email>',
-      'Stored identity email to use if the OpenAI login flow needs credentials',
+      'Stored identity email to use if the OpenAI login flow needs credentials; defaults to the latest saved identity',
     )
     .option(
       '--workspaceIndex <index>',

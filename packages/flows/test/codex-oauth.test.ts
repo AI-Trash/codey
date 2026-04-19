@@ -347,6 +347,90 @@ describe('runCodexOAuthFlow', () => {
     ).toBe(true)
   })
 
+  it('defaults to the latest stored identity when login is required and no identity is passed', async () => {
+    let currentUrl = 'https://auth.openai.com/oauth/authorize'
+    let resolveCallback!: (value: {
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }) => void
+
+    const callbackResult = new Promise<{
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }>((resolve) => {
+      resolveCallback = resolve
+    })
+
+    createAuthorizationCallbackCapture.mockResolvedValue({
+      result: callbackResult,
+      abort: vi.fn().mockResolvedValue(undefined),
+    })
+
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(
+      async (_page: unknown, timeoutMs: number) => {
+        if (timeoutMs >= 180000) {
+          return ['email']
+        }
+        return new Promise<never>(() => undefined)
+      },
+    )
+    waitForPostEmailLoginCandidates.mockResolvedValueOnce(['password'])
+    completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
+      currentUrl =
+        'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
+      resolveCallback({
+        code: 'oauth-code',
+        state: 'oauth-state',
+        callbackUrl: currentUrl,
+        rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
+      })
+      return {
+        method: 'password',
+      }
+    })
+
+    exchangeCodexAuthorizationCode.mockResolvedValue({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      expiresIn: 3600,
+      scope: 'openid profile email offline_access',
+      tokenType: 'Bearer',
+      createdAt: '2026-04-17T00:00:00.000Z',
+    })
+
+    const page = {
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url
+      }),
+      url: vi.fn(() => currentUrl),
+      title: vi.fn(async () => 'Authorization received'),
+    } as never
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    const result = await runCodexOAuthFlow(page, {})
+
+    expect(resolveStoredChatGPTIdentity).toHaveBeenCalledWith({
+      id: undefined,
+      email: undefined,
+    })
+    expect(submitLoginEmail).toHaveBeenCalledWith(
+      page,
+      'person@example.com',
+      expect.objectContaining({
+        onRetry: expect.any(Function),
+      }),
+    )
+    expect(result).toMatchObject({
+      pageName: 'codex-oauth',
+      email: 'person@example.com',
+      tokenStorePath: 'C:/tmp/codex-oauth.json',
+    })
+  })
+
   it('clicks the login entry surface before continuing stored-identity login', async () => {
     let currentUrl = 'https://chatgpt.com/auth/login'
     let resolveCallback!: (value: {
@@ -551,8 +635,7 @@ describe('runCodexOAuthFlow', () => {
     expect(
       result.machine.history.some(
         (entry) =>
-          entry.event === 'context.updated' &&
-          entry.to === 'verification-step',
+          entry.event === 'context.updated' && entry.to === 'verification-step',
       ),
     ).toBe(true)
     expect(result).toMatchObject({

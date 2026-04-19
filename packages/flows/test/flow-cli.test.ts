@@ -66,6 +66,7 @@ describe('flow cli helpers', () => {
       title: 'ChatGPT',
       email: 'person@example.com',
       verified: true,
+      harPath: 'C:/tmp/flow-chatgpt-register.har',
       storedIdentity: {
         id: 'identity-123',
         email: 'person@example.com',
@@ -80,6 +81,7 @@ describe('flow cli helpers', () => {
     expect(summary).toContain('email: person@example.com')
     expect(summary).toContain('verified: yes')
     expect(summary).toContain('identity: identity-123')
+    expect(summary).toContain('har: C:/tmp/flow-chatgpt-register.har')
     expect(summary).not.toContain('machine')
     expect(summary).not.toContain('storePath')
     expect(summary).not.toContain('mfa_token')
@@ -93,6 +95,7 @@ describe('flow cli helpers', () => {
       email: 'person@example.com',
       authenticated: true,
       method: 'password',
+      harPath: 'C:/tmp/flow-chatgpt-login.har',
       storedIdentity: {
         id: 'identity-123',
         email: 'person@example.com',
@@ -123,6 +126,7 @@ describe('flow cli helpers', () => {
       url: 'https://app.example.com/callback?access_token=secret',
       email: 'person@example.com',
       redirectUri: 'http://localhost:3000/callback?code=secret',
+      harPath: 'C:/tmp/flow-codex-oauth.har',
       tokenStorePath: 'C:/tmp/token.json',
       apiHarPath: 'C:/tmp/flow-codex-oauth-api.har',
       token: {
@@ -151,6 +155,7 @@ describe('flow cli helpers', () => {
     expect(loginSummary).toContain('authenticated: yes')
     expect(loginSummary).toContain('method: password')
     expect(loginSummary).toContain('identity: identity-123')
+    expect(loginSummary).toContain('har: C:/tmp/flow-chatgpt-login.har')
     expect(loginSummary).not.toContain('token=secret')
 
     expect(inviteSummary).toContain('strategy: api')
@@ -166,6 +171,8 @@ describe('flow cli helpers', () => {
     expect(oauthSummary).toContain('channel: Codey')
     expect(oauthSummary).toContain('project: project-42')
     expect(oauthSummary).toContain('token: stored locally')
+    expect(oauthSummary).toContain('har: C:/tmp/flow-codex-oauth.har')
+    expect(oauthSummary).toContain('api har: C:/tmp/flow-codex-oauth-api.har')
     expect(oauthSummary).not.toContain('tokenStorePath')
     expect(oauthSummary).not.toContain('accessToken')
     expect(oauthSummary).not.toContain('apiHarPath')
@@ -177,12 +184,14 @@ describe('flow cli helpers', () => {
       pageName: 'codex-oauth-authorize-url',
       url: 'https://auth.openai.com/oauth/authorize',
       redirectUri: 'http://localhost:1455/auth/callback',
+      harPath: 'C:/tmp/flow-codex-oauth.har',
       oauthUrl:
         'https://auth.openai.com/oauth/authorize?client_id=codex-client-id&state=manual-debug',
     })
 
     expect(summary).toContain('flow:codex-oauth completed')
     expect(summary).toContain('redirect: http://localhost:1455/auth/callback')
+    expect(summary).toContain('har: C:/tmp/flow-codex-oauth.har')
     expect(summary).toContain(
       'oauth url: https://auth.openai.com/oauth/authorize?client_id=codex-client-id&state=manual-debug',
     )

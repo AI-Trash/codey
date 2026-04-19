@@ -1,5 +1,7 @@
+import { getRuntimeConfig } from '../../config'
 import { newSession } from '../../core/browser'
 import type { Session } from '../../types'
+import { printFlowArtifactPath } from './helpers'
 
 function keepSessionAlive(session: Session): void {
   let closing = false
@@ -79,6 +81,11 @@ export async function runWithSession<TResult>(
   } = {},
 ): Promise<TResult> {
   const session = await newSession(options)
+  printFlowArtifactPath(
+    'browser HAR',
+    session.harPath,
+    getRuntimeConfig().command,
+  )
   const closeOnComplete = runtime.closeOnComplete ?? true
   if (!closeOnComplete) {
     keepSessionAlive(session)

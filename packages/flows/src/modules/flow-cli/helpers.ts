@@ -58,6 +58,11 @@ export interface FlowProgressUpdate {
 
 export type FlowProgressReporter = (update: FlowProgressUpdate) => void
 
+export interface FlowArtifactPaths {
+  harPath?: string
+  apiHarPath?: string
+}
+
 function sanitizeText(value: string): string {
   return value
     .replace(/\b(Bearer|bearer)\s+[A-Za-z0-9\-._~+/]+=*/g, '$1 ***redacted***')
@@ -281,6 +286,14 @@ function appendExactSummaryLine(
   lines.push(`${label}: ${trimmed}`)
 }
 
+function appendArtifactSummaryLines(
+  lines: string[],
+  artifacts: FlowArtifactPaths,
+): void {
+  appendSummaryLine(lines, 'har', artifacts.harPath)
+  appendSummaryLine(lines, 'api har', artifacts.apiHarPath)
+}
+
 function formatInviteCounts(
   result: Record<string, unknown>,
 ): string | undefined {
@@ -323,6 +336,7 @@ export function formatFlowCompletionSummary(
         asRecord(record.storedSession)?.accountId,
     )
     appendSummaryLine(lines, 'page', record.url)
+    appendArtifactSummaryLines(lines, record)
     return lines.join('\n')
   }
 
@@ -339,6 +353,7 @@ export function formatFlowCompletionSummary(
         asRecord(record.storedSession)?.accountId,
     )
     appendSummaryLine(lines, 'page', record.url)
+    appendArtifactSummaryLines(lines, record)
     return lines.join('\n')
   }
 
@@ -353,6 +368,7 @@ export function formatFlowCompletionSummary(
       invites ? formatInviteCounts(invites) : undefined,
     )
     appendSummaryLine(lines, 'page', record.url)
+    appendArtifactSummaryLines(lines, record)
     return lines.join('\n')
   }
 
@@ -368,18 +384,43 @@ export function formatFlowCompletionSummary(
     appendSummaryLine(lines, 'redirect', record.redirectUri)
     appendSummaryLine(lines, 'token', 'stored locally')
     appendSummaryLine(lines, 'page', record.url)
+    appendArtifactSummaryLines(lines, record)
     return lines.join('\n')
   }
 
   if (pageName === 'codex-oauth-authorize-url') {
     appendSummaryLine(lines, 'redirect', record.redirectUri)
     appendExactSummaryLine(lines, 'oauth url', record.oauthUrl)
+    appendArtifactSummaryLines(lines, record)
     return lines.join('\n')
   }
 
   appendSummaryLine(lines, 'page', record.url)
   appendSummaryLine(lines, 'title', record.title)
+  appendArtifactSummaryLines(lines, record)
   return lines.join('\n')
+}
+
+export function attachFlowArtifactPaths<TResult>(
+  result: TResult,
+  artifacts: FlowArtifactPaths,
+): TResult {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return result
+  }
+
+  const entries = Object.entries(artifacts).filter(
+    (entry): entry is [keyof FlowArtifactPaths, string] =>
+      typeof entry[1] === 'string' && entry[1].trim().length > 0,
+  )
+  if (!entries.length) {
+    return result
+  }
+
+  return {
+    ...(result as Record<string, unknown>),
+    ...Object.fromEntries(entries),
+  } as TResult
 }
 
 export function printFlowCompletionSummary(
@@ -387,6 +428,19 @@ export function printFlowCompletionSummary(
   result: unknown,
 ): void {
   console.log(formatFlowCompletionSummary(command, result))
+}
+
+export function printFlowArtifactPath(
+  label: string,
+  path: string | undefined,
+  command?: string,
+): void {
+  if (typeof path !== 'string' || !path.trim()) {
+    return
+  }
+
+  const prefix = command?.trim() ? `[${command}] ` : ''
+  console.error(`${prefix}${label}: ${path.trim()}`)
 }
 
 export function formatFlowProgressUpdate(
