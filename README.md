@@ -22,9 +22,11 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
   - `GET|POST /api/device/{deviceCode}`
   - `GET /api/device/{deviceCode}/events`
   - `GET /api/cli/events`
+  - `GET /api/admin/cli-connections`
 - browser admin routes:
   - `/admin/login`
   - `/admin`
+  - `/admin/cli`
   - `/device`
 - CLI commands:
   - `flow ...`
@@ -138,6 +140,7 @@ Then open:
 
 - `http://localhost:3000/admin/login` to sign in with GitHub
 - `http://localhost:3000/admin` to inspect device challenges, notifications, reservations, and verification codes
+- `http://localhost:3000/admin/cli` to inspect which CLI daemons are currently connected
 - `http://localhost:3000/admin/domains` to register verification domains and choose defaults
 
 ## CLI usage

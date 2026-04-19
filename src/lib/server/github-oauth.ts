@@ -4,6 +4,7 @@ import { getAppEnv } from "./env";
 import { getDb } from "./db/client";
 import { users } from "./db/schema";
 import { createId, randomToken } from "./security";
+import { getAllAdminPermissions } from "../admin-access";
 
 interface GitHubUserResponse {
   id: number;
@@ -66,7 +67,7 @@ export function resolveBaseUrl(request: Request): string {
   return `${url.protocol}//${url.host}`;
 }
 
-function isAllowlistedAdminLogin(login: string, allowedLogins: string[]) {
+export function isAllowlistedAdminLogin(login: string, allowedLogins: string[]) {
   return allowedLogins.includes(login.trim().toLowerCase());
 }
 
@@ -133,6 +134,8 @@ export async function exchangeGitHubCode(request: Request, code: string) {
   const shouldBootstrapAdmin =
     env.adminGitHubLogins.length === 0 && Number(existingUsers) === 0;
   const nextRole = isAdminFromAllowlist || shouldBootstrapAdmin ? "ADMIN" : "USER";
+  const nextPermissions =
+    nextRole === "ADMIN" ? getAllAdminPermissions() : [];
   const [user] = await db
     .insert(users)
     .values({
@@ -143,6 +146,7 @@ export async function exchangeGitHubCode(request: Request, code: string) {
       name: userPayload.name ?? null,
       avatarUrl: userPayload.avatar_url ?? null,
       role: nextRole,
+      permissions: nextPermissions,
     })
     .onConflictDoUpdate({
       target: users.githubId,
@@ -152,7 +156,12 @@ export async function exchangeGitHubCode(request: Request, code: string) {
         name: userPayload.name ?? null,
         avatarUrl: userPayload.avatar_url ?? null,
         updatedAt: new Date(),
-        ...(env.adminGitHubLogins.length > 0 ? { role: nextRole } : {}),
+        ...(env.adminGitHubLogins.length > 0
+          ? {
+              role: nextRole,
+              permissions: nextPermissions,
+            }
+          : {}),
       },
     })
     .returning();

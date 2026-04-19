@@ -2,15 +2,17 @@ import type { ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import {
   AppWindowIcon,
+  BotIcon,
   ChevronsUpDownIcon,
   FingerprintIcon,
   GlobeIcon,
   KeyRoundIcon,
-  LayoutDashboardIcon,
+  LanguagesIcon,
   LogOutIcon,
   MailIcon,
-  MonitorSmartphoneIcon,
   ShieldCheckIcon,
+  SunMoonIcon,
+  UsersIcon,
 } from 'lucide-react'
 
 import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar'
@@ -57,19 +59,28 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
   useSidebar,
 } from '#/components/ui/sidebar'
-import { translateStatusLabel } from '#/lib/i18n'
+import {
+  getDefaultAdminRoute,
+  hasAdminPermission,
+  type AdminPermission,
+} from '#/lib/admin-access'
+import { useThemeMode } from '#/hooks/use-theme-mode'
+import {
+  getCurrentLocaleDisplayName,
+  getLocaleDisplayName,
+  getThemeModeLabel,
+  getThemeToggleLabel,
+  translateStatusLabel,
+} from '#/lib/i18n'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
-import { getLocale } from '#/paraglide/runtime'
+import { getLocale, locales, setLocale } from '#/paraglide/runtime'
 
 type StatusTone = 'good' | 'warning' | 'danger' | 'neutral'
 
@@ -79,78 +90,70 @@ export type AdminShellUser = {
   githubLogin: string | null
   avatarUrl: string | null
   role: 'ADMIN' | 'USER'
+  permissions: AdminPermission[]
 }
 
-function getOperationsSubNavigation() {
-  return [
-    {
+function getAdminNavigation(currentUser?: AdminShellUser | null) {
+  const navigation = []
+
+  if (hasAdminPermission(currentUser, 'OPERATIONS')) {
+    navigation.push(
+      {
       label: m.admin_nav_mail_inbox(),
       to: '/admin/emails',
       icon: MailIcon,
-      matches: (pathname: string) => pathname === '/admin/emails',
+      matches: (pathname: string) =>
+        pathname === '/admin' || pathname === '/admin/emails',
     },
-    {
+      {
       label: m.admin_nav_identities(),
       to: '/admin/identities',
       icon: FingerprintIcon,
       matches: (pathname: string) => pathname === '/admin/identities',
     },
-    {
+      {
+      label: m.admin_nav_cli_connections(),
+      to: '/admin/cli',
+      icon: BotIcon,
+      matches: (pathname: string) => pathname === '/admin/cli',
+    },
+      {
       label: m.admin_nav_sessions(),
       to: '/admin/sessions',
       icon: KeyRoundIcon,
       matches: (pathname: string) => pathname === '/admin/sessions',
     },
-  ] as const
-}
+    )
+  }
 
-function getOauthAppsSubNavigation() {
-  return [
-    {
+  if (hasAdminPermission(currentUser, 'OAUTH_APPS')) {
+    navigation.push({
       label: m.admin_nav_app_registry(),
       to: '/admin/apps',
       icon: AppWindowIcon,
       matches: (pathname: string) =>
         pathname === '/admin/apps' ||
+        pathname === '/admin/apps/new' ||
         (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
-    },
-    {
+    })
+    navigation.push({
       label: m.admin_nav_domains(),
       to: '/admin/domains',
       icon: GlobeIcon,
       matches: (pathname: string) => pathname === '/admin/domains',
-    },
-  ] as const
-}
+    })
+  }
 
-function getAdminNavigation() {
-  const operationsSubNavigation = getOperationsSubNavigation()
-  const oauthAppsSubNavigation = getOauthAppsSubNavigation()
+  if (hasAdminPermission(currentUser, 'USERS')) {
+    navigation.push({
+      label: m.admin_nav_users(),
+      to: '/admin/users',
+      icon: UsersIcon,
+      matches: (pathname: string) => pathname === '/admin/users',
+    })
+  }
 
-  return [
-    {
-      label: m.admin_nav_operations(),
-      to: '/admin/emails',
-      icon: LayoutDashboardIcon,
-      matches: (pathname: string) =>
-        pathname === '/admin' ||
-        pathname === '/admin/emails' ||
-        pathname === '/admin/identities' ||
-        pathname === '/admin/sessions',
-      children: operationsSubNavigation,
-    },
-    {
-      label: m.admin_nav_oauth_apps(),
-      to: '/admin/apps',
-      icon: AppWindowIcon,
-      matches: (pathname: string) =>
-        pathname === '/admin/apps' ||
-        pathname === '/admin/domains' ||
-        pathname === '/admin/apps/new' ||
-        (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
-      children: oauthAppsSubNavigation,
-    },
-  ] as const
+  return navigation as const
 }
 
 export function AdminShell(props: {
@@ -160,7 +163,7 @@ export function AdminShell(props: {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   })
-  const adminNavigation = getAdminNavigation()
+  const adminNavigation = getAdminNavigation(props.currentUser)
   const isMailInboxRoute = pathname === '/admin/emails'
 
   return (
@@ -172,18 +175,15 @@ export function AdminShell(props: {
               <SidebarMenuButton
                 asChild
                 size="lg"
-                tooltip={m.admin_shell_tooltip()}
+                tooltip={m.meta_app_title()}
               >
-                <Link to="/admin/emails">
+                <Link to="/">
                   <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                     <ShieldCheckIcon className="size-4" />
                   </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
+                  <div className="flex flex-1 items-center text-left text-sm leading-tight">
                     <span className="truncate font-semibold">
-                      {m.admin_shell_title()}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {m.admin_shell_subtitle()}
+                      {m.meta_app_title()}
                     </span>
                   </div>
                 </Link>
@@ -195,70 +195,37 @@ export function AdminShell(props: {
         <SidebarSeparator />
 
         <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>{m.admin_group_console()}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {adminNavigation.map((item) => (
-                  <SidebarMenuItem key={item.to}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={item.matches(pathname)}
-                      tooltip={item.label}
-                    >
-                      <Link to={item.to}>
-                        <item.icon />
-                        <span>{item.label}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                    {item.children?.length ? (
-                      <SidebarMenuSub>
-                        {item.children.map((child) => (
-                          <SidebarMenuSubItem key={child.to}>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={child.matches(pathname)}
-                            >
-                              <Link to={child.to}>
-                                <child.icon />
-                                <span>{child.label}</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ))}
-                      </SidebarMenuSub>
-                    ) : null}
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-
-          <SidebarGroup>
-            <SidebarGroupLabel>{m.admin_group_external()}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip={m.admin_external_device_flow()}
-                  >
-                    <a href="/device">
-                      <MonitorSmartphoneIcon />
-                      <span>{m.admin_external_device_flow()}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          {adminNavigation.length ? (
+            <SidebarGroup>
+              <SidebarGroupLabel>{m.admin_group_console()}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {adminNavigation.map((item) => (
+                    <SidebarMenuItem key={item.to}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={item.matches(pathname)}
+                        tooltip={item.label}
+                      >
+                        <Link to={item.to}>
+                          <item.icon />
+                          <span>{item.label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ) : null}
         </SidebarContent>
 
-        {props.currentUser ? (
-          <SidebarFooter className="p-2">
-            <AdminUserMenu user={props.currentUser} />
-          </SidebarFooter>
-        ) : null}
+        <SidebarSeparator />
+
+        <SidebarFooter className="p-2">
+          <AdminSidebarPreferences />
+          {props.currentUser ? <AdminUserMenu user={props.currentUser} /> : null}
+        </SidebarFooter>
         <SidebarRail />
       </Sidebar>
 
@@ -271,7 +238,7 @@ export function AdminShell(props: {
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur md:px-6">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 h-4" />
-          <AdminBreadcrumb pathname={pathname} />
+          <AdminBreadcrumb currentUser={props.currentUser} pathname={pathname} />
         </header>
 
         <main
@@ -294,15 +261,19 @@ export function AdminShell(props: {
   )
 }
 
-function AdminBreadcrumb(props: { pathname: string }) {
+function AdminBreadcrumb(props: {
+  currentUser?: AdminShellUser | null
+  pathname: string
+}) {
   const currentLabel = getAdminPageLabel(props.pathname)
+  const defaultRoute = getDefaultAdminRoute(props.currentUser)
 
   return (
     <Breadcrumb>
       <BreadcrumbList>
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
-            <Link to="/admin/emails">{m.admin_breadcrumb_root()}</Link>
+            <a href={defaultRoute}>{m.admin_breadcrumb_root()}</a>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
@@ -358,6 +329,88 @@ export function AdminPageHeader(props: {
         ) : null}
       </div>
     </section>
+  )
+}
+
+function AdminSidebarPreferences() {
+  const { isMobile } = useSidebar()
+  const currentLocale = getLocale()
+  const { mode, setMode } = useThemeMode()
+  const localeLabel = `${m.language_label()}. ${m.current_locale({
+    locale: getCurrentLocaleDisplayName(),
+  })}`
+  const themeLabel = getThemeToggleLabel(mode)
+  const dropdownSide = isMobile ? 'bottom' : 'right'
+
+  return (
+    <div className="flex flex-col gap-2">
+      <SidebarGroupLabel>{m.admin_layout_controls_title()}</SidebarGroupLabel>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton
+                tooltip={localeLabel}
+                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              >
+                <LanguagesIcon />
+                <span>{getCurrentLocaleDisplayName()}</span>
+                <ChevronsUpDownIcon className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              className="w-(--radix-dropdown-menu-trigger-width) min-w-40 rounded-lg"
+              side={dropdownSide}
+              align="end"
+              sideOffset={4}
+            >
+              <DropdownMenuLabel>{m.language_label()}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {locales.map((locale) => (
+                <DropdownMenuItem
+                  key={locale}
+                  onSelect={() => setLocale(locale)}
+                  className={locale === currentLocale ? 'font-semibold' : undefined}
+                >
+                  {getLocaleDisplayName(locale)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+
+        <SidebarMenuItem>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton
+                tooltip={themeLabel}
+                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              >
+                <SunMoonIcon />
+                <span>{getThemeModeLabel(mode)}</span>
+                <ChevronsUpDownIcon className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              className="w-(--radix-dropdown-menu-trigger-width) min-w-40 rounded-lg"
+              side={dropdownSide}
+              align="end"
+              sideOffset={4}
+            >
+              {(['light', 'dark', 'auto'] as const).map((nextMode) => (
+                <DropdownMenuItem
+                  key={nextMode}
+                  onSelect={() => setMode(nextMode)}
+                  className={nextMode === mode ? 'font-semibold' : undefined}
+                >
+                  {getThemeModeLabel(nextMode)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    </div>
   )
 }
 
@@ -537,11 +590,11 @@ export function getStatusTone(status?: string | null): StatusTone {
 
 function getAdminPageLabel(pathname: string) {
   if (pathname === '/admin') {
-    return m.admin_nav_operations()
+    return m.admin_nav_mail_inbox()
   }
 
   if (pathname === '/admin/apps') {
-    return m.admin_nav_oauth_apps()
+    return m.admin_nav_app_registry()
   }
 
   if (pathname === '/admin/emails') {
@@ -556,12 +609,20 @@ function getAdminPageLabel(pathname: string) {
     return m.admin_nav_sessions()
   }
 
+  if (pathname === '/admin/cli') {
+    return m.admin_nav_cli_connections()
+  }
+
   if (pathname === '/admin/apps/new') {
     return m.admin_nav_register_app()
   }
 
   if (pathname === '/admin/domains') {
     return m.admin_nav_domains()
+  }
+
+  if (pathname === '/admin/users') {
+    return m.admin_nav_users()
   }
 
   if (pathname.startsWith('/admin/apps/')) {

@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
@@ -13,6 +14,9 @@ import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { m } from '#/paraglide/messages'
 
 export const Route = createFileRoute('/admin/login')({
+  validateSearch: (search: Record<string, unknown>) => ({
+    access: search.access === 'restricted' ? 'restricted' : undefined,
+  }),
   component: AdminLoginPage,
 })
 
@@ -35,9 +39,19 @@ function getAdminCapabilities() {
 
 function AdminLoginPage() {
   const capabilities = getAdminCapabilities()
+  const search = Route.useSearch()
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 md:py-14">
+      {search.access === 'restricted' ? (
+        <Alert>
+          <AlertTitle>{m.admin_login_access_pending_title()}</AlertTitle>
+          <AlertDescription>
+            {m.admin_login_access_pending_description()}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_380px]">
         <Card>
           <CardHeader className="space-y-4">

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireAdmin } from "../../../lib/server/auth";
+import { requireAdminPermission } from "../../../lib/server/auth";
 import {
   createOAuthClient,
   listOAuthClients,
@@ -23,7 +23,7 @@ export const Route = createFileRoute("/api/admin/oauth-clients")({
     handlers: {
       GET: async ({ request }) => {
         try {
-          await requireAdmin(request);
+          await requireAdminPermission(request, "OAUTH_APPS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",
@@ -38,7 +38,7 @@ export const Route = createFileRoute("/api/admin/oauth-clients")({
       POST: async ({ request }) => {
         let admin;
         try {
-          admin = await requireAdmin(request);
+          admin = await requireAdminPermission(request, "OAUTH_APPS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

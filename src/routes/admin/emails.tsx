@@ -13,7 +13,7 @@ const loadAdminMailInbox = createServerFn({ method: 'GET' }).handler(
   async () => {
     const [
       { getRequest },
-      { requireAdmin },
+      { requireAdminPermission },
       { encodeAdminInboxCursor, listAdminInboxEmailsPage },
     ] = await Promise.all([
       import('@tanstack/react-start/server'),
@@ -24,7 +24,7 @@ const loadAdminMailInbox = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      await requireAdmin(request)
+      await requireAdminPermission(request, 'OPERATIONS')
     } catch {
       return { authorized: false as const }
     }
@@ -64,7 +64,6 @@ function AdminMailInboxPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <AdminPageHeader
-        eyebrow={m.admin_nav_operations()}
         title={m.admin_mail_page_title()}
         description={m.admin_mail_page_description()}
         variant="plain"

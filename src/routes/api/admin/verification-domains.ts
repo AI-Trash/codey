@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireAdmin } from "../../../lib/server/auth";
+import { requireAdminPermission } from "../../../lib/server/auth";
 import { json, text } from "../../../lib/server/http";
 import { readJsonBody } from "../../../lib/server/request";
 import {
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/api/admin/verification-domains")({
     handlers: {
       GET: async ({ request }) => {
         try {
-          await requireAdmin(request);
+          await requireAdminPermission(request, "OAUTH_APPS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",
@@ -33,7 +33,7 @@ export const Route = createFileRoute("/api/admin/verification-domains")({
       },
       POST: async ({ request }) => {
         try {
-          await requireAdmin(request);
+          await requireAdminPermission(request, "OAUTH_APPS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

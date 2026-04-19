@@ -22,7 +22,7 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
   .handler(async ({ data }) => {
     const [
       { getRequest },
-      { requireAdmin },
+      { requireAdminPermission },
       { getOAuthClientSummaryById },
       { getAppEnv },
       { DEFAULT_OAUTH_SUPPORTED_SCOPES },
@@ -38,7 +38,7 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
     const request = getRequest()
 
     try {
-      await requireAdmin(request)
+      await requireAdminPermission(request, 'OAUTH_APPS')
     } catch {
       return { authorized: false as const }
     }

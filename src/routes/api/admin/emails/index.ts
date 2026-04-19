@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { deserializeDataTableFilters } from '../../../../lib/data-table-filters'
-import { requireAdmin } from '../../../../lib/server/auth'
+import { requireAdminPermission } from '../../../../lib/server/auth'
 import { json, text } from '../../../../lib/server/http'
 import { listAdminInboxEmailsPage } from '../../../../lib/server/verification'
 
@@ -23,7 +23,7 @@ export const Route = createFileRoute('/api/admin/emails/')({
     handlers: {
       GET: async ({ request }) => {
         try {
-          await requireAdmin(request)
+          await requireAdminPermission(request, 'OPERATIONS')
         } catch (error) {
           return text(
             error instanceof Error ? error.message : 'Unauthorized',

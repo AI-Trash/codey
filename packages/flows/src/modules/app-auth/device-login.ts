@@ -197,6 +197,7 @@ export async function waitForDeviceApproval(
 export async function* streamCliNotifications(
   input: {
     target?: string
+    cliName?: string
   } = {},
 ): AsyncGenerator<AdminNotificationEvent, void, void> {
   const config = getCodeyAppConfig()
@@ -224,6 +225,7 @@ export async function* streamCliNotifications(
     headers: {
       Accept: 'text/event-stream',
       Authorization: `Bearer ${getAppSessionAccessToken(session)}`,
+      ...(input.cliName ? { 'X-Codey-CLI-Name': input.cliName } : {}),
     },
   })
 

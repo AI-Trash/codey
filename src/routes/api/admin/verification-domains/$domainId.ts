@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireAdmin } from "../../../../lib/server/auth";
+import { requireAdminPermission } from "../../../../lib/server/auth";
 import { json, text } from "../../../../lib/server/http";
 import { readJsonBody } from "../../../../lib/server/request";
 import { updateVerificationDomain } from "../../../../lib/server/verification-domains";
@@ -18,7 +18,7 @@ export const Route = createFileRoute(
     handlers: {
       PATCH: async ({ request, params }) => {
         try {
-          await requireAdmin(request);
+          await requireAdminPermission(request, "OAUTH_APPS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

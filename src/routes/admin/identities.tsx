@@ -76,7 +76,7 @@ import { getLocale } from '#/paraglide/runtime'
 
 const loadAdminIdentities = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const [{ getRequest }, { requireAdmin }, { listAdminIdentitySummaries }] =
+    const [{ getRequest }, { requireAdminPermission }, { listAdminIdentitySummaries }] =
       await Promise.all([
         import('@tanstack/react-start/server'),
         import('../../lib/server/auth'),
@@ -86,7 +86,7 @@ const loadAdminIdentities = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      await requireAdmin(request)
+      await requireAdminPermission(request, 'OPERATIONS')
     } catch {
       return { authorized: false as const }
     }
@@ -280,13 +280,12 @@ function AdminIdentitiesPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <AdminPageHeader
-        eyebrow={m.admin_nav_operations()}
         title={m.admin_identity_page_title()}
         description={m.admin_identity_page_description()}
         variant="plain"
         actions={
           <Button asChild variant="outline">
-            <a href="/admin">{m.admin_back_to_operations()}</a>
+            <a href="/admin/emails">{m.admin_back_to_operations()}</a>
           </Button>
         }
       />

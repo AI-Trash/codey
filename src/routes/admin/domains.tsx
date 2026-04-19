@@ -14,7 +14,7 @@ import { m } from '#/paraglide/messages'
 
 const loadVerificationDomains = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const [{ getRequest }, { requireAdmin }, { listVerificationDomains }] =
+    const [{ getRequest }, { requireAdminPermission }, { listVerificationDomains }] =
       await Promise.all([
         import('@tanstack/react-start/server'),
         import('../../lib/server/auth'),
@@ -23,7 +23,7 @@ const loadVerificationDomains = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      await requireAdmin(request)
+      await requireAdminPermission(request, 'OAUTH_APPS')
     } catch {
       return { authorized: false as const }
     }

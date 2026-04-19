@@ -5,7 +5,7 @@ import type { InteractionResults, KoaContextWithOIDC } from "oidc-provider";
 
 import { m } from "#/paraglide/messages";
 import { getLocalizedHtmlLang } from "#/lib/i18n";
-import { requireAdmin } from "../auth";
+import { requireAdminPermission } from "../auth";
 import { redirect as httpRedirect } from "../http";
 import { getOidcProvider } from "./provider";
 
@@ -246,7 +246,7 @@ export async function loadInteractionPage(
     String(details.params.client_id || m.oidc_device_client_fallback());
 
   try {
-    await requireAdmin(request);
+    await requireAdminPermission(request, "OPERATIONS");
   } catch {
     return html(
       renderPage({
@@ -291,7 +291,7 @@ export async function completeInteraction(
   req?: IncomingMessage,
   res?: ServerResponse,
 ): Promise<Response> {
-  const admin = await requireAdmin(request);
+  const admin = await requireAdminPermission(request, "OPERATIONS");
   const provider = await getOidcProvider();
   const nodeContext = getProvidedNodeContext(req, res) || getNodeContext(request);
 

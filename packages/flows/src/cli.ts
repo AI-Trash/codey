@@ -18,6 +18,7 @@ import {
   streamCliNotifications,
 } from './modules/app-auth/device-login'
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
+import { getDefaultCliName } from './utils/cli-name'
 import {
   applyFlowOptionDefaults,
   attachFlowArtifactPaths,
@@ -168,9 +169,10 @@ async function runAuthCommand(
   config: ReturnType<typeof prepareRuntimeConfig>,
 ): Promise<void> {
   if (subcommand === 'login') {
+    const cliName = options.cliName || getDefaultCliName()
     const challenge = await startDeviceLogin({
       flowType: options.flowType || 'flow-cli',
-      cliName: options.cliName || 'codey',
+      cliName,
       scope: options.scope,
     })
     console.log(
@@ -266,12 +268,14 @@ async function runDaemonCommand(
     throw new Error(`Unsupported daemon command: ${subcommand || '(missing)'}`)
   }
 
+  const cliName = options.cliName || getDefaultCliName()
   const session = readAppSession()
   console.log(
     JSON.stringify(
       {
         command: 'daemon:start',
         config: redactForOutput(config),
+        cliName,
         session: redactForOutput(session),
         status: 'listening',
       },
@@ -281,6 +285,7 @@ async function runDaemonCommand(
   )
 
   for await (const notification of streamCliNotifications({
+    cliName,
     target: options.target,
   })) {
     console.log(
@@ -549,6 +554,7 @@ withCommonOptions(
 withCommonOptions(
   daemonCli
     .command('start', 'Run the CLI in notification daemon mode')
+    .option('--cliName <name>', 'CLI instance label')
     .option(
       '--target <target>',
       'Notification target label, such as a GitHub login',

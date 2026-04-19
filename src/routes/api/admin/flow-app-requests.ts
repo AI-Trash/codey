@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createFlowAppRequest } from "../../../lib/server/admin";
-import { requireAdmin } from "../../../lib/server/auth";
+import { requireAdminPermission } from "../../../lib/server/auth";
 import { json, redirect, text } from "../../../lib/server/http";
 
 export const Route = createFileRoute("/api/admin/flow-app-requests")({
@@ -9,7 +9,7 @@ export const Route = createFileRoute("/api/admin/flow-app-requests")({
       POST: async ({ request }) => {
         let admin;
         try {
-          admin = await requireAdmin(request);
+          admin = await requireAdminPermission(request, "OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",
@@ -38,7 +38,7 @@ export const Route = createFileRoute("/api/admin/flow-app-requests")({
           return json({ ok: true, id: record.id }, 201);
         }
 
-        return redirect("/admin/apps");
+        return redirect("/admin");
       },
     },
   },

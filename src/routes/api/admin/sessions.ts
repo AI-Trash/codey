@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { requireAdmin } from "../../../lib/server/auth";
+import { requireAdminPermission } from "../../../lib/server/auth";
 import { json, redirect, text } from "../../../lib/server/http";
 import {
   deleteManagedSession,
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/api/admin/sessions")({
     handlers: {
       POST: async ({ request }) => {
         try {
-          await requireAdmin(request);
+          await requireAdminPermission(request, "OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

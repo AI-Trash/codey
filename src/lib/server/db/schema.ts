@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -10,6 +10,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { adminPermissionValues, type AdminPermission } from "../../admin-access";
 
 export const userRoleEnum = pgEnum("user_role", ["ADMIN", "USER"]);
 export const sessionKindEnum = pgEnum("session_kind", ["BROWSER", "CLI"]);
@@ -59,6 +60,11 @@ export const users = pgTable(
     name: text("name"),
     avatarUrl: text("avatar_url"),
     role: userRoleEnum("role").default("USER").notNull(),
+    permissions: text("permissions")
+      .array()
+      .$type<AdminPermission[]>()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
     createdAt: timestamp("created_at", {
       withTimezone: true,
       mode: "date",
@@ -513,6 +519,45 @@ export const oauthClients = pgTable(
   ],
 );
 
+export const cliConnections = pgTable(
+  "cli_connections",
+  {
+    id: text("id").primaryKey(),
+    sessionRef: text("session_ref"),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    authClientId: text("auth_client_id"),
+    cliName: text("cli_name"),
+    target: text("target"),
+    userAgent: text("user_agent"),
+    connectionPath: text("connection_path").notNull(),
+    connectedAt: timestamp("connected_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    lastSeenAt: timestamp("last_seen_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    disconnectedAt: timestamp("disconnected_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+  },
+  (table) => [
+    index("cli_connections_last_seen_at_idx").on(table.lastSeenAt),
+    index("cli_connections_user_id_idx").on(table.userId),
+    index("cli_connections_session_ref_idx").on(table.sessionRef),
+    index("cli_connections_auth_client_id_idx").on(table.authClientId),
+    index("cli_connections_connected_at_idx").on(table.connectedAt),
+  ],
+);
+
 export const oidcArtifacts = pgTable(
   "oidc_artifacts",
   {
@@ -609,6 +654,7 @@ export const oidcSigningKeys = pgTable(
 export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   deviceChallenges: many(deviceChallenges),
+  cliConnections: many(cliConnections),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -687,6 +733,16 @@ export const oauthClientsRelations = relations(oauthClients, ({ one }) => ({
   }),
 }));
 
+export const cliConnectionsRelations = relations(
+  cliConnections,
+  ({ one }) => ({
+    user: one(users, {
+      fields: [cliConnections.userId],
+      references: [users.id],
+    }),
+  }),
+);
+
 export type UserRole = (typeof userRoleEnum.enumValues)[number];
 export type SessionKind = (typeof sessionKindEnum.enumValues)[number];
 export type DeviceChallengeStatus =
@@ -703,6 +759,7 @@ export type ManagedIdentitySessionStatus =
   (typeof managedIdentitySessionStatusEnum.enumValues)[number];
 export type OAuthClientAuthMethod =
   (typeof oauthClientAuthMethodEnum.enumValues)[number];
+export type AdminPermissionValue = (typeof adminPermissionValues)[number];
 
 export type UserRow = typeof users.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
@@ -718,5 +775,6 @@ export type ManagedIdentitySessionRow =
   typeof managedIdentitySessions.$inferSelect;
 export type VerificationDomainRow = typeof verificationDomains.$inferSelect;
 export type OAuthClientRow = typeof oauthClients.$inferSelect;
+export type CliConnectionRow = typeof cliConnections.$inferSelect;
 export type OidcArtifactRow = typeof oidcArtifacts.$inferSelect;
 export type OidcSigningKeyRow = typeof oidcSigningKeys.$inferSelect;

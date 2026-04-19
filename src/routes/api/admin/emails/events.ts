@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 
-import { requireAdmin } from '../../../../lib/server/auth'
+import { requireAdminPermission } from '../../../../lib/server/auth'
 import { text } from '../../../../lib/server/http'
 import { subscribeAdminInboxEmailEvents } from '../../../../lib/server/admin-inbox-events'
 import { createSubscriptionSseResponse } from '../../../../lib/server/sse'
@@ -28,7 +28,7 @@ export const Route = createFileRoute('/api/admin/emails/events')({
     handlers: {
       GET: async ({ request }) => {
         try {
-          await requireAdmin(request)
+          await requireAdminPermission(request, 'OPERATIONS')
         } catch (error) {
           return text(
             error instanceof Error ? error.message : 'Unauthorized',

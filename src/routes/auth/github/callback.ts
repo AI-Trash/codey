@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { getDefaultAdminRoute } from "../../../lib/admin-access";
 import {
   createBrowserSession,
   buildSessionCookie,
@@ -23,7 +24,16 @@ export const Route = createFileRoute("/auth/github/callback")({
           const state = readGitHubState(url.searchParams.get("state"));
           const { user } = await exchangeGitHubCode(request, code);
           const { token } = await createBrowserSession(user.id);
-          const response = redirect(state.redirectTo || "/admin");
+          const requestedRedirect = state.redirectTo || "/admin";
+          const defaultAdminRoute = getDefaultAdminRoute(user);
+          const redirectTo =
+            requestedRedirect === "/admin" || requestedRedirect === "/admin/"
+              ? defaultAdminRoute
+              : requestedRedirect.startsWith("/admin") &&
+                  defaultAdminRoute === "/admin/login"
+                ? "/admin/login?access=restricted"
+                : requestedRedirect;
+          const response = redirect(redirectTo);
           response.headers.set("Set-Cookie", buildSessionCookie(token));
           return response;
         } catch (error) {

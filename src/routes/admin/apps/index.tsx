@@ -27,7 +27,7 @@ import { m } from '#/paraglide/messages'
 const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
   const [
     { getRequest },
-    { requireAdmin },
+    { requireAdminPermission },
     { listOAuthClients },
     { getAppEnv },
     { DEFAULT_OAUTH_SUPPORTED_SCOPES },
@@ -43,7 +43,7 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
   const request = getRequest()
 
   try {
-    await requireAdmin(request)
+    await requireAdminPermission(request, 'OAUTH_APPS')
   } catch {
     return {
       authorized: false as const,

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { denyDeviceChallenge } from "../../../../../lib/server/device-auth";
-import { requireAdmin } from "../../../../../lib/server/auth";
+import { requireAdminPermission } from "../../../../../lib/server/auth";
 import { json, redirect, text } from "../../../../../lib/server/http";
 
 export const Route = createFileRoute("/api/admin/device/$deviceCode/deny")({
@@ -8,7 +8,7 @@ export const Route = createFileRoute("/api/admin/device/$deviceCode/deny")({
     handlers: {
       POST: async ({ request, params }) => {
         try {
-          await requireAdmin(request);
+          await requireAdminPermission(request, "OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Unauthorized",

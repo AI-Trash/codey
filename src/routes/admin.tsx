@@ -2,6 +2,7 @@ import { Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 
 import { AdminShell } from '#/components/admin/layout'
+import { hasAnyAdminPermission } from '#/lib/admin-access'
 
 const loadAdminShellUser = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -13,7 +14,7 @@ const loadAdminShellUser = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
     const sessionUser = await getSessionUser(request)
 
-    if (!sessionUser || sessionUser.user.role !== 'ADMIN') {
+    if (!sessionUser || !hasAnyAdminPermission(sessionUser.user)) {
       return null
     }
 
@@ -23,6 +24,7 @@ const loadAdminShellUser = createServerFn({ method: 'GET' }).handler(
       githubLogin: sessionUser.user.githubLogin,
       avatarUrl: sessionUser.user.avatarUrl,
       role: sessionUser.user.role,
+      permissions: sessionUser.user.permissions,
     }
   },
 )

@@ -5,6 +5,11 @@ import { getDb } from "./db/client";
 import { sessions } from "./db/schema";
 import { getBearerTokenContext } from "./oauth-resource";
 import { createId, randomToken, sha256 } from "./security";
+import {
+  type AdminPermission,
+  hasAnyAdminPermission,
+  hasAdminPermission,
+} from "../admin-access";
 
 export interface SessionUser {
   user: {
@@ -15,6 +20,7 @@ export interface SessionUser {
     name: string | null;
     avatarUrl: string | null;
     role: "ADMIN" | "USER";
+    permissions: AdminPermission[];
     createdAt: Date;
     updatedAt: Date;
   };
@@ -144,8 +150,21 @@ export async function requireSessionUser(
 
 export async function requireAdmin(request: Request): Promise<SessionUser> {
   const sessionUser = await requireSessionUser(request);
-  if (sessionUser.user.role !== "ADMIN") {
+  if (!hasAnyAdminPermission(sessionUser.user)) {
     throw new Error("Admin access required");
+  }
+
+  return sessionUser;
+}
+
+export async function requireAdminPermission(
+  request: Request,
+  permission: AdminPermission,
+): Promise<SessionUser> {
+  const sessionUser = await requireAdmin(request);
+
+  if (!hasAdminPermission(sessionUser.user, permission)) {
+    throw new Error("Admin permission required");
   }
 
   return sessionUser;
