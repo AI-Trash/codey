@@ -49,7 +49,6 @@ import {
   startCodexAuthorization,
   type CodexTokenResponse,
 } from '../modules/authorization/codex-client'
-import { saveCodexToken } from '../modules/authorization/codex-token-store'
 import { createAuthorizationCallbackCapture } from '../modules/authorization/codex-authorization'
 import { createNodeHarRecorder } from '../modules/authorization/har-recorder'
 import {
@@ -943,10 +942,10 @@ function resolveCodexOAuthStoredIdentitySelection(
   }
 }
 
-function requireCodexOAuthStoredLoginIdentity(
+async function requireCodexOAuthStoredLoginIdentity(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
-): ResolvedChatGPTIdentity {
+): Promise<ResolvedChatGPTIdentity> {
   return resolveStoredChatGPTIdentity(
     resolveCodexOAuthStoredIdentitySelection(machine, options),
   )
@@ -959,7 +958,7 @@ async function submitCodexOAuthStoredLoginEmail(
   redirectUri: string,
   progress: CodexOAuthStoredLoginProgress,
 ): Promise<StoredChatGPTIdentitySummary> {
-  const stored = requireCodexOAuthStoredLoginIdentity(machine, options)
+  const stored = await requireCodexOAuthStoredLoginIdentity(machine, options)
 
   await sendCodexOAuthMachine(machine, 'email-step', 'context.updated', {
     url: sanitizeUrl(page.url()),
@@ -986,7 +985,7 @@ async function submitCodexOAuthStoredPassword(
   redirectUri: string,
   progress: CodexOAuthStoredLoginProgress,
 ): Promise<StoredChatGPTIdentitySummary> {
-  const stored = requireCodexOAuthStoredLoginIdentity(machine, options)
+  const stored = await requireCodexOAuthStoredLoginIdentity(machine, options)
 
   await sendCodexOAuthMachine(machine, 'password-step', 'context.updated', {
     url: sanitizeUrl(page.url()),
@@ -1037,7 +1036,7 @@ async function submitCodexOAuthStoredVerification(
   redirectUri: string,
   progress: CodexOAuthStoredLoginProgress,
 ): Promise<StoredChatGPTIdentitySummary> {
-  const stored = requireCodexOAuthStoredLoginIdentity(machine, options)
+  const stored = await requireCodexOAuthStoredLoginIdentity(machine, options)
 
   await sendCodexOAuthMachine(machine, 'verification-step', 'context.updated', {
     url: sanitizeUrl(page.url()),
@@ -1082,22 +1081,18 @@ async function submitCodexOAuthStoredVerification(
   return stored.summary
 }
 
-function resolveCodexOAuthStoredIdentity(
+async function resolveCodexOAuthStoredIdentity(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
-): StoredChatGPTIdentitySummary | undefined {
+): Promise<StoredChatGPTIdentitySummary | undefined> {
   const snapshot = machine.getSnapshot().context
   if (snapshot.storedIdentity) {
     return snapshot.storedIdentity
   }
 
   const selected = resolveCodexOAuthStoredIdentitySelection(machine, options)
-  if (!selected.id && !selected.email) {
-    return undefined
-  }
-
   try {
-    return resolveStoredChatGPTIdentity(selected).summary
+    return (await resolveStoredChatGPTIdentity(selected)).summary
   } catch {
     return undefined
   }
@@ -1757,11 +1752,15 @@ export async function runCodexOAuthFlow(
       'codex.oauth.token.exchanged',
       {
         url: sanitizeUrl(page.url()),
-        lastMessage: 'Persisting Codex token locally',
+        lastMessage: 'Preparing Codex token for Codey app storage',
       },
     )
 
-    const tokenStorePath = saveCodexToken(token)
+    if (!hasCodeyAppSyncConfig()) {
+      throw new Error(
+        'Codey app session storage is required for codex-oauth. Configure CODEY_APP_* before running this flow.',
+      )
+    }
 
     await sendCodexOAuthMachine(
       machine,
@@ -1769,66 +1768,67 @@ export async function runCodexOAuthFlow(
       'codex.oauth.token.persisted',
       {
         url: sanitizeUrl(page.url()),
-        tokenStorePath,
-        lastMessage: 'Stored Codex token locally',
+        lastMessage: 'Codex token ready to save to Codey app',
       },
     )
 
-    const storedIdentity = resolveCodexOAuthStoredIdentity(machine, options)
+    const storedIdentity = await resolveCodexOAuthStoredIdentity(
+      machine,
+      options,
+    )
+    if (!storedIdentity) {
+      throw new Error(
+        'A shared ChatGPT identity is required to save the Codex OAuth session to Codey app. Re-run codex-oauth with --identityId or --email.',
+      )
+    }
+
     let codeyApp:
       | Awaited<ReturnType<typeof shareCodexOAuthSessionWithCodeyApp>>
       | undefined
+    let tokenStorePath: string | undefined
 
-    if (hasCodeyAppSyncConfig()) {
-      if (storedIdentity) {
-        await sendCodexOAuthMachine(
-          machine,
-          'sharing-session',
-          'codey.app.sync.started',
-          {
-            url: sanitizeUrl(page.url()),
-            tokenStorePath,
-            email: storedIdentity.email,
-            storedIdentity,
-            lastMessage: 'Sharing Codex OAuth session with Codey app',
-          },
-        )
+    await sendCodexOAuthMachine(
+      machine,
+      'sharing-session',
+      'codey.app.sync.started',
+      {
+        url: sanitizeUrl(page.url()),
+        email: storedIdentity.email,
+        storedIdentity,
+        lastMessage: 'Saving Codex OAuth session to Codey app',
+      },
+    )
 
-        codeyApp =
-          (await shareCodexOAuthSessionWithCodeyApp({
-            identity: storedIdentity,
-            token,
-            clientId: codexConfig.clientId,
-            redirectUri: started.redirectUri,
-            tokenStorePath,
-          })) || undefined
+    codeyApp =
+      (await shareCodexOAuthSessionWithCodeyApp({
+        identity: storedIdentity,
+        token,
+        clientId: codexConfig.clientId,
+        redirectUri: started.redirectUri,
+      })) || undefined
 
-        await sendCodexOAuthMachine(
-          machine,
-          'sharing-session',
-          'codey.app.sync.completed',
-          {
-            url: sanitizeUrl(page.url()),
-            tokenStorePath,
-            email: storedIdentity.email,
-            storedIdentity,
-            lastMessage: 'Shared Codex OAuth session with Codey app',
-          },
-        )
-      } else {
-        await sendCodexOAuthMachine(
-          machine,
-          'persisting-token',
-          'context.updated',
-          {
-            url: sanitizeUrl(page.url()),
-            tokenStorePath,
-            lastMessage:
-              'Skipped Codey app sync because no stored ChatGPT identity was selected',
-          },
-        )
-      }
+    if (!codeyApp) {
+      throw new Error('Unable to save the Codex OAuth session to Codey app.')
     }
+
+    tokenStorePath = codeyApp.sessionStorePath
+
+    if (!tokenStorePath) {
+      throw new Error('Codey app did not return a session storage location.')
+    }
+
+    await sendCodexOAuthMachine(
+      machine,
+      'sharing-session',
+      'codey.app.sync.completed',
+      {
+        url: sanitizeUrl(page.url()),
+        tokenStorePath,
+        email: storedIdentity.email,
+        storedIdentity,
+        lastMessage: 'Saved Codex OAuth session to Codey app',
+      },
+    )
 
     let axonHub:
       | {
@@ -1905,7 +1905,13 @@ export async function runCodexOAuthFlow(
       redirectUri: started.redirectUri,
       tokenStorePath,
       token: redactToken(token),
-      codeyApp: codeyApp || undefined,
+      codeyApp: codeyApp
+        ? {
+            identityId: codeyApp.identityId,
+            identityRecordId: codeyApp.identityRecordId,
+            sessionRecordId: codeyApp.sessionRecordId,
+          }
+        : undefined,
       axonHub,
       apiHarPath: apiHarRecorder?.path,
       machine:

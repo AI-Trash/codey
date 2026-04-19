@@ -29,8 +29,6 @@ import type {
   StateMachineSnapshot,
 } from '../state-machine'
 import { getRuntimeConfig } from '../config'
-import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
-import { syncManagedSessionsToCodeyApp } from '../modules/app-auth/managed-sessions'
 import { createVerificationProvider } from '../modules/verification'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
 import {
@@ -1396,30 +1394,31 @@ export async function registerChatGPT(
       },
     )
 
-    const storedIdentity = persistChatGPTIdentity({
-      email,
-      password,
-      prefix,
-      mailbox,
-    }).summary
+    const storedIdentity = (
+      await persistChatGPTIdentity({
+        email,
+        password,
+        prefix,
+        mailbox,
+      })
+    ).summary
+    options.progressReporter?.({
+      message: 'Saved ChatGPT identity to Codey app',
+    })
     let storedSession: StoredChatGPTSessionSummary | undefined
-    let persistedSessionRecords:
-      | ReturnType<typeof persistChatGPTSessions>['sessions']
-      | undefined
 
     try {
       const capturedSessions = await sessionCapture.capture()
       if (capturedSessions.length > 0) {
-        const persistedSessions = persistChatGPTSessions({
+        const persistedSessions = await persistChatGPTSessions({
           identityId: storedIdentity.id,
           email: storedIdentity.email,
           flowType: 'chatgpt-register',
           snapshots: capturedSessions,
         })
-        persistedSessionRecords = persistedSessions.sessions
         storedSession = persistedSessions.primarySummary
         options.progressReporter?.({
-          message: `Persisted ${persistedSessions.sessions.length} ChatGPT session snapshot(s) locally`,
+          message: `Saved ${persistedSessions.sessions.length} ChatGPT session snapshot(s) to Codey app`,
         })
       } else {
         options.progressReporter?.({
@@ -1429,46 +1428,8 @@ export async function registerChatGPT(
       }
     } catch (error) {
       options.progressReporter?.({
-        message: `ChatGPT session persistence failed: ${sanitizeErrorForOutput(error).message}`,
+        message: `Codey app session save failed: ${sanitizeErrorForOutput(error).message}`,
       })
-    }
-
-    try {
-      const syncedIdentity = await syncManagedIdentityToCodeyApp({
-        identityId: storedIdentity.id,
-        email: storedIdentity.email,
-        credentialCount: storedIdentity.credentialCount,
-        reservationId,
-      })
-      if (syncedIdentity) {
-        options.progressReporter?.({
-          message: 'Synced ChatGPT identity to Codey app',
-        })
-      }
-    } catch (error) {
-      options.progressReporter?.({
-        message: `Codey app identity sync failed: ${sanitizeErrorForOutput(error).message}`,
-      })
-    }
-
-    if (persistedSessionRecords?.length) {
-      try {
-        const syncedSessionCount = await syncManagedSessionsToCodeyApp({
-          identityId: storedIdentity.id,
-          email: storedIdentity.email,
-          flowType: 'chatgpt-register',
-          sessions: persistedSessionRecords,
-        })
-        if (syncedSessionCount > 0) {
-          options.progressReporter?.({
-            message: `Synced ${syncedSessionCount} ChatGPT session snapshot(s) to Codey app`,
-          })
-        }
-      } catch (error) {
-        options.progressReporter?.({
-          message: `Codey app session sync failed: ${sanitizeErrorForOutput(error).message}`,
-        })
-      }
     }
 
     const title = await page.title()

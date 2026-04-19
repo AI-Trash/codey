@@ -8,7 +8,10 @@ export interface SharedCodexOAuthSessionResult {
   identityId: string
   identityRecordId: string
   sessionRecordId: string
+  sessionStorePath: string
 }
+
+const APP_SESSION_STORE_ROOT = 'codey-app://managed-sessions'
 
 function resolveCodeyAppConfig(): CodeyAppConfig {
   const config = getRuntimeConfig()
@@ -52,7 +55,6 @@ export async function shareCodexOAuthSessionWithCodeyApp(input: {
   token: CodexTokenResponse
   clientId: string
   redirectUri: string
-  tokenStorePath: string
 }): Promise<SharedCodexOAuthSessionResult | null> {
   const config = resolveCodeyAppConfig()
   if (!config.baseUrl?.trim()) {
@@ -81,7 +83,6 @@ export async function shareCodexOAuthSessionWithCodeyApp(input: {
       last_refresh: input.token.createdAt,
       client_id: input.clientId,
       redirect_uri: input.redirectUri,
-      token_store_path: input.tokenStorePath,
       tokens: {
         access_token: input.token.accessToken,
         refresh_token: input.token.refreshToken,
@@ -96,5 +97,6 @@ export async function shareCodexOAuthSessionWithCodeyApp(input: {
     identityId: input.identity.id,
     identityRecordId: identity.id,
     sessionRecordId: session.id,
+    sessionStorePath: `${APP_SESSION_STORE_ROOT}/${session.id}`,
   }
 }

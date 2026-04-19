@@ -382,7 +382,7 @@ export function formatFlowCompletionSummary(
     appendSummaryLine(lines, 'channel', channel?.name ?? channel?.id)
     appendSummaryLine(lines, 'project', axonHub?.projectId)
     appendSummaryLine(lines, 'redirect', record.redirectUri)
-    appendSummaryLine(lines, 'token', 'stored locally')
+    appendSummaryLine(lines, 'token', 'stored in Codey app')
     appendSummaryLine(lines, 'page', record.url)
     appendArtifactSummaryLines(lines, record)
     return lines.join('\n')

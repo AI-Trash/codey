@@ -349,7 +349,7 @@ withCommonOptions(
   flowCli
     .command(
       'chatgpt-login',
-      'Sign in to ChatGPT with a previously stored identity',
+      'Sign in to ChatGPT with a previously shared identity',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
@@ -358,11 +358,11 @@ withCommonOptions(
     )
     .option(
       '--identityId <id>',
-      'Stored identity id from a previous chatgpt-register run',
+      'Shared identity id from a previous chatgpt-register run',
     )
     .option(
       '--email <email>',
-      'Stored identity email; defaults to the latest saved identity',
+      'Shared identity email; defaults to the latest shared identity',
     )
     .example('codey flow chatgpt-login')
     .example('codey flow chatgpt-login --email someone@example.com'),
@@ -380,7 +380,7 @@ withCommonOptions(
   flowCli
     .command(
       'chatgpt-login-invite',
-      'Sign in with a stored ChatGPT identity and invite workspace members',
+      'Sign in with a shared ChatGPT identity and invite workspace members',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
@@ -389,11 +389,11 @@ withCommonOptions(
     )
     .option(
       '--identityId <id>',
-      'Stored identity id from a previous chatgpt-register run',
+      'Shared identity id from a previous chatgpt-register run',
     )
     .option(
       '--email <email>',
-      'Stored identity email; defaults to the latest saved identity',
+      'Shared identity email; defaults to the latest shared identity',
     )
     .option(
       '--inviteEmail <email>',
@@ -426,7 +426,7 @@ withCommonOptions(
   flowCli
     .command(
       'codex-oauth',
-      'Run local Codex OAuth, store the token, sync it to Codey app, and optionally create an AxonHub Codex channel',
+      'Run Codex OAuth, save the session in Codey app, and optionally create an AxonHub Codex channel',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
@@ -435,11 +435,11 @@ withCommonOptions(
     )
     .option(
       '--identityId <id>',
-      'Stored identity id to use if the OpenAI login flow needs credentials',
+      'Shared identity id to use if the OpenAI login flow needs credentials',
     )
     .option(
       '--email <email>',
-      'Stored identity email to use if the OpenAI login flow needs credentials; defaults to the latest saved identity',
+      'Shared identity email to use if the OpenAI login flow needs credentials; defaults to the latest shared identity',
     )
     .option(
       '--workspaceIndex <index>',

@@ -70,6 +70,37 @@ export interface AppManagedIdentitySyncResponse {
   id: string
 }
 
+export interface AppManagedIdentityMetadata {
+  prefix?: string
+  mailbox?: string
+  source?: 'chatgpt-register'
+  chatgptUrl?: string
+}
+
+export interface AppManagedIdentitySummaryRecord {
+  id: string
+  email: string
+  label?: string | null
+  credentialCount: number
+  encrypted: boolean
+  createdAt: string
+  updatedAt: string
+  status: string
+  metadata?: AppManagedIdentityMetadata
+}
+
+export interface AppManagedIdentityRecord extends AppManagedIdentitySummaryRecord {
+  password: string
+}
+
+export interface AppManagedIdentityListResponse {
+  identities: AppManagedIdentitySummaryRecord[]
+}
+
+export interface AppManagedIdentityLookupResponse {
+  identity: AppManagedIdentityRecord
+}
+
 export interface AppManagedSessionSyncResponse {
   ok: boolean
   id: string
@@ -414,6 +445,8 @@ export class AppVerificationProviderClient {
     identityId: string
     email: string
     label?: string
+    password?: string
+    metadata?: AppManagedIdentityMetadata
     credentialCount?: number
     reservationId?: string
   }): Promise<AppManagedIdentitySyncResponse> {
@@ -428,12 +461,47 @@ export class AppVerificationProviderClient {
           identityId: input.identityId,
           email: input.email,
           label: input.label,
+          password: input.password,
+          metadata: input.metadata,
           credentialCount: input.credentialCount,
           reservationId: input.reservationId,
         }),
       },
       [VERIFICATION_RESERVE_SCOPE],
     )
+  }
+
+  async getManagedIdentity(
+    input: {
+      identityId?: string
+      email?: string
+    } = {},
+  ): Promise<AppManagedIdentityRecord> {
+    const url = new URL(this.buildUrl('/api/managed-identities'))
+    if (input.identityId?.trim()) {
+      url.searchParams.set('identityId', input.identityId.trim())
+    }
+    if (input.email?.trim()) {
+      url.searchParams.set('email', input.email.trim().toLowerCase())
+    }
+
+    const response = await this.getJson<AppManagedIdentityLookupResponse>(
+      url,
+      {},
+      [VERIFICATION_RESERVE_SCOPE],
+    )
+    return response.identity
+  }
+
+  async listManagedIdentities(): Promise<AppManagedIdentitySummaryRecord[]> {
+    const url = new URL(this.buildUrl('/api/managed-identities'))
+    url.searchParams.set('list', '1')
+    const response = await this.getJson<AppManagedIdentityListResponse>(
+      url,
+      {},
+      [VERIFICATION_RESERVE_SCOPE],
+    )
+    return response.identities
   }
 
   async upsertManagedSession(input: {

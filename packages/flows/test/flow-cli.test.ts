@@ -170,7 +170,7 @@ describe('flow cli helpers', () => {
     expect(oauthSummary).toContain('shared session: managed-session-1')
     expect(oauthSummary).toContain('channel: Codey')
     expect(oauthSummary).toContain('project: project-42')
-    expect(oauthSummary).toContain('token: stored locally')
+    expect(oauthSummary).toContain('token: stored in Codey app')
     expect(oauthSummary).toContain('har: C:/tmp/flow-codex-oauth.har')
     expect(oauthSummary).toContain('api har: C:/tmp/flow-codex-oauth-api.har')
     expect(oauthSummary).not.toContain('tokenStorePath')

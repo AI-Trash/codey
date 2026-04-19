@@ -314,6 +314,10 @@ export const managedIdentities = pgTable(
     identityId: text("identity_id").notNull(),
     email: text("email").notNull(),
     label: text("label"),
+    passwordCiphertext: text("password_ciphertext"),
+    credentialMetadata: jsonb("credential_metadata").$type<
+      Record<string, unknown>
+    >(),
     credentialCount: integer("credential_count").default(0).notNull(),
     status: managedIdentityStatusEnum("status").default("ACTIVE").notNull(),
     lastSeenAt: timestamp("last_seen_at", {

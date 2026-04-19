@@ -86,7 +86,7 @@ If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MA
 
 `CODEY_APP_CLIENT_SECRET` is optional. When it is present, app-backed verification uses `client_credentials`. When it is omitted, the flow will prompt for a device-code approval and cache the resulting user session under `.codey/credentials/app-session.json`.
 
-Managed identity summaries shown in the admin UI are stored in Postgres. Flow-local ChatGPT credential files under `.codey/credentials/` remain unchanged and are still used only by the local automation CLI.
+Managed ChatGPT identities and captured session snapshots are now stored directly in Postgres so they can be shared across Codey app users and CLI runs. ChatGPT passwords are encrypted at rest with `OAUTH_CLIENT_SECRET_ENCRYPTION_KEY`. `flow chatgpt-login` and `flow codex-oauth` now resolve the latest shared identity from the app when `--identityId` / `--email` is omitted.
 
 OIDC signing keys are now managed in Postgres. The app auto-generates an initial signing key on first boot, caches the published JWKS set in memory, and rotates keys automatically. Optional tuning:
 
@@ -184,9 +184,9 @@ pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --email som
 pnpm --filter ./packages/flows exec jiti src/cli.ts flow codex-oauth --workspaceIndex 2
 ```
 
-This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, stores the resulting Codex token under `.codey/credentials/`, syncs the token payload to the Codey app session surface when `CODEY_APP_*` is configured, and optionally creates an AxonHub Codex channel when full AxonHub admin config is present. CLI output redacts access tokens, refresh tokens, and passwords.
+This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, saves the resulting Codex OAuth session directly into the Codey app for sharing, and optionally creates an AxonHub Codex channel when full AxonHub admin config is present. CLI output redacts access tokens, refresh tokens, and passwords.
 
-When login is required, `flow codex-oauth` can target a specific stored ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `flow chatgpt-login`.
+When login is required, `flow codex-oauth` can target a specific shared ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `flow chatgpt-login`. If neither flag is provided, it falls back to the latest shared identity stored in the app.
 
 If OpenAI shows the Codex workspace picker, `flow codex-oauth` now auto-selects a workspace. If OpenAI follows that with the Codex API organization picker or the consent form, the flow also auto-selects the first organization/project pair and submits the next step automatically. Use `--workspaceIndex <n>` to choose a different 1-based workspace position; if omitted, it selects the first workspace.
 
@@ -203,7 +203,7 @@ CODEX_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann
 CODEX_SCOPE=openid profile email offline_access
 ```
 
-If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to sync the managed identity and OAuth token payload into the admin session page for sharing.
+If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
 
 To also create an AxonHub channel, provide:
 

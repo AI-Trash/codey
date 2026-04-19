@@ -1,15 +1,13 @@
 import crypto from 'crypto'
-import fs from 'fs'
-import path from 'path'
 
+import type { CodeyAppConfig } from '../../config'
 import { getRuntimeConfig } from '../../config'
-import { ensureDir, writeFileAtomic } from '../../utils/fs'
-
-const STORE_VERSION = 1
-const STORE_DIR = '.codey/credentials'
-const STORE_INDEX_FILE_NAME = 'chatgpt-identities.json'
-const STORE_ACCOUNTS_DIR_NAME = 'chatgpt-identities'
-const MASTER_KEY_ENV_NAME = 'CODEY_CREDENTIALS_MASTER_KEY'
+import {
+  AppVerificationProviderClient,
+  type AppManagedIdentityMetadata,
+  type AppManagedIdentityRecord,
+  type AppManagedIdentitySummaryRecord,
+} from '../verification/app-client'
 
 export interface StoredChatGPTIdentity {
   id: string
@@ -24,21 +22,6 @@ export interface StoredChatGPTIdentity {
     source: 'chatgpt-register'
     chatgptUrl?: string
   }
-}
-
-interface ChatGPTIdentityStore {
-  version: number
-  identities: StoredChatGPTIdentity[]
-}
-
-interface PersistedChatGPTIdentityStore {
-  version: number
-  encrypted: boolean
-  payload: string
-  updatedAt: string
-  algorithm?: 'aes-256-gcm'
-  iv?: string
-  authTag?: string
 }
 
 export interface StoredChatGPTIdentitySummary {
@@ -76,282 +59,146 @@ export interface StoredChatGPTIdentityStoreSummary {
   encrypted: boolean
 }
 
-function getStoreRootPath(): string {
+const APP_IDENTITY_STORE_ROOT = 'codey-app://managed-identities'
+
+function resolveCodeyAppConfig(): CodeyAppConfig {
   const config = getRuntimeConfig()
-  return path.join(config.rootDir, STORE_DIR)
-}
+  const sharedAppConfig = config.app
+  const verificationAppConfig = config.verification?.app
 
-function getLegacyStorePath(): string {
-  return path.join(getStoreRootPath(), STORE_INDEX_FILE_NAME)
-}
-
-function getAccountsDirectoryPath(): string {
-  return path.join(getStoreRootPath(), STORE_ACCOUNTS_DIR_NAME)
-}
-
-function createIdentityFileName(
-  identity: Pick<StoredChatGPTIdentity, 'email'>,
-): string {
-  const normalizedEmail = identity.email.trim().toLowerCase()
-  const emailDigest = crypto
-    .createHash('sha1')
-    .update(normalizedEmail)
-    .digest('hex')
-    .slice(0, 12)
-  const safeEmail =
-    normalizedEmail
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'account'
-  return `${safeEmail}--${emailDigest}.json`
-}
-
-function getIdentityStorePath(
-  identity: Pick<StoredChatGPTIdentity, 'email'>,
-): string {
-  return path.join(getAccountsDirectoryPath(), createIdentityFileName(identity))
-}
-
-function createDefaultStore(): ChatGPTIdentityStore {
   return {
-    version: STORE_VERSION,
-    identities: [],
+    baseUrl: verificationAppConfig?.baseUrl ?? sharedAppConfig?.baseUrl,
+    oidcIssuer:
+      verificationAppConfig?.oidcIssuer ?? sharedAppConfig?.oidcIssuer,
+    oidcBasePath:
+      verificationAppConfig?.oidcBasePath ?? sharedAppConfig?.oidcBasePath,
+    clientId: verificationAppConfig?.clientId ?? sharedAppConfig?.clientId,
+    clientSecret:
+      verificationAppConfig?.clientSecret ?? sharedAppConfig?.clientSecret,
+    scope: verificationAppConfig?.scope ?? sharedAppConfig?.scope,
+    resource: verificationAppConfig?.resource ?? sharedAppConfig?.resource,
+    tokenEndpointAuthMethod:
+      verificationAppConfig?.tokenEndpointAuthMethod ??
+      sharedAppConfig?.tokenEndpointAuthMethod,
   }
 }
 
-function getMasterKey(): Buffer | undefined {
-  const raw = process.env[MASTER_KEY_ENV_NAME]?.trim()
-  if (!raw) return undefined
-  return crypto.createHash('sha256').update(raw).digest()
-}
-
-function encryptStorePayload(
-  payload: string,
-  key: Buffer,
-): Omit<PersistedChatGPTIdentityStore, 'version' | 'updatedAt'> {
-  const iv = crypto.randomBytes(12)
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
-  const encrypted = Buffer.concat([
-    cipher.update(payload, 'utf8'),
-    cipher.final(),
-  ])
-  const authTag = cipher.getAuthTag()
-  return {
-    encrypted: true,
-    algorithm: 'aes-256-gcm',
-    iv: iv.toString('base64'),
-    authTag: authTag.toString('base64'),
-    payload: encrypted.toString('base64'),
-  }
-}
-
-function decryptStorePayload(
-  payload: PersistedChatGPTIdentityStore,
-  key: Buffer,
-): string {
-  if (!payload.iv || !payload.authTag) {
-    throw new Error('Credential store is missing IV or auth tag.')
-  }
-
-  const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    key,
-    Buffer.from(payload.iv, 'base64'),
-  )
-  decipher.setAuthTag(Buffer.from(payload.authTag, 'base64'))
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(payload.payload, 'base64')),
-    decipher.final(),
-  ])
-  return decrypted.toString('utf8')
-}
-
-function readStoreEnvelope(storePath: string): {
-  store: ChatGPTIdentityStore
-  encrypted: boolean
-} {
-  if (!fs.existsSync(storePath)) {
-    return {
-      store: createDefaultStore(),
-      encrypted: false,
-    }
-  }
-
-  const raw = JSON.parse(fs.readFileSync(storePath, 'utf8')) as
-    | PersistedChatGPTIdentityStore
-    | ChatGPTIdentityStore
-  if ('identities' in raw) {
-    return {
-      store: raw,
-      encrypted: false,
-    }
-  }
-
-  if (!raw.encrypted) {
-    return {
-      store: JSON.parse(raw.payload) as ChatGPTIdentityStore,
-      encrypted: false,
-    }
-  }
-
-  const key = getMasterKey()
-  if (!key) {
+function createCodeyAppClient(): AppVerificationProviderClient {
+  const config = resolveCodeyAppConfig()
+  if (!config.baseUrl?.trim()) {
     throw new Error(
-      `Credential store is encrypted. Set ${MASTER_KEY_ENV_NAME} before reading ${storePath}.`,
+      'Codey app identity storage is required. Set CODEY_APP_BASE_URL and app auth settings before running this flow.',
     )
   }
 
+  return new AppVerificationProviderClient(config)
+}
+
+function buildStorePath(identityId: string): string {
+  return `${APP_IDENTITY_STORE_ROOT}/${identityId}`
+}
+
+function buildMetadata(
+  input: PersistChatGPTIdentityInput,
+): AppManagedIdentityMetadata {
   return {
-    store: JSON.parse(decryptStorePayload(raw, key)) as ChatGPTIdentityStore,
-    encrypted: true,
+    prefix: input.prefix,
+    mailbox: input.mailbox,
+    source: 'chatgpt-register',
+    chatgptUrl: getRuntimeConfig().openai.chatgptUrl,
   }
 }
 
-function writeStoreEnvelope(
-  storePath: string,
-  store: ChatGPTIdentityStore,
-): { encrypted: boolean } {
-  ensureDir(path.dirname(storePath))
-  const payload = JSON.stringify(store, null, 2)
-  const key = getMasterKey()
-  if (!key) {
-    writeFileAtomic(storePath, `${payload}\n`)
-    return { encrypted: false }
+function toStoredIdentity(
+  record: AppManagedIdentityRecord,
+): StoredChatGPTIdentity {
+  return {
+    id: record.id,
+    provider: 'chatgpt',
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    email: record.email,
+    password: record.password,
+    metadata: {
+      prefix: record.metadata?.prefix,
+      mailbox: record.metadata?.mailbox,
+      source: 'chatgpt-register',
+      chatgptUrl: record.metadata?.chatgptUrl,
+    },
   }
-
-  const envelope: PersistedChatGPTIdentityStore = {
-    version: STORE_VERSION,
-    updatedAt: new Date().toISOString(),
-    ...encryptStorePayload(payload, key),
-  }
-  writeFileAtomic(storePath, `${JSON.stringify(envelope, null, 2)}\n`)
-  return { encrypted: true }
 }
 
-function summarize(
-  identity: StoredChatGPTIdentity,
-  storePath: string,
-  encrypted: boolean,
+function toSummary(
+  record: Pick<
+    AppManagedIdentitySummaryRecord,
+    'id' | 'email' | 'createdAt' | 'updatedAt' | 'credentialCount' | 'encrypted'
+  >,
 ): StoredChatGPTIdentitySummary {
   return {
-    id: identity.id,
-    email: identity.email,
-    createdAt: identity.createdAt,
-    updatedAt: identity.updatedAt,
-    credentialCount: 0,
-    storePath,
-    encrypted,
+    id: record.id,
+    email: record.email,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    credentialCount: record.credentialCount,
+    storePath: buildStorePath(record.id),
+    encrypted: record.encrypted,
   }
 }
 
-function readIdentityStoreFile(
-  storePath: string,
-): ResolvedChatGPTIdentity | undefined {
-  const loaded = readStoreEnvelope(storePath)
-  const [identity] = loaded.store.identities
-  if (!identity) return undefined
+export async function listStoredChatGPTIdentitySummaries(): Promise<
+  StoredChatGPTIdentitySummary[]
+> {
+  const client = createCodeyAppClient()
+  const identities = await client.listManagedIdentities()
+  return identities.map((record) => toSummary(record))
+}
+
+export async function getStoredChatGPTIdentityStoreSummary(): Promise<StoredChatGPTIdentityStoreSummary> {
+  const summaries = await listStoredChatGPTIdentitySummaries()
   return {
-    identity,
-    summary: summarize(identity, storePath, loaded.encrypted),
-  }
-}
-
-function readAllStoredChatGPTIdentities(): ResolvedChatGPTIdentity[] {
-  const results = new Map<string, ResolvedChatGPTIdentity>()
-  const accountDir = getAccountsDirectoryPath()
-
-  if (fs.existsSync(accountDir)) {
-    for (const entry of fs.readdirSync(accountDir, { withFileTypes: true })) {
-      if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== '.json')
-        continue
-      const resolved = readIdentityStoreFile(path.join(accountDir, entry.name))
-      if (resolved) results.set(resolved.identity.id, resolved)
-    }
-  }
-
-  const legacyStorePath = getLegacyStorePath()
-  const legacy = readStoreEnvelope(legacyStorePath)
-  for (const identity of legacy.store.identities) {
-    if (results.has(identity.id)) continue
-    results.set(identity.id, {
-      identity,
-      summary: summarize(identity, legacyStorePath, legacy.encrypted),
-    })
-  }
-
-  return [...results.values()]
-}
-
-export function listStoredChatGPTIdentitySummaries(): StoredChatGPTIdentitySummary[] {
-  return readAllStoredChatGPTIdentities().map((entry) => entry.summary)
-}
-
-export function getStoredChatGPTIdentityStoreSummary(): StoredChatGPTIdentityStoreSummary {
-  const summaries = listStoredChatGPTIdentitySummaries()
-  return {
-    rootPath: getStoreRootPath(),
-    accountDirectoryPath: getAccountsDirectoryPath(),
-    legacyStorePath: getLegacyStorePath(),
+    rootPath: APP_IDENTITY_STORE_ROOT,
+    accountDirectoryPath: APP_IDENTITY_STORE_ROOT,
+    legacyStorePath: APP_IDENTITY_STORE_ROOT,
     identityCount: summaries.length,
     encrypted: summaries.some((summary) => summary.encrypted),
   }
 }
 
-export function persistChatGPTIdentity(
+export async function persistChatGPTIdentity(
   input: PersistChatGPTIdentityInput,
-): ResolvedChatGPTIdentity {
-  const now = new Date().toISOString()
-  const identity: StoredChatGPTIdentity = {
-    id: crypto.randomUUID(),
-    provider: 'chatgpt',
-    createdAt: now,
-    updatedAt: now,
-    email: input.email,
+): Promise<ResolvedChatGPTIdentity> {
+  const client = createCodeyAppClient()
+  const normalizedEmail = input.email.trim().toLowerCase()
+  const identityId = crypto.randomUUID()
+
+  await client.upsertManagedIdentity({
+    identityId,
+    email: normalizedEmail,
     password: input.password,
-    metadata: {
-      prefix: input.prefix,
-      mailbox: input.mailbox,
-      source: 'chatgpt-register',
-      chatgptUrl: getRuntimeConfig().openai.chatgptUrl,
-    },
-  }
-  const storePath = getIdentityStorePath(identity)
-  const persisted = writeStoreEnvelope(storePath, {
-    version: STORE_VERSION,
-    identities: [identity],
+    metadata: buildMetadata(input),
+  })
+
+  const stored = await client.getManagedIdentity({
+    identityId,
   })
 
   return {
-    identity,
-    summary: summarize(identity, storePath, persisted.encrypted),
+    identity: toStoredIdentity(stored),
+    summary: toSummary(stored),
   }
 }
 
-export function resolveStoredChatGPTIdentity(
+export async function resolveStoredChatGPTIdentity(
   options: ResolveChatGPTIdentityOptions = {},
-): ResolvedChatGPTIdentity {
-  const candidates = readAllStoredChatGPTIdentities().sort((left, right) =>
-    right.identity.updatedAt.localeCompare(left.identity.updatedAt),
-  )
-
-  const match = candidates.find((entry) => {
-    if (options.id && entry.identity.id !== options.id) return false
-    if (
-      options.email &&
-      entry.identity.email.toLowerCase() !== options.email.toLowerCase()
-    )
-      return false
-    return true
+): Promise<ResolvedChatGPTIdentity> {
+  const client = createCodeyAppClient()
+  const stored = await client.getManagedIdentity({
+    identityId: options.id,
+    email: options.email,
   })
 
-  if (!match) {
-    const requested = options.id
-      ? `id=${options.id}`
-      : options.email
-        ? `email=${options.email}`
-        : 'latest record'
-    throw new Error(`No persisted ChatGPT identity found for ${requested}.`)
+  return {
+    identity: toStoredIdentity(stored),
+    summary: toSummary(stored),
   }
-
-  return match
 }

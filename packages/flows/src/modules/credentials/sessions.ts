@@ -1,16 +1,13 @@
-import crypto from 'crypto'
-import fs from 'fs'
-import path from 'path'
+import type { CodeyAppConfig } from '../../config'
 import { getRuntimeConfig } from '../../config'
-import { ensureDir, writeFileAtomic } from '../../utils/fs'
 import type {
   ChatGPTAuthSessionPayload,
   ChatGPTSessionSnapshot,
 } from '../chatgpt/session'
+import { AppVerificationProviderClient } from '../verification/app-client'
 
 const STORE_VERSION = 1
-const STORE_DIR = '.codey/credentials'
-const STORE_SESSIONS_DIR_NAME = 'chatgpt-sessions'
+const APP_SESSION_STORE_ROOT = 'codey-app://managed-sessions'
 
 export interface StoredChatGPTSession {
   version: number
@@ -49,68 +46,46 @@ export interface PersistedChatGPTSessionsResult {
   primarySummary?: StoredChatGPTSessionSummary
 }
 
-function getStoreRootPath(): string {
+function resolveCodeyAppConfig(): CodeyAppConfig {
   const config = getRuntimeConfig()
-  return path.join(config.rootDir, STORE_DIR)
+  const sharedAppConfig = config.app
+  const verificationAppConfig = config.verification?.app
+
+  return {
+    baseUrl: verificationAppConfig?.baseUrl ?? sharedAppConfig?.baseUrl,
+    oidcIssuer:
+      verificationAppConfig?.oidcIssuer ?? sharedAppConfig?.oidcIssuer,
+    oidcBasePath:
+      verificationAppConfig?.oidcBasePath ?? sharedAppConfig?.oidcBasePath,
+    clientId: verificationAppConfig?.clientId ?? sharedAppConfig?.clientId,
+    clientSecret:
+      verificationAppConfig?.clientSecret ?? sharedAppConfig?.clientSecret,
+    scope: verificationAppConfig?.scope ?? sharedAppConfig?.scope,
+    resource: verificationAppConfig?.resource ?? sharedAppConfig?.resource,
+    tokenEndpointAuthMethod:
+      verificationAppConfig?.tokenEndpointAuthMethod ??
+      sharedAppConfig?.tokenEndpointAuthMethod,
+  }
 }
 
-function getSessionsDirectoryPath(): string {
-  return path.join(getStoreRootPath(), STORE_SESSIONS_DIR_NAME)
-}
-
-function sanitizeFileSegment(value: string, fallback: string): string {
-  const normalized =
-    value
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || fallback
-  return normalized
-}
-
-function createSessionFileName(input: {
-  identityId: string
-  email: string
-  clientId: string
-}): string {
-  const normalizedEmail = input.email.trim().toLowerCase()
-  const emailDigest = crypto
-    .createHash('sha1')
-    .update(`${input.identityId}:${normalizedEmail}:${input.clientId}`)
-    .digest('hex')
-    .slice(0, 12)
-  const safeEmail = sanitizeFileSegment(normalizedEmail, 'session')
-  const safeClientId = sanitizeFileSegment(input.clientId, 'unknown-client')
-  return `${safeEmail}--${safeClientId}--${emailDigest}.json`
-}
-
-function getSessionStorePath(input: {
-  identityId: string
-  email: string
-  clientId: string
-}): string {
-  return path.join(getSessionsDirectoryPath(), createSessionFileName(input))
-}
-
-function readExistingCreatedAt(storePath: string): string | undefined {
-  if (!fs.existsSync(storePath)) {
-    return undefined
+function createCodeyAppClient(): AppVerificationProviderClient {
+  const config = resolveCodeyAppConfig()
+  if (!config.baseUrl?.trim()) {
+    throw new Error(
+      'Codey app session storage is required. Set CODEY_APP_BASE_URL and app auth settings before running this flow.',
+    )
   }
 
-  try {
-    const parsed = JSON.parse(
-      fs.readFileSync(storePath, 'utf8'),
-    ) as Partial<StoredChatGPTSession>
-    return typeof parsed.createdAt === 'string' ? parsed.createdAt : undefined
-  } catch {
-    return undefined
-  }
+  return new AppVerificationProviderClient(config)
+}
+
+function buildStorePath(recordId: string): string {
+  return `${APP_SESSION_STORE_ROOT}/${recordId}`
 }
 
 function summarize(
   session: StoredChatGPTSession,
-  storePath: string,
+  recordId: string,
 ): StoredChatGPTSessionSummary {
   return {
     identityId: session.identityId,
@@ -124,7 +99,7 @@ function summarize(
     lastRefresh: session.auth.last_refresh,
     hasRefreshToken: Boolean(session.auth.tokens.refresh_token),
     hasIdToken: Boolean(session.auth.tokens.id_token),
-    storePath,
+    storePath: buildStorePath(recordId),
   }
 }
 
@@ -133,20 +108,11 @@ function buildStoredSession(input: {
   email: string
   flowType: 'chatgpt-register' | 'chatgpt-login'
   snapshot: ChatGPTSessionSnapshot
-}): {
-  session: StoredChatGPTSession
-  summary: StoredChatGPTSessionSummary
-} {
+}): StoredChatGPTSession {
   const normalizedEmail = input.email.trim().toLowerCase()
   const normalizedClientId = input.snapshot.clientId.trim() || 'unknown'
-  const storePath = getSessionStorePath({
-    identityId: input.identityId,
-    email: normalizedEmail,
-    clientId: normalizedClientId,
-  })
-  const createdAt =
-    readExistingCreatedAt(storePath) || input.snapshot.capturedAt
-  const session: StoredChatGPTSession = {
+
+  return {
     version: STORE_VERSION,
     identityId: input.identityId,
     email: normalizedEmail,
@@ -158,32 +124,59 @@ function buildStoredSession(input: {
     subject: input.snapshot.subject,
     authProvider: input.snapshot.authProvider,
     expiresAt: input.snapshot.expiresAt,
-    createdAt,
+    createdAt: input.snapshot.capturedAt,
     updatedAt: input.snapshot.capturedAt,
-  }
-
-  ensureDir(path.dirname(storePath))
-  writeFileAtomic(storePath, `${JSON.stringify(session, null, 2)}\n`)
-
-  return {
-    session,
-    summary: summarize(session, storePath),
   }
 }
 
-export function persistChatGPTSessions(input: {
+async function persistSingleChatGPTSession(
+  client: AppVerificationProviderClient,
+  input: {
+    identityId: string
+    email: string
+    flowType: 'chatgpt-register' | 'chatgpt-login'
+    snapshot: ChatGPTSessionSnapshot
+  },
+): Promise<{
+  session: StoredChatGPTSession
+  summary: StoredChatGPTSessionSummary
+}> {
+  const session = buildStoredSession(input)
+  const response = await client.upsertManagedSession({
+    identityId: session.identityId,
+    email: session.email,
+    flowType: session.flowType,
+    clientId: session.clientId,
+    authMode: session.auth.auth_mode,
+    accountId: session.accountId,
+    sessionId: session.sessionId,
+    expiresAt: session.expiresAt,
+    lastRefreshAt: session.auth.last_refresh,
+    sessionData: session.auth,
+  })
+
+  return {
+    session,
+    summary: summarize(session, response.id),
+  }
+}
+
+export async function persistChatGPTSessions(input: {
   identityId: string
   email: string
   flowType: 'chatgpt-register' | 'chatgpt-login'
   snapshots: ChatGPTSessionSnapshot[]
-}): PersistedChatGPTSessionsResult {
-  const persisted = input.snapshots.map((snapshot) =>
-    buildStoredSession({
-      identityId: input.identityId,
-      email: input.email,
-      flowType: input.flowType,
-      snapshot,
-    }),
+}): Promise<PersistedChatGPTSessionsResult> {
+  const client = createCodeyAppClient()
+  const persisted = await Promise.all(
+    input.snapshots.map((snapshot) =>
+      persistSingleChatGPTSession(client, {
+        identityId: input.identityId,
+        email: input.email,
+        flowType: input.flowType,
+        snapshot,
+      }),
+    ),
   )
 
   return {
@@ -193,16 +186,16 @@ export function persistChatGPTSessions(input: {
   }
 }
 
-export function persistChatGPTSession(input: {
+export async function persistChatGPTSession(input: {
   identityId: string
   email: string
   flowType: 'chatgpt-register' | 'chatgpt-login'
   snapshot: ChatGPTSessionSnapshot
-}): {
+}): Promise<{
   session: StoredChatGPTSession
   summary: StoredChatGPTSessionSummary
-} {
-  const persisted = persistChatGPTSessions({
+}> {
+  const persisted = await persistChatGPTSessions({
     identityId: input.identityId,
     email: input.email,
     flowType: input.flowType,

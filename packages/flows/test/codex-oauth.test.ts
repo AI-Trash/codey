@@ -20,7 +20,6 @@ const waitForVerificationCodeInputReady = vi.fn()
 const createAuthorizationCallbackCapture = vi.fn()
 const startCodexAuthorization = vi.fn()
 const exchangeCodexAuthorizationCode = vi.fn()
-const saveCodexToken = vi.fn()
 const signIn = vi.fn()
 const createChannel = vi.fn()
 const buildCodexOAuthCredentials = vi.fn()
@@ -64,10 +63,6 @@ vi.mock('../src/modules/authorization/codex-client', () => ({
   exchangeCodexAuthorizationCode,
 }))
 
-vi.mock('../src/modules/authorization/codex-token-store', () => ({
-  saveCodexToken,
-}))
-
 vi.mock('../src/modules/app-auth/codex-oauth-sharing', () => ({
   shareCodexOAuthSessionWithCodeyApp,
 }))
@@ -85,6 +80,11 @@ describe('runCodexOAuthFlow', () => {
       artifactsDir: 'C:/tmp/artifacts',
       browser: {
         recordHar: false,
+      },
+      app: {
+        baseUrl: 'http://localhost:3000',
+        clientId: 'codey-client-id',
+        clientSecret: 'codey-client-secret',
       },
       codex: {
         authorizeUrl: 'https://auth.openai.com/oauth/authorize',
@@ -122,8 +122,12 @@ describe('runCodexOAuthFlow', () => {
       codeVerifier: 'oauth-code-verifier',
     })
 
-    saveCodexToken.mockReturnValue('C:/tmp/codex-oauth.json')
-    shareCodexOAuthSessionWithCodeyApp.mockResolvedValue(null)
+    shareCodexOAuthSessionWithCodeyApp.mockResolvedValue({
+      identityId: 'identity-123',
+      identityRecordId: 'managed-identity-1',
+      sessionRecordId: 'managed-session-1',
+      sessionStorePath: 'codey-app://managed-sessions/managed-session-1',
+    })
     resolveStoredChatGPTIdentity.mockReturnValue({
       identity: {
         email: 'person@example.com',
@@ -330,7 +334,7 @@ describe('runCodexOAuthFlow', () => {
       pageName: 'codex-oauth',
       email: 'person@example.com',
       redirectUri: 'http://localhost:1455/auth/callback',
-      tokenStorePath: 'C:/tmp/codex-oauth.json',
+      tokenStorePath: 'codey-app://managed-sessions/managed-session-1',
       axonHub: {
         channel: {
           id: 'channel-123',
@@ -427,7 +431,7 @@ describe('runCodexOAuthFlow', () => {
     expect(result).toMatchObject({
       pageName: 'codex-oauth',
       email: 'person@example.com',
-      tokenStorePath: 'C:/tmp/codex-oauth.json',
+      tokenStorePath: 'codey-app://managed-sessions/managed-session-1',
     })
   })
 
@@ -904,7 +908,7 @@ describe('runCodexOAuthFlow', () => {
     expect(result).toMatchObject({
       pageName: 'codex-oauth',
       redirectUri: 'http://localhost:1455/auth/callback',
-      tokenStorePath: 'C:/tmp/codex-oauth.json',
+      tokenStorePath: 'codey-app://managed-sessions/managed-session-1',
     })
     expect(submitLoginEmail).not.toHaveBeenCalled()
     expect(page.waitForURL).toHaveBeenCalled()
@@ -1216,6 +1220,7 @@ describe('runCodexOAuthFlow', () => {
       identityId: 'identity-123',
       identityRecordId: 'managed-identity-1',
       sessionRecordId: 'managed-session-1',
+      sessionStorePath: 'codey-app://managed-sessions/managed-session-1',
     })
 
     const page = {
@@ -1238,7 +1243,6 @@ describe('runCodexOAuthFlow', () => {
           id: 'identity-123',
           email: 'person@example.com',
         }),
-        tokenStorePath: 'C:/tmp/codex-oauth.json',
       }),
     )
     expect(signIn).not.toHaveBeenCalled()
