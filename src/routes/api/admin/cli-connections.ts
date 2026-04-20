@@ -1,14 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireAdminPermission } from "../../../lib/server/auth";
 import { json, text } from "../../../lib/server/http";
-import { listAdminCliConnectionState } from "../../../lib/server/cli-connections";
+import { listAdminCliConnectionStateForActor } from "../../../lib/server/cli-connections";
 
 export const Route = createFileRoute("/api/admin/cli-connections")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        let admin: Awaited<ReturnType<typeof requireAdminPermission>>;
         try {
-          await requireAdminPermission(request, "CLI_OPERATIONS");
+          admin = await requireAdminPermission(request, "CLI_OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Admin access required",
@@ -16,7 +17,13 @@ export const Route = createFileRoute("/api/admin/cli-connections")({
           );
         }
 
-        return json(await listAdminCliConnectionState());
+        return json(
+          await listAdminCliConnectionStateForActor({
+            userId: admin.user.id,
+            githubLogin: admin.user.githubLogin,
+            email: admin.user.email,
+          }),
+        );
       },
     },
   },

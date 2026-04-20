@@ -1,7 +1,11 @@
 import "@tanstack/react-start/server-only";
 
 import { getCliFlowDefinition, normalizeCliFlowTaskOptions } from "../../../packages/flows/src/modules/flow-cli/flow-registry";
-import { getAdminCliConnectionSummaryById } from "./cli-connections";
+import {
+  getAdminCliConnectionSummaryById,
+  type CliConnectionActorScope,
+  isCliConnectionOwnedByActor,
+} from "./cli-connections";
 import { getDb } from "./db/client";
 import { adminNotifications } from "./db/schema";
 import { createId } from "./security";
@@ -24,10 +28,15 @@ export async function dispatchCliFlowTask(input: {
   connectionId: string;
   flowId: string;
   options?: Record<string, unknown> | null;
+  actor?: CliConnectionActorScope;
 }) {
   const connection = await getAdminCliConnectionSummaryById(input.connectionId);
   if (!connection) {
     throw new Error("CLI connection not found.");
+  }
+
+  if (input.actor && !isCliConnectionOwnedByActor(connection, input.actor)) {
+    throw new Error("You can only dispatch tasks to your own CLI connection.");
   }
 
   if (connection.status !== "active") {

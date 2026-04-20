@@ -80,7 +80,7 @@ const loadAdminCliConnections = createServerFn({ method: 'GET' }).handler(
     const [
       { getRequest },
       { requireAdminPermission },
-      { listAdminCliConnectionState },
+      { listAdminCliConnectionStateForActor },
     ] = await Promise.all([
       import('@tanstack/react-start/server'),
       import('../../lib/server/auth'),
@@ -90,14 +90,18 @@ const loadAdminCliConnections = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      await requireAdminPermission(request, 'CLI_OPERATIONS')
+      const admin = await requireAdminPermission(request, 'CLI_OPERATIONS')
+
+      return {
+        authorized: true as const,
+        state: await listAdminCliConnectionStateForActor({
+          userId: admin.user.id,
+          githubLogin: admin.user.githubLogin,
+          email: admin.user.email,
+        }),
+      }
     } catch {
       return { authorized: false as const }
-    }
-
-    return {
-      authorized: true as const,
-      state: await listAdminCliConnectionState(),
     }
   },
 )

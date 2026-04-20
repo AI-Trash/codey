@@ -9,8 +9,9 @@ export const Route = createFileRoute(
   server: {
     handlers: {
       POST: async ({ request, params }) => {
+        let admin: Awaited<ReturnType<typeof requireAdminPermission>>;
         try {
-          await requireAdminPermission(request, "CLI_OPERATIONS");
+          admin = await requireAdminPermission(request, "CLI_OPERATIONS");
         } catch (error) {
           return text(
             error instanceof Error ? error.message : "Admin access required",
@@ -39,6 +40,11 @@ export const Route = createFileRoute(
           const result = await dispatchCliFlowTask({
             connectionId: params.connectionId,
             flowId,
+            actor: {
+              userId: admin.user.id,
+              githubLogin: admin.user.githubLogin,
+              email: admin.user.email,
+            },
             options:
               body?.options &&
               typeof body.options === "object" &&

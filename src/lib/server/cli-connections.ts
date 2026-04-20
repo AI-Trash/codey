@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { cliConnections } from "./db/schema";
 import { createId } from "./security";
@@ -25,6 +25,12 @@ export interface AdminCliConnectionSummary {
   githubLogin: string | null;
   email: string | null;
   userLabel: string;
+}
+
+export interface CliConnectionActorScope {
+  userId?: string | null;
+  githubLogin?: string | null;
+  email?: string | null;
 }
 
 function toOptionalString(value: string | null | undefined): string | null {
@@ -68,6 +74,44 @@ function getUserLabel(user: {
     user.email?.trim() ||
     "Unknown user"
   );
+}
+
+function toComparableString(value: string | null | undefined): string | null {
+  const normalized = toOptionalString(value);
+  return normalized ? normalized.toLowerCase() : null;
+}
+
+function getActorTargetValues(actor: CliConnectionActorScope): string[] {
+  return Array.from(
+    new Set(
+      [actor.githubLogin, actor.email]
+        .map((value) => toOptionalString(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+}
+
+export function isCliConnectionOwnedByActor(
+  connection: Pick<AdminCliConnectionSummary, "userId" | "target">,
+  actor: CliConnectionActorScope,
+): boolean {
+  const actorUserId = toOptionalString(actor.userId);
+  if (connection.userId) {
+    return Boolean(actorUserId && connection.userId === actorUserId);
+  }
+
+  const connectionTarget = toComparableString(connection.target);
+  if (!connectionTarget) {
+    return false;
+  }
+
+  const actorTargets = new Set(
+    [actor.githubLogin, actor.email]
+      .map((value) => toComparableString(value))
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  return actorTargets.has(connectionTarget);
 }
 
 function mapSummary(row: Awaited<ReturnType<typeof listRecentCliConnectionRows>>[number]): AdminCliConnectionSummary {
@@ -187,6 +231,57 @@ export async function listAdminCliConnectionState() {
   return {
     snapshotAt: new Date().toISOString(),
     activeConnections,
+  };
+}
+
+export async function listAdminCliConnectionStateForActor(
+  actor: CliConnectionActorScope,
+) {
+  const activeCutoff = getActiveCutoff();
+  const actorUserId = toOptionalString(actor.userId);
+  const actorTargets = getActorTargetValues(actor);
+  const targetFilter = actorTargets.length
+    ? or(...actorTargets.map((target) => eq(cliConnections.target, target)))
+    : null;
+  const ownershipFilter =
+    actorUserId && targetFilter
+      ? or(
+          eq(cliConnections.userId, actorUserId),
+          and(isNull(cliConnections.userId), targetFilter),
+        )
+      : actorUserId
+        ? eq(cliConnections.userId, actorUserId)
+        : targetFilter
+          ? and(isNull(cliConnections.userId), targetFilter)
+          : null;
+
+  if (!ownershipFilter) {
+    return {
+      snapshotAt: new Date().toISOString(),
+      activeConnections: [],
+    };
+  }
+
+  const activeRows = await getDb().query.cliConnections.findMany({
+    with: {
+      user: true,
+    },
+    where: and(
+      isNull(cliConnections.disconnectedAt),
+      gt(cliConnections.lastSeenAt, activeCutoff),
+      ownershipFilter,
+    ),
+    orderBy: [desc(cliConnections.lastSeenAt)],
+    limit: ACTIVE_CONNECTION_LIMIT,
+  });
+
+  return {
+    snapshotAt: new Date().toISOString(),
+    activeConnections: activeRows
+      .map(mapSummary)
+      .filter((connection) =>
+        isCliConnectionOwnedByActor(connection, actor),
+      ),
   };
 }
 
