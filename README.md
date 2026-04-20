@@ -156,6 +156,54 @@ pnpm flow codex-oauth --projectId gid://axonhub/project/123
 
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
 
+### Batch flow runs
+
+Every `flow` subcommand now supports `--batchFile <file>`. Batch files can be CSV or JSON, and the final summary is emitted as CSV to stdout. Use `--summaryCsv <file>` if you also want a copy written to a specific path, and `--batchConcurrency <n>` to run several tasks in parallel.
+
+Single-flow batch examples:
+
+```bash
+pnpm flow chatgpt-login --batchFile ./logins.csv
+pnpm flow codex-oauth --batchFile ./oauth.json --batchConcurrency 3
+```
+
+Mixed-flow batch example:
+
+```bash
+pnpm flow batch --batchFile ./flows.csv --batchConcurrency 2
+```
+
+CSV batches use column names that match CLI option keys. For a mixed batch, include a `flowId` column. Example:
+
+```csv
+flowId,label,email,identityId,workspaceIndex,authorizeUrlOnly
+chatgpt-login,login-a,person@example.com,,,
+codex-oauth,oauth-b,,identity-123,2,true
+```
+
+JSON batches accept either an array of task objects or `{ "tasks": [...] }`. Each task can provide options directly on the object or under an `options` object:
+
+```json
+[
+  {
+    "flowId": "chatgpt-login",
+    "label": "login-a",
+    "email": "person@example.com"
+  },
+  {
+    "flowId": "codex-oauth",
+    "name": "oauth-b",
+    "options": {
+      "identityId": "identity-123",
+      "workspaceIndex": 2,
+      "authorizeUrlOnly": true
+    }
+  }
+]
+```
+
+Batch mode forces `record=false` so each browser session can close and the CSV summary can be generated reliably.
+
 ### Exchange commands
 
 ```bash

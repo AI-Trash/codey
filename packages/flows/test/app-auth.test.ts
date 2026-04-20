@@ -223,7 +223,8 @@ describe('app auth OIDC helpers', () => {
           JSON.stringify({
             issuer: 'http://localhost:4301/oidc',
             token_endpoint: 'http://localhost:4301/oidc/token',
-            device_authorization_endpoint: 'http://localhost:4301/oidc/device/auth',
+            device_authorization_endpoint:
+              'http://localhost:4301/oidc/device/auth',
           }),
           {
             status: 200,
@@ -270,6 +271,7 @@ describe('app auth OIDC helpers', () => {
   it('reuses the stored device session for daemon notifications without client credentials', async () => {
     const rootDir = path.join(tempRoot, 'daemon-device-session')
     const config = createConfig(rootDir)
+    const now = Date.now()
     setRuntimeConfig({
       ...config,
       app: {
@@ -284,8 +286,8 @@ describe('app auth OIDC helpers', () => {
           accessToken: 'session-token',
           tokenType: 'Bearer',
           scope: 'notifications:read',
-          obtainedAt: '2026-04-19T00:00:00.000Z',
-          expiresAt: '2026-04-20T00:00:00.000Z',
+          obtainedAt: new Date(now - 60_000).toISOString(),
+          expiresAt: new Date(now + 3_600_000).toISOString(),
         },
         target: 'octocat',
       }),

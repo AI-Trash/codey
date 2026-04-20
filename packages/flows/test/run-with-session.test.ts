@@ -26,8 +26,12 @@ class FakeBrowser extends EventEmitter {}
 
 class FakeContext extends EventEmitter {}
 
-function flushAsync(): Promise<void> {
-  return new Promise((resolve) => setImmediate(resolve))
+function createPage(isClosed: () => boolean) {
+  const page = new EventEmitter() as EventEmitter & {
+    isClosed(): boolean
+  }
+  page.isClosed = vi.fn(isClosed)
+  return page
 }
 
 describe('runWithSession keep-open mode', () => {
@@ -36,6 +40,7 @@ describe('runWithSession keep-open mode', () => {
 
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.useFakeTimers()
     stdinResumeSpy.mockImplementation(() => process.stdin)
     stdinPauseSpy.mockImplementation(() => process.stdin)
     getRuntimeConfigMock.mockReturnValue({
@@ -44,21 +49,20 @@ describe('runWithSession keep-open mode', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     stdinResumeSpy.mockRestore()
     stdinPauseSpy.mockRestore()
   })
 
-  it('does not close the session when the automation connection drops in keep-open mode', async () => {
+  it('closes the session when the last browser page closes in keep-open mode', async () => {
     const browser = new FakeBrowser()
     const context = new FakeContext()
-    const page = new EventEmitter() as EventEmitter & {
-      isClosed(): boolean
-    }
-    page.isClosed = vi.fn(() => true)
+    let pageClosed = false
+    const page = createPage(() => pageClosed)
     const session = {
       browser,
       context: Object.assign(context, {
-        pages: vi.fn(() => []),
+        pages: vi.fn(() => (pageClosed ? [] : [page])),
       }),
       page,
       harPath: 'C:/tmp/browser.har',
@@ -80,13 +84,98 @@ describe('runWithSession keep-open mode', () => {
       'flow:chatgpt-login',
     )
 
+    pageClosed = true
     page.emit('close')
-    await flushAsync()
+    await vi.runAllTimersAsync()
+
+    expect(session.close).toHaveBeenCalledOnce()
+    expect(stdinPauseSpy).toHaveBeenCalled()
+  })
+
+  it('waits for the flow to finish before treating page closure as manual shutdown', async () => {
+    const browser = new FakeBrowser()
+    const context = new FakeContext()
+    let pageClosed = false
+    const page = createPage(() => pageClosed)
+    const session = {
+      browser,
+      context: Object.assign(context, {
+        pages: vi.fn(() => (pageClosed ? [] : [page])),
+      }),
+      page,
+      harPath: undefined,
+      close: vi.fn(async () => undefined),
+    }
+
+    newSessionMock.mockResolvedValue(session)
+
+    const result = await runWithSession(
+      {},
+      async () => {
+        pageClosed = true
+        page.emit('close')
+        await vi.runAllTimersAsync()
+        expect(session.close).not.toHaveBeenCalled()
+        return 'ok'
+      },
+      { closeOnComplete: false },
+    )
+
+    await vi.runAllTimersAsync()
+
+    expect(result).toBe('ok')
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it('does not close the session when another page is still open', async () => {
+    const browser = new FakeBrowser()
+    const context = new FakeContext()
+    let firstPageClosed = false
+    const firstPage = createPage(() => firstPageClosed)
+    const secondPage = createPage(() => false)
+    const session = {
+      browser,
+      context: Object.assign(context, {
+        pages: vi.fn(() =>
+          [firstPageClosed ? null : firstPage, secondPage].filter(Boolean),
+        ),
+      }),
+      page: firstPage,
+      harPath: undefined,
+      close: vi.fn(async () => undefined),
+    }
+
+    newSessionMock.mockResolvedValue(session)
+
+    await runWithSession({}, async () => undefined, { closeOnComplete: false })
+
+    firstPageClosed = true
+    firstPage.emit('close')
+    await vi.runAllTimersAsync()
 
     expect(session.close).not.toHaveBeenCalled()
+  })
+
+  it('does not close the session when the automation connection drops in keep-open mode', async () => {
+    const browser = new FakeBrowser()
+    const context = new FakeContext()
+    const page = createPage(() => false)
+    const session = {
+      browser,
+      context: Object.assign(context, {
+        pages: vi.fn(() => [page]),
+      }),
+      page,
+      harPath: 'C:/tmp/browser.har',
+      close: vi.fn(async () => undefined),
+    }
+
+    newSessionMock.mockResolvedValue(session)
+
+    await runWithSession({}, async () => 'ok', { closeOnComplete: false })
 
     browser.emit('disconnected')
-    await flushAsync()
+    await vi.runAllTimersAsync()
 
     expect(session.close).not.toHaveBeenCalled()
   })
@@ -94,12 +183,13 @@ describe('runWithSession keep-open mode', () => {
   it('does not close the session when the browser context closes unexpectedly', async () => {
     const browser = new FakeBrowser()
     const context = new FakeContext()
+    const page = createPage(() => false)
     const session = {
       browser,
       context: Object.assign(context, {
-        pages: vi.fn(() => []),
+        pages: vi.fn(() => [page]),
       }),
-      page: new EventEmitter(),
+      page,
       harPath: undefined,
       close: vi.fn(async () => undefined),
     }
@@ -109,7 +199,7 @@ describe('runWithSession keep-open mode', () => {
     await runWithSession({}, async () => undefined, { closeOnComplete: false })
 
     context.emit('close')
-    await flushAsync()
+    await vi.runAllTimersAsync()
 
     expect(session.close).not.toHaveBeenCalled()
   })

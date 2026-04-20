@@ -43,13 +43,20 @@ import {
   isCliFlowTaskPayload,
   type CliFlowCommandId,
 } from './modules/flow-cli/flow-registry'
+import { runFlowBatch } from './modules/flow-cli/batch'
 import { runWithSession } from './modules/flow-cli/run-with-session'
+import {
+  buildFailedFlowCommandExecution,
+  buildFlowCommandExecutionResult,
+  writeFlowCommandExecutionResult,
+  type FlowCommandExecution,
+} from './modules/flow-cli/result-file'
 import { sleep } from './utils/wait'
 
 async function runFlowCommand(
   subcommand: CliFlowCommandId,
   options: FlowOptions,
-): Promise<void> {
+): Promise<unknown> {
   const runtimeOptions: FlowOptions = {
     ...options,
     progressReporter:
@@ -105,6 +112,8 @@ async function runFlowCommand(
       'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )
   }
+
+  return result
 }
 
 function resolveFlowCommandOptions(
@@ -130,10 +139,67 @@ function resolveFlowCommandOptions(
 async function executeFlowSubcommand(
   subcommand: CliFlowCommandId,
   options: FlowOptions,
-): Promise<void> {
+): Promise<FlowCommandExecution> {
   const resolvedOptions = resolveFlowCommandOptions(subcommand, options)
-  prepareRuntimeConfig(`flow:${subcommand}`, resolvedOptions)
-  await runFlowCommand(subcommand, resolvedOptions)
+  const command = `flow:${subcommand}`
+  const startedAt = new Date().toISOString()
+  prepareRuntimeConfig(command, resolvedOptions)
+  const result = await runFlowCommand(subcommand, resolvedOptions)
+  const completedAt = new Date().toISOString()
+
+  return buildFlowCommandExecutionResult({
+    flowId: subcommand,
+    command,
+    status: 'passed',
+    startedAt,
+    completedAt,
+    options: redactForOutput(resolvedOptions),
+    result: redactForOutput(result),
+  })
+}
+
+async function executeFlowSubcommandWithReporting(
+  subcommand: CliFlowCommandId,
+  options: FlowOptions,
+): Promise<FlowCommandExecution> {
+  if (typeof options.batchFile === 'string' && options.batchFile.trim()) {
+    const command = `flow:${subcommand}:batch`
+    const config = prepareRuntimeConfig(command, options)
+    await runFlowBatch({
+      command,
+      options,
+      artifactsDir: config.artifactsDir,
+      workspaceRoot: config.rootDir,
+      defaultFlowId: subcommand,
+    })
+    return buildFlowCommandExecutionResult({
+      flowId: subcommand,
+      command,
+      status: 'passed',
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      options: redactForOutput(options),
+    })
+  }
+
+  const startedAt = new Date().toISOString()
+
+  try {
+    const execution = await executeFlowSubcommand(subcommand, options)
+    writeFlowCommandExecutionResult(execution)
+    return execution
+  } catch (error) {
+    const failure = buildFailedFlowCommandExecution({
+      flowId: subcommand,
+      command: `flow:${subcommand}`,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      options: redactForOutput(options),
+      error,
+    })
+    writeFlowCommandExecutionResult(failure)
+    throw error
+  }
 }
 
 async function runExchangeCommand(
@@ -445,174 +511,232 @@ function withCommonOptions<
     .option('--slowMo <ms>', 'Override browser slow motion delay')
 }
 
-withCommonOptions(
-  flowCli
-    .command(
-      'chatgpt-register',
-      'Register a ChatGPT account using the configured Exchange mailbox',
-    )
-    .option('--password <password>', 'Optional password override')
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+function withBatchOptions<
+  TCommand extends {
+    option(name: string, description?: string, config?: never): TCommand
+  },
+>(command: TCommand): TCommand {
+  return command
     .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
+      '--batchFile <file>',
+      'CSV or JSON file describing multiple flow runs for this command',
     )
     .option(
-      '--verificationTimeoutMs <ms>',
-      'How long to wait for the verification email',
+      '--batchConcurrency <count>',
+      'How many batch flow runs to execute at once (defaults to 1)',
     )
     .option(
-      '--pollIntervalMs <ms>',
-      'How often to poll Exchange for the verification email',
+      '--summaryCsv <file>',
+      'Optional output path for the final batch summary CSV',
     )
-    .example('codey flow chatgpt-register --verificationTimeoutMs 180000'),
+}
+
+withBatchOptions(
+  withCommonOptions(
+    flowCli
+      .command(
+        'chatgpt-register',
+        'Register a ChatGPT account using the configured Exchange mailbox',
+      )
+      .option('--password <password>', 'Optional password override')
+      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+      .option(
+        '--record <bool>',
+        'Whether to keep the browser session open after the flow completes',
+      )
+      .option(
+        '--verificationTimeoutMs <ms>',
+        'How long to wait for the verification email',
+      )
+      .option(
+        '--pollIntervalMs <ms>',
+        'How often to poll Exchange for the verification email',
+      )
+      .example('codey flow chatgpt-register --verificationTimeoutMs 180000')
+      .example('codey flow chatgpt-register --batchFile ./register.csv'),
+  ),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      await executeFlowSubcommand('chatgpt-register', options)
+      await executeFlowSubcommandWithReporting('chatgpt-register', options)
     })(),
   )
 })
 
-withCommonOptions(
-  flowCli
-    .command(
-      'chatgpt-login',
-      'Sign in to ChatGPT with a previously shared identity',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--identityId <id>',
-      'Shared identity id from a previous chatgpt-register run',
-    )
-    .option(
-      '--email <email>',
-      'Shared identity email; defaults to the latest shared identity',
-    )
-    .example('codey flow chatgpt-login')
-    .example('codey flow chatgpt-login --email someone@example.com'),
+withBatchOptions(
+  withCommonOptions(
+    flowCli
+      .command(
+        'chatgpt-login',
+        'Sign in to ChatGPT with a previously shared identity',
+      )
+      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+      .option(
+        '--record <bool>',
+        'Whether to keep the browser session open after the flow completes',
+      )
+      .option(
+        '--identityId <id>',
+        'Shared identity id from a previous chatgpt-register run',
+      )
+      .option(
+        '--email <email>',
+        'Shared identity email; defaults to the latest shared identity',
+      )
+      .example('codey flow chatgpt-login')
+      .example('codey flow chatgpt-login --email someone@example.com')
+      .example('codey flow chatgpt-login --batchFile ./logins.csv'),
+  ),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      await executeFlowSubcommand('chatgpt-login', options)
+      await executeFlowSubcommandWithReporting('chatgpt-login', options)
     })(),
   )
 })
 
-withCommonOptions(
-  flowCli
-    .command(
-      'chatgpt-login-invite',
-      'Sign in with a shared ChatGPT identity and invite workspace members',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--identityId <id>',
-      'Shared identity id from a previous chatgpt-register run',
-    )
-    .option(
-      '--email <email>',
-      'Shared identity email; defaults to the latest shared identity',
-    )
-    .option(
-      '--inviteEmail <email>',
-      'Invite email(s), repeatable or comma-separated',
-    )
-    .option(
-      '--inviteFile <file>',
-      'CSV or JSON file containing invite email addresses',
-    )
-    .example(
-      'codey flow chatgpt-login-invite --inviteEmail a@example.com --inviteEmail b@example.com',
-    )
-    .example(
-      'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
-    )
-    .example(
-      'codey flow chatgpt-login-invite --inviteFile ./members.csv --record true',
-    ),
+withBatchOptions(
+  withCommonOptions(
+    flowCli
+      .command(
+        'chatgpt-login-invite',
+        'Sign in with a shared ChatGPT identity and invite workspace members',
+      )
+      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+      .option(
+        '--record <bool>',
+        'Whether to keep the browser session open after the flow completes',
+      )
+      .option(
+        '--identityId <id>',
+        'Shared identity id from a previous chatgpt-register run',
+      )
+      .option(
+        '--email <email>',
+        'Shared identity email; defaults to the latest shared identity',
+      )
+      .option(
+        '--inviteEmail <email>',
+        'Invite email(s), repeatable or comma-separated',
+      )
+      .option(
+        '--inviteFile <file>',
+        'CSV or JSON file containing invite email addresses',
+      )
+      .example(
+        'codey flow chatgpt-login-invite --inviteEmail a@example.com --inviteEmail b@example.com',
+      )
+      .example(
+        'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
+      )
+      .example(
+        'codey flow chatgpt-login-invite --inviteFile ./members.csv --record true',
+      )
+      .example('codey flow chatgpt-login-invite --batchFile ./invites.csv'),
+  ),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      await executeFlowSubcommand('chatgpt-login-invite', options)
+      await executeFlowSubcommandWithReporting('chatgpt-login-invite', options)
     })(),
   )
 })
 
-withCommonOptions(
-  flowCli
-    .command(
-      'codex-oauth',
-      'Run Codex OAuth, save the session in Codey app, and optionally create an AxonHub Codex channel',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--identityId <id>',
-      'Shared identity id to use if the OpenAI login flow needs credentials',
-    )
-    .option(
-      '--email <email>',
-      'Shared identity email to use if the OpenAI login flow needs credentials; defaults to the latest shared identity',
-    )
-    .option(
-      '--workspaceIndex <index>',
-      '1-based workspace position to select on the Codex consent page (defaults to 1)',
-    )
-    .option('--redirectPort <port>', 'Override OAuth callback redirect port')
-    .option(
-      '--authorizeUrlOnly <bool>',
-      'Generate the OAuth URL and exit before continuing browser login',
-    )
-    .option(
-      '--projectId <id>',
-      'Optional AxonHub project context sent as X-Project-ID when channel creation is enabled',
-    )
-    .option(
-      '--channelName <name>',
-      'Override the AxonHub channel name for this run when channel creation is enabled',
-    )
-    .example('codey flow codex-oauth --redirectPort 3005')
-    .example('codey flow codex-oauth --authorizeUrlOnly true')
-    .example('codey flow codex-oauth --email someone@example.com')
-    .example('codey flow codex-oauth --workspaceIndex 2')
-    .example('codey flow codex-oauth --projectId gid://axonhub/project/123'),
+withBatchOptions(
+  withCommonOptions(
+    flowCli
+      .command(
+        'codex-oauth',
+        'Run Codex OAuth, save the session in Codey app, and optionally create an AxonHub Codex channel',
+      )
+      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+      .option(
+        '--record <bool>',
+        'Whether to keep the browser session open after the flow completes',
+      )
+      .option(
+        '--identityId <id>',
+        'Shared identity id to use if the OpenAI login flow needs credentials',
+      )
+      .option(
+        '--email <email>',
+        'Shared identity email to use if the OpenAI login flow needs credentials; defaults to the latest shared identity',
+      )
+      .option(
+        '--workspaceIndex <index>',
+        '1-based workspace position to select on the Codex consent page (defaults to 1)',
+      )
+      .option('--redirectPort <port>', 'Override OAuth callback redirect port')
+      .option(
+        '--authorizeUrlOnly <bool>',
+        'Generate the OAuth URL and exit before continuing browser login',
+      )
+      .option(
+        '--projectId <id>',
+        'Optional AxonHub project context sent as X-Project-ID when channel creation is enabled',
+      )
+      .option(
+        '--channelName <name>',
+        'Override the AxonHub channel name for this run when channel creation is enabled',
+      )
+      .example('codey flow codex-oauth --redirectPort 3005')
+      .example('codey flow codex-oauth --authorizeUrlOnly true')
+      .example('codey flow codex-oauth --email someone@example.com')
+      .example('codey flow codex-oauth --workspaceIndex 2')
+      .example('codey flow codex-oauth --projectId gid://axonhub/project/123')
+      .example('codey flow codex-oauth --batchFile ./oauth.csv'),
+  ),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      await executeFlowSubcommand('codex-oauth', options)
+      await executeFlowSubcommandWithReporting('codex-oauth', options)
     })(),
   )
 })
 
-withCommonOptions(
-  flowCli
-    .command(
-      'noop',
-      'Open an empty browser page and keep it available for manual inspection',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .example('codey flow noop')
-    .example('codey flow noop --record false --har false'),
+withBatchOptions(
+  withCommonOptions(
+    flowCli
+      .command(
+        'noop',
+        'Open an empty browser page and keep it available for manual inspection',
+      )
+      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+      .option(
+        '--record <bool>',
+        'Whether to keep the browser session open after the flow completes',
+      )
+      .example('codey flow noop')
+      .example('codey flow noop --record false --har false')
+      .example('codey flow noop --batchFile ./noop.csv'),
+  ),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
-      await executeFlowSubcommand('noop', options)
+      await executeFlowSubcommandWithReporting('noop', options)
+    })(),
+  )
+})
+
+withBatchOptions(
+  withCommonOptions(
+    flowCli
+      .command('batch', 'Run a mixed flow batch from a CSV or JSON task file')
+      .example('codey flow batch --batchFile ./flows.csv')
+      .example(
+        'codey flow batch --batchFile ./flows.json --batchConcurrency 3',
+      ),
+  ),
+).action((options: FlowOptions) => {
+  execute(
+    (async () => {
+      const config = prepareRuntimeConfig('flow:batch', options)
+      await runFlowBatch({
+        command: 'flow:batch',
+        options,
+        artifactsDir: config.artifactsDir,
+        workspaceRoot: config.rootDir,
+      })
     })(),
   )
 })
