@@ -401,9 +401,17 @@ export function formatFlowCompletionSummary(
 
   if (pageName === 'codex-oauth') {
     const codeyApp = asRecord(record.codeyApp)
+    const sub2api = asRecord(record.sub2api)
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'shared identity', codeyApp?.identityId)
     appendSummaryLine(lines, 'shared session', codeyApp?.sessionRecordId)
+    appendSummaryLine(
+      lines,
+      'sub2api',
+      sub2api
+        ? `${sub2api.action || 'synced'} account ${sub2api.accountId || ''}`.trim()
+        : undefined,
+    )
     appendSummaryLine(lines, 'redirect', record.redirectUri)
     appendSummaryLine(lines, 'token', 'stored in Codey app')
     appendSummaryLine(lines, 'page', record.url)

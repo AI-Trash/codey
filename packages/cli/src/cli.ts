@@ -725,10 +725,7 @@ withCommonOptions(
 
 withCommonOptions(
   flowCli
-    .command(
-      'codex-oauth',
-      'Run Codex OAuth and save the session in Codey app',
-    )
+    .command('codex-oauth', 'Run Codex OAuth and save the session in Codey app')
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
       '--record <bool>',
@@ -833,7 +830,7 @@ withCommonOptions(
   tuiCli
     .command(
       'start',
-      'Run the Codey TUI and wait for flow tasks from the web app',
+      'Run the Codey TUI for local starts and web-dispatched flow tasks',
     )
     .option('--cliName <name>', 'TUI instance label')
     .option(
@@ -953,7 +950,7 @@ cli
 cli
   .command(
     'tui',
-    'Run the Codey terminal UI and wait for tasks from the web app',
+    'Run the Codey terminal UI for local starts and web-dispatched tasks',
   )
   .example('codey')
   .example('codey tui start --target octocat')

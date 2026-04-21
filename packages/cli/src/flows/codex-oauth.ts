@@ -28,7 +28,10 @@ import {
   sanitizeErrorForOutput,
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
-import { shareCodexOAuthSessionWithCodeyApp } from '../modules/app-auth/codex-oauth-sharing'
+import {
+  shareCodexOAuthSessionWithCodeyApp,
+  syncCodexOAuthSessionToSub2Api,
+} from '../modules/app-auth/codex-oauth-sharing'
 import {
   runSingleFileFlowFromCli,
   type SingleFileFlowDefinition,
@@ -165,6 +168,11 @@ export interface CodexOAuthFlowResult {
     identityId: string
     identityRecordId: string
     sessionRecordId: string
+  }
+  sub2api?: {
+    accountId: number
+    action: 'created' | 'updated'
+    email: string
   }
   apiHarPath?: string
   machine: CodexOAuthFlowSnapshot<CodexOAuthFlowRunResult>
@@ -1650,6 +1658,9 @@ export async function runCodexOAuthFlow(
     let codeyApp:
       | Awaited<ReturnType<typeof shareCodexOAuthSessionWithCodeyApp>>
       | undefined
+    let sub2api:
+      | Awaited<ReturnType<typeof syncCodexOAuthSessionToSub2Api>>
+      | undefined
     let tokenStorePath: string | undefined
 
     await sendCodexOAuthMachine(
@@ -1682,6 +1693,13 @@ export async function runCodexOAuthFlow(
       throw new Error('Codey app did not return a session storage location.')
     }
 
+    sub2api =
+      (await syncCodexOAuthSessionToSub2Api({
+        identity: storedIdentity,
+        token,
+        clientId: codexConfig.clientId,
+      })) || undefined
+
     await sendCodexOAuthMachine(
       machine,
       'sharing-session',
@@ -1691,7 +1709,9 @@ export async function runCodexOAuthFlow(
         tokenStorePath,
         email: storedIdentity.email,
         storedIdentity,
-        lastMessage: 'Saved Codex OAuth session to Codey app',
+        lastMessage: sub2api
+          ? 'Saved Codex OAuth session to Codey app and synced it to Sub2API'
+          : 'Saved Codex OAuth session to Codey app',
       },
     )
 
@@ -1712,6 +1732,13 @@ export async function runCodexOAuthFlow(
             sessionRecordId: codeyApp.sessionRecordId,
           }
         : undefined,
+      sub2api: sub2api
+        ? {
+            accountId: sub2api.accountId,
+            action: sub2api.action,
+            email: sub2api.email,
+          }
+        : undefined,
       apiHarPath: apiHarRecorder?.path,
       machine:
         undefined as unknown as CodexOAuthFlowSnapshot<CodexOAuthFlowRunResult>,
@@ -1725,7 +1752,9 @@ export async function runCodexOAuthFlow(
         email: result.email,
         redirectUri: started.redirectUri,
         tokenStorePath,
-        lastMessage: 'Codex OAuth flow completed',
+        lastMessage: sub2api
+          ? 'Codex OAuth flow completed and synced to Sub2API'
+          : 'Codex OAuth flow completed',
       },
     })
     result.machine = snapshot

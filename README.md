@@ -184,10 +184,11 @@ pnpm codey tui start --target octocat
 
 The default `pnpm codey` entry now opens a terminal UI that connects to the Codey web app at `http://localhost:3000` unless `CODEY_APP_BASE_URL` is configured.
 The TUI keeps an SSE connection to `/api/cli/events`, waits for tasks dispatched from `/admin/cli`, and reports its current flow back to the web app so the admin page can show what is running.
+The dashboard can also start flows locally from inside the terminal UI: press `s`, choose a flow, optionally fill in overrides, and the TUI will launch it directly without waiting for `/admin/cli`.
 When `CODEY_APP_CLIENT_SECRET` is configured, the TUI authenticates with `client_credentials`.
 Otherwise it reuses the stored session from `pnpm codey auth login`.
 If no reusable app session is available, the TUI now offers an in-terminal device-login prompt before opening the dashboard.
-The dashboard exposes a few built-in shortcuts: `q` / `Ctrl+C` exits, `r` reconnects to the app stream, and `c` clears the recent event list.
+The dashboard exposes a few built-in shortcuts: `s` starts a local flow, `q` / `Ctrl+C` exits, `r` reconnects to the app stream, and `c` clears the recent event list.
 
 ### Legacy stream mode
 
@@ -226,6 +227,8 @@ CODEX_SCOPE=openid profile email offline_access
 
 If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
 
+If `SUB2API_BASE_URL` and `SUB2API_BEARER_TOKEN` are configured, `flow codex-oauth` also refreshes the captured Codex refresh token against Sub2API and upserts an OpenAI OAuth account there. Codey matches existing Sub2API accounts by email and updates them in place; otherwise it creates a new account, using the email address as the Sub2API account name.
+
 Optional environment variables:
 
 ```env
@@ -233,6 +236,10 @@ CODEX_CLIENT_SECRET=your-codex-client-secret
 CODEX_REDIRECT_HOST=localhost
 CODEX_REDIRECT_PORT=1455
 CODEX_REDIRECT_PATH=/auth/callback
+SUB2API_BASE_URL=https://sub2api.example.com
+SUB2API_BEARER_TOKEN=your-sub2api-admin-bearer-token
+SUB2API_REFRESH_TOKEN_PATH=/api/v1/admin/openai/refresh-token
+SUB2API_ACCOUNTS_PATH=/api/v1/admin/accounts
 ```
 
 ## Cloudflare Email Worker

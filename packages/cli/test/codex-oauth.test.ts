@@ -21,6 +21,7 @@ const createAuthorizationCallbackCapture = vi.fn()
 const startCodexAuthorization = vi.fn()
 const exchangeCodexAuthorizationCode = vi.fn()
 const shareCodexOAuthSessionWithCodeyApp = vi.fn()
+const syncCodexOAuthSessionToSub2Api = vi.fn()
 const resolveStoredChatGPTIdentity = vi.fn()
 
 vi.mock('../src/config', () => ({
@@ -61,6 +62,7 @@ vi.mock('../src/modules/authorization/codex-client', () => ({
 
 vi.mock('../src/modules/app-auth/codex-oauth-sharing', () => ({
   shareCodexOAuthSessionWithCodeyApp,
+  syncCodexOAuthSessionToSub2Api,
 }))
 
 describe('runCodexOAuthFlow', () => {
@@ -105,6 +107,7 @@ describe('runCodexOAuthFlow', () => {
       sessionRecordId: 'managed-session-1',
       sessionStorePath: 'codey-app://managed-sessions/managed-session-1',
     })
+    syncCodexOAuthSessionToSub2Api.mockResolvedValue(null)
     resolveStoredChatGPTIdentity.mockReturnValue({
       identity: {
         email: 'person@example.com',
@@ -1151,6 +1154,11 @@ describe('runCodexOAuthFlow', () => {
       sessionRecordId: 'managed-session-1',
       sessionStorePath: 'codey-app://managed-sessions/managed-session-1',
     })
+    syncCodexOAuthSessionToSub2Api.mockResolvedValue({
+      accountId: 42,
+      action: 'created',
+      email: 'person@example.com',
+    })
 
     const page = {
       goto: vi.fn(async (url: string) => {
@@ -1174,6 +1182,14 @@ describe('runCodexOAuthFlow', () => {
         }),
       }),
     )
+    expect(syncCodexOAuthSessionToSub2Api).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identity: expect.objectContaining({
+          id: 'identity-123',
+          email: 'person@example.com',
+        }),
+      }),
+    )
     expect(result).toMatchObject({
       pageName: 'codex-oauth',
       email: 'person@example.com',
@@ -1181,6 +1197,11 @@ describe('runCodexOAuthFlow', () => {
         identityId: 'identity-123',
         identityRecordId: 'managed-identity-1',
         sessionRecordId: 'managed-session-1',
+      },
+      sub2api: {
+        accountId: 42,
+        action: 'created',
+        email: 'person@example.com',
       },
     })
   })

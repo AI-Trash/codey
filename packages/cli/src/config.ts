@@ -86,6 +86,19 @@ export interface CodexOAuthConfig {
   redirectPath?: string
 }
 
+export interface Sub2ApiConfig {
+  baseUrl?: string
+  bearerToken?: string
+  refreshTokenPath?: string
+  accountsPath?: string
+  clientId?: string
+  proxyId?: number
+  concurrency?: number
+  priority?: number
+  groupIds?: number[]
+  confirmMixedChannelRisk?: boolean
+}
+
 export interface AppConfig {
   rootDir: string
   artifactsDir: string
@@ -95,6 +108,7 @@ export interface AppConfig {
   verification?: VerificationConfig
   app?: AppAuthConfig
   codex?: CodexOAuthConfig
+  sub2api?: Sub2ApiConfig
 }
 
 export interface CliRuntimeConfig extends AppConfig {
@@ -136,6 +150,15 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
 function parseNumber(value: string | undefined, fallback: number): number {
   const num = Number(value)
   return Number.isFinite(num) ? num : fallback
+}
+
+function parseOptionalNumber(value: string | undefined): number | undefined {
+  if (value == null || value === '') {
+    return undefined
+  }
+
+  const num = Number(value)
+  return Number.isFinite(num) ? num : undefined
 }
 
 function hasEnvValue(value: string | undefined): boolean {
@@ -210,6 +233,55 @@ function buildCodeyAppConfig(): CodeyAppConfig | undefined {
   }
 }
 
+function parseIntegerList(value: string | undefined): number[] | undefined {
+  if (!hasEnvValue(value)) {
+    return undefined
+  }
+
+  const parsed = value
+    .split(',')
+    .map((entry) => Number(entry.trim()))
+    .filter((entry) => Number.isInteger(entry) && entry > 0)
+
+  return parsed.length > 0 ? parsed : undefined
+}
+
+function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
+  const relevantEnvNames = [
+    'SUB2API_BASE_URL',
+    'SUB2API_BEARER_TOKEN',
+    'SUB2API_REFRESH_TOKEN_PATH',
+    'SUB2API_ACCOUNTS_PATH',
+    'SUB2API_CLIENT_ID',
+    'SUB2API_PROXY_ID',
+    'SUB2API_CONCURRENCY',
+    'SUB2API_PRIORITY',
+    'SUB2API_GROUP_IDS',
+    'SUB2API_CONFIRM_MIXED_CHANNEL_RISK',
+  ]
+
+  if (!hasAnyDefinedEnv(relevantEnvNames)) {
+    return undefined
+  }
+
+  return {
+    baseUrl: process.env.SUB2API_BASE_URL,
+    bearerToken: process.env.SUB2API_BEARER_TOKEN,
+    refreshTokenPath: process.env.SUB2API_REFRESH_TOKEN_PATH,
+    accountsPath: process.env.SUB2API_ACCOUNTS_PATH,
+    clientId: process.env.SUB2API_CLIENT_ID,
+    proxyId: parseOptionalNumber(process.env.SUB2API_PROXY_ID),
+    concurrency: parseOptionalNumber(process.env.SUB2API_CONCURRENCY),
+    priority: parseOptionalNumber(process.env.SUB2API_PRIORITY),
+    groupIds: parseIntegerList(process.env.SUB2API_GROUP_IDS),
+    confirmMixedChannelRisk: hasEnvValue(
+      process.env.SUB2API_CONFIRM_MIXED_CHANNEL_RISK,
+    )
+      ? parseBoolean(process.env.SUB2API_CONFIRM_MIXED_CHANNEL_RISK, false)
+      : undefined,
+  }
+}
+
 function mergeDeep<T>(base: T, patch?: PartialDeep<T>): T {
   if (!patch) return base
   const output = { ...base } as Record<string, unknown>
@@ -236,6 +308,7 @@ function buildDefaultConfig(): AppConfig {
       }
     : undefined
   const codeyAppConfig = buildCodeyAppConfig()
+  const sub2ApiConfig = buildSub2ApiConfig()
   const verificationConfig =
     parseVerificationProviderConfigKind(process.env.VERIFICATION_PROVIDER) ||
     codeyAppConfig
@@ -301,6 +374,7 @@ function buildDefaultConfig(): AppConfig {
     verification: verificationConfig,
     app: codeyAppConfig,
     codex: codexConfig,
+    sub2api: sub2ApiConfig,
   }
 }
 

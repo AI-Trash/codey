@@ -43,6 +43,7 @@ import {
   type DashboardPhase,
   type DashboardState,
 } from './dashboard-model'
+import { promptForManualFlowTask } from './manual-flow'
 
 const REQUIRED_TUI_SCOPE = 'notifications:read'
 
@@ -294,7 +295,7 @@ function renderDashboardView(state: DashboardState): VNode {
                 'Message',
                 toDisplayValue(
                   currentFlow?.message,
-                  'Waiting for a task from Codey web...',
+                  'Waiting for a task from Codey web, or press s to start one locally.',
                 ),
               ),
               renderInfoRow(
@@ -331,7 +332,7 @@ function renderDashboardView(state: DashboardState): VNode {
             },
             [
               ui.text(
-                'Open Codey web at /admin/cli to inspect connected clients.',
+                'Open Codey web at /admin/cli to inspect connected clients, or press s to start a flow locally.',
                 {
                   variant: 'caption',
                   wrap: true,
@@ -343,6 +344,7 @@ function renderDashboardView(state: DashboardState): VNode {
                   wrap: true,
                 },
                 [
+                  renderHint('s', 'start local flow'),
                   renderHint('q', 'quit'),
                   renderHint('r', 'reconnect'),
                   renderHint('c', 'clear events'),
@@ -530,6 +532,9 @@ export async function runTuiDashboard(input: {
   let stopRequested = false
   let reconnectRequested = false
   let streamAbortController: AbortController | null = null
+  let runtimeReporter: CliConnectionRuntimeReporter | null = null
+  let flowExecutionChain: Promise<void> = Promise.resolve()
+  let localPromptInFlight = false
   let appStarted = false
 
   const updateState = (
@@ -585,7 +590,208 @@ export async function runTuiDashboard(input: {
     requestStop()
   }
 
+  const withDashboardSuspended = async <T>(
+    task: () => Promise<T>,
+  ): Promise<T> => {
+    if (!appStarted) {
+      return task()
+    }
+
+    await app.stop()
+
+    try {
+      return await task()
+    } finally {
+      if (!stopRequested) {
+        await app.start()
+        app.update(dashboardState)
+      }
+    }
+  }
+
+  const runDashboardFlowTask = async (task: {
+    flowId: CliFlowCommandId
+    options: FlowOptions
+    notificationId: string
+    message: string
+  }): Promise<void> => {
+    const executeTask = async () => {
+      const startedAt = new Date().toISOString()
+
+      updateState((state) =>
+        startDashboardFlow(state, {
+          flowId: task.flowId,
+          notificationId: task.notificationId,
+          message: task.message,
+          startedAt,
+        }),
+      )
+      runtimeReporter?.update({
+        runtimeFlowId: task.flowId,
+        runtimeTaskId: task.notificationId,
+        runtimeFlowStatus: 'running',
+        runtimeFlowMessage: task.message,
+        runtimeFlowStartedAt: startedAt,
+        runtimeFlowCompletedAt: null,
+      })
+
+      const progressReporter: FlowProgressReporter = (update) => {
+        const message = formatProgressMessage(update)
+        updateState((state) =>
+          updateDashboardFlowProgress(state, {
+            status: update.status,
+            message,
+          }),
+        )
+
+        if (message) {
+          runtimeReporter?.update({
+            runtimeFlowId: task.flowId,
+            runtimeTaskId: task.notificationId,
+            runtimeFlowStatus:
+              update.status === 'failed' ? 'failed' : 'running',
+            runtimeFlowMessage: message,
+            runtimeFlowStartedAt: startedAt,
+          })
+        }
+      }
+
+      try {
+        const execution = await input.executeFlow(task.flowId, {
+          ...task.options,
+          progressReporter,
+        })
+        const completedAt = execution.completedAt || new Date().toISOString()
+        const summary =
+          formatFlowCompletionSummary(execution.command, execution.result)
+            .split('\n')
+            .find((line) => line.trim()) || 'Flow completed'
+
+        updateState((state) =>
+          completeDashboardFlow(state, {
+            flowId: task.flowId,
+            message: summary,
+            completedAt,
+          }),
+        )
+        runtimeReporter?.update({
+          runtimeFlowId: task.flowId,
+          runtimeTaskId: task.notificationId,
+          runtimeFlowStatus: execution.status,
+          runtimeFlowMessage: 'Flow completed',
+          runtimeFlowStartedAt: startedAt,
+          runtimeFlowCompletedAt: completedAt,
+        })
+      } catch (error) {
+        const sanitized = sanitizeErrorForOutput(error)
+        const completedAt = new Date().toISOString()
+
+        updateState((state) =>
+          failDashboardFlow(state, {
+            flowId: task.flowId,
+            message: sanitized.message,
+            completedAt,
+          }),
+        )
+        runtimeReporter?.update({
+          runtimeFlowId: task.flowId,
+          runtimeTaskId: task.notificationId,
+          runtimeFlowStatus: 'failed',
+          runtimeFlowMessage: sanitized.message,
+          runtimeFlowStartedAt: startedAt,
+          runtimeFlowCompletedAt: completedAt,
+        })
+      } finally {
+        await runtimeReporter?.flush()
+        setRuntimeConfig(input.config)
+
+        if (
+          (stopRequested || reconnectRequested) &&
+          dashboardState.currentFlow?.status !== 'running'
+        ) {
+          streamAbortController?.abort()
+        }
+      }
+    }
+
+    const scheduled = flowExecutionChain.then(executeTask, executeTask)
+    flowExecutionChain = scheduled.catch(() => undefined)
+    await scheduled
+  }
+
+  const requestLocalFlowStart = () => {
+    if (stopRequested) {
+      return
+    }
+
+    if (localPromptInFlight) {
+      updateState((state) =>
+        appendDashboardEvent(state, 'Local flow launcher is already open.'),
+      )
+      return
+    }
+
+    if (dashboardState.currentFlow?.status === 'running') {
+      updateState((state) =>
+        appendDashboardEvent(
+          state,
+          'A flow is already running. Wait for it to finish before starting another one locally.',
+        ),
+      )
+      return
+    }
+
+    localPromptInFlight = true
+    updateState((state) =>
+      appendDashboardEvent(state, 'Opening local flow launcher...'),
+    )
+
+    void (async () => {
+      try {
+        const task = await withDashboardSuspended(() =>
+          promptForManualFlowTask(),
+        )
+
+        if (stopRequested) {
+          return
+        }
+
+        if (dashboardState.currentFlow?.status === 'running') {
+          updateState((state) =>
+            appendDashboardEvent(
+              state,
+              'Another flow started while the local launcher was open. Try again once it finishes.',
+            ),
+          )
+          return
+        }
+
+        await runDashboardFlowTask({
+          flowId: task.flowId,
+          options: task.options,
+          notificationId: `local:${Date.now()}`,
+          message: 'Local task started',
+        })
+      } catch (error) {
+        const normalized = toPromptCancelError(error)
+        const message =
+          normalized.message === 'TUI startup canceled.'
+            ? 'Local flow start canceled.'
+            : `Local flow start failed: ${normalized.message}`
+        updateState((state) => appendDashboardEvent(state, message))
+      } finally {
+        localPromptInFlight = false
+      }
+    })()
+  }
+
   app.keys({
+    s: {
+      description: 'Start a local flow',
+      handler: () => {
+        requestLocalFlowStart()
+      },
+    },
     q: {
       description: 'Quit the TUI',
       handler: () => {
@@ -670,7 +876,7 @@ export async function runTuiDashboard(input: {
           ),
         )
 
-        const runtimeReporter = new CliConnectionRuntimeReporter({
+        const connectionRuntimeReporter = new CliConnectionRuntimeReporter({
           authState,
           onError: (error) => {
             updateState((state) =>
@@ -681,6 +887,7 @@ export async function runTuiDashboard(input: {
             )
           },
         })
+        runtimeReporter = connectionRuntimeReporter
 
         updateState((state) =>
           appendDashboardEvent(
@@ -704,7 +911,7 @@ export async function runTuiDashboard(input: {
             {
               onConnection: (event: CliConnectionEvent) => {
                 connectionOpened = true
-                runtimeReporter.setConnectionId(event.connectionId)
+                connectionRuntimeReporter.setConnectionId(event.connectionId)
                 updateState((state) => applyCliConnectionEvent(state, event))
               },
             },
@@ -730,96 +937,12 @@ export async function runTuiDashboard(input: {
             const flowId = notification.payload.flowId as CliFlowCommandId
             const taskOptions = (notification.payload.options ||
               {}) as FlowOptions
-            const startedAt = new Date().toISOString()
-
-            updateState((state) =>
-              startDashboardFlow(state, {
-                flowId,
-                notificationId: notification.id,
-                message: notification.title || 'Task started',
-                startedAt,
-              }),
-            )
-            runtimeReporter.update({
-              runtimeFlowId: flowId,
-              runtimeTaskId: notification.id,
-              runtimeFlowStatus: 'running',
-              runtimeFlowMessage: notification.title || 'Task started',
-              runtimeFlowStartedAt: startedAt,
-              runtimeFlowCompletedAt: null,
+            await runDashboardFlowTask({
+              flowId,
+              options: taskOptions,
+              notificationId: notification.id,
+              message: notification.title || 'Task started',
             })
-
-            const progressReporter: FlowProgressReporter = (update) => {
-              const message = formatProgressMessage(update)
-              updateState((state) =>
-                updateDashboardFlowProgress(state, {
-                  status: update.status,
-                  message,
-                }),
-              )
-
-              if (message) {
-                runtimeReporter.update({
-                  runtimeFlowId: flowId,
-                  runtimeTaskId: notification.id,
-                  runtimeFlowStatus:
-                    update.status === 'failed' ? 'failed' : 'running',
-                  runtimeFlowMessage: message,
-                  runtimeFlowStartedAt: startedAt,
-                })
-              }
-            }
-
-            try {
-              const execution = await input.executeFlow(flowId, {
-                ...taskOptions,
-                progressReporter,
-              })
-              const completedAt =
-                execution.completedAt || new Date().toISOString()
-              const summary =
-                formatFlowCompletionSummary(execution.command, execution.result)
-                  .split('\n')
-                  .find((line) => line.trim()) || 'Flow completed'
-
-              updateState((state) =>
-                completeDashboardFlow(state, {
-                  flowId,
-                  message: summary,
-                  completedAt,
-                }),
-              )
-              runtimeReporter.update({
-                runtimeFlowId: flowId,
-                runtimeTaskId: notification.id,
-                runtimeFlowStatus: execution.status,
-                runtimeFlowMessage: 'Flow completed',
-                runtimeFlowStartedAt: startedAt,
-                runtimeFlowCompletedAt: completedAt,
-              })
-            } catch (error) {
-              const sanitized = sanitizeErrorForOutput(error)
-              const completedAt = new Date().toISOString()
-
-              updateState((state) =>
-                failDashboardFlow(state, {
-                  flowId,
-                  message: sanitized.message,
-                  completedAt,
-                }),
-              )
-              runtimeReporter.update({
-                runtimeFlowId: flowId,
-                runtimeTaskId: notification.id,
-                runtimeFlowStatus: 'failed',
-                runtimeFlowMessage: sanitized.message,
-                runtimeFlowStartedAt: startedAt,
-                runtimeFlowCompletedAt: completedAt,
-              })
-            } finally {
-              await runtimeReporter.flush()
-              setRuntimeConfig(input.config)
-            }
 
             if (stopRequested) {
               break
@@ -847,6 +970,7 @@ export async function runTuiDashboard(input: {
           }
         } finally {
           streamAbortController = null
+          runtimeReporter = null
         }
 
         if (stopRequested) {

@@ -46,6 +46,19 @@ const codexEnvNames = {
   CODEX_REDIRECT_PATH: undefined,
 }
 
+const sub2apiEnvNames = {
+  SUB2API_BASE_URL: undefined,
+  SUB2API_BEARER_TOKEN: undefined,
+  SUB2API_REFRESH_TOKEN_PATH: undefined,
+  SUB2API_ACCOUNTS_PATH: undefined,
+  SUB2API_CLIENT_ID: undefined,
+  SUB2API_PROXY_ID: undefined,
+  SUB2API_CONCURRENCY: undefined,
+  SUB2API_PRIORITY: undefined,
+  SUB2API_GROUP_IDS: undefined,
+  SUB2API_CONFIRM_MIXED_CHANNEL_RISK: undefined,
+}
+
 describe('resolveConfig codex defaults', () => {
   it('uses built-in Codex OAuth defaults when env overrides are absent', async () => {
     const config = await withEnv(codexEnvNames, () => resolveConfig())
@@ -74,6 +87,36 @@ describe('resolveConfig codex defaults', () => {
     expect(config.codex?.clientId).toBe(defaultCodexOAuthConfig.clientId)
     expect(config.codex?.scope).toBe(defaultCodexOAuthConfig.scope)
     expect(config.codex?.redirectPort).toBe(1455)
+  })
+})
+
+describe('resolveConfig sub2api sync config', () => {
+  it('reads SUB2API env vars into sync config', async () => {
+    const config = await withEnv(
+      {
+        ...sub2apiEnvNames,
+        SUB2API_BASE_URL: 'https://sub2api.example.com',
+        SUB2API_BEARER_TOKEN: 'sub2api-bearer',
+        SUB2API_CONCURRENCY: '3',
+        SUB2API_PRIORITY: '7',
+        SUB2API_GROUP_IDS: '11, 12, invalid, 13',
+        SUB2API_CONFIRM_MIXED_CHANNEL_RISK: 'true',
+      },
+      () => resolveConfig(),
+    )
+
+    expect(config.sub2api).toEqual({
+      baseUrl: 'https://sub2api.example.com',
+      bearerToken: 'sub2api-bearer',
+      refreshTokenPath: undefined,
+      accountsPath: undefined,
+      clientId: undefined,
+      proxyId: undefined,
+      concurrency: 3,
+      priority: 7,
+      groupIds: [11, 12, 13],
+      confirmMixedChannelRisk: true,
+    })
   })
 })
 
