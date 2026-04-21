@@ -1,7 +1,11 @@
 import "@tanstack/react-start/server-only";
 import { and, desc, eq } from "drizzle-orm";
+import { type ManagedSessionJsonObject } from "../managed-session-export";
 import { getDb } from "./db/client";
-import { managedIdentitySessions } from "./db/schema";
+import {
+  managedIdentitySessions,
+  type ManagedIdentitySessionStatus,
+} from "./db/schema";
 import { createId } from "./security";
 
 export interface AdminManagedSessionSummary {
@@ -20,7 +24,7 @@ export interface AdminManagedSessionSummary {
   lastSeenAt: string;
   createdAt: string;
   updatedAt: string;
-  sessionData: Record<string, unknown>;
+  sessionData: ManagedSessionJsonObject;
 }
 
 function parseOptionalDate(value?: string | null): Date | null {
@@ -41,6 +45,14 @@ function mapSessionStatus(expiresAt?: Date | null): string {
   return "active";
 }
 
+function normalizeSessionData(value: unknown): ManagedSessionJsonObject {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return JSON.parse(JSON.stringify(value)) as ManagedSessionJsonObject;
+}
+
 function buildManagedSessionSummary(row: {
   id: string;
   identityId: string;
@@ -56,10 +68,10 @@ function buildManagedSessionSummary(row: {
   lastSeenAt: Date;
   createdAt: Date;
   updatedAt: Date;
-  sessionData: Record<string, unknown>;
+  sessionData: unknown;
   identity?: {
     label: string | null;
-    email: string;
+    email: string | null;
   } | null;
 }): AdminManagedSessionSummary {
   return {
@@ -78,7 +90,7 @@ function buildManagedSessionSummary(row: {
     lastSeenAt: row.lastSeenAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    sessionData: row.sessionData,
+    sessionData: normalizeSessionData(row.sessionData),
   } satisfies AdminManagedSessionSummary;
 }
 

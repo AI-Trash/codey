@@ -8,13 +8,50 @@ import {
 } from "../../../../../lib/server/cli-tasks";
 import { DEFAULT_CLI_FLOW_TASK_PARALLELISM } from "../../../../../../packages/cli/src/modules/flow-cli/flow-registry";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function readRequestedTaskCount(body: Record<string, unknown> | null) {
-  const rawValue =
+  const configCount = Array.isArray(body?.configs)
+    ? body.configs.filter(isRecord).length
+    : 0;
+  const rawExplicitValue =
     typeof body?.repeatCount === "number" || typeof body?.repeatCount === "string"
       ? body.repeatCount
       : typeof body?.count === "number" || typeof body?.count === "string"
         ? body.count
-        : 1;
+        : undefined;
+
+  if (configCount > 0) {
+    if (configCount > MAX_CLI_FLOW_TASK_BATCH_SIZE) {
+      throw new Error(
+        `repeatCount cannot exceed ${MAX_CLI_FLOW_TASK_BATCH_SIZE}.`,
+      );
+    }
+
+    if (rawExplicitValue != null) {
+      const explicitCount =
+        typeof rawExplicitValue === "number"
+          ? rawExplicitValue
+          : Number.parseInt(rawExplicitValue, 10);
+
+      if (!Number.isInteger(explicitCount) || explicitCount < 1) {
+        throw new Error("repeatCount must be a whole number greater than 0.");
+      }
+
+      if (explicitCount !== configCount) {
+        throw new Error("repeatCount must match configs length.");
+      }
+    }
+
+    return configCount;
+  }
+
+  const rawValue =
+    rawExplicitValue != null
+      ? rawExplicitValue
+      : 1;
 
   const parsed =
     typeof rawValue === "number" ? rawValue : Number.parseInt(rawValue, 10);
@@ -108,15 +145,15 @@ export const Route = createFileRoute(
               email: admin.user.email,
             },
             config:
-              body?.config &&
-              typeof body.config === "object" &&
-              !Array.isArray(body.config)
+              isRecord(body?.config)
                 ? (body.config as Record<string, unknown>)
                 : body?.options &&
-                    typeof body.options === "object" &&
-                    !Array.isArray(body.options)
+                    isRecord(body.options)
                   ? (body.options as Record<string, unknown>)
                   : null,
+            configs: Array.isArray(body?.configs)
+              ? body.configs.filter(isRecord)
+              : null,
           });
 
           return json(
@@ -132,6 +169,7 @@ export const Route = createFileRoute(
               connectionId: result.connection.id,
               flowId,
               config: result.config,
+              configs: result.configs || null,
               externalServices: result.externalServices || null,
             },
             201,

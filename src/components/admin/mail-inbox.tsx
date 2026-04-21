@@ -40,6 +40,12 @@ import {
   formatAdminDate,
   StatusBadge,
 } from '#/components/admin/layout'
+import {
+  AdminTableSelectionCell,
+  AdminTableSelectionHead,
+  AdminTableSelectionToolbar,
+  useAdminTableSelection,
+} from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import type { FiltersState } from '#/components/data-table-filter/core/types'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
@@ -225,6 +231,10 @@ export function AdminMailInbox(props: {
     filters,
     onFiltersChange: setFilters,
   })
+  const selection = useAdminTableSelection({
+    rows: data.emails,
+    getRowId: (email) => email.id,
+  })
 
   useEffect(() => {
     // `keepPreviousData` keeps the prior page visible while the next page loads.
@@ -353,7 +363,10 @@ export function AdminMailInbox(props: {
               <AdminDataTableFilterBar table={filterTable} />
             </div>
 
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              {data.emails.length ? (
+                <AdminTableSelectionToolbar selection={selection} />
+              ) : null}
               <NativeSelect
                 value={String(pageSize)}
                 onChange={(event) => {
@@ -434,6 +447,10 @@ export function AdminMailInbox(props: {
                 <Table className="min-w-[1120px]">
                   <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card [&_th]:shadow-[0_1px_0_hsl(var(--border))]">
                     <TableRow>
+                      <AdminTableSelectionHead
+                        rows={data.emails}
+                        selection={selection}
+                      />
                       <TableHead>{m.mail_inbox_table_received()}</TableHead>
                       <TableHead>{m.mail_inbox_table_recipient()}</TableHead>
                       <TableHead>{m.mail_inbox_table_subject()}</TableHead>
@@ -448,10 +465,15 @@ export function AdminMailInbox(props: {
                     {data.emails.map((email) => (
                       <TableRow
                         key={email.id}
-                        data-state={
-                          activeEmail?.id === email.id ? 'selected' : undefined
-                        }
+                        data-selected={selection.isSelected(email) || undefined}
+                        className={cn(
+                          activeEmail?.id === email.id && 'bg-muted/40',
+                        )}
                       >
+                        <AdminTableSelectionCell
+                          row={email}
+                          selection={selection}
+                        />
                         <TableCell className="align-top text-sm text-muted-foreground">
                           {formatAdminDate(email.receivedAt) ||
                             m.mail_inbox_timestamp_unavailable()}

@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import {
   createCliFlowTaskPayload,
   DEFAULT_CLI_FLOW_TASK_PARALLELISM,
+  type CliFlowCommandId,
   getCliFlowDefinition,
   MAX_CLI_FLOW_TASK_BATCH_SIZE,
   MAX_CLI_FLOW_TASK_PARALLELISM,
@@ -29,12 +30,15 @@ function buildTaskTitle(input: {
   flowId: string;
   sequence: number;
   total: number;
+  email?: string | null;
 }) {
+  const emailSuffix = input.email?.trim() ? ` - ${input.email.trim()}` : "";
+
   if (input.total <= 1) {
-    return `Dispatch ${input.flowId}`;
+    return `Dispatch ${input.flowId}${emailSuffix}`;
   }
 
-  return `Dispatch ${input.flowId} (${input.sequence}/${input.total})`;
+  return `Dispatch ${input.flowId} (${input.sequence}/${input.total})${emailSuffix}`;
 }
 
 function buildTaskBody(input: {
@@ -44,10 +48,14 @@ function buildTaskBody(input: {
   sequence: number;
   total: number;
   parallelism: number;
+  email?: string | null;
 }) {
   const target = input.cliName?.trim() || "CLI";
   const configLabel = input.configCount === 1 ? "override" : "overrides";
-  const base = `Run ${input.flowId} on ${target} with ${input.configCount} ${configLabel}.`;
+  const emailDetail = input.email?.trim()
+    ? ` Target email ${input.email.trim()}.`
+    : "";
+  const base = `Run ${input.flowId} on ${target} with ${input.configCount} ${configLabel}.${emailDetail}`;
 
   if (input.total <= 1) {
     return base;
@@ -101,10 +109,42 @@ function resolveRequestedParallelism(input: {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolveRequestedTaskConfigs<TFlowId extends CliFlowCommandId>(input: {
+  flowId: TFlowId;
+  config?: Record<string, unknown> | null;
+  configs?: Array<Record<string, unknown>> | null;
+  count?: number | null;
+}) {
+  const requestedConfigs = Array.isArray(input.configs)
+    ? input.configs.filter(isRecord)
+    : [];
+
+  if (!requestedConfigs.length) {
+    return [normalizeCliFlowConfig(input.flowId, input.config)];
+  }
+
+  if (requestedConfigs.length > MAX_CLI_FLOW_TASK_BATCH_SIZE) {
+    throw new Error(
+      `Task count cannot exceed ${MAX_CLI_FLOW_TASK_BATCH_SIZE}.`,
+    );
+  }
+
+  if (input.count != null && input.count !== requestedConfigs.length) {
+    throw new Error("Task count must match the provided config count.");
+  }
+
+  return requestedConfigs.map((config) =>
+    normalizeCliFlowConfig(input.flowId, config),
+  );
+}
+
 async function resolveDispatchableCliFlow(input: {
   connectionId: string;
   flowId: string;
-  config?: Record<string, unknown> | null;
   actor?: CliConnectionActorScope;
 }) {
   const connection = await getAdminCliConnectionSummaryById(input.connectionId);
@@ -144,7 +184,6 @@ async function resolveDispatchableCliFlow(input: {
   return {
     connection,
     flowDefinition,
-    config: normalizeCliFlowConfig(flowDefinition.id, input.config),
   };
 }
 
@@ -168,41 +207,57 @@ export async function dispatchCliFlowTasks(input: {
   connectionId: string;
   flowId: string;
   config?: Record<string, unknown> | null;
+  configs?: Array<Record<string, unknown>> | null;
   count?: number | null;
   parallelism?: number | null;
   actor?: CliConnectionActorScope;
 }) {
-  const count = resolveRequestedTaskCount(input.count);
+  const { connection, flowDefinition } = await resolveDispatchableCliFlow(input);
+  const taskConfigs = resolveRequestedTaskConfigs({
+    flowId: flowDefinition.id,
+    config: input.config,
+    configs: input.configs,
+    count: input.count,
+  });
+  const count =
+    taskConfigs.length > 1
+      ? taskConfigs.length
+      : resolveRequestedTaskCount(input.count);
   const parallelism = resolveRequestedParallelism({
     parallelism: input.parallelism,
     count,
   });
-  const { connection, flowDefinition, config } =
-    await resolveDispatchableCliFlow(input);
   const externalServices = await resolveCliFlowTaskExternalServices(
     flowDefinition.id,
   );
-  const configCount = Object.keys(config).length;
   const batchId = count > 1 ? createId() : undefined;
+  const queuedConfigs =
+    taskConfigs.length > 1
+      ? taskConfigs
+      : Array.from({ length: count }, () => taskConfigs[0] || {});
   const notifications = await getDb()
     .insert(adminNotifications)
     .values(
-      Array.from({ length: count }, (_, index) => {
+      queuedConfigs.map((config, index) => {
         const sequence = index + 1;
+        const email =
+          typeof config.email === "string" ? config.email.trim() : undefined;
         return {
           id: createId(),
           title: buildTaskTitle({
             flowId: flowDefinition.id,
             sequence,
             total: count,
+            email,
           }),
           body: buildTaskBody({
             flowId: flowDefinition.id,
             cliName: connection.cliName,
-            configCount,
+            configCount: Object.keys(config).length,
             sequence,
             total: count,
             parallelism,
+            email,
           }),
           kind: "flow_task" as const,
           flowType: flowDefinition.id,
@@ -221,7 +276,8 @@ export async function dispatchCliFlowTasks(input: {
   return {
     notifications,
     connection,
-    config,
+    config: queuedConfigs[0] || {},
+    configs: queuedConfigs,
     batchId,
     externalServices,
     parallelism,

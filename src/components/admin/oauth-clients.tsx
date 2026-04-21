@@ -24,6 +24,10 @@ import {
   StatusBadge,
   formatAdminDate,
 } from '#/components/admin/layout'
+import {
+  AdminTableSelectionCell,
+  AdminTableSelectionHead,
+} from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
@@ -237,6 +241,7 @@ export function OAuthClientsList({
       <ClientFilterableAdminTable
         data={clients}
         columnsConfig={columnsConfig}
+        getRowId={(client) => client.id}
         fillHeight={fillHeight}
         emptyState={
           <EmptyState
@@ -244,10 +249,11 @@ export function OAuthClientsList({
             description={m.oauth_clients_empty_description()}
           />
         }
-        renderTable={(rows) => (
+        renderTable={({ rows, selection }) => (
           <Table className="min-w-[1080px]">
             <TableHeader>
               <TableRow>
+                <AdminTableSelectionHead rows={rows} selection={selection} />
                 <TableHead>{m.oauth_clients_table_app()}</TableHead>
                 <TableHead>{m.oauth_clients_table_client_id()}</TableHead>
                 <TableHead>{m.oauth_clients_table_domain()}</TableHead>
@@ -263,7 +269,14 @@ export function OAuthClientsList({
             </TableHeader>
             <TableBody>
               {rows.map((client) => (
-                <TableRow key={client.id}>
+                <TableRow
+                  key={client.id}
+                  data-selected={selection.isSelected(client) || undefined}
+                >
+                  <AdminTableSelectionCell
+                    row={client}
+                    selection={selection}
+                  />
                   <TableCell className="whitespace-normal align-top">
                     <div className="space-y-1">
                       <div className="font-medium text-foreground">

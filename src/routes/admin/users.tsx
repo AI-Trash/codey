@@ -45,6 +45,10 @@ import {
 } from '#/components/admin/layout'
 import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
+import {
+  AdminTableSelectionCell,
+  AdminTableSelectionHead,
+} from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import {
   adminPermissionValues,
@@ -214,6 +218,7 @@ function AdminUsersPage() {
           <ClientFilterableAdminTable
             data={users}
             columnsConfig={userColumns}
+            getRowId={(user) => user.id}
             fillHeight
             emptyState={
               <EmptyState
@@ -221,10 +226,11 @@ function AdminUsersPage() {
                 description={m.admin_users_empty_description()}
               />
             }
-            renderTable={(rows) => (
+            renderTable={({ rows, selection }) => (
               <Table className="min-w-[1380px]">
                 <TableHeader>
                   <TableRow>
+                    <AdminTableSelectionHead rows={rows} selection={selection} />
                     <TableHead>{m.admin_users_table_user()}</TableHead>
                     <TableHead>{m.admin_users_table_role()}</TableHead>
                     <TableHead>{m.admin_users_table_access()}</TableHead>
@@ -235,7 +241,11 @@ function AdminUsersPage() {
                 </TableHeader>
                 <TableBody>
                   {rows.map((user) => (
-                    <TableRow key={user.id}>
+                    <TableRow
+                      key={user.id}
+                      data-selected={selection.isSelected(user) || undefined}
+                    >
+                      <AdminTableSelectionCell row={user} selection={selection} />
                       <TableCell className="align-top">
                         <div className="flex items-start gap-3">
                           <Avatar className="mt-0.5" size="sm">
@@ -383,6 +393,7 @@ function UserPermissionsDialog(props: {
     return null
   }
 
+  const user = props.user
   const nextRole =
     selectedPermissions.length > 0
       ? m.admin_sidebar_role_admin()
@@ -394,7 +405,7 @@ function UserPermissionsDialog(props: {
 
     try {
       const form = new FormData()
-      form.set('userId', props.user.id)
+      form.set('userId', user.id)
 
       for (const permission of selectedPermissions) {
         form.append('permissions', permission)

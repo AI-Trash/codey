@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   createCliFlowTaskRequest,
@@ -34,6 +34,10 @@ import {
 } from '#/components/admin/layout'
 import { AdminPaginatedTable } from '#/components/admin/filterable-table'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
+import {
+  AdminTableSelectionCell,
+  AdminTableSelectionHead,
+} from '#/components/admin/table-selection'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import {
@@ -80,6 +84,22 @@ import { m } from '#/paraglide/messages'
 
 const CLI_CONNECTION_POLL_INTERVAL_MS = 10_000
 const BOOLEAN_DEFAULT_SENTINEL = '__default__'
+const EMAIL_ADDRESS_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+
+type DispatchBatchMode = 'none' | 'repeat' | 'email-list'
+
+type DispatchBatchState = {
+  mode: DispatchBatchMode
+  count: number
+  emails: string[]
+}
+
+type DispatchSubmission<TFlowId extends CliFlowCommandId> = {
+  config: CliFlowConfigById[TFlowId]
+  configs?: CliFlowConfigById[TFlowId][]
+  repeatCount: number
+  parallelism: number
+}
 
 const loadAdminCliConnections = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -335,6 +355,7 @@ function CliConnectionsTableCard(props: {
         {props.connections.length ? (
           <AdminPaginatedTable
             rows={props.connections}
+            getRowId={(connection) => connection.id}
             fillHeight
             emptyState={
               <EmptyState
@@ -342,10 +363,11 @@ function CliConnectionsTableCard(props: {
                 description={props.emptyDescription}
               />
             }
-            renderTable={(rows) => (
+            renderTable={({ rows, selection }) => (
               <Table className="min-w-[1280px]">
                 <TableHeader>
                   <TableRow>
+                    <AdminTableSelectionHead rows={rows} selection={selection} />
                     <TableHead>{m.admin_cli_table_cli()}</TableHead>
                     <TableHead>{m.admin_cli_table_operator()}</TableHead>
                     <TableHead>{m.admin_cli_table_target()}</TableHead>
@@ -365,7 +387,16 @@ function CliConnectionsTableCard(props: {
                       getDispatchableFlowIds(connection).length
 
                     return (
-                      <TableRow key={connection.id}>
+                      <TableRow
+                        key={connection.id}
+                        data-selected={
+                          selection.isSelected(connection) || undefined
+                        }
+                      >
+                        <AdminTableSelectionCell
+                          row={connection}
+                          selection={selection}
+                        />
                         <TableCell>
                           <div className="flex min-w-0 flex-col gap-1">
                             <span className="inline-flex items-center gap-2 font-medium">
@@ -500,7 +531,12 @@ function CliTaskDialog(props: {
     setSubmitError(null)
   }, [props.connection?.id, availableFlows])
 
-  const batchingEnabled = supportsBatchDispatch(selectedFlowId)
+  const batchState = useMemo(
+    () =>
+      resolveDispatchBatchState(selectedFlowId, draftValues, dispatchCount),
+    [dispatchCount, draftValues, selectedFlowId],
+  )
+  const batchingEnabled = batchState.mode !== 'none'
 
   const optionDefinitions = useMemo(() => {
     return selectedFlowId
@@ -522,11 +558,11 @@ function CliTaskDialog(props: {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const repeatCount = readDispatchCount(selectedFlowId, dispatchCount)
-      const parallelism = readDispatchParallelism(
+      const submission = buildDispatchSubmission(
         selectedFlowId,
+        draftValues,
+        dispatchCount,
         dispatchParallelism,
-        repeatCount,
       )
       const response = await fetch(
         `/api/admin/cli-connections/${encodeURIComponent(props.connection.id)}/tasks`,
@@ -539,10 +575,11 @@ function CliTaskDialog(props: {
           body: JSON.stringify({
             ...createCliFlowTaskRequest(
               selectedFlowId,
-              buildDispatchConfig(selectedFlowId, draftValues),
+              submission.config,
             ),
-            repeatCount,
-            parallelism,
+            ...(submission.configs ? { configs: submission.configs } : {}),
+            repeatCount: submission.repeatCount,
+            parallelism: submission.parallelism,
           }),
         },
       )
@@ -560,7 +597,7 @@ function CliTaskDialog(props: {
         props.connection,
         typeof result.queuedCount === 'number' && result.queuedCount > 0
           ? result.queuedCount
-          : repeatCount,
+          : submission.repeatCount,
       )
     } catch (error) {
       setSubmitError(
@@ -644,28 +681,48 @@ function CliTaskDialog(props: {
                 <CardContent className="pt-0">
                   <FieldSet>
                     <FieldGroup className="grid gap-4 md:grid-cols-2">
-                      <Field>
-                        <FieldLabel htmlFor="dispatch-repeat-count">
-                          {m.admin_cli_dispatch_repeat_count_label()}
-                        </FieldLabel>
-                        <Input
-                          id="dispatch-repeat-count"
-                          type="number"
-                          inputMode="numeric"
-                          min={1}
-                          max={MAX_CLI_FLOW_TASK_BATCH_SIZE}
-                          value={dispatchCount}
-                          disabled={submitting}
-                          onChange={(event) => {
-                            setDispatchCount(event.currentTarget.value)
-                          }}
-                        />
-                        <FieldDescription>
-                          {m.admin_cli_dispatch_repeat_count_description({
-                            max: String(MAX_CLI_FLOW_TASK_BATCH_SIZE),
-                          })}
-                        </FieldDescription>
-                      </Field>
+                      {batchState.mode === 'repeat' ? (
+                        <Field>
+                          <FieldLabel htmlFor="dispatch-repeat-count">
+                            {m.admin_cli_dispatch_repeat_count_label()}
+                          </FieldLabel>
+                          <Input
+                            id="dispatch-repeat-count"
+                            type="number"
+                            inputMode="numeric"
+                            min={1}
+                            max={MAX_CLI_FLOW_TASK_BATCH_SIZE}
+                            value={dispatchCount}
+                            disabled={submitting}
+                            onChange={(event) => {
+                              setDispatchCount(event.currentTarget.value)
+                            }}
+                          />
+                          <FieldDescription>
+                            {m.admin_cli_dispatch_repeat_count_description({
+                              max: String(MAX_CLI_FLOW_TASK_BATCH_SIZE),
+                            })}
+                          </FieldDescription>
+                        </Field>
+                      ) : null}
+                      {batchState.mode === 'email-list' ? (
+                        <Field>
+                          <FieldLabel htmlFor="dispatch-resolved-count">
+                            {m.admin_cli_dispatch_resolved_count_label()}
+                          </FieldLabel>
+                          <Input
+                            id="dispatch-resolved-count"
+                            value={String(batchState.count)}
+                            disabled
+                            readOnly
+                          />
+                          <FieldDescription>
+                            {m.admin_cli_dispatch_email_batch_count_description({
+                              count: String(batchState.count),
+                            })}
+                          </FieldDescription>
+                        </Field>
+                      ) : null}
                       <Field>
                         <FieldLabel htmlFor="dispatch-parallelism">
                           {m.admin_cli_dispatch_parallelism_label()}
@@ -697,6 +754,7 @@ function CliTaskDialog(props: {
             {selectedFlowId ? (
               <>
                 <DispatchOptionSection
+                  flowId={selectedFlowId}
                   title={m.admin_cli_dispatch_common_section_title()}
                   options={commonOptionDefinitions}
                   draftValues={draftValues}
@@ -710,6 +768,7 @@ function CliTaskDialog(props: {
                 />
 
                 <DispatchOptionSection
+                  flowId={selectedFlowId}
                   title={m.admin_cli_dispatch_flow_section_title()}
                   options={flowOptionDefinitions}
                   emptyMessage={m.admin_cli_dispatch_flow_section_empty()}
@@ -763,6 +822,7 @@ function CliTaskDialog(props: {
 }
 
 function DispatchOptionSection(props: {
+  flowId: CliFlowCommandId
   title: string
   options: CliFlowConfigFieldDefinition[]
   emptyMessage?: string
@@ -795,6 +855,7 @@ function DispatchOptionSection(props: {
             {props.options.map((option) => (
               <DispatchOptionField
                 key={option.key}
+                flowId={props.flowId}
                 option={option}
                 value={props.draftValues[option.key] || ''}
                 disabled={props.disabled}
@@ -811,12 +872,25 @@ function DispatchOptionSection(props: {
 }
 
 function DispatchOptionField(props: {
+  flowId: CliFlowCommandId
   option: CliFlowConfigFieldDefinition
   value: string
   disabled: boolean
   onChange: (value: string) => void
 }) {
   const inputId = `dispatch-option-${props.option.key}`
+
+  if (isCodexOAuthEmailOption(props.flowId, props.option)) {
+    return (
+      <CodexOAuthEmailDispatchField
+        inputId={inputId}
+        option={props.option}
+        value={props.value}
+        disabled={props.disabled}
+        onChange={props.onChange}
+      />
+    )
+  }
 
   if (props.option.type === 'boolean') {
     return (
@@ -847,7 +921,7 @@ function DispatchOptionField(props: {
           </SelectContent>
         </Select>
         <FieldDescription>
-          {formatOptionDescription(props.option)}
+          {formatOptionDescription(props.option, props.flowId)}
         </FieldDescription>
       </Field>
     )
@@ -870,7 +944,7 @@ function DispatchOptionField(props: {
           }}
         />
         <FieldDescription>
-          {formatOptionDescription(props.option)}
+          {formatOptionDescription(props.option, props.flowId)}
         </FieldDescription>
       </Field>
     )
@@ -892,8 +966,116 @@ function DispatchOptionField(props: {
         }}
       />
       <FieldDescription>
-        {formatOptionDescription(props.option)}
+        {formatOptionDescription(props.option, props.flowId)}
       </FieldDescription>
+    </Field>
+  )
+}
+
+function CodexOAuthEmailDispatchField(props: {
+  inputId: string
+  option: CliFlowConfigFieldDefinition
+  value: string
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [importFeedback, setImportFeedback] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const detectedEmails = useMemo(
+    () => extractDispatchEmailAddresses(props.value),
+    [props.value],
+  )
+
+  return (
+    <Field className="md:col-span-2">
+      <FieldLabel htmlFor={props.inputId}>
+        {getOptionDisplayName(props.option)}
+      </FieldLabel>
+      <Textarea
+        id={props.inputId}
+        value={props.value}
+        disabled={props.disabled}
+        rows={6}
+        placeholder={'a@example.com\nb@example.com'}
+        onChange={(event) => {
+          setImportFeedback(null)
+          setImportError(null)
+          props.onChange(event.currentTarget.value)
+        }}
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={props.disabled}
+          onClick={() => {
+            fileInputRef.current?.click()
+          }}
+        >
+          {m.admin_cli_dispatch_upload_csv()}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {detectedEmails.length
+            ? m.admin_cli_dispatch_email_detected_count({
+                count: String(detectedEmails.length),
+              })
+            : m.admin_cli_dispatch_email_batch_hint()}
+        </span>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        className="hidden"
+        disabled={props.disabled}
+        onChange={async (event) => {
+          const file = event.currentTarget.files?.[0]
+          if (!file) {
+            return
+          }
+
+          try {
+            const content = await file.text()
+            const importedEmails = extractDispatchEmailAddresses(content)
+
+            if (!importedEmails.length) {
+              setImportFeedback(null)
+              setImportError(m.admin_cli_dispatch_upload_csv_empty())
+              return
+            }
+
+            const mergedEmails = mergeDispatchEmailAddresses(
+              extractDispatchEmailAddresses(props.value),
+              importedEmails,
+            )
+
+            props.onChange(mergedEmails.join('\n'))
+            setImportError(null)
+            setImportFeedback(
+              m.admin_cli_dispatch_upload_csv_success({
+                count: String(importedEmails.length),
+                file: file.name,
+              }),
+            )
+          } catch {
+            setImportFeedback(null)
+            setImportError(m.admin_cli_dispatch_upload_csv_error())
+          } finally {
+            event.currentTarget.value = ''
+          }
+        }}
+      />
+      <FieldDescription>
+        {formatOptionDescription(props.option, 'codex-oauth')}
+      </FieldDescription>
+      {importFeedback ? (
+        <p className="text-xs text-muted-foreground">{importFeedback}</p>
+      ) : null}
+      {importError ? (
+        <p className="text-xs text-destructive">{importError}</p>
+      ) : null}
     </Field>
   )
 }
@@ -966,14 +1148,97 @@ function getDispatchableFlowIds(
     .map((definition) => definition.id)
 }
 
-function supportsBatchDispatch(
+function supportsRepeatedDispatch(
   flowId: CliFlowCommandId | '',
 ): flowId is 'chatgpt-register' {
   return flowId === 'chatgpt-register'
 }
 
+function isCodexOAuthEmailOption(
+  flowId: CliFlowCommandId,
+  option: CliFlowConfigFieldDefinition,
+) {
+  return flowId === 'codex-oauth' && option.key === 'email'
+}
+
+function extractDispatchEmailAddresses(input: string): string[] {
+  const normalized = new Map<string, string>()
+  const matches = input.match(EMAIL_ADDRESS_PATTERN) || []
+
+  for (const match of matches) {
+    const email = match.trim().toLowerCase()
+    if (!email || normalized.has(email)) {
+      continue
+    }
+    normalized.set(email, email)
+  }
+
+  return [...normalized.values()]
+}
+
+function mergeDispatchEmailAddresses(...lists: string[][]): string[] {
+  const normalized = new Map<string, string>()
+
+  for (const list of lists) {
+    for (const email of list) {
+      const nextEmail = email.trim().toLowerCase()
+      if (!nextEmail || normalized.has(nextEmail)) {
+        continue
+      }
+      normalized.set(nextEmail, nextEmail)
+    }
+  }
+
+  return [...normalized.values()]
+}
+
+function previewDispatchCount(rawValue: string): number {
+  const normalized = rawValue.trim()
+  if (!normalized) {
+    return 1
+  }
+
+  const parsed = Number.parseInt(normalized, 10)
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return 1
+  }
+
+  return Math.min(parsed, MAX_CLI_FLOW_TASK_BATCH_SIZE)
+}
+
+function resolveDispatchBatchState(
+  flowId: CliFlowCommandId | '',
+  draftValues: DraftOptionState,
+  rawDispatchCount: string,
+): DispatchBatchState {
+  if (supportsRepeatedDispatch(flowId)) {
+    return {
+      mode: 'repeat',
+      count: previewDispatchCount(rawDispatchCount),
+      emails: [],
+    }
+  }
+
+  if (flowId === 'codex-oauth') {
+    const emails = extractDispatchEmailAddresses(draftValues.email || '')
+    if (emails.length > 1) {
+      return {
+        mode: 'email-list',
+        count: emails.length,
+        emails,
+      }
+    }
+  }
+
+  return {
+    mode: 'none',
+    count: 1,
+    emails: [],
+  }
+}
+
 function readDispatchCount(flowId: CliFlowCommandId, rawValue: string): number {
-  if (!supportsBatchDispatch(flowId)) {
+  if (!supportsRepeatedDispatch(flowId)) {
     return 1
   }
 
@@ -999,11 +1264,11 @@ function readDispatchCount(flowId: CliFlowCommandId, rawValue: string): number {
 }
 
 function readDispatchParallelism(
-  flowId: CliFlowCommandId,
+  batchMode: DispatchBatchMode,
   rawValue: string,
   repeatCount: number,
 ): number {
-  if (!supportsBatchDispatch(flowId)) {
+  if (batchMode === 'none') {
     return DEFAULT_CLI_FLOW_TASK_PARALLELISM
   }
 
@@ -1034,6 +1299,64 @@ function readDispatchParallelism(
   }
 
   return parsed
+}
+
+function buildDispatchSubmission<TFlowId extends CliFlowCommandId>(
+  flowId: TFlowId,
+  draftValues: DraftOptionState,
+  rawDispatchCount: string,
+  rawDispatchParallelism: string,
+): DispatchSubmission<TFlowId> {
+  const config = buildDispatchConfig(flowId, draftValues)
+  const batchState = resolveDispatchBatchState(
+    flowId,
+    draftValues,
+    rawDispatchCount,
+  )
+
+  if (batchState.mode === 'email-list') {
+    const identityId = draftValues.identityId?.trim()
+    if (identityId) {
+      throw new Error(m.admin_cli_dispatch_email_batch_identity_id_error())
+    }
+
+    if (batchState.count > MAX_CLI_FLOW_TASK_BATCH_SIZE) {
+      throw new Error(
+        m.admin_cli_dispatch_email_batch_count_error({
+          max: String(MAX_CLI_FLOW_TASK_BATCH_SIZE),
+        }),
+      )
+    }
+
+    const { email: _discardedEmail, ...sharedConfig } = config as
+      CliFlowConfigById['codex-oauth']
+    const configs = batchState.emails.map((email) => ({
+      ...sharedConfig,
+      email,
+    })) as CliFlowConfigById[TFlowId][]
+
+    return {
+      config: sharedConfig as CliFlowConfigById[TFlowId],
+      configs,
+      repeatCount: configs.length,
+      parallelism: readDispatchParallelism(
+        batchState.mode,
+        rawDispatchParallelism,
+        configs.length,
+      ),
+    }
+  }
+
+  const repeatCount = readDispatchCount(flowId, rawDispatchCount)
+  return {
+    config,
+    repeatCount,
+    parallelism: readDispatchParallelism(
+      batchState.mode,
+      rawDispatchParallelism,
+      repeatCount,
+    ),
+  }
 }
 
 function buildDispatchConfig<TFlowId extends CliFlowCommandId>(
@@ -1076,6 +1399,15 @@ function buildDispatchConfig<TFlowId extends CliFlowCommandId>(
       if (parsed.length) {
         config[definition.key] = parsed
       }
+      continue
+    }
+
+    if (isCodexOAuthEmailOption(flowId, definition)) {
+      const emails = extractDispatchEmailAddresses(rawValue)
+      if (!emails.length) {
+        throw new Error(m.admin_cli_dispatch_email_batch_invalid())
+      }
+      config[definition.key] = emails[0]
       continue
     }
 
@@ -1182,12 +1514,18 @@ function getOptionDisplayName(option: CliFlowConfigFieldDefinition): string {
   return optionDisplayNameMap[option.displayNameKey]()
 }
 
-function formatOptionDescription(option: CliFlowConfigFieldDefinition): string {
+function formatOptionDescription(
+  option: CliFlowConfigFieldDefinition,
+  flowId?: CliFlowCommandId,
+): string {
   const detail = option.descriptionKey
     ? optionDescriptionMap[option.descriptionKey]()
     : ''
   const parts = [
     detail,
+    flowId && isCodexOAuthEmailOption(flowId, option)
+      ? m.admin_cli_dispatch_email_batch_help()
+      : '',
     option.type === 'stringList' ? m.admin_cli_dispatch_string_list_hint() : '',
     m.admin_cli_dispatch_option_flag_hint({ flag: option.cliFlag }),
   ].filter(Boolean)

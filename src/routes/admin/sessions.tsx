@@ -27,6 +27,10 @@ import {
 } from '#/components/admin/layout'
 import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
+import {
+  AdminTableSelectionCell,
+  AdminTableSelectionHead,
+} from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import {
   AlertDialog,
@@ -75,6 +79,7 @@ import {
   buildManagedSessionAuthJson,
   buildManagedSessionAuthJsonFileName,
   isCodexAuthManagedSession,
+  type ManagedSessionJsonObject,
 } from '#/lib/managed-session-export'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
@@ -125,7 +130,7 @@ type ManagedSessionSummary = {
   lastSeenAt: string
   createdAt: string
   updatedAt: string
-  sessionData: Record<string, unknown>
+  sessionData: ManagedSessionJsonObject
 }
 
 function downloadManagedSessionAuthJson(summary: ManagedSessionSummary) {
@@ -265,6 +270,7 @@ function AdminSessionsPage() {
           <ClientFilterableAdminTable
             data={sessions}
             columnsConfig={sessionColumns}
+            getRowId={(summary) => summary.id}
             fillHeight
             emptyState={
               <EmptyState
@@ -272,13 +278,14 @@ function AdminSessionsPage() {
                 description={m.admin_session_empty_description()}
               />
             }
-            renderActions={(rows) => (
-              <SessionBatchExportAction rows={rows as ManagedSessionSummary[]} />
+            renderActions={({ selectedRows }) => (
+              <SessionBatchExportAction rows={selectedRows} />
             )}
-            renderTable={(rows) => (
+            renderTable={({ rows, selection }) => (
               <Table className="min-w-[1540px]">
                 <TableHeader>
                   <TableRow>
+                    <AdminTableSelectionHead rows={rows} selection={selection} />
                     <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_account()}</TableHead>
                     <TableHead>{m.admin_session_table_flow()}</TableHead>
@@ -293,7 +300,14 @@ function AdminSessionsPage() {
                 </TableHeader>
                 <TableBody>
                   {rows.map((summary) => (
-                    <TableRow key={summary.id}>
+                    <TableRow
+                      key={summary.id}
+                      data-selected={selection.isSelected(summary) || undefined}
+                    >
+                      <AdminTableSelectionCell
+                        row={summary}
+                        selection={selection}
+                      />
                       <TableCell className="align-top">
                         <div className="space-y-1">
                           <div className="font-medium text-foreground">
@@ -326,6 +340,9 @@ function AdminSessionsPage() {
                       <TableCell className="align-top text-sm text-muted-foreground">
                         <CopyableValue
                           value={summary.clientId}
+                          title={m.clipboard_copy_value({
+                            label: m.admin_session_table_client_id(),
+                          })}
                           className="max-w-full"
                           contentClassName="break-all"
                         />
@@ -334,6 +351,9 @@ function AdminSessionsPage() {
                         {summary.accountId ? (
                           <CopyableValue
                             value={summary.accountId}
+                            title={m.clipboard_copy_value({
+                              label: m.admin_session_table_account_id(),
+                            })}
                             className="max-w-full"
                             contentClassName="break-all"
                           />
@@ -345,6 +365,9 @@ function AdminSessionsPage() {
                         {summary.sessionId ? (
                           <CopyableValue
                             value={summary.sessionId}
+                            title={m.clipboard_copy_value({
+                              label: m.admin_session_table_session_id(),
+                            })}
                             className="max-w-full"
                             contentClassName="break-all"
                           />

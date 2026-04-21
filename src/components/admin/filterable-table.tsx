@@ -16,6 +16,11 @@ import type {
 } from '#/components/data-table-filter/core/types'
 import type { DataTableFiltersOptions } from '#/components/data-table-filter/hooks/use-data-table-filters'
 import { EmptyState } from '#/components/admin/layout'
+import {
+  AdminTableSelectionToolbar,
+  useAdminTableSelection,
+  type AdminTableSelection,
+} from '#/components/admin/table-selection'
 import { Button } from '#/components/ui/button'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import { filterDataTableRows } from '#/lib/data-table-filters'
@@ -87,17 +92,34 @@ export function FilteredAdminTableEmptyState() {
   )
 }
 
+type AdminTableRenderContext<TData> = {
+  rows: TData[]
+  allRows: TData[]
+  selection: AdminTableSelection<TData>
+}
+
+type AdminTableActionContext<TData> = AdminTableRenderContext<TData> & {
+  selectedRows: TData[]
+}
+
 export function AdminPaginatedTable<TData>(props: {
   rows: TData[]
+  getRowId: (row: TData) => string
   emptyState: ReactNode
-  renderTable: (rows: TData[]) => ReactNode
-  renderActions?: (rows: TData[]) => ReactNode
+  renderTable: (context: AdminTableRenderContext<TData>) => ReactNode
+  renderActions?: (context: AdminTableActionContext<TData>) => ReactNode
   toolbar?: ReactNode
   resetPageKey?: string
   fillHeight?: boolean
 }) {
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(ADMIN_TABLE_PAGE_SIZE_OPTIONS[1])
+  const [pageSize, setPageSize] = useState<number>(
+    ADMIN_TABLE_PAGE_SIZE_OPTIONS[1],
+  )
+  const selection = useAdminTableSelection({
+    rows: props.rows,
+    getRowId: props.getRowId,
+  })
 
   useEffect(() => {
     setPage(1)
@@ -123,6 +145,15 @@ export function AdminPaginatedTable<TData>(props: {
   }, [currentPage, pageCount, pageSize, props.rows])
 
   const hasRows = props.rows.length > 0
+  const renderContext = {
+    rows: pageRows,
+    allRows: props.rows,
+    selection,
+  }
+  const actionContext = {
+    ...renderContext,
+    selectedRows: selection.selectedRows,
+  }
   const pageSizeControl = hasRows ? (
     <NativeSelect
       value={String(pageSize)}
@@ -148,14 +179,16 @@ export function AdminPaginatedTable<TData>(props: {
           <div className="min-w-0 flex-1">{props.toolbar}</div>
           {hasRows ? (
             <div className="flex shrink-0 flex-wrap items-center gap-2">
-              {props.renderActions?.(pageRows)}
+              <AdminTableSelectionToolbar selection={selection} />
+              {props.renderActions?.(actionContext)}
               {pageSizeControl}
             </div>
           ) : null}
         </div>
       ) : hasRows ? (
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {props.renderActions?.(pageRows)}
+          <AdminTableSelectionToolbar selection={selection} />
+          {props.renderActions?.(actionContext)}
           {pageSizeControl}
         </div>
       ) : null
@@ -184,7 +217,7 @@ export function AdminPaginatedTable<TData>(props: {
                 : ADMIN_TABLE_VIEWPORT_CLASS_NAME
             }
           >
-            {props.renderTable(pageRows)}
+            {props.renderTable(renderContext)}
           </div>
 
           <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -237,9 +270,10 @@ export function ClientFilterableAdminTable<
 >(props: {
   data: TData[]
   columnsConfig: TColumns
+  getRowId: (row: TData) => string
   emptyState: ReactNode
-  renderTable: (rows: TData[]) => ReactNode
-  renderActions?: (rows: TData[]) => ReactNode
+  renderTable: (context: AdminTableRenderContext<TData>) => ReactNode
+  renderActions?: (context: AdminTableActionContext<TData>) => ReactNode
   fillHeight?: boolean
 }) {
   const table = useAdminDataTableFilters({
@@ -255,6 +289,7 @@ export function ClientFilterableAdminTable<
   return (
     <AdminPaginatedTable
       rows={table.rows}
+      getRowId={props.getRowId}
       emptyState={<FilteredAdminTableEmptyState />}
       toolbar={<AdminDataTableFilterBar table={table} />}
       renderActions={props.renderActions}

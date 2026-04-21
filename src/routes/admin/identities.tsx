@@ -12,6 +12,7 @@ import { createServerFn } from '@tanstack/react-start'
 import {
   CalendarIcon,
   ClipboardCopyIcon,
+  DownloadIcon,
   HashIcon,
   SearchIcon,
   ShieldIcon,
@@ -27,6 +28,10 @@ import {
 } from '#/components/admin/layout'
 import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
+import {
+  AdminTableSelectionCell,
+  AdminTableSelectionHead,
+} from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import {
@@ -320,6 +325,37 @@ function getCopyableIdentityValues(
   return values
 }
 
+function escapeCsvValue(value: string) {
+  const normalizedValue = value.replaceAll('"', '""')
+  return /[",\r\n]/.test(normalizedValue)
+    ? `"${normalizedValue}"`
+    : normalizedValue
+}
+
+function downloadIdentityValuesCsv(params: {
+  field: ManagedIdentityBulkCopyField
+  values: string[]
+}) {
+  const rows = [
+    params.field,
+    ...params.values.map((value) => escapeCsvValue(value)),
+  ]
+  const blob = new Blob([`${rows.join('\n')}\n`], {
+    type: 'text/csv;charset=utf-8',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `managed-identities-${params.field}.csv`
+  link.style.display = 'none'
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url)
+  }, 0)
+}
+
 function AdminIdentitiesPage() {
   const data = Route.useLoaderData()
 
@@ -447,6 +483,7 @@ function AdminIdentitiesPage() {
           <ClientFilterableAdminTable
             data={identitySummaries}
             columnsConfig={identityColumns}
+            getRowId={(summary) => summary.id}
             fillHeight
             emptyState={
               <EmptyState
@@ -454,11 +491,11 @@ function AdminIdentitiesPage() {
                 description={m.admin_dashboard_identities_empty_description()}
               />
             }
-            renderActions={(rows) => (
+            renderActions={({ selectedRows }) => (
               <TooltipProvider>
-                <BulkCopyIdentityValuesAction rows={rows} />
+                <BulkCopyIdentityValuesAction rows={selectedRows} />
                 <BulkIdentityTagEditAction
-                  rows={rows}
+                  rows={selectedRows}
                   onSaved={(updatedIdentities) => {
                     setIdentitySummaries((current) =>
                       mergeIdentitySummaries(current, updatedIdentities),
@@ -466,7 +503,7 @@ function AdminIdentitiesPage() {
                   }}
                 />
                 <BulkDeleteIdentityAction
-                  rows={rows}
+                  rows={selectedRows}
                   onDeleted={(identityIds) => {
                     setIdentitySummaries((current) =>
                       removeIdentitySummaries(current, identityIds),
@@ -475,10 +512,11 @@ function AdminIdentitiesPage() {
                 />
               </TooltipProvider>
             )}
-            renderTable={(rows) => (
+            renderTable={({ rows, selection }) => (
               <Table className="min-w-[1460px]">
                 <TableHeader>
                   <TableRow>
+                    <AdminTableSelectionHead rows={rows} selection={selection} />
                     <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_account()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_provider()}</TableHead>
@@ -492,7 +530,14 @@ function AdminIdentitiesPage() {
                 </TableHeader>
                 <TableBody>
                   {rows.map((summary) => (
-                    <TableRow key={summary.id}>
+                    <TableRow
+                      key={summary.id}
+                      data-selected={selection.isSelected(summary) || undefined}
+                    >
+                      <AdminTableSelectionCell
+                        row={summary}
+                        selection={selection}
+                      />
                       <TableCell className="align-top">
                         <div className="space-y-1">
                           <div className="font-medium text-foreground">
@@ -572,8 +617,10 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
   const [open, setOpen] = useState(false)
   const [selectedField, setSelectedField] =
     useState<ManagedIdentityBulkCopyField>('email')
-  const [copyMessage, setCopyMessage] = useState<string | null>(null)
-  const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [actionStatus, setActionStatus] = useState<'success' | 'error' | null>(
+    null,
+  )
   const rowIdsKey = useMemo(
     () => props.rows.map((row) => row.id).join('|'),
     [props.rows],
@@ -603,8 +650,8 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
     }
 
     setSelectedField(defaultField)
-    setCopyMessage(null)
-    setCopyStatus(null)
+    setActionMessage(null)
+    setActionStatus(null)
   }, [defaultField, open, rowIdsKey])
 
   async function handleCopy() {
@@ -612,29 +659,59 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
       activeField?.label() || m.admin_identity_bulk_copy_field_email()
 
     if (!previewValue) {
-      setCopyStatus('error')
-      setCopyMessage(m.admin_identity_bulk_copy_empty({ field: fieldLabel }))
+      setActionStatus('error')
+      setActionMessage(m.admin_identity_bulk_copy_empty({ field: fieldLabel }))
       return
     }
 
     if (typeof navigator === 'undefined' || !navigator.clipboard) {
-      setCopyStatus('error')
-      setCopyMessage(m.admin_identity_bulk_copy_error({ field: fieldLabel }))
+      setActionStatus('error')
+      setActionMessage(m.admin_identity_bulk_copy_error({ field: fieldLabel }))
       return
     }
 
     try {
       await navigator.clipboard.writeText(previewValue)
-      setCopyStatus('success')
-      setCopyMessage(
+      setActionStatus('success')
+      setActionMessage(
         m.admin_identity_bulk_copy_success({
           count: String(activeField?.values.length || 0),
           field: fieldLabel,
         }),
       )
     } catch {
-      setCopyStatus('error')
-      setCopyMessage(m.admin_identity_bulk_copy_error({ field: fieldLabel }))
+      setActionStatus('error')
+      setActionMessage(m.admin_identity_bulk_copy_error({ field: fieldLabel }))
+    }
+  }
+
+  function handleDownloadCsv() {
+    const fieldLabel =
+      activeField?.label() || m.admin_identity_bulk_copy_field_email()
+
+    if (!activeField?.values.length) {
+      setActionStatus('error')
+      setActionMessage(m.admin_identity_bulk_copy_empty({ field: fieldLabel }))
+      return
+    }
+
+    try {
+      downloadIdentityValuesCsv({
+        field: activeField.value,
+        values: activeField.values,
+      })
+      setActionStatus('success')
+      setActionMessage(
+        m.admin_identity_bulk_copy_download_success({
+          count: String(activeField.values.length),
+          field: fieldLabel,
+        }),
+      )
+    } catch {
+      setActionStatus('error')
+      setActionMessage(
+        m.admin_identity_bulk_copy_download_error({ field: fieldLabel }),
+      )
     }
   }
 
@@ -678,8 +755,8 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
                   }
 
                   setSelectedField(nextField)
-                  setCopyMessage(null)
-                  setCopyStatus(null)
+                  setActionMessage(null)
+                  setActionStatus(null)
                 }}
               >
                 <SelectTrigger>
@@ -716,17 +793,17 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
               />
             </DialogField>
 
-            {copyMessage ? (
+            {actionMessage ? (
               <p
                 aria-live="polite"
                 className={cn(
                   'text-sm',
-                  copyStatus === 'success'
+                  actionStatus === 'success'
                     ? 'text-emerald-600 dark:text-emerald-300'
                     : 'text-destructive',
                 )}
               >
-                {copyMessage}
+                {actionMessage}
               </p>
             ) : null}
           </div>
@@ -740,6 +817,17 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
               }}
             >
               {m.ui_close()}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                handleDownloadCsv()
+              }}
+              disabled={!activeField?.values.length}
+            >
+              <DownloadIcon />
+              {m.admin_identity_bulk_copy_download_button()}
             </Button>
             <Button
               type="button"

@@ -1,3 +1,15 @@
+export type ManagedSessionJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ManagedSessionJsonObject
+  | ManagedSessionJsonValue[]
+
+export type ManagedSessionJsonObject = {
+  [key: string]: ManagedSessionJsonValue
+}
+
 export interface ManagedSessionExportSource {
   id: string
   identityLabel: string
@@ -5,7 +17,7 @@ export interface ManagedSessionExportSource {
   clientId: string
   authMode: string
   flowType: string
-  sessionData: Record<string, unknown>
+  sessionData: ManagedSessionJsonObject
 }
 
 const DEFAULT_CHATGPT_TOKEN_KEYS = [
@@ -25,12 +37,12 @@ const DEFAULT_CODEX_TOKEN_KEYS = [
   'expires_at',
 ] as const
 
-function asRecord(value: unknown): Record<string, unknown> | null {
+function asRecord(value: unknown): ManagedSessionJsonObject | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null
   }
 
-  return value as Record<string, unknown>
+  return value as ManagedSessionJsonObject
 }
 
 function asTrimmedString(value: unknown): string | undefined {
@@ -42,7 +54,7 @@ function asTrimmedString(value: unknown): string | undefined {
   return normalized || undefined
 }
 
-function normalizeScalar(value: unknown): unknown {
+function normalizeScalar(value: ManagedSessionJsonValue): ManagedSessionJsonValue {
   if (typeof value === 'string') {
     return value.trim() || null
   }
@@ -85,7 +97,7 @@ export function isCodexAuthManagedSession(
 
 export function buildManagedSessionAuthJson(
   session: ManagedSessionExportSource,
-): Record<string, unknown> | null {
+): ManagedSessionJsonObject | null {
   const sessionData = asRecord(session.sessionData)
   if (!sessionData) {
     return null
@@ -98,7 +110,7 @@ export function buildManagedSessionAuthJson(
     'unknown'
   const normalizedAuthMode = authMode.toLowerCase()
   const tokensRecord = asRecord(sessionData.tokens) ?? {}
-  const normalizedTokens: Record<string, unknown> = {}
+  const normalizedTokens: ManagedSessionJsonObject = {}
 
   for (const key of getDefaultTokenKeys(normalizedAuthMode)) {
     normalizedTokens[key] = normalizeScalar(tokensRecord[key])
@@ -122,7 +134,7 @@ export function buildManagedSessionAuthJson(
     client_id: asTrimmedString(sessionData.client_id) ?? session.clientId,
     provider:
       asTrimmedString(sessionData.provider) ??
-      (isCodexAuthManagedSession(session) ? 'codex' : undefined),
+      (isCodexAuthManagedSession(session) ? 'codex' : null),
     last_refresh: asTrimmedString(sessionData.last_refresh) ?? null,
     tokens: normalizedTokens,
   }
