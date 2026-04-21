@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { noopFlow } from '../src/flows/noop'
 import {
   applyFlowOptionDefaults,
+  createConsoleFlowProgressReporter,
   formatFlowProgressUpdate,
   formatFlowCompletionSummary,
   keepBrowserOpenForHarWhenUnspecified,
+  printFlowCompletionSummary,
   shouldKeepFlowOpen,
   type FlowOptions,
 } from '../src/modules/flow-cli/helpers'
+import { withCliOutput } from '../src/utils/cli-output'
 
 describe('flow cli helpers', () => {
   it('applies flow defaults without overriding explicit values', () => {
@@ -41,12 +44,12 @@ describe('flow cli helpers', () => {
 
     expect(
       applyFlowOptionDefaults<FlowOptions>({
-        chromeDefaultProfile: 'true',
-        record: 'false',
+        chromeDefaultProfile: true,
+        record: false,
       }),
     ).toMatchObject({
-      chromeDefaultProfile: 'true',
-      record: 'false',
+      chromeDefaultProfile: true,
+      record: false,
     })
   })
 
@@ -63,10 +66,10 @@ describe('flow cli helpers', () => {
       record: true,
     })
     expect(
-      keepBrowserOpenForHarWhenUnspecified({ har: 'true', record: 'false' }),
+      keepBrowserOpenForHarWhenUnspecified({ har: true, record: false }),
     ).toMatchObject({
-      har: 'true',
-      record: 'false',
+      har: true,
+      record: false,
     })
     expect(keepBrowserOpenForHarWhenUnspecified({ har: false })).toMatchObject({
       har: false,
@@ -224,5 +227,44 @@ describe('flow cli helpers', () => {
     )
     expect(failure).toContain('ChatGPT registration failed')
     expect(failure).toContain('Verification code=***redacted*** was rejected')
+  })
+
+  it('routes flow output through the configured cli sink', async () => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+
+    await withCliOutput(
+      {
+        stdoutLine: (line) => {
+          stdout.push(line)
+        },
+        stderrLine: (line) => {
+          stderr.push(line)
+        },
+      },
+      async () => {
+        printFlowCompletionSummary('flow:chatgpt-login', {
+          pageName: 'chatgpt-login',
+          email: 'person@example.com',
+          authenticated: true,
+        })
+
+        const reportProgress =
+          createConsoleFlowProgressReporter('flow:chatgpt-login')
+        reportProgress({
+          status: 'running',
+          message: 'Opening ChatGPT login entry',
+        })
+        reportProgress({
+          status: 'running',
+          message: 'Opening ChatGPT login entry',
+        })
+      },
+    )
+
+    expect(stdout).toHaveLength(1)
+    expect(stdout[0]).toContain('flow:chatgpt-login completed')
+    expect(stdout[0]).toContain('email: person@example.com')
+    expect(stderr).toEqual(['[flow:chatgpt-login] Opening ChatGPT login entry'])
   })
 })

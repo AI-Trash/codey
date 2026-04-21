@@ -1,5 +1,6 @@
 import type { Page } from 'patchright'
 import { loadWorkspaceEnv } from '../../utils/env'
+import type { CliFlowCommandId } from './flow-registry'
 import {
   applyFlowOptionDefaults,
   attachFlowArtifactPaths,
@@ -10,7 +11,9 @@ import {
   type CommonOptions,
   shouldKeepFlowOpen,
 } from './helpers'
+import { parseFlowCliArgsForCommand } from './parse-argv'
 import { runWithSession } from './run-with-session'
+import { writeCliStderrLine } from '../../utils/cli-output'
 
 export interface SingleFileFlowDefinition<
   TOptions extends CommonOptions & { record?: string | boolean } =
@@ -57,7 +60,7 @@ export async function runSingleFileFlow<
   })
   printFlowCompletionSummary(definition.command, result)
   if (shouldKeepFlowOpen(runtimeOptions)) {
-    console.error(
+    writeCliStderrLine(
       'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )
   }
@@ -73,4 +76,18 @@ export function runSingleFileFlowFromCli<
   options: TOptions,
 ): void {
   void runSingleFileFlow(definition, options).catch(reportError)
+}
+
+export function runSingleFileFlowFromCommandLine<
+  TOptions extends CommonOptions & { record?: string | boolean } =
+    CommonOptions & { record?: string | boolean },
+  TResult extends object = object,
+>(
+  flowId: CliFlowCommandId,
+  definition: SingleFileFlowDefinition<TOptions, TResult>,
+): void {
+  runSingleFileFlowFromCli(
+    definition,
+    parseFlowCliArgsForCommand(flowId, process.argv.slice(2)) as TOptions,
+  )
 }

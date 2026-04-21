@@ -4,8 +4,16 @@ import { createNodeApp } from '@rezi-ui/node'
 
 import type { CliRuntimeConfig } from '../../config'
 import { setRuntimeConfig } from '../../config'
+import {
+  withCliOutput,
+  writeCliStdoutLine,
+  type CliOutput,
+} from '../../utils/cli-output'
 import { sleep } from '../../utils/wait'
-import type { CliFlowCommandId } from '../flow-cli/flow-registry'
+import {
+  normalizeCliFlowTaskPayload,
+  type CliFlowCommandId,
+} from '../flow-cli/flow-registry'
 import {
   formatFlowCompletionSummary,
   sanitizeErrorForOutput,
@@ -453,14 +461,14 @@ async function promptForStartupAuth(input: {
     scope: REQUIRED_TUI_SCOPE,
   })
 
-  console.log('')
-  console.log('Codey device login')
-  console.log(
+  writeCliStdoutLine('')
+  writeCliStdoutLine('Codey device login')
+  writeCliStdoutLine(
     `Open: ${challenge.verificationUriComplete || challenge.verificationUri}`,
   )
-  console.log(`User code: ${challenge.userCode}`)
-  console.log(`Expires at: ${challenge.expiresAt}`)
-  console.log('Waiting for approval...')
+  writeCliStdoutLine(`User code: ${challenge.userCode}`)
+  writeCliStdoutLine(`Expires at: ${challenge.expiresAt}`)
+  writeCliStdoutLine('Waiting for approval...')
 
   const approved = await exchangeDeviceChallenge(challenge, target)
   const approvedAs =
@@ -469,8 +477,8 @@ async function promptForStartupAuth(input: {
     approved.subject ||
     'this terminal'
 
-  console.log(`Approved for ${approvedAs}. Launching TUI...`)
-  console.log('')
+  writeCliStdoutLine(`Approved for ${approvedAs}. Launching TUI...`)
+  writeCliStdoutLine('')
 
   return target
 }
@@ -570,6 +578,28 @@ export async function runTuiDashboard(input: {
     dashboardState = touchDashboardState(next)
     app.update(dashboardState)
     return dashboardState
+  }
+
+  const appendCliOutputToDashboard = (line: string) => {
+    const entries = line
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    if (!entries.length) {
+      return
+    }
+
+    updateState((state) =>
+      entries.reduce(
+        (nextState, entry) => appendDashboardEvent(nextState, entry),
+        state,
+      ),
+    )
+  }
+
+  const dashboardCliOutput: CliOutput = {
+    stdoutLine: appendCliOutputToDashboard,
+    stderrLine: appendCliOutputToDashboard,
   }
 
   const requestReconnect = () => {
@@ -701,7 +731,7 @@ export async function runTuiDashboard(input: {
 
   const runDashboardFlowTask = async (task: {
     flowId: CliFlowCommandId
-    options: FlowOptions
+    config: FlowOptions
     notificationId: string
     message: string
   }): Promise<void> => {
@@ -754,15 +784,17 @@ export async function runTuiDashboard(input: {
       }
 
       try {
-        const execution = await input.executeFlow(
-          task.flowId,
-          {
-            ...task.options,
-            progressReporter,
-          },
-          {
-            abortSignal: flowAbortController.signal,
-          },
+        const execution = await withCliOutput(dashboardCliOutput, () =>
+          input.executeFlow(
+            task.flowId,
+            {
+              ...task.config,
+              progressReporter,
+            },
+            {
+              abortSignal: flowAbortController.signal,
+            },
+          ),
         )
         const completedAt = execution.completedAt || new Date().toISOString()
         const summary =
@@ -875,7 +907,7 @@ export async function runTuiDashboard(input: {
 
         await runDashboardFlowTask({
           flowId: task.flowId,
-          options: task.options,
+          config: task.config,
           notificationId: `local:${Date.now()}`,
           message: 'Local task started',
         })
@@ -1044,22 +1076,17 @@ export async function runTuiDashboard(input: {
               handleDashboardNotification(state, notification),
             )
 
-            if (
-              notification.payload?.kind !== 'flow_task' ||
-              typeof notification.payload.flowId !== 'string'
-            ) {
+            const taskPayload = normalizeCliFlowTaskPayload(notification.payload)
+            if (!taskPayload) {
               if (stopRequested) {
                 break
               }
               continue
             }
 
-            const flowId = notification.payload.flowId as CliFlowCommandId
-            const taskOptions = (notification.payload.options ||
-              {}) as FlowOptions
             await runDashboardFlowTask({
-              flowId,
-              options: taskOptions,
+              flowId: taskPayload.flowId,
+              config: taskPayload.config as FlowOptions,
               notificationId: notification.id,
               message: notification.title || 'Task started',
             })

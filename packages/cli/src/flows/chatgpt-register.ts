@@ -78,10 +78,9 @@ import {
 } from '../modules/flow-cli/helpers'
 import { sleep } from '../utils/wait'
 import {
-  runSingleFileFlowFromCli,
+  runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
-import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 
 export type ChatGPTRegistrationFlowKind = 'chatgpt-registration'
 
@@ -1493,8 +1492,5 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  runSingleFileFlowFromCli(
-    chatgptRegisterFlow,
-    parseFlowCliArgs(process.argv.slice(2)),
-  )
+  runSingleFileFlowFromCommandLine('chatgpt-register', chatgptRegisterFlow)
 }

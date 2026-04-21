@@ -678,7 +678,7 @@ describe('runCodexOAuthFlow', () => {
 
     const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
     const result = await runCodexOAuthFlow(page, {
-      workspaceIndex: '2',
+      workspaceIndex: 2,
     })
 
     expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(page, 2)

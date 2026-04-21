@@ -1,15 +1,17 @@
 import { startTransition, useEffect, useMemo, useState } from 'react'
 
 import {
+  createCliFlowTaskRequest,
   type CliFlowCommandId,
+  type CliFlowConfigById,
+  type CliFlowConfigFieldDefinition,
+  type CliFlowConfigFieldDescriptionKey,
+  type CliFlowConfigFieldDisplayNameKey,
   type CliFlowDefinition,
   type CliFlowDescriptionKey,
   type CliFlowDisplayNameKey,
-  type CliFlowOptionDefinition,
-  type CliFlowOptionDescriptionKey,
-  type CliFlowOptionDisplayNameKey,
   cliFlowDefinitions,
-  listCliFlowOptionDefinitions,
+  listCliFlowConfigFieldDefinitions,
 } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
@@ -470,7 +472,9 @@ function CliTaskDialog(props: {
   }, [props.connection?.id, availableFlows])
 
   const optionDefinitions = useMemo(() => {
-    return selectedFlowId ? listCliFlowOptionDefinitions(selectedFlowId) : []
+    return selectedFlowId
+      ? listCliFlowConfigFieldDefinitions(selectedFlowId)
+      : []
   }, [selectedFlowId])
   const commonOptionDefinitions = optionDefinitions.filter(
     (definition) => definition.common,
@@ -496,8 +500,10 @@ function CliTaskDialog(props: {
             Accept: 'application/json',
           },
           body: JSON.stringify({
-            flowId: selectedFlowId,
-            options: buildDispatchOptions(selectedFlowId, draftValues),
+            ...createCliFlowTaskRequest(
+              selectedFlowId,
+              buildDispatchConfig(selectedFlowId, draftValues),
+            ),
           }),
         },
       )
@@ -645,7 +651,7 @@ function CliTaskDialog(props: {
 
 function DispatchOptionSection(props: {
   title: string
-  options: CliFlowOptionDefinition[]
+  options: CliFlowConfigFieldDefinition[]
   emptyMessage?: string
   draftValues: DraftOptionState
   disabled: boolean
@@ -692,7 +698,7 @@ function DispatchOptionSection(props: {
 }
 
 function DispatchOptionField(props: {
-  option: CliFlowOptionDefinition
+  option: CliFlowConfigFieldDefinition
   value: string
   disabled: boolean
   onChange: (value: string) => void
@@ -847,13 +853,13 @@ function getDispatchableFlowIds(
     .map((definition) => definition.id)
 }
 
-function buildDispatchOptions(
-  flowId: CliFlowCommandId,
+function buildDispatchConfig<TFlowId extends CliFlowCommandId>(
+  flowId: TFlowId,
   draftValues: DraftOptionState,
-) {
-  const options: Record<string, unknown> = {}
+): CliFlowConfigById[TFlowId] {
+  const config: Record<string, unknown> = {}
 
-  for (const definition of listCliFlowOptionDefinitions(flowId)) {
+  for (const definition of listCliFlowConfigFieldDefinitions(flowId)) {
     const rawValue = draftValues[definition.key]
     if (!rawValue?.trim()) {
       continue
@@ -861,7 +867,7 @@ function buildDispatchOptions(
 
     if (definition.type === 'boolean') {
       if (rawValue === 'true' || rawValue === 'false') {
-        options[definition.key] = rawValue === 'true'
+        config[definition.key] = rawValue === 'true'
       }
       continue
     }
@@ -875,7 +881,7 @@ function buildDispatchOptions(
           }),
         )
       }
-      options[definition.key] = parsed
+      config[definition.key] = parsed
       continue
     }
 
@@ -885,15 +891,15 @@ function buildDispatchOptions(
         .map((entry) => entry.trim())
         .filter(Boolean)
       if (parsed.length) {
-        options[definition.key] = parsed
+        config[definition.key] = parsed
       }
       continue
     }
 
-    options[definition.key] = rawValue.trim()
+    config[definition.key] = rawValue.trim()
   }
 
-  return options
+  return config as CliFlowConfigById[TFlowId]
 }
 
 const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
@@ -912,7 +918,10 @@ const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
   noop: () => m.admin_cli_flow_noop_description(),
 }
 
-const optionDisplayNameMap: Record<CliFlowOptionDisplayNameKey, () => string> =
+const optionDisplayNameMap: Record<
+  CliFlowConfigFieldDisplayNameKey,
+  () => string
+> =
   {
     chromeDefaultProfile: () =>
       m.admin_cli_option_chrome_default_profile_name(),
@@ -932,7 +941,10 @@ const optionDisplayNameMap: Record<CliFlowOptionDisplayNameKey, () => string> =
     authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
   }
 
-const optionDescriptionMap: Record<CliFlowOptionDescriptionKey, () => string> =
+const optionDescriptionMap: Record<
+  CliFlowConfigFieldDescriptionKey,
+  () => string
+> =
   {
     chromeDefaultProfile: () =>
       m.admin_cli_option_chrome_default_profile_description(),
@@ -986,18 +998,18 @@ function resolveFlowDescription(flowDefinition: CliFlowDefinition): string {
     : m.admin_cli_dispatch_flow_description()
 }
 
-function getOptionDisplayName(option: CliFlowOptionDefinition): string {
+function getOptionDisplayName(option: CliFlowConfigFieldDefinition): string {
   return optionDisplayNameMap[option.displayNameKey]()
 }
 
-function formatOptionDescription(option: CliFlowOptionDefinition): string {
+function formatOptionDescription(option: CliFlowConfigFieldDefinition): string {
   const detail = option.descriptionKey
     ? optionDescriptionMap[option.descriptionKey]()
     : ''
   const parts = [
     detail,
     option.type === 'stringList' ? m.admin_cli_dispatch_string_list_hint() : '',
-    m.admin_cli_dispatch_option_flag_hint({ flag: option.flag }),
+    m.admin_cli_dispatch_option_flag_hint({ flag: option.cliFlag }),
   ].filter(Boolean)
 
   return parts.join(' ')

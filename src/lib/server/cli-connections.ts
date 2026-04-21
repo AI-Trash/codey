@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only'
 
-import { and, desc, eq, gt, isNull, or } from 'drizzle-orm'
+import { and, desc, eq, gt, isNotNull, isNull, or } from 'drizzle-orm'
 import { getDb } from './db/client'
 import { cliConnections } from './db/schema'
 import { createId } from './security'
@@ -121,6 +121,19 @@ export function isCliConnectionOwnedByActor(
   )
 
   return actorTargets.has(connectionTarget)
+}
+
+export function isSharedCliConnection(
+  connection: Pick<
+    AdminCliConnectionSummary,
+    'userId' | 'target' | 'authClientId'
+  >,
+): boolean {
+  return (
+    !toOptionalString(connection.userId) &&
+    !toOptionalString(connection.target) &&
+    Boolean(toOptionalString(connection.authClientId))
+  )
 }
 
 function mapSummary(
@@ -334,13 +347,14 @@ export async function listAdminCliConnectionStateForActor(
         : targetFilter
           ? and(isNull(cliConnections.userId), targetFilter)
           : null
-
-  if (!ownershipFilter) {
-    return {
-      snapshotAt: new Date().toISOString(),
-      activeConnections: [],
-    }
-  }
+  const sharedConnectionFilter = and(
+    isNull(cliConnections.userId),
+    isNull(cliConnections.target),
+    isNotNull(cliConnections.authClientId),
+  )
+  const visibilityFilter = ownershipFilter
+    ? or(ownershipFilter, sharedConnectionFilter)
+    : sharedConnectionFilter
 
   const activeRows = await getDb().query.cliConnections.findMany({
     with: {
@@ -349,7 +363,7 @@ export async function listAdminCliConnectionStateForActor(
     where: and(
       isNull(cliConnections.disconnectedAt),
       gt(cliConnections.lastSeenAt, activeCutoff),
-      ownershipFilter,
+      visibilityFilter,
     ),
     orderBy: [desc(cliConnections.lastSeenAt)],
     limit: ACTIVE_CONNECTION_LIMIT,
@@ -359,7 +373,11 @@ export async function listAdminCliConnectionStateForActor(
     snapshotAt: new Date().toISOString(),
     activeConnections: activeRows
       .map(mapSummary)
-      .filter((connection) => isCliConnectionOwnedByActor(connection, actor)),
+      .filter(
+        (connection) =>
+          isCliConnectionOwnedByActor(connection, actor) ||
+          isSharedCliConnection(connection),
+      ),
   }
 }
 

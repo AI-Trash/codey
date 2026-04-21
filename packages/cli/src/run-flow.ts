@@ -1,4 +1,5 @@
 import { loadWorkspaceEnv } from './utils/env'
+import { writeCliStderrLine, writeCliStdoutLine } from './utils/cli-output'
 loadWorkspaceEnv()
 
 import { newSession } from './core/browser'
@@ -18,7 +19,7 @@ export async function runFlow(name: string, flow: FlowHandler): Promise<void> {
       capturedAt: new Date().toISOString(),
     })
 
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         { status: 'passed', name, screenshotPath, reportPath, result },
         null,
@@ -39,7 +40,7 @@ export async function runFlow(name: string, flow: FlowHandler): Promise<void> {
       capturedAt: new Date().toISOString(),
     })
 
-    console.error(
+    writeCliStderrLine(
       JSON.stringify(
         {
           status: 'failed',

@@ -49,14 +49,13 @@ import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
 import type { ResolvedChatGPTIdentity } from '../modules/credentials'
 import type { FlowOptions } from '../modules/flow-cli/helpers'
 import {
-  runSingleFileFlowFromCli,
+  runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
 import {
   attachStateMachineProgressReporter,
   sanitizeErrorForOutput,
 } from '../modules/flow-cli/helpers'
-import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 
 export type ChatGPTLoginFlowKind = 'chatgpt-login'
 
@@ -887,8 +886,5 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  runSingleFileFlowFromCli(
-    chatgptLoginFlow,
-    parseFlowCliArgs(process.argv.slice(2)),
-  )
+  runSingleFileFlowFromCommandLine('chatgpt-login', chatgptLoginFlow)
 }

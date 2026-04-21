@@ -21,7 +21,6 @@ import type {
 } from '../state-machine'
 import {
   attachStateMachineProgressReporter,
-  keepBrowserOpenForHarWhenUnspecified,
   parseBooleanFlag,
   parseNumberFlag,
   printFlowArtifactPath,
@@ -33,10 +32,9 @@ import {
   syncCodexOAuthSessionToSub2Api,
 } from '../modules/app-auth/codex-oauth-sharing'
 import {
-  runSingleFileFlowFromCli,
+  runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
-import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 import {
   resolveStoredChatGPTIdentity,
   type ResolvedChatGPTIdentity,
@@ -1786,10 +1784,5 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  runSingleFileFlowFromCli(
-    codexOAuthFlow,
-    keepBrowserOpenForHarWhenUnspecified(
-      parseFlowCliArgs(process.argv.slice(2)),
-    ),
-  )
+  runSingleFileFlowFromCommandLine('codex-oauth', codexOAuthFlow)
 }

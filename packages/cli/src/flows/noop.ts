@@ -2,10 +2,9 @@ import type { Page } from 'patchright'
 import { pathToFileURL } from 'url'
 import type { FlowOptions } from '../modules/flow-cli/helpers'
 import {
-  runSingleFileFlowFromCli,
+  runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
-import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 
 export interface NoopFlowResult {
   pageName: 'noop'
@@ -35,5 +34,5 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  runSingleFileFlowFromCli(noopFlow, parseFlowCliArgs(process.argv.slice(2)))
+  runSingleFileFlowFromCommandLine('noop', noopFlow)
 }

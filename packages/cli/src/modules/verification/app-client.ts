@@ -17,6 +17,7 @@ import {
   saveAppSession,
 } from '../app-auth/token-store'
 import { extractChatGPTVerificationCodeFromEmail } from '../chatgpt/common'
+import { writeCliStderrLine } from '../../utils/cli-output'
 import type {
   VerificationCodeStreamEvent,
   VerificationEmailTarget,
@@ -239,7 +240,7 @@ export class AppVerificationProviderClient {
       tokenEndpointAuthMethod: this.config.tokenEndpointAuthMethod,
     })
 
-    console.error(
+    writeCliStderrLine(
       challenge.verificationUriComplete
         ? `Codey app approval required. Open ${challenge.verificationUriComplete} to continue this flow.`
         : `Codey app approval required. Visit ${challenge.verificationUri} and enter the user code ${challenge.userCode}.`,

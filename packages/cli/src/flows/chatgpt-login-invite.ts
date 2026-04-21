@@ -6,10 +6,9 @@ import {
   type ChatGPTWorkspaceInviteResult,
   type ResolvedInviteEmails,
 } from '../modules/chatgpt/workspace-invites'
-import { parseFlowCliArgs } from '../modules/flow-cli/parse-argv'
 import { loginChatGPT, type ChatGPTLoginFlowResult } from './chatgpt-login'
 import {
-  runSingleFileFlowFromCli,
+  runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
 
@@ -71,8 +70,8 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  runSingleFileFlowFromCli(
+  runSingleFileFlowFromCommandLine(
+    'chatgpt-login-invite',
     chatgptLoginInviteFlow,
-    parseFlowCliArgs(process.argv.slice(2)),
   )
 }

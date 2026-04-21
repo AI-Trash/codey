@@ -5,7 +5,11 @@ export type CliFlowCommandId =
   | 'codex-oauth'
   | 'noop'
 
-export type CliFlowOptionType = 'string' | 'number' | 'boolean' | 'stringList'
+export type CliFlowConfigFieldType =
+  | 'string'
+  | 'number'
+  | 'boolean'
+  | 'stringList'
 
 export type CliFlowDisplayNameKey =
   | 'chatgptRegister'
@@ -21,7 +25,7 @@ export type CliFlowDescriptionKey =
   | 'codexOauth'
   | 'noop'
 
-export type CliFlowOptionDisplayNameKey =
+export type CliFlowConfigFieldDisplayNameKey =
   | 'chromeDefaultProfile'
   | 'headless'
   | 'slowMo'
@@ -38,7 +42,7 @@ export type CliFlowOptionDisplayNameKey =
   | 'redirectPort'
   | 'authorizeUrlOnly'
 
-export type CliFlowOptionDescriptionKey =
+export type CliFlowConfigFieldDescriptionKey =
   | 'chromeDefaultProfile'
   | 'headless'
   | 'slowMo'
@@ -55,12 +59,29 @@ export type CliFlowOptionDescriptionKey =
   | 'redirectPort'
   | 'authorizeUrlOnly'
 
-export interface CliFlowOptionDefinition {
-  key: string
-  flag: string
-  type: CliFlowOptionType
-  displayNameKey: CliFlowOptionDisplayNameKey
-  descriptionKey?: CliFlowOptionDescriptionKey
+export type CliFlowConfigFieldKey =
+  | 'chromeDefaultProfile'
+  | 'headless'
+  | 'slowMo'
+  | 'har'
+  | 'record'
+  | 'password'
+  | 'verificationTimeoutMs'
+  | 'pollIntervalMs'
+  | 'identityId'
+  | 'email'
+  | 'inviteEmail'
+  | 'inviteFile'
+  | 'workspaceIndex'
+  | 'redirectPort'
+  | 'authorizeUrlOnly'
+
+export interface CliFlowConfigFieldDefinition {
+  key: CliFlowConfigFieldKey
+  cliFlag: string
+  type: CliFlowConfigFieldType
+  displayNameKey: CliFlowConfigFieldDisplayNameKey
+  descriptionKey?: CliFlowConfigFieldDescriptionKey
   common?: boolean
 }
 
@@ -68,21 +89,178 @@ export interface CliFlowDefinition {
   id: CliFlowCommandId
   displayNameKey: CliFlowDisplayNameKey
   descriptionKey?: CliFlowDescriptionKey
-  options: readonly string[]
+  configKeys: readonly CliFlowConfigFieldKey[]
 }
 
-export type CliFlowTaskOptionValue = string | number | boolean | string[]
+/**
+ * Shared browser startup flags that every flow can understand.
+ */
+export interface CommonFlowConfig {
+  /**
+   * Clone the local Chrome `Default` profile into the automation session
+   * before launch.
+   */
+  chromeDefaultProfile?: boolean
 
-export interface CliFlowTaskPayload {
-  kind: 'flow_task'
-  flowId: CliFlowCommandId
-  options: Record<string, CliFlowTaskOptionValue>
+  /**
+   * Run the browser without opening a visible window.
+   */
+  headless?: boolean
+
+  /**
+   * Delay each browser action by this many milliseconds.
+   */
+  slowMo?: number
+
+  /**
+   * Capture a browser HAR for this run.
+   */
+  har?: boolean
+
+  /**
+   * Keep the browser open after the flow finishes.
+   */
+  record?: boolean
 }
 
-export const cliFlowCommonOptionDefinitions = [
+/**
+ * Configuration for creating a brand-new ChatGPT account.
+ */
+export interface ChatGPTRegisterFlowConfig extends CommonFlowConfig {
+  /**
+   * Override the generated password for the new identity.
+   */
+  password?: string
+
+  /**
+   * Maximum time to wait for the verification email, in milliseconds.
+   */
+  verificationTimeoutMs?: number
+
+  /**
+   * Poll interval for verification email updates, in milliseconds.
+   */
+  pollIntervalMs?: number
+}
+
+/**
+ * Configuration for signing in with a shared ChatGPT identity.
+ */
+export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
+  /**
+   * Resolve a shared ChatGPT identity by Codey identity record id.
+   */
+  identityId?: string
+
+  /**
+   * Resolve a shared ChatGPT identity by email address.
+   */
+  email?: string
+}
+
+/**
+ * Configuration for signing in and inviting ChatGPT workspace members.
+ */
+export interface ChatGPTLoginInviteFlowConfig
+  extends ChatGPTLoginFlowConfig {
+  /**
+   * Invite one or more email addresses after login succeeds.
+   */
+  inviteEmail?: string[]
+
+  /**
+   * Read invite email addresses from a CSV or JSON file.
+   */
+  inviteFile?: string
+}
+
+/**
+ * Configuration for running Codex OAuth and persisting the shared session.
+ */
+export interface CodexOAuthFlowConfig extends CommonFlowConfig {
+  /**
+   * Resolve a shared ChatGPT identity by Codey identity record id when the
+   * OpenAI login flow needs credentials.
+   */
+  identityId?: string
+
+  /**
+   * Resolve a shared ChatGPT identity by email address when the OpenAI login
+   * flow needs credentials.
+   */
+  email?: string
+
+  /**
+   * Maximum time to wait for email verification or browser handoff, in
+   * milliseconds.
+   */
+  verificationTimeoutMs?: number
+
+  /**
+   * Poll interval for verification email updates, in milliseconds.
+   */
+  pollIntervalMs?: number
+
+  /**
+   * 1-based workspace index to select in the Codex workspace picker.
+   */
+  workspaceIndex?: number
+
+  /**
+   * Override the local redirect port used for the OAuth callback.
+   */
+  redirectPort?: number
+
+  /**
+   * Print the generated OAuth authorize URL and exit before continuing the
+   * browser flow.
+   */
+  authorizeUrlOnly?: boolean
+}
+
+/**
+ * Configuration for opening a disposable browser window without automation.
+ */
+export interface NoopFlowConfig extends CommonFlowConfig {}
+
+export interface CliFlowConfigById {
+  'chatgpt-register': ChatGPTRegisterFlowConfig
+  'chatgpt-login': ChatGPTLoginFlowConfig
+  'chatgpt-login-invite': ChatGPTLoginInviteFlowConfig
+  'codex-oauth': CodexOAuthFlowConfig
+  noop: NoopFlowConfig
+}
+
+export type CliFlowConfig<T extends CliFlowCommandId = CliFlowCommandId> =
+  CliFlowConfigById[T]
+
+export type AnyCliFlowConfig = CliFlowConfigById[CliFlowCommandId]
+
+export type CliFlowTaskRequestById = {
+  [FlowId in CliFlowCommandId]: {
+    flowId: FlowId
+    config: CliFlowConfigById[FlowId]
+  }
+}
+
+export type CliFlowTaskRequest =
+  CliFlowTaskRequestById[CliFlowCommandId]
+
+export type CliFlowTaskPayloadById = {
+  [FlowId in CliFlowCommandId]: {
+    kind: 'flow_task'
+    flowId: FlowId
+    config: CliFlowConfigById[FlowId]
+  }
+}
+
+export type CliFlowTaskPayload =
+  CliFlowTaskPayloadById[CliFlowCommandId]
+
+export const cliFlowCommonConfigFieldDefinitions = [
   {
     key: 'chromeDefaultProfile',
-    flag: '--chromeDefaultProfile',
+    cliFlag: '--chromeDefaultProfile',
     type: 'boolean',
     displayNameKey: 'chromeDefaultProfile',
     descriptionKey: 'chromeDefaultProfile',
@@ -90,7 +268,7 @@ export const cliFlowCommonOptionDefinitions = [
   },
   {
     key: 'headless',
-    flag: '--headless',
+    cliFlag: '--headless',
     type: 'boolean',
     displayNameKey: 'headless',
     descriptionKey: 'headless',
@@ -98,7 +276,7 @@ export const cliFlowCommonOptionDefinitions = [
   },
   {
     key: 'slowMo',
-    flag: '--slowMo',
+    cliFlag: '--slowMo',
     type: 'number',
     displayNameKey: 'slowMo',
     descriptionKey: 'slowMo',
@@ -106,7 +284,7 @@ export const cliFlowCommonOptionDefinitions = [
   },
   {
     key: 'har',
-    flag: '--har',
+    cliFlag: '--har',
     type: 'boolean',
     displayNameKey: 'har',
     descriptionKey: 'har',
@@ -114,112 +292,112 @@ export const cliFlowCommonOptionDefinitions = [
   },
   {
     key: 'record',
-    flag: '--record',
+    cliFlag: '--record',
     type: 'boolean',
     displayNameKey: 'record',
     descriptionKey: 'record',
     common: true,
   },
-] as const satisfies readonly CliFlowOptionDefinition[]
+] as const satisfies readonly CliFlowConfigFieldDefinition[]
 
-export const cliFlowOptionDefinitions = [
-  ...cliFlowCommonOptionDefinitions,
+export const cliFlowConfigFieldDefinitions = [
+  ...cliFlowCommonConfigFieldDefinitions,
   {
     key: 'password',
-    flag: '--password',
+    cliFlag: '--password',
     type: 'string',
     displayNameKey: 'password',
     descriptionKey: 'password',
   },
   {
     key: 'verificationTimeoutMs',
-    flag: '--verificationTimeoutMs',
+    cliFlag: '--verificationTimeoutMs',
     type: 'number',
     displayNameKey: 'verificationTimeoutMs',
     descriptionKey: 'verificationTimeoutMs',
   },
   {
     key: 'pollIntervalMs',
-    flag: '--pollIntervalMs',
+    cliFlag: '--pollIntervalMs',
     type: 'number',
     displayNameKey: 'pollIntervalMs',
     descriptionKey: 'pollIntervalMs',
   },
   {
     key: 'identityId',
-    flag: '--identityId',
+    cliFlag: '--identityId',
     type: 'string',
     displayNameKey: 'identityId',
     descriptionKey: 'identityId',
   },
   {
     key: 'email',
-    flag: '--email',
+    cliFlag: '--email',
     type: 'string',
     displayNameKey: 'email',
     descriptionKey: 'email',
   },
   {
     key: 'inviteEmail',
-    flag: '--inviteEmail',
+    cliFlag: '--inviteEmail',
     type: 'stringList',
     displayNameKey: 'inviteEmail',
     descriptionKey: 'inviteEmail',
   },
   {
     key: 'inviteFile',
-    flag: '--inviteFile',
+    cliFlag: '--inviteFile',
     type: 'string',
     displayNameKey: 'inviteFile',
     descriptionKey: 'inviteFile',
   },
   {
     key: 'workspaceIndex',
-    flag: '--workspaceIndex',
+    cliFlag: '--workspaceIndex',
     type: 'number',
     displayNameKey: 'workspaceIndex',
     descriptionKey: 'workspaceIndex',
   },
   {
     key: 'redirectPort',
-    flag: '--redirectPort',
+    cliFlag: '--redirectPort',
     type: 'number',
     displayNameKey: 'redirectPort',
     descriptionKey: 'redirectPort',
   },
   {
     key: 'authorizeUrlOnly',
-    flag: '--authorizeUrlOnly',
+    cliFlag: '--authorizeUrlOnly',
     type: 'boolean',
     displayNameKey: 'authorizeUrlOnly',
     descriptionKey: 'authorizeUrlOnly',
   },
-] as const satisfies readonly CliFlowOptionDefinition[]
+] as const satisfies readonly CliFlowConfigFieldDefinition[]
 
 export const cliFlowDefinitions = [
   {
     id: 'chatgpt-register',
     displayNameKey: 'chatgptRegister',
     descriptionKey: 'chatgptRegister',
-    options: ['password', 'verificationTimeoutMs', 'pollIntervalMs'],
+    configKeys: ['password', 'verificationTimeoutMs', 'pollIntervalMs'],
   },
   {
     id: 'chatgpt-login',
     displayNameKey: 'chatgptLogin',
     descriptionKey: 'chatgptLogin',
-    options: ['identityId', 'email'],
+    configKeys: ['identityId', 'email'],
   },
   {
     id: 'chatgpt-login-invite',
     displayNameKey: 'chatgptLoginInvite',
     descriptionKey: 'chatgptLoginInvite',
-    options: ['identityId', 'email', 'inviteEmail', 'inviteFile'],
+    configKeys: ['identityId', 'email', 'inviteEmail', 'inviteFile'],
   },
   {
     id: 'codex-oauth',
     displayNameKey: 'codexOauth',
     descriptionKey: 'codexOauth',
-    options: [
+    configKeys: [
       'identityId',
       'email',
       'verificationTimeoutMs',
@@ -233,7 +411,7 @@ export const cliFlowDefinitions = [
     id: 'noop',
     displayNameKey: 'noop',
     descriptionKey: 'noop',
-    options: [],
+    configKeys: [],
   },
 ] as const satisfies readonly CliFlowDefinition[]
 
@@ -241,8 +419,12 @@ const cliFlowDefinitionsById = new Map(
   cliFlowDefinitions.map((definition) => [definition.id, definition]),
 )
 
-const cliFlowOptionDefinitionsByKey = new Map(
-  cliFlowOptionDefinitions.map((definition) => [definition.key, definition]),
+const cliFlowConfigFieldDefinitionsByKey = new Map(
+  cliFlowConfigFieldDefinitions.map((definition) => [definition.key, definition]),
+)
+
+const cliFlowConfigFieldDefinitionsByFlag = new Map(
+  cliFlowConfigFieldDefinitions.map((definition) => [definition.cliFlag, definition]),
 )
 
 function normalizeBoolean(value: unknown): boolean | undefined {
@@ -314,7 +496,31 @@ function normalizeStringList(value: unknown): string[] | undefined {
     .split(/[\n,]/)
     .map((entry) => entry.trim())
     .filter(Boolean)
+
   return normalized.length ? normalized : undefined
+}
+
+function normalizeCliFlowConfigFieldValue(
+  definition: CliFlowConfigFieldDefinition,
+  value: unknown,
+): string | number | boolean | string[] | undefined {
+  if (definition.type === 'boolean') {
+    return normalizeBoolean(value)
+  }
+
+  if (definition.type === 'number') {
+    return normalizeNumber(value)
+  }
+
+  if (definition.type === 'stringList') {
+    return normalizeStringList(value)
+  }
+
+  return normalizeString(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 export function listCliFlowCommandIds(): CliFlowCommandId[] {
@@ -327,73 +533,108 @@ export function getCliFlowDefinition(
   return cliFlowDefinitionsById.get(flowId as CliFlowCommandId)
 }
 
-export function getCliFlowOptionDefinition(
-  optionKey: string,
-): CliFlowOptionDefinition | undefined {
-  return cliFlowOptionDefinitionsByKey.get(optionKey)
+export function getCliFlowConfigFieldDefinition(
+  fieldKey: string,
+): CliFlowConfigFieldDefinition | undefined {
+  return cliFlowConfigFieldDefinitionsByKey.get(
+    fieldKey as CliFlowConfigFieldKey,
+  )
 }
 
-export function listCliFlowOptionDefinitions(
+export function getCliFlowConfigFieldDefinitionByFlag(
+  cliFlag: string,
+): CliFlowConfigFieldDefinition | undefined {
+  return cliFlowConfigFieldDefinitionsByFlag.get(cliFlag)
+}
+
+export function listCliFlowConfigFieldDefinitions(
   flowId: string,
-): CliFlowOptionDefinition[] {
+): CliFlowConfigFieldDefinition[] {
   const flowDefinition = getCliFlowDefinition(flowId)
   if (!flowDefinition) {
     return []
   }
 
-  return cliFlowOptionDefinitions.filter(
+  return cliFlowConfigFieldDefinitions.filter(
     (definition) =>
-      definition.common || flowDefinition.options.includes(definition.key),
+      definition.common || flowDefinition.configKeys.includes(definition.key),
   )
 }
 
-export function normalizeCliFlowTaskOptions(
-  flowId: string,
+export function normalizeCliFlowConfig<TFlowId extends CliFlowCommandId>(
+  flowId: TFlowId,
   input: Record<string, unknown> | null | undefined,
-): Record<string, CliFlowTaskOptionValue> {
-  const allowedOptions = listCliFlowOptionDefinitions(flowId)
-  const output: Record<string, CliFlowTaskOptionValue> = {}
+): CliFlowConfigById[TFlowId] {
+  const allowedFields = listCliFlowConfigFieldDefinitions(flowId)
+  const output: Record<string, string | number | boolean | string[]> = {}
 
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    return output
+  if (!isRecord(input)) {
+    return output as CliFlowConfigById[TFlowId]
   }
 
-  for (const option of allowedOptions) {
-    const value = input[option.key]
-    let normalized: CliFlowTaskOptionValue | undefined
-
-    if (option.type === 'boolean') {
-      normalized = normalizeBoolean(value)
-    } else if (option.type === 'number') {
-      normalized = normalizeNumber(value)
-    } else if (option.type === 'string') {
-      normalized = normalizeString(value)
-    } else if (option.type === 'stringList') {
-      normalized = normalizeStringList(value)
-    }
+  for (const field of allowedFields) {
+    const normalized = normalizeCliFlowConfigFieldValue(
+      field,
+      input[field.key],
+    )
 
     if (normalized !== undefined) {
-      output[option.key] = normalized
+      output[field.key] = normalized
     }
   }
 
-  return output
+  return output as CliFlowConfigById[TFlowId]
+}
+
+export function createCliFlowTaskRequest<TFlowId extends CliFlowCommandId>(
+  flowId: TFlowId,
+  config: CliFlowConfigById[TFlowId],
+): CliFlowTaskRequestById[TFlowId] {
+  return {
+    flowId,
+    config,
+  }
+}
+
+export function createCliFlowTaskPayload<TFlowId extends CliFlowCommandId>(
+  flowId: TFlowId,
+  config: CliFlowConfigById[TFlowId],
+): CliFlowTaskPayloadById[TFlowId] {
+  return {
+    kind: 'flow_task',
+    flowId,
+    config,
+  }
+}
+
+export function normalizeCliFlowTaskPayload(
+  value: unknown,
+): CliFlowTaskPayload | undefined {
+  if (!isRecord(value) || value.kind !== 'flow_task') {
+    return undefined
+  }
+
+  const flowId =
+    typeof value.flowId === 'string' ? value.flowId.trim() : ''
+  const flowDefinition = getCliFlowDefinition(flowId)
+  if (!flowDefinition) {
+    return undefined
+  }
+
+  const rawConfig = isRecord(value.config)
+    ? value.config
+    : isRecord(value.options)
+      ? value.options
+      : {}
+
+  return createCliFlowTaskPayload(
+    flowDefinition.id,
+    normalizeCliFlowConfig(flowDefinition.id, rawConfig),
+  )
 }
 
 export function isCliFlowTaskPayload(
   value: unknown,
 ): value is CliFlowTaskPayload {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return false
-  }
-
-  const payload = value as Partial<CliFlowTaskPayload>
-  return (
-    payload.kind === 'flow_task' &&
-    typeof payload.flowId === 'string' &&
-    Boolean(getCliFlowDefinition(payload.flowId)) &&
-    payload.options != null &&
-    typeof payload.options === 'object' &&
-    !Array.isArray(payload.options)
-  )
+  return Boolean(normalizeCliFlowTaskPayload(value))
 }

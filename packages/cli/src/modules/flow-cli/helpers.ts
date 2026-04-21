@@ -4,6 +4,7 @@ import {
   type CliRuntimeConfig,
 } from '../../config'
 import type { MachineStatus, StateMachineController } from '../../state-machine'
+import { writeCliStderrLine, writeCliStdoutLine } from '../../utils/cli-output'
 import { resolveChromeProfileLaunchConfig } from '../../utils/chrome-profile'
 
 export interface CommonOptions {
@@ -17,18 +18,18 @@ export interface CommonOptions {
 }
 
 export interface FlowOptions extends CommonOptions {
-  record?: string | boolean
-  waitMs?: string | number | boolean
-  verificationTimeoutMs?: string | number | boolean
-  pollIntervalMs?: string | number | boolean
-  authorizeUrlOnly?: string | boolean
+  record?: boolean
+  waitMs?: number
+  verificationTimeoutMs?: number
+  pollIntervalMs?: number
+  authorizeUrlOnly?: boolean
   password?: string
   identityId?: string
   email?: string
-  workspaceIndex?: string | number | boolean
+  workspaceIndex?: number
   target?: string
-  redirectPort?: string | number | boolean
-  inviteEmail?: string | string[]
+  redirectPort?: number
+  inviteEmail?: string[]
   inviteFile?: string
 }
 
@@ -458,7 +459,7 @@ export function printFlowCompletionSummary(
   command: string,
   result: unknown,
 ): void {
-  console.log(formatFlowCompletionSummary(command, result))
+  writeCliStdoutLine(formatFlowCompletionSummary(command, result))
 }
 
 export function printFlowArtifactPath(
@@ -471,7 +472,7 @@ export function printFlowArtifactPath(
   }
 
   const prefix = command?.trim() ? `[${command}] ` : ''
-  console.error(`${prefix}${label}: ${path.trim()}`)
+  writeCliStderrLine(`${prefix}${label}: ${path.trim()}`)
 }
 
 export function formatFlowProgressUpdate(
@@ -525,7 +526,7 @@ export function createConsoleFlowProgressReporter(
     }
 
     lastLine = line
-    console.error(line)
+    writeCliStderrLine(line)
   }
 }
 
@@ -562,7 +563,7 @@ export function attachStateMachineProgressReporter<
 
 export function reportError(error: unknown): never {
   const message = sanitizeErrorForOutput(error).message
-  console.error(
+  writeCliStderrLine(
     JSON.stringify(
       redactForOutput({ status: 'failed', error: message }),
       null,

@@ -45,12 +45,16 @@ export const Route = createFileRoute(
               githubLogin: admin.user.githubLogin,
               email: admin.user.email,
             },
-            options:
-              body?.options &&
-              typeof body.options === "object" &&
-              !Array.isArray(body.options)
-                ? (body.options as Record<string, unknown>)
-                : null,
+            config:
+              body?.config &&
+              typeof body.config === "object" &&
+              !Array.isArray(body.config)
+                ? (body.config as Record<string, unknown>)
+                : body?.options &&
+                    typeof body.options === "object" &&
+                    !Array.isArray(body.options)
+                  ? (body.options as Record<string, unknown>)
+                  : null,
           });
 
           return json(
@@ -59,7 +63,7 @@ export const Route = createFileRoute(
               notificationId: result.notification.id,
               connectionId: result.connection.id,
               flowId,
-              options: result.options,
+              config: result.config,
             },
             201,
           );

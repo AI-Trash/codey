@@ -42,9 +42,10 @@ import {
   type FlowProgressUpdate,
 } from './modules/flow-cli/helpers'
 import {
-  isCliFlowTaskPayload,
+  normalizeCliFlowTaskPayload,
   type CliFlowCommandId,
 } from './modules/flow-cli/flow-registry'
+import { normalizeFlowCliArgsForCommand } from './modules/flow-cli/parse-argv'
 import { runTuiDashboard } from './modules/tui/dashboard'
 import { runWithSession } from './modules/flow-cli/run-with-session'
 import {
@@ -54,6 +55,7 @@ import {
   type FlowCommandExecution,
 } from './modules/flow-cli/result-file'
 import { sleep } from './utils/wait'
+import { writeCliStderrLine, writeCliStdoutLine } from './utils/cli-output'
 
 async function runFlowCommand(
   subcommand: CliFlowCommandId,
@@ -116,7 +118,7 @@ async function runFlowCommand(
   })
   printFlowCompletionSummary(`flow:${subcommand}`, result)
   if (shouldKeepFlowOpen(runtimeOptions)) {
-    console.error(
+    writeCliStderrLine(
       'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )
   }
@@ -142,6 +144,13 @@ function resolveFlowCommandOptions(
   }
 
   return applyFlowOptionDefaults(options)
+}
+
+function normalizeFlowCommandOptions(
+  subcommand: CliFlowCommandId,
+  input: Record<string, unknown> | null | undefined,
+): FlowOptions {
+  return normalizeFlowCliArgsForCommand(subcommand, input)
 }
 
 function formatRuntimeProgressMessage(
@@ -182,7 +191,7 @@ async function executeFlowSubcommand(
     status: 'passed',
     startedAt,
     completedAt,
-    options: redactForOutput(resolvedOptions),
+    config: redactForOutput(resolvedOptions),
     result: redactForOutput(result),
   })
 }
@@ -203,7 +212,7 @@ async function executeFlowSubcommandWithReporting(
       command: `flow:${subcommand}`,
       startedAt,
       completedAt: new Date().toISOString(),
-      options: redactForOutput(options),
+      config: redactForOutput(options),
       error,
     })
     writeFlowCommandExecutionResult(failure)
@@ -226,7 +235,7 @@ async function runExchangeCommand(
 
   if (subcommand === 'verify') {
     const result = await client.verifyAccess()
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         { command: 'exchange:verify', config: redactForOutput(config), result },
         null,
@@ -238,7 +247,7 @@ async function runExchangeCommand(
 
   if (subcommand === 'folders') {
     const result = await client.listFolders()
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         {
           command: 'exchange:folders',
@@ -258,7 +267,7 @@ async function runExchangeCommand(
       maxItems: parseNumberFlag(options.maxItems, 20) ?? 20,
       unreadOnly: parseBooleanFlag(options.unreadOnly, false) ?? false,
     })
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         {
           command: 'exchange:messages',
@@ -287,7 +296,7 @@ async function runAuthCommand(
       cliName,
       scope: options.scope,
     })
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         {
           command: 'auth:login:start',
@@ -312,7 +321,7 @@ async function runAuthCommand(
     )
 
     const session = await exchangeDeviceChallenge(challenge, options.target)
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         {
           command: 'auth:login:completed',
@@ -338,7 +347,7 @@ async function runAuthCommand(
 
   if (subcommand === 'status') {
     const session = readAppSession()
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         {
           command: 'auth:status',
@@ -354,7 +363,7 @@ async function runAuthCommand(
 
   if (subcommand === 'logout') {
     clearAppSession()
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         {
           command: 'auth:logout',
@@ -389,7 +398,7 @@ async function runDaemonCommand(
     const runtimeReporter = new CliConnectionRuntimeReporter({
       authState,
       onError: (error) => {
-        console.error(
+        writeCliStderrLine(
           JSON.stringify(
             {
               command: 'daemon:runtime:error',
@@ -402,7 +411,7 @@ async function runDaemonCommand(
       },
     })
 
-    console.log(
+    writeCliStdoutLine(
       JSON.stringify(
         {
           command: announced ? 'daemon:reconnect' : 'daemon:start',
@@ -437,7 +446,7 @@ async function runDaemonCommand(
         {
           onConnection: (connection) => {
             runtimeReporter.setConnectionId(connection.connectionId)
-            console.log(
+            writeCliStdoutLine(
               JSON.stringify(
                 {
                   command: 'daemon:connected',
@@ -450,7 +459,7 @@ async function runDaemonCommand(
           },
         },
       )) {
-        console.log(
+        writeCliStdoutLine(
           JSON.stringify(
             {
               command: 'daemon:event',
@@ -461,24 +470,29 @@ async function runDaemonCommand(
           ),
         )
 
-        if (!isCliFlowTaskPayload(notification.payload)) {
+        const taskPayload = normalizeCliFlowTaskPayload(notification.payload)
+        if (!taskPayload) {
+
+
+
+
           continue
         }
 
-        const flowId = notification.payload.flowId
-        const taskOptions = notification.payload.options as FlowOptions
+        const flowId = taskPayload.flowId
+        const taskConfig = taskPayload.config as FlowOptions
         const startedAt = new Date().toISOString()
         const consoleProgressReporter = createConsoleFlowProgressReporter(
           `flow:${flowId}`,
         )
 
-        console.log(
+        writeCliStdoutLine(
           JSON.stringify(
             {
               command: 'daemon:task:start',
               notificationId: notification.id,
               flowId,
-              options: redactForOutput(taskOptions),
+              config: redactForOutput(taskConfig),
             },
             null,
             2,
@@ -496,7 +510,7 @@ async function runDaemonCommand(
           })
 
           const execution = await executeFlowSubcommand(flowId, {
-            ...taskOptions,
+            ...taskConfig,
             progressReporter: (update) => {
               consoleProgressReporter(update)
 
@@ -524,7 +538,7 @@ async function runDaemonCommand(
             runtimeFlowCompletedAt:
               execution.completedAt || new Date().toISOString(),
           })
-          console.log(
+          writeCliStdoutLine(
             JSON.stringify(
               {
                 command: 'daemon:task:completed',
@@ -549,7 +563,7 @@ async function runDaemonCommand(
             runtimeFlowStartedAt: startedAt,
             runtimeFlowCompletedAt: new Date().toISOString(),
           })
-          console.error(
+          writeCliStderrLine(
             JSON.stringify(
               {
                 command: 'daemon:task:error',
@@ -567,7 +581,7 @@ async function runDaemonCommand(
         }
       }
     } catch (error) {
-      console.error(
+      writeCliStderrLine(
         JSON.stringify(
           {
             command: 'daemon:stream:error',
@@ -651,9 +665,13 @@ withCommonOptions(
       'How often to poll Exchange for the verification email',
     )
     .example('codey flow chatgpt-register --verificationTimeoutMs 180000'),
-).action((options: FlowOptions) => {
+).action((rawOptions: Record<string, unknown>) => {
   execute(
     (async () => {
+      const options = normalizeFlowCommandOptions(
+        'chatgpt-register',
+        rawOptions,
+      )
       await executeFlowSubcommandWithReporting('chatgpt-register', options)
     })(),
   )
@@ -680,9 +698,10 @@ withCommonOptions(
     )
     .example('codey flow chatgpt-login')
     .example('codey flow chatgpt-login --email someone@example.com'),
-).action((options: FlowOptions) => {
+).action((rawOptions: Record<string, unknown>) => {
   execute(
     (async () => {
+      const options = normalizeFlowCommandOptions('chatgpt-login', rawOptions)
       await executeFlowSubcommandWithReporting('chatgpt-login', options)
     })(),
   )
@@ -724,9 +743,13 @@ withCommonOptions(
     .example(
       'codey flow chatgpt-login-invite --inviteFile ./members.csv --record true',
     ),
-).action((options: FlowOptions) => {
+).action((rawOptions: Record<string, unknown>) => {
   execute(
     (async () => {
+      const options = normalizeFlowCommandOptions(
+        'chatgpt-login-invite',
+        rawOptions,
+      )
       await executeFlowSubcommandWithReporting('chatgpt-login-invite', options)
     })(),
   )
@@ -761,9 +784,10 @@ withCommonOptions(
     .example('codey flow codex-oauth --authorizeUrlOnly true')
     .example('codey flow codex-oauth --email someone@example.com')
     .example('codey flow codex-oauth --workspaceIndex 2'),
-).action((options: FlowOptions) => {
+).action((rawOptions: Record<string, unknown>) => {
   execute(
     (async () => {
+      const options = normalizeFlowCommandOptions('codex-oauth', rawOptions)
       await executeFlowSubcommandWithReporting('codex-oauth', options)
     })(),
   )
@@ -782,9 +806,10 @@ withCommonOptions(
     )
     .example('codey flow noop')
     .example('codey flow noop --record false --har false'),
-).action((options: FlowOptions) => {
+).action((rawOptions: Record<string, unknown>) => {
   execute(
     (async () => {
+      const options = normalizeFlowCommandOptions('noop', rawOptions)
       await executeFlowSubcommandWithReporting('noop', options)
     })(),
   )

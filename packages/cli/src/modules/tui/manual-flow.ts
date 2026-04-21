@@ -3,16 +3,16 @@ import Enquirer from 'enquirer'
 import type { FlowOptions } from '../flow-cli/helpers'
 import {
   cliFlowDefinitions,
-  listCliFlowOptionDefinitions,
-  normalizeCliFlowTaskOptions,
+  listCliFlowConfigFieldDefinitions,
+  normalizeCliFlowConfig,
   type CliFlowCommandId,
+  type CliFlowConfigFieldDefinition,
   type CliFlowDefinition,
-  type CliFlowOptionDefinition,
 } from '../flow-cli/flow-registry'
 
 export interface ManualFlowTaskInput {
   flowId: CliFlowCommandId
-  options: FlowOptions
+  config: FlowOptions
 }
 
 type EnquirerChoice = {
@@ -95,7 +95,7 @@ function formatManualFlowChoice(definition: CliFlowDefinition): EnquirerChoice {
 }
 
 function formatManualFlowOptionChoice(
-  definition: CliFlowOptionDefinition,
+  definition: CliFlowConfigFieldDefinition,
 ): EnquirerChoice {
   const label =
     flowOptionLabelByKey[definition.key] || humanizeKey(definition.key)
@@ -115,11 +115,13 @@ export function buildManualFlowChoices(): EnquirerChoice[] {
 export function buildManualFlowOptionChoices(
   flowId: CliFlowCommandId,
 ): EnquirerChoice[] {
-  return listCliFlowOptionDefinitions(flowId).map(formatManualFlowOptionChoice)
+  return listCliFlowConfigFieldDefinitions(flowId).map(
+    formatManualFlowOptionChoice,
+  )
 }
 
 function normalizeManualFlowPromptValue(
-  definition: CliFlowOptionDefinition,
+  definition: CliFlowConfigFieldDefinition,
   value: unknown,
 ): unknown {
   if (definition.type === 'boolean') {
@@ -141,7 +143,7 @@ export function normalizeManualFlowAnswers(
   flowId: CliFlowCommandId,
   answers: Record<string, unknown>,
 ): FlowOptions {
-  return normalizeCliFlowTaskOptions(flowId, answers) as FlowOptions
+  return normalizeCliFlowConfig(flowId, answers) as FlowOptions
 }
 
 async function runEnquirerPrompt<T>(
@@ -173,7 +175,7 @@ async function promptForSelectedOptionKeys(
   const answer = await runEnquirerPrompt<{ optionKeys: string[] }>({
     type: 'multiselect',
     name: 'optionKeys',
-    message: 'Select options to override',
+    message: 'Select config fields to override',
     choices,
     initial: [],
   })
@@ -182,7 +184,7 @@ async function promptForSelectedOptionKeys(
 }
 
 async function promptForOptionValue(
-  definition: CliFlowOptionDefinition,
+  definition: CliFlowConfigFieldDefinition,
 ): Promise<unknown> {
   const description = describeManualFlowOption(definition.key)
 
@@ -242,7 +244,7 @@ async function promptForOptionValue(
 export async function promptForManualFlowTask(): Promise<ManualFlowTaskInput> {
   const flowId = await promptForFlowId()
   const optionKeys = await promptForSelectedOptionKeys(flowId)
-  const optionDefinitions = listCliFlowOptionDefinitions(flowId)
+  const optionDefinitions = listCliFlowConfigFieldDefinitions(flowId)
   const rawOptions: Record<string, unknown> = {}
 
   for (const optionKey of optionKeys) {
@@ -258,6 +260,6 @@ export async function promptForManualFlowTask(): Promise<ManualFlowTaskInput> {
 
   return {
     flowId,
-    options: normalizeManualFlowAnswers(flowId, rawOptions),
+    config: normalizeManualFlowAnswers(flowId, rawOptions),
   }
 }
