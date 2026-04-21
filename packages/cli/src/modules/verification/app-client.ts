@@ -1,4 +1,7 @@
-import type { AppVerificationProviderConfig } from '../../config'
+import type {
+  AppVerificationProviderConfig,
+  Sub2ApiConfig,
+} from '../../config'
 import { sleep } from '../../utils/wait'
 import { ensureJson } from '../app-auth/http'
 import {
@@ -61,6 +64,7 @@ export type AppVerificationEvent = VerificationCodeStreamEvent
 
 const VERIFICATION_READ_SCOPE = 'verification:read'
 const VERIFICATION_RESERVE_SCOPE = 'verification:reserve'
+const NOTIFICATIONS_READ_SCOPE = 'notifications:read'
 const VERIFICATION_APP_SCOPES = [
   VERIFICATION_READ_SCOPE,
   VERIFICATION_RESERVE_SCOPE,
@@ -109,6 +113,10 @@ export interface AppManagedIdentityLookupResponse {
 export interface AppManagedSessionSyncResponse {
   ok: boolean
   id: string
+}
+
+export interface AppManagedSub2ApiConfigResponse {
+  config?: Sub2ApiConfig
 }
 
 function parseScopeList(value: string | undefined): string[] {
@@ -336,6 +344,20 @@ export class AppVerificationProviderClient {
       },
       [...VERIFICATION_APP_SCOPES],
     )
+  }
+
+  async getManagedSub2ApiConfig(): Promise<Sub2ApiConfig> {
+    const result = await this.getJson<AppManagedSub2ApiConfigResponse>(
+      this.buildUrl('/api/cli/external-services/sub2api'),
+      {},
+      [NOTIFICATIONS_READ_SCOPE],
+    )
+
+    if (!result.config) {
+      throw new Error('Codey app did not return a Sub2API config.')
+    }
+
+    return result.config
   }
 
   async waitForVerificationCode(

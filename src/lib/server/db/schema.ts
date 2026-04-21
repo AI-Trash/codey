@@ -49,6 +49,13 @@ export const oauthClientAuthMethodEnum = pgEnum('oauth_client_auth_method', [
   'client_secret_basic',
   'client_secret_post',
 ])
+export const externalServiceKindEnum = pgEnum('external_service_kind', [
+  'sub2api',
+])
+export const externalServiceAuthModeEnum = pgEnum('external_service_auth_mode', [
+  'bearer_token',
+  'password',
+])
 
 export const users = pgTable(
   'users',
@@ -533,6 +540,51 @@ export const oauthClients = pgTable(
   ],
 )
 
+export const externalServiceConfigs = pgTable(
+  'external_service_configs',
+  {
+    id: text('id').primaryKey(),
+    kind: externalServiceKindEnum('kind').notNull(),
+    enabled: boolean('enabled').default(false).notNull(),
+    baseUrl: text('base_url'),
+    authMode: externalServiceAuthModeEnum('auth_mode'),
+    bearerTokenCiphertext: text('bearer_token_ciphertext'),
+    email: text('email'),
+    passwordCiphertext: text('password_ciphertext'),
+    loginPath: text('login_path'),
+    refreshTokenPath: text('refresh_token_path'),
+    accountsPath: text('accounts_path'),
+    clientId: text('client_id'),
+    proxyId: integer('proxy_id'),
+    concurrency: integer('concurrency'),
+    priority: integer('priority'),
+    groupIds: integer('group_ids').array().$type<number[]>(),
+    confirmMixedChannelRisk: boolean('confirm_mixed_channel_risk'),
+    updatedByUserId: text('updated_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('external_service_configs_kind_unique').on(table.kind),
+    index('external_service_configs_enabled_kind_idx').on(
+      table.enabled,
+      table.kind,
+    ),
+  ],
+)
+
 export const cliConnections = pgTable(
   'cli_connections',
   {
@@ -787,6 +839,10 @@ export type ManagedIdentitySessionStatus =
   (typeof managedIdentitySessionStatusEnum.enumValues)[number]
 export type OAuthClientAuthMethod =
   (typeof oauthClientAuthMethodEnum.enumValues)[number]
+export type ExternalServiceKind =
+  (typeof externalServiceKindEnum.enumValues)[number]
+export type ExternalServiceAuthMode =
+  (typeof externalServiceAuthModeEnum.enumValues)[number]
 export type AdminPermissionValue = (typeof adminPermissionValues)[number]
 
 export type UserRow = typeof users.$inferSelect
@@ -803,6 +859,7 @@ export type ManagedIdentitySessionRow =
   typeof managedIdentitySessions.$inferSelect
 export type VerificationDomainRow = typeof verificationDomains.$inferSelect
 export type OAuthClientRow = typeof oauthClients.$inferSelect
+export type ExternalServiceConfigRow = typeof externalServiceConfigs.$inferSelect
 export type CliConnectionRow = typeof cliConnections.$inferSelect
 export type OidcArtifactRow = typeof oidcArtifacts.$inferSelect
 export type OidcSigningKeyRow = typeof oidcSigningKeys.$inferSelect

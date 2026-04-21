@@ -146,6 +146,12 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
         pathname === '/admin/apps/new' ||
         (pathname.startsWith('/admin/apps/') && pathname !== '/admin/apps/new'),
     })
+    navigation.push({
+      label: m.admin_nav_external_services(),
+      to: '/admin/external-services',
+      icon: AppWindowIcon,
+      matches: (pathname: string) => pathname === '/admin/external-services',
+    })
   }
 
   if (hasAdminPermission(currentUser, 'VERIFICATION_DOMAINS')) {
@@ -177,7 +183,14 @@ export function AdminShell(props: {
     select: (state) => state.location.pathname,
   })
   const adminNavigation = getAdminNavigation(props.currentUser)
-  const isMailInboxRoute = pathname === '/admin/emails'
+  const usesViewportShell =
+    pathname === '/admin' ||
+    pathname === '/admin/emails' ||
+    pathname === '/admin/identities' ||
+    pathname === '/admin/sessions' ||
+    pathname === '/admin/users' ||
+    pathname === '/admin/cli' ||
+    pathname === '/admin/apps'
 
   return (
     <SidebarProvider defaultOpen className="min-h-svh bg-muted/30">
@@ -245,7 +258,7 @@ export function AdminShell(props: {
       <SidebarInset
         className={cn(
           'min-h-svh',
-          isMailInboxRoute && 'lg:h-svh lg:overflow-hidden',
+          usesViewportShell && 'lg:h-svh lg:overflow-hidden',
         )}
       >
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur md:px-6">
@@ -257,13 +270,13 @@ export function AdminShell(props: {
         <main
           className={cn(
             'flex flex-1 flex-col p-4 md:p-6',
-            isMailInboxRoute && 'lg:min-h-0 lg:overflow-hidden',
+            usesViewportShell && 'lg:min-h-0 lg:overflow-hidden',
           )}
         >
           <div
             className={cn(
               'mx-auto flex w-full max-w-[1600px] flex-col gap-6',
-              isMailInboxRoute && 'lg:min-h-0 lg:flex-1',
+              usesViewportShell && 'lg:min-h-0 lg:flex-1',
             )}
           >
             {props.children}
@@ -607,6 +620,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/domains') {
     return m.admin_nav_domains()
+  }
+
+  if (pathname === '/admin/external-services') {
+    return m.admin_nav_external_services()
   }
 
   if (pathname === '/admin/users') {

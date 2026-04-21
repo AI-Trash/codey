@@ -429,7 +429,7 @@ function AdminIdentitiesPage() {
         }
       />
 
-      <Card className="min-h-0 flex-1">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CardHeader>
           <CardDescription>
             {m.admin_dashboard_identities_kicker()}

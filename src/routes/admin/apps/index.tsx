@@ -109,42 +109,44 @@ function AdminAppsListPage() {
 
   return (
     <>
-      <AdminPageHeader
-        eyebrow={m.admin_apps_eyebrow()}
-        title={m.admin_apps_title()}
-        description={m.admin_apps_description()}
-        variant="plain"
-        actions={
-          <>
-            <Button asChild variant="outline">
-              <a href="/admin">{m.admin_back_to_operations()}</a>
-            </Button>
-            {data.canManageDomains ? (
+      <div className="flex min-h-0 flex-1 flex-col gap-6">
+        <AdminPageHeader
+          eyebrow={m.admin_apps_eyebrow()}
+          title={m.admin_apps_title()}
+          description={m.admin_apps_description()}
+          variant="plain"
+          actions={
+            <>
               <Button asChild variant="outline">
-                <a href="/admin/domains">{m.admin_manage_domains()}</a>
+                <a href="/admin">{m.admin_back_to_operations()}</a>
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              onClick={() => {
-                setCreateDialogOpen(true)
-              }}
-            >
-              {m.admin_register_app()}
-            </Button>
-          </>
-        }
-      />
+              {data.canManageDomains ? (
+                <Button asChild variant="outline">
+                  <a href="/admin/domains">{m.admin_manage_domains()}</a>
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                onClick={() => {
+                  setCreateDialogOpen(true)
+                }}
+              >
+                {m.admin_register_app()}
+              </Button>
+            </>
+          }
+        />
 
-      <Card>
-        <CardHeader>
-          <CardDescription>{m.admin_apps_inventory_kicker()}</CardDescription>
-          <CardTitle>{m.admin_apps_inventory_title()}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <OAuthClientsList clients={clients} />
-        </CardContent>
-      </Card>
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <CardHeader>
+            <CardDescription>{m.admin_apps_inventory_kicker()}</CardDescription>
+            <CardTitle>{m.admin_apps_inventory_title()}</CardTitle>
+          </CardHeader>
+          <CardContent className="flex min-h-0 flex-1 flex-col">
+            <OAuthClientsList clients={clients} fillHeight />
+          </CardContent>
+        </Card>
+      </div>
 
       <CreateOAuthClientDialog
         open={Boolean(search.create)}

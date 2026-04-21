@@ -326,15 +326,16 @@ function CliConnectionsTableCard(props: {
   onDispatch?: (connection: CliConnectionSummary) => void
 }) {
   return (
-    <Card>
+    <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <CardHeader>
         <CardTitle>{props.title}</CardTitle>
         <CardDescription>{props.description}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex min-h-0 flex-1 flex-col">
         {props.connections.length ? (
           <AdminPaginatedTable
             rows={props.connections}
+            fillHeight
             emptyState={
               <EmptyState
                 title={props.emptyTitle}

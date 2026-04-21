@@ -2,6 +2,7 @@ import {
   resolveConfig,
   setRuntimeConfig,
   type CliRuntimeConfig,
+  type RuntimeConfigOverrides,
 } from '../../config'
 import type { MachineStatus, StateMachineController } from '../../state-machine'
 import { writeCliStderrLine, writeCliStdoutLine } from '../../utils/cli-output'
@@ -15,6 +16,7 @@ export interface CommonOptions {
   slowMo?: string | number | boolean
   har?: string | boolean
   progressReporter?: FlowProgressReporter
+  runtimeConfigOverrides?: RuntimeConfigOverrides
 }
 
 export interface FlowOptions extends CommonOptions {
@@ -227,13 +229,16 @@ export function buildRuntimeConfig(
     useDefaultProfile:
       parseBooleanFlag(options.chromeDefaultProfile, false) ?? false,
   })
+  const runtimeConfigOverrides = options.runtimeConfigOverrides
 
   return resolveConfig({
     command,
     configFile: options.config,
     profile: options.profile,
     overrides: {
+      ...runtimeConfigOverrides,
       browser: {
+        ...runtimeConfigOverrides?.browser,
         headless: parseBooleanFlag(options.headless),
         slowMo: parseNumberFlag(options.slowMo),
         recordHar: parseBooleanFlag(options.har),

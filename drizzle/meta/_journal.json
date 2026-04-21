@@ -99,6 +99,13 @@
       "when": 1776769035325,
       "tag": "0013_light_ultragirl",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1776792219762,
+      "tag": "0014_awesome_trauma",
+      "breakpoints": true
     }
   ]
 }

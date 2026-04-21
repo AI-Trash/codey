@@ -17,6 +17,7 @@ import {
 } from "./cli-connections";
 import { getDb } from "./db/client";
 import { adminNotifications } from "./db/schema";
+import { hasEnabledSub2ApiServiceConfig } from "./external-service-configs";
 import { createId } from "./security";
 
 export {
@@ -147,6 +148,22 @@ async function resolveDispatchableCliFlow(input: {
   };
 }
 
+async function resolveCliFlowTaskExternalServices(flowId: string) {
+  if (flowId !== "codex-oauth") {
+    return undefined;
+  }
+
+  if (!(await hasEnabledSub2ApiServiceConfig())) {
+    return undefined;
+  }
+
+  return {
+    sub2api: {
+      source: "app" as const,
+    },
+  };
+}
+
 export async function dispatchCliFlowTasks(input: {
   connectionId: string;
   flowId: string;
@@ -162,6 +179,9 @@ export async function dispatchCliFlowTasks(input: {
   });
   const { connection, flowDefinition, config } =
     await resolveDispatchableCliFlow(input);
+  const externalServices = await resolveCliFlowTaskExternalServices(
+    flowDefinition.id,
+  );
   const configCount = Object.keys(config).length;
   const batchId = count > 1 ? createId() : undefined;
   const notifications = await getDb()
@@ -192,7 +212,7 @@ export async function dispatchCliFlowTasks(input: {
             ...(batchId ? { batchId } : {}),
             ...(count > 1 ? { sequence, total: count } : {}),
             ...(parallelism > 1 ? { parallelism } : {}),
-          }),
+          }, externalServices),
         };
       }),
     )
@@ -203,6 +223,7 @@ export async function dispatchCliFlowTasks(input: {
     connection,
     config,
     batchId,
+    externalServices,
     parallelism,
   };
 }

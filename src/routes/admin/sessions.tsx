@@ -256,15 +256,16 @@ function AdminSessionsPage() {
         }
       />
 
-      <Card className="min-h-0 flex-1">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CardHeader>
           <CardDescription>{m.admin_session_table_kicker()}</CardDescription>
           <CardTitle>{m.admin_session_table_title()}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex min-h-0 flex-1 flex-col">
           <ClientFilterableAdminTable
             data={sessions}
             columnsConfig={sessionColumns}
+            fillHeight
             emptyState={
               <EmptyState
                 title={m.admin_session_empty_title()}

@@ -132,6 +132,7 @@ export const Route = createFileRoute(
               connectionId: result.connection.id,
               flowId,
               config: result.config,
+              externalServices: result.externalServices || null,
             },
             201,
           );

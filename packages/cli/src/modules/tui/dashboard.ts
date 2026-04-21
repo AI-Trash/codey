@@ -15,6 +15,7 @@ import {
   normalizeCliFlowTaskPayload,
   type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
+  type CliFlowTaskExternalServices,
 } from '../flow-cli/flow-registry'
 import {
   formatFlowCompletionSummary,
@@ -23,6 +24,7 @@ import {
   type FlowProgressReporter,
 } from '../flow-cli/helpers'
 import type { FlowCommandExecution } from '../flow-cli/result-file'
+import { fetchManagedSub2ApiConfigFromCodeyApp } from '../app-auth/external-services'
 import {
   exchangeDeviceChallenge,
   resolveCliNotificationsAuthState,
@@ -463,6 +465,22 @@ function restoreTerminalState(): void {
   process.stdin.pause()
 }
 
+async function resolveTaskFlowOptions(input: {
+  config: FlowOptions
+  externalServices?: CliFlowTaskExternalServices
+}): Promise<FlowOptions> {
+  if (input.externalServices?.sub2api?.source !== 'app') {
+    return input.config
+  }
+
+  return {
+    ...input.config,
+    runtimeConfigOverrides: {
+      sub2api: await fetchManagedSub2ApiConfigFromCodeyApp(),
+    },
+  }
+}
+
 async function promptForStartupAuth(input: {
   cliName: string
   target?: string
@@ -866,6 +884,7 @@ export async function runTuiDashboard(input: {
     notificationId: string
     message: string
     batch?: CliFlowTaskBatchMetadata
+    externalServices?: CliFlowTaskExternalServices
   }) => {
     const scheduled = taskScheduler.enqueue({
       taskId: task.notificationId,
@@ -932,11 +951,15 @@ export async function runTuiDashboard(input: {
         }
 
         try {
+          const taskFlowOptions = await resolveTaskFlowOptions({
+            config: task.config,
+            externalServices: task.externalServices,
+          })
           const execution = await withCliOutput(dashboardCliOutput, () =>
             input.executeFlow(
             task.flowId,
             {
-              ...task.config,
+              ...taskFlowOptions,
               progressReporter,
             },
             {
@@ -1310,6 +1333,7 @@ export async function runTuiDashboard(input: {
               notificationId: notification.id,
               message: notification.title || 'Task started',
               batch: taskPayload.batch,
+              externalServices: taskPayload.externalServices,
             }).catch((error) => {
               if (error instanceof FlowTaskSchedulerCancelledError) {
                 return

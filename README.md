@@ -28,6 +28,7 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
   - `/admin`
   - `/admin/cli`
   - `/device`
+  - `/admin/external-services`
 - CLI commands:
   - `flow ...`
   - `exchange ...`
@@ -143,6 +144,7 @@ Then open:
 - `http://localhost:3000/admin` to inspect device challenges, notifications, reservations, and verification codes
 - `http://localhost:3000/admin/cli` to inspect which TUI terminals are currently connected and what flow each one is running
 - `http://localhost:3000/admin/domains` to register verification domains and choose defaults
+- `http://localhost:3000/admin/external-services` to manage app-backed Sub2API sync settings for dispatched CLI tasks
 
 ## CLI and TUI usage
 
@@ -228,6 +230,8 @@ CODEX_SCOPE=openid profile email offline_access
 If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
 
 If `SUB2API_BASE_URL` is configured together with either `SUB2API_BEARER_TOKEN` or the `SUB2API_EMAIL` / `SUB2API_PASSWORD` login pair, `flow codex-oauth` also refreshes the captured Codex refresh token against Sub2API and upserts an OpenAI OAuth account there. Codey matches existing Sub2API accounts by email and updates them in place; otherwise it creates a new account, using the email address as the Sub2API account name. When both auth modes are present, `SUB2API_BEARER_TOKEN` takes priority.
+
+For web-dispatched `codex-oauth` runs, you can now manage the same Sub2API settings centrally from `/admin/external-services`. When that app-managed integration is enabled, tasks dispatched from `/admin/cli` fetch the Sub2API config from the Codey app at runtime, so the connected TUI no longer needs a separate local Sub2API env setup. The environment variables below remain available as an optional fallback for direct/local CLI runs.
 
 Optional environment variables:
 

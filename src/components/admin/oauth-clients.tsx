@@ -133,8 +133,10 @@ export function AdminAuthRequired() {
 
 export function OAuthClientsList({
   clients,
+  fillHeight = false,
 }: {
   clients: ManagedOAuthClient[]
+  fillHeight?: boolean
 }) {
   const locale = getLocale()
   const enabledCount = clients.filter((client) => client.enabled).length
@@ -211,7 +213,13 @@ export function OAuthClientsList({
   )
 
   return (
-    <div className="space-y-4">
+    <div
+      className={cn(
+        fillHeight
+          ? 'flex min-h-0 flex-1 flex-col gap-4'
+          : 'space-y-4',
+      )}
+    >
       <div className="flex flex-wrap gap-2">
         <Badge variant="outline">
           {m.oauth_clients_badge_total({ count: String(clients.length) })}
@@ -229,6 +237,7 @@ export function OAuthClientsList({
       <ClientFilterableAdminTable
         data={clients}
         columnsConfig={columnsConfig}
+        fillHeight={fillHeight}
         emptyState={
           <EmptyState
             title={m.oauth_clients_empty_title()}

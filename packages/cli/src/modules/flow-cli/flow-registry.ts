@@ -243,6 +243,12 @@ export interface CliFlowTaskBatchMetadata {
   parallelism?: number
 }
 
+export interface CliFlowTaskExternalServices {
+  sub2api?: {
+    source: 'app'
+  }
+}
+
 export const DEFAULT_CLI_FLOW_TASK_COUNT = 1
 export const DEFAULT_CLI_FLOW_TASK_PARALLELISM = 1
 export const MAX_CLI_FLOW_TASK_BATCH_SIZE = 20
@@ -264,6 +270,7 @@ export type CliFlowTaskPayloadById = {
     flowId: FlowId
     config: CliFlowConfigById[FlowId]
     batch?: CliFlowTaskBatchMetadata
+    externalServices?: CliFlowTaskExternalServices
   }
 }
 
@@ -709,12 +716,34 @@ export function createCliFlowTaskPayload<TFlowId extends CliFlowCommandId>(
   flowId: TFlowId,
   config: CliFlowConfigById[TFlowId],
   batch?: CliFlowTaskBatchMetadata,
+  externalServices?: CliFlowTaskExternalServices,
 ): CliFlowTaskPayloadById[TFlowId] {
   return {
     kind: 'flow_task',
     flowId,
     config,
     ...(batch ? { batch } : {}),
+    ...(externalServices ? { externalServices } : {}),
+  }
+}
+
+function normalizeCliFlowTaskExternalServices(
+  value: unknown,
+): CliFlowTaskExternalServices | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const sub2api = isRecord(value.sub2api) ? value.sub2api : undefined
+  const source = sub2api?.source
+  if (source !== 'app') {
+    return undefined
+  }
+
+  return {
+    sub2api: {
+      source: 'app',
+    },
   }
 }
 
@@ -738,11 +767,15 @@ export function normalizeCliFlowTaskPayload(
       ? value.options
       : {}
   const batch = normalizeCliFlowTaskBatchMetadata(value.batch)
+  const externalServices = normalizeCliFlowTaskExternalServices(
+    value.externalServices,
+  )
 
   return createCliFlowTaskPayload(
     flowDefinition.id,
     normalizeCliFlowConfig(flowDefinition.id, rawConfig),
     batch,
+    externalServices,
   )
 }
 

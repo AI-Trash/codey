@@ -156,6 +156,22 @@ describe('resolveConfig sub2api sync config', () => {
 })
 
 describe('chrome profile launch config', () => {
+  it('merges runtime config overrides into the resolved config', () => {
+    const config = buildRuntimeConfig('flow:codex-oauth', {
+      runtimeConfigOverrides: {
+        sub2api: {
+          baseUrl: 'https://sub2api.example.com',
+          bearerToken: 'sub2api-bearer',
+        },
+      },
+    })
+
+    expect(config.sub2api).toEqual({
+      baseUrl: 'https://sub2api.example.com',
+      bearerToken: 'sub2api-bearer',
+    })
+  })
+
   it('maps chromeDefaultProfile to the local Chrome Default profile', async () => {
     const userDataDir =
       'C:\\Users\\Summp\\AppData\\Local\\Google\\Chrome\\User Data'

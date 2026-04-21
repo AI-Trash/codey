@@ -141,9 +141,11 @@ export const defaultCodexOAuthConfig = {
   >
 >
 
-type PartialDeep<T> = {
+export type PartialDeep<T> = {
   [K in keyof T]?: T[K] extends object ? PartialDeep<T[K]> : T[K]
 }
+
+export type RuntimeConfigOverrides = PartialDeep<AppConfig>
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value == null || value === '') return fallback

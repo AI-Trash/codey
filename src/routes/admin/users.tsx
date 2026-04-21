@@ -205,15 +205,16 @@ function AdminUsersPage() {
         </Alert>
       ) : null}
 
-      <Card className="min-h-0 flex-1">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CardHeader>
           <CardDescription>{m.admin_users_table_kicker()}</CardDescription>
           <CardTitle>{m.admin_users_table_title()}</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex min-h-0 flex-1 flex-col">
           <ClientFilterableAdminTable
             data={users}
             columnsConfig={userColumns}
+            fillHeight
             emptyState={
               <EmptyState
                 title={m.admin_users_empty_title()}
