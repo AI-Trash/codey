@@ -4,10 +4,14 @@ import { json, redirect, text } from '../../../lib/server/http'
 import {
   deleteManagedIdentity,
   findAdminIdentitySummary,
+  listAdminIdentitySummaries,
   updateManagedIdentity,
   upsertManagedIdentity,
 } from '../../../lib/server/identities'
-import { parseManagedIdentityTagsInput } from '../../../lib/managed-identity-tags'
+import {
+  applyManagedIdentityTagPatch,
+  parseManagedIdentityTagsInput,
+} from '../../../lib/managed-identity-tags'
 
 function readManagedIdentityPlan(
   value: FormDataEntryValue | null,
@@ -56,6 +60,17 @@ function readManagedIdentityTags(value: FormDataEntryValue | null) {
   return parseManagedIdentityTagsInput(String(value || ''))
 }
 
+function readManagedIdentityIds(form: FormData, key = 'identityIds') {
+  return Array.from(
+    new Set(
+      form
+        .getAll(key)
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
 export const Route = createFileRoute('/api/admin/identities')({
   server: {
     handlers: {
@@ -70,9 +85,71 @@ export const Route = createFileRoute('/api/admin/identities')({
         }
 
         const form = await request.formData()
+        const intent = readManagedIdentityIntent(form.get('intent'))
+        const accept = request.headers.get('accept') || ''
+        const wantsJson = accept.includes('application/json')
+
+        if (intent === 'bulk-save-tags') {
+          const identityIds = readManagedIdentityIds(form)
+          const tagsToAdd = readManagedIdentityTags(form.get('tagsToAdd'))
+          const tagsToRemove = readManagedIdentityTags(form.get('tagsToRemove'))
+
+          if (!identityIds.length) {
+            return text('identityIds are required', 400)
+          }
+
+          const existingSummaries = await listAdminIdentitySummaries()
+          const summariesById = new Map(
+            existingSummaries.map((summary) => [summary.id, summary]),
+          )
+
+          for (const managedIdentityId of identityIds) {
+            const summary = summariesById.get(managedIdentityId)
+            if (!summary) {
+              return text(`Unknown identityId: ${managedIdentityId}`, 400)
+            }
+
+            const record = await updateManagedIdentity({
+              identityId: managedIdentityId,
+              tags: applyManagedIdentityTagPatch(summary.tags, {
+                addTags: tagsToAdd,
+                removeTags: tagsToRemove,
+              }),
+            })
+
+            if (!record) {
+              return text(
+                `Unable to update managed identity: ${managedIdentityId}`,
+                400,
+              )
+            }
+          }
+
+          const updatedSummaries = await listAdminIdentitySummaries()
+          const updatedById = new Map(
+            updatedSummaries.map((summary) => [summary.id, summary]),
+          )
+          const identities = identityIds
+            .map((managedIdentityId) => updatedById.get(managedIdentityId))
+            .filter((summary): summary is NonNullable<typeof summary> =>
+              Boolean(summary),
+            )
+
+          if (wantsJson) {
+            return json({
+              ok: true,
+              identityIds,
+              identities,
+            })
+          }
+
+          return redirect(
+            readRedirectTo(form.get('redirectTo')) || '/admin/identities',
+          )
+        }
+
         const identityId = String(form.get('identityId') || '').trim()
         const email = String(form.get('email') || '').trim()
-        const intent = readManagedIdentityIntent(form.get('intent'))
 
         if (!identityId) {
           return text('identityId is required', 400)
@@ -93,8 +170,7 @@ export const Route = createFileRoute('/api/admin/identities')({
             return text('Unknown identityId', 400)
           }
 
-          const accept = request.headers.get('accept') || ''
-          if (accept.includes('application/json')) {
+          if (wantsJson) {
             return json({ ok: true, id: record.id })
           }
 
@@ -152,9 +228,12 @@ export const Route = createFileRoute('/api/admin/identities')({
           return text('Unable to update managed identity', 400)
         }
 
-        const accept = request.headers.get('accept') || ''
-        if (accept.includes('application/json')) {
-          return json({ ok: true, id: record.id })
+        if (wantsJson) {
+          return json({
+            ok: true,
+            id: record.id,
+            identity: await findAdminIdentitySummary(identityId),
+          })
         }
 
         return redirect(

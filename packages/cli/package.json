@@ -1,5 +1,5 @@
 {
-  "name": "codey-flows",
+  "name": "@codey/cli",
   "version": "1.0.0",
   "private": true,
   "description": "Playwright library environment for validating OpenAI web flows with Chromium only",

@@ -8,7 +8,7 @@ import {
   fetchWithHarCapture,
 } from '../src/modules/authorization/har-recorder'
 
-const tempRoot = path.join(os.tmpdir(), `codey-flows-har-test-${process.pid}`)
+const tempRoot = path.join(os.tmpdir(), `codey-cli-har-test-${process.pid}`)
 
 function createConfig(rootDir: string, recordHar: boolean): CliRuntimeConfig {
   return {

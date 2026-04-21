@@ -10,7 +10,7 @@ import {
   type CliFlowOptionDisplayNameKey,
   cliFlowDefinitions,
   listCliFlowOptionDefinitions,
-} from '../../../packages/flows/src/modules/flow-cli/flow-registry'
+} from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {

@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { getCliFlowDefinition, normalizeCliFlowTaskOptions } from "../../../packages/flows/src/modules/flow-cli/flow-registry";
+import { getCliFlowDefinition, normalizeCliFlowTaskOptions } from "../../../packages/cli/src/modules/flow-cli/flow-registry";
 import {
   getAdminCliConnectionSummaryById,
   type CliConnectionActorScope,

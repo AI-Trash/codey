@@ -9,7 +9,7 @@ import {
 
 const tempRoot = path.join(
   os.tmpdir(),
-  `codey-flows-chrome-profile-test-${process.pid}`,
+  `codey-cli-chrome-profile-test-${process.pid}`,
 )
 
 function writeFixture(relativePath: string, content: string): void {

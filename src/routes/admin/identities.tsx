@@ -27,6 +27,7 @@ import {
 import { ClientFilterableAdminTable } from '#/components/admin/filterable-table'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -46,6 +47,14 @@ import {
   CardTitle,
 } from '#/components/ui/card'
 import { CopyableValue } from '#/components/ui/copyable-value'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
 import { InfoTooltip } from '#/components/ui/info-tooltip'
 import { Input } from '#/components/ui/input'
 import {
@@ -125,6 +134,18 @@ type IdentitySummary = {
   lastSeenAt?: string | Date | null
   status?: string | null
   plan?: 'free' | 'plus' | 'team' | null
+}
+
+type UpdateManagedIdentityResponse = {
+  ok: boolean
+  id: string
+  identity?: IdentitySummary | null
+}
+
+type BulkUpdateManagedIdentityTagsResponse = {
+  ok: boolean
+  identityIds: string[]
+  identities: IdentitySummary[]
 }
 
 const managedIdentityStatusOptions = [
@@ -216,6 +237,18 @@ function getManagedIdentityIntent(status: ManagedIdentityStatus) {
   )
 }
 
+function getManagedIdentityEditableLabel(summary: IdentitySummary) {
+  return summary.label !== summary.account ? summary.label : ''
+}
+
+function mergeIdentitySummaries(
+  current: IdentitySummary[],
+  updates: IdentitySummary[],
+) {
+  const updatesById = new Map(updates.map((summary) => [summary.id, summary]))
+  return current.map((summary) => updatesById.get(summary.id) || summary)
+}
+
 function AdminIdentitiesPage() {
   const data = Route.useLoaderData()
 
@@ -223,8 +256,14 @@ function AdminIdentitiesPage() {
     return <AdminAuthRequired />
   }
 
-  const identitySummaries = data.identitySummaries as IdentitySummary[]
+  const [identitySummaries, setIdentitySummaries] = useState(
+    () => data.identitySummaries as IdentitySummary[],
+  )
   const locale = getLocale()
+
+  useEffect(() => {
+    setIdentitySummaries(data.identitySummaries as IdentitySummary[])
+  }, [data.identitySummaries])
 
   const identityColumns = useMemo(() => {
     const dtf = createColumnConfigHelper<IdentitySummary>()
@@ -343,6 +382,18 @@ function AdminIdentitiesPage() {
                 description={m.admin_dashboard_identities_empty_description()}
               />
             }
+            renderActions={(rows) => (
+              <TooltipProvider>
+                <BulkIdentityTagEditAction
+                  rows={rows}
+                  onSaved={(updatedIdentities) => {
+                    setIdentitySummaries((current) =>
+                      mergeIdentitySummaries(current, updatedIdentities),
+                    )
+                  }}
+                />
+              </TooltipProvider>
+            )}
             renderTable={(rows) => (
               <Table className="min-w-[1460px]">
                 <TableHeader>
@@ -415,7 +466,14 @@ function AdminIdentitiesPage() {
                         <IdentityStatusSelect summary={summary} />
                       </TableCell>
                       <TableCell className="align-top">
-                        <IdentityRowActions summary={summary} />
+                        <IdentityRowActions
+                          summary={summary}
+                          onSaved={(updatedIdentity) => {
+                            setIdentitySummaries((current) =>
+                              mergeIdentitySummaries(current, [updatedIdentity]),
+                            )
+                          }}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -429,53 +487,363 @@ function AdminIdentitiesPage() {
   )
 }
 
-function IdentityRowActions(props: { summary: IdentitySummary }) {
-  const { summary } = props
-  const labelDefaultValue =
-    summary.label !== summary.account ? summary.label : ''
-  const [selectedTags, setSelectedTags] = useState(() =>
-    normalizeManagedIdentitySummaryTags(summary.tags),
-  )
-
-  useEffect(() => {
-    setSelectedTags(normalizeManagedIdentitySummaryTags(summary.tags))
-  }, [summary.tags])
-
+function IdentityRowActions(props: {
+  summary: IdentitySummary
+  onSaved: (identity: IdentitySummary) => void
+}) {
   return (
     <TooltipProvider>
-      <div className="flex min-w-[420px] items-start gap-2">
-        <form
-          method="post"
-          action="/api/admin/identities"
-          className="min-w-0 flex-1 space-y-2"
-        >
-          <IdentityActionFields summary={summary} />
-          <input type="hidden" name="tags" value={selectedTags.join('\n')} />
-          <IdentityTagSelector
-            value={selectedTags}
-            onChange={setSelectedTags}
-          />
-          <div className="flex min-w-0 items-start gap-2">
-            <Input
-              name="label"
-              defaultValue={labelDefaultValue}
-              placeholder={
-                summary.account || m.admin_dashboard_identity_label()
-              }
-              className="h-8 min-w-0 flex-1"
-            />
-            <ActionIconButton
-              type="submit"
-              name="intent"
-              value="save-details"
-              label={m.admin_identity_update_details_button()}
-              icon={<SquarePenIcon />}
-            />
-          </div>
-        </form>
-        <IdentityDeleteAction summary={summary} />
+      <div className="flex items-start gap-2">
+        <IdentityTagEditAction summary={props.summary} onSaved={props.onSaved} />
+        <IdentityDeleteAction summary={props.summary} />
       </div>
     </TooltipProvider>
+  )
+}
+
+function IdentityTagEditAction(props: {
+  summary: IdentitySummary
+  onSaved: (identity: IdentitySummary) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [label, setLabel] = useState(() =>
+    getManagedIdentityEditableLabel(props.summary),
+  )
+  const [selectedTags, setSelectedTags] = useState(() =>
+    normalizeManagedIdentitySummaryTags(props.summary.tags),
+  )
+  const [submitting, setSubmitting] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    setLabel(getManagedIdentityEditableLabel(props.summary))
+    setSelectedTags(normalizeManagedIdentitySummaryTags(props.summary.tags))
+    setSubmitting(false)
+    setSaveError(null)
+  }, [
+    open,
+    props.summary.account,
+    props.summary.id,
+    props.summary.label,
+    props.summary.tags,
+  ])
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    setSaveError(null)
+
+    try {
+      const form = new FormData()
+      form.set('intent', 'save-details')
+      form.set('identityId', props.summary.id)
+      form.set('email', props.summary.account || props.summary.label)
+      form.set('label', label)
+      form.set('tags', selectedTags.join('\n'))
+      form.set('redirectTo', '/admin/identities')
+
+      const response = await fetch('/api/admin/identities', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+        },
+        body: form,
+      })
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      const result = (await response.json()) as UpdateManagedIdentityResponse
+
+      if (result.identity) {
+        props.onSaved(result.identity)
+      }
+
+      setOpen(false)
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : m.admin_identity_save_error_fallback(),
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <ActionIconButton
+        label={m.admin_identity_edit_tags_button()}
+        icon={<SquarePenIcon />}
+        onClick={() => {
+          setOpen(true)
+        }}
+      />
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-[min(560px,calc(100%-2rem))] gap-5">
+          <DialogHeader>
+            <DialogTitle>
+              {m.admin_identity_edit_tags_title({
+                identity: props.summary.label,
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {m.admin_identity_edit_tags_description()}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <div className="space-y-1">
+                <div className="font-medium text-foreground">
+                  {props.summary.label}
+                </div>
+                <p className="break-all text-sm text-muted-foreground">
+                  {props.summary.account || m.admin_dashboard_not_linked_yet()}
+                </p>
+              </div>
+            </div>
+
+            <DialogField label={m.admin_dashboard_identity_label()}>
+              <Input
+                value={label}
+                onChange={(event) => {
+                  setLabel(event.target.value)
+                }}
+                placeholder={
+                  props.summary.account || m.admin_dashboard_identity_label()
+                }
+                disabled={submitting}
+              />
+            </DialogField>
+
+            <DialogField label={m.admin_identity_tags_label()}>
+              <IdentityTagSelector
+                value={selectedTags}
+                onChange={setSelectedTags}
+                disabled={submitting}
+              />
+            </DialogField>
+
+            {saveError ? (
+              <Alert variant="destructive">
+                <AlertTitle>{m.oauth_unable_to_save_title()}</AlertTitle>
+                <AlertDescription>{saveError}</AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpen(false)
+              }}
+              disabled={submitting}
+            >
+              {m.ui_close()}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void handleSubmit()
+              }}
+              disabled={submitting}
+            >
+              {submitting ? m.oauth_saving() : m.admin_identity_save_tags_button()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+function BulkIdentityTagEditAction(props: {
+  rows: IdentitySummary[]
+  onSaved: (identities: IdentitySummary[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [tagsToAdd, setTagsToAdd] = useState<string[]>([])
+  const [tagsToRemove, setTagsToRemove] = useState<string[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const rowIds = useMemo(() => props.rows.map((row) => row.id), [props.rows])
+  const rowIdsKey = rowIds.join('|')
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    setTagsToAdd([])
+    setTagsToRemove([])
+    setSubmitting(false)
+    setSaveError(null)
+  }, [open, rowIdsKey])
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    setSaveError(null)
+
+    try {
+      const form = new FormData()
+      form.set('intent', 'bulk-save-tags')
+      form.set('tagsToAdd', tagsToAdd.join('\n'))
+      form.set('tagsToRemove', tagsToRemove.join('\n'))
+      form.set('redirectTo', '/admin/identities')
+
+      for (const identityId of rowIds) {
+        form.append('identityIds', identityId)
+      }
+
+      const response = await fetch('/api/admin/identities', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+        },
+        body: form,
+      })
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      const result =
+        (await response.json()) as BulkUpdateManagedIdentityTagsResponse
+
+      props.onSaved(result.identities)
+      setOpen(false)
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : m.admin_identity_bulk_save_error_fallback(),
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const disabled = !rowIds.length
+  const canSubmit = Boolean(tagsToAdd.length || tagsToRemove.length)
+
+  return (
+    <>
+      <ActionIconButton
+        label={m.admin_identity_bulk_edit_tags_button()}
+        icon={<TagsIcon />}
+        onClick={() => {
+          setOpen(true)
+        }}
+        disabled={disabled}
+      />
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-[min(620px,calc(100%-2rem))] gap-5">
+          <DialogHeader>
+            <DialogTitle>
+              {m.admin_identity_bulk_edit_tags_title({
+                count: String(rowIds.length),
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {m.admin_identity_bulk_edit_tags_description()}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+              {m.admin_identity_bulk_edit_scope({
+                count: String(rowIds.length),
+              })}
+            </div>
+
+            <DialogField label={m.admin_identity_bulk_add_tags_label()}>
+              <IdentityTagSelector
+                value={tagsToAdd}
+                onChange={(nextTags) => {
+                  setTagsToAdd(nextTags)
+                  setTagsToRemove((current) =>
+                    current.filter((tag) => !nextTags.includes(tag)),
+                  )
+                }}
+                disabled={submitting}
+              />
+            </DialogField>
+
+            <DialogField label={m.admin_identity_bulk_remove_tags_label()}>
+              <IdentityTagSelector
+                value={tagsToRemove}
+                onChange={(nextTags) => {
+                  setTagsToRemove(nextTags)
+                  setTagsToAdd((current) =>
+                    current.filter((tag) => !nextTags.includes(tag)),
+                  )
+                }}
+                disabled={submitting}
+              />
+            </DialogField>
+
+            {saveError ? (
+              <Alert variant="destructive">
+                <AlertTitle>{m.oauth_unable_to_save_title()}</AlertTitle>
+                <AlertDescription>{saveError}</AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpen(false)
+              }}
+              disabled={submitting}
+            >
+              {m.ui_close()}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void handleSubmit()
+              }}
+              disabled={submitting || !canSubmit || disabled}
+            >
+              {submitting
+                ? m.oauth_saving()
+                : m.admin_identity_bulk_save_tags_button()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+function DialogField(props: {
+  label: string
+  description?: string
+  children: ReactNode
+}) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-sm font-medium text-foreground">{props.label}</span>
+      {props.description ? (
+        <span className="text-sm text-muted-foreground">
+          {props.description}
+        </span>
+      ) : null}
+      {props.children}
+    </label>
   )
 }
 
@@ -504,11 +872,17 @@ function ManagedIdentityTagList(props: { tags?: string[] | null }) {
 function IdentityTagSelector(props: {
   value: string[]
   onChange: (nextTags: string[]) => void
+  disabled?: boolean
 }) {
   const selectedTags = new Set(props.value)
 
   return (
-    <div className="flex min-h-9 flex-wrap gap-2 rounded-md border border-input bg-transparent p-2">
+    <div
+      className={cn(
+        'flex min-h-9 flex-wrap gap-2 rounded-md border border-input bg-transparent p-2',
+        props.disabled && 'pointer-events-none opacity-60',
+      )}
+    >
       {managedIdentityTagOptions.map((option) => {
         const selected = selectedTags.has(option.value)
 
@@ -528,6 +902,7 @@ function IdentityTagSelector(props: {
               type="button"
               aria-pressed={selected}
               title={option.label()}
+              disabled={props.disabled}
               onClick={() => {
                 const nextTags = normalizeManagedIdentityTags(
                   managedIdentityTagOptions
@@ -713,6 +1088,8 @@ function ActionIconButton(props: {
   variant?: ComponentProps<typeof Button>['variant']
   label: string
   icon: ReactNode
+  disabled?: boolean
+  onClick?: () => void
 }) {
   return (
     <Tooltip>
@@ -725,6 +1102,8 @@ function ActionIconButton(props: {
           variant={props.variant || 'outline'}
           aria-label={props.label}
           title={props.label}
+          disabled={props.disabled}
+          onClick={props.onClick}
         >
           {props.icon}
         </Button>

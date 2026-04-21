@@ -12,7 +12,7 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
 ## What is implemented
 
 - Exchange verification remains available through the existing Microsoft Graph client flow
-- `packages/flows` now resolves verification through a provider abstraction instead of hard-coded Exchange polling
+- `packages/cli` now resolves verification through a provider abstraction instead of hard-coded Exchange polling
 - the TanStack Start app exposes:
   - `POST /api/verification/email-reservations`
   - `GET /api/verification/codes`

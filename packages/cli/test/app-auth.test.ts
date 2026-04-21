@@ -21,7 +21,7 @@ import {
 } from '../src/config'
 import { resolveAppBaseUrl } from '../src/modules/app-auth/http'
 
-const tempRoot = path.join(os.tmpdir(), `codey-flows-test-${process.pid}`)
+const tempRoot = path.join(os.tmpdir(), `codey-cli-test-${process.pid}`)
 
 function createConfig(rootDir: string): CliRuntimeConfig {
   return {

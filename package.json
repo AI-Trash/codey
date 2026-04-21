@@ -11,15 +11,15 @@
     "dev": "vite dev --port 3000",
     "build": "vite build",
     "preview": "vite preview",
-    "codey": "pnpm --filter ./packages/flows exec jiti src/cli.ts",
+    "codey": "pnpm --filter ./packages/cli exec jiti src/cli.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "fmt": "pnpm --filter ./packages/flows run fmt",
-    "fmt:check": "pnpm --filter ./packages/flows run fmt:check",
-    "flow": "pnpm --filter ./packages/flows exec jiti src/cli.ts flow",
-    "lint": "pnpm --filter ./packages/flows run lint",
-    "lint:fix": "pnpm --filter ./packages/flows run lint:fix",
-    "test": "pnpm --filter ./packages/flows run test"
+    "fmt": "pnpm --filter ./packages/cli run fmt",
+    "fmt:check": "pnpm --filter ./packages/cli run fmt:check",
+    "flow": "pnpm --filter ./packages/cli exec jiti src/cli.ts flow",
+    "lint": "pnpm --filter ./packages/cli run lint",
+    "lint:fix": "pnpm --filter ./packages/cli run lint:fix",
+    "test": "pnpm --filter ./packages/cli run test"
   },
   "dependencies": {
     "@base-ui/react": "catalog:",

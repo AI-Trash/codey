@@ -94,3 +94,25 @@ export function normalizeManagedIdentityTags(
 export function parseManagedIdentityTagsInput(value?: string | null) {
   return normalizeManagedIdentityTags(value?.split(/[\n,，]/g))
 }
+
+export function applyManagedIdentityTagPatch(
+  currentTags?: Iterable<string | null | undefined> | null,
+  options?: {
+    addTags?: Iterable<string | null | undefined> | null
+    removeTags?: Iterable<string | null | undefined> | null
+  },
+) {
+  const removeTags = new Set(
+    normalizeManagedIdentityTags(options?.removeTags).map((tag) =>
+      tag.toLowerCase(),
+    ),
+  )
+  const retainedTags = normalizeManagedIdentityTags(currentTags).filter(
+    (tag) => !removeTags.has(tag.toLowerCase()),
+  )
+  const addedTags = normalizeManagedIdentityTags(options?.addTags).filter(
+    (tag) => !removeTags.has(tag.toLowerCase()),
+  )
+
+  return normalizeManagedIdentityTags([...retainedTags, ...addedTags])
+}

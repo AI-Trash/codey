@@ -313,7 +313,7 @@ export function createNodeHarRecorder(
     log: {
       version: '1.2',
       creator: {
-        name: 'codey-flows',
+        name: 'codey',
         version: '1.0.0',
       },
       entries: [],

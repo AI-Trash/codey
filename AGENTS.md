@@ -6,7 +6,7 @@
 - This workspace has four main areas:
   - `src/`: TanStack Start app, routes, UI, shared helpers
   - `server/`: Nitro/srvx entrypoints such as the OIDC handler
-  - `packages/flows/`: browser automation CLI and tests
+  - `packages/cli/`: browser automation CLI and tests
   - `packages/cloudflare-email-worker/`: email ingest worker
 
 ## Commands agents can rely on
@@ -14,14 +14,14 @@
 - `pnpm dev` runs the app on port 3000.
 - `pnpm build` validates the web app build.
 - `pnpm db:generate` and `pnpm db:migrate` manage Drizzle migrations.
-- `pnpm test`, `pnpm lint`, `pnpm fmt`, and `pnpm fmt:check` are scoped to `packages/flows`.
-- If you change app code outside `packages/flows`, use `pnpm build` plus editor diagnostics; there is no separate root lint task for the app.
+- `pnpm test`, `pnpm lint`, `pnpm fmt`, and `pnpm fmt:check` are scoped to `packages/cli`.
+- If you change app code outside `packages/cli`, use `pnpm build` plus editor diagnostics; there is no separate root lint task for the app.
 
 ## Flow state machines
 
 - Treat flow branching as a state-machine concern. Do not add new `if/else` trees in flow runners to decide between states such as email/password/verification/retry.
 - Encode branch selection as guarded transitions with explicit priority. When multiple transitions exist for the same event, guards must be evaluated in priority order and only the first passing transition should be selected.
-- Keep guards pure. In `packages/flows`, guards should consume query results or candidate lists returned by `queries.ts`; prefer helpers such as `get*Candidates()` / `waitFor*Candidates()` over embedding DOM checks directly in mutation code.
+- Keep guards pure. In `packages/cli`, guards should consume query results or candidate lists returned by `queries.ts`; prefer helpers such as `get*Candidates()` / `waitFor*Candidates()` over embedding DOM checks directly in mutation code.
 - Keep retry and fallback bookkeeping in machine context, not in ad-hoc local variables only. This includes `retryCount`, `retryReason`, `retryFromState`, `lastAttempt`, and `lastMessage`.
 - Retry states must be globally reachable from every flow state. When a branch fails in a recoverable way, emit the flow's retry event and record the fallback in context before trying the next eligible branch.
 - When a flow needs to enter one of several guarded branches at runtime, use the ordered guarded-branch runner (`runGuardedBranches`) so recoverable branch-entry failures can automatically fall through to the next matching branch.
