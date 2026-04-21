@@ -734,8 +734,12 @@ export async function runTuiDashboard(input: {
     config: FlowOptions
     notificationId: string
     message: string
-  }): Promise<void> => {
-    const executeTask = async () => {
+  }): Promise<{
+    interrupted: boolean
+  }> => {
+    const executeTask = async (): Promise<{
+      interrupted: boolean
+    }> => {
       const startedAt = new Date().toISOString()
       const flowAbortController = new AbortController()
       let flowSettled = false
@@ -817,9 +821,14 @@ export async function runTuiDashboard(input: {
           runtimeFlowStartedAt: startedAt,
           runtimeFlowCompletedAt: completedAt,
         })
+        return {
+          interrupted: false,
+        }
       } catch (error) {
         const sanitized = sanitizeErrorForOutput(error)
         const completedAt = new Date().toISOString()
+        const interrupted =
+          error instanceof FlowInterruptedError || isAbortError(error)
 
         updateState((state) =>
           failDashboardFlow(state, {
@@ -836,6 +845,9 @@ export async function runTuiDashboard(input: {
           runtimeFlowStartedAt: startedAt,
           runtimeFlowCompletedAt: completedAt,
         })
+        return {
+          interrupted,
+        }
       } finally {
         flowSettled = true
         if (currentFlowAbortController === flowAbortController) {
@@ -854,8 +866,66 @@ export async function runTuiDashboard(input: {
     }
 
     const scheduled = flowExecutionChain.then(executeTask, executeTask)
-    flowExecutionChain = scheduled.catch(() => undefined)
-    await scheduled
+    flowExecutionChain = scheduled.then(() => undefined, () => undefined)
+    return scheduled
+  }
+
+  const runLocalFlowBatch = async (task: {
+    flowId: CliFlowCommandId
+    config: FlowOptions
+    repeatCount: number
+  }) => {
+    const repeatCount = Math.max(task.repeatCount, 1)
+    const notificationSeed = Date.now()
+
+    if (repeatCount > 1) {
+      updateState((state) =>
+        appendDashboardEvent(
+          state,
+          `Queued ${repeatCount} local ${task.flowId} tasks.`,
+        ),
+      )
+    }
+
+    for (let index = 0; index < repeatCount; index += 1) {
+      if (stopRequested || reconnectRequested || forceStopRequested) {
+        const remaining = repeatCount - index
+        if (remaining > 0) {
+          updateState((state) =>
+            appendDashboardEvent(
+              state,
+              `Stopped ${remaining} queued local ${task.flowId} tasks before start.`,
+            ),
+          )
+        }
+        break
+      }
+
+      const batchLabel =
+        repeatCount > 1
+          ? `Local task ${index + 1}/${repeatCount}`
+          : 'Local task started'
+
+      const result = await runDashboardFlowTask({
+        flowId: task.flowId,
+        config: task.config,
+        notificationId: `local:${notificationSeed}:${index + 1}`,
+        message: batchLabel,
+      })
+
+      if (result.interrupted) {
+        const remaining = repeatCount - index - 1
+        if (remaining > 0) {
+          updateState((state) =>
+            appendDashboardEvent(
+              state,
+              `Stopped ${remaining} queued local ${task.flowId} tasks after interruption.`,
+            ),
+          )
+        }
+        break
+      }
+    }
   }
 
   const requestLocalFlowStart = () => {
@@ -905,11 +975,10 @@ export async function runTuiDashboard(input: {
           return
         }
 
-        await runDashboardFlowTask({
+        await runLocalFlowBatch({
           flowId: task.flowId,
           config: task.config,
-          notificationId: `local:${Date.now()}`,
-          message: 'Local task started',
+          repeatCount: task.repeatCount,
         })
       } catch (error) {
         const normalized = toPromptCancelError(error)

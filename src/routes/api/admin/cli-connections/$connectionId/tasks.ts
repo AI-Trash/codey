@@ -1,7 +1,34 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { requireAdminPermission } from "../../../../../lib/server/auth";
 import { json, text } from "../../../../../lib/server/http";
-import { dispatchCliFlowTask } from "../../../../../lib/server/cli-tasks";
+import {
+  dispatchCliFlowTasks,
+  MAX_CLI_FLOW_TASK_BATCH_SIZE,
+} from "../../../../../lib/server/cli-tasks";
+
+function readRequestedTaskCount(body: Record<string, unknown> | null) {
+  const rawValue =
+    typeof body?.repeatCount === "number" || typeof body?.repeatCount === "string"
+      ? body.repeatCount
+      : typeof body?.count === "number" || typeof body?.count === "string"
+        ? body.count
+        : 1;
+
+  const parsed =
+    typeof rawValue === "number" ? rawValue : Number.parseInt(rawValue, 10);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error("repeatCount must be a whole number greater than 0.");
+  }
+
+  if (parsed > MAX_CLI_FLOW_TASK_BATCH_SIZE) {
+    throw new Error(
+      `repeatCount cannot exceed ${MAX_CLI_FLOW_TASK_BATCH_SIZE}.`,
+    );
+  }
+
+  return parsed;
+}
 
 export const Route = createFileRoute(
   "/api/admin/cli-connections/$connectionId/tasks",
@@ -37,9 +64,11 @@ export const Route = createFileRoute(
         }
 
         try {
-          const result = await dispatchCliFlowTask({
+          const repeatCount = readRequestedTaskCount(body);
+          const result = await dispatchCliFlowTasks({
             connectionId: params.connectionId,
             flowId,
+            count: repeatCount,
             actor: {
               userId: admin.user.id,
               githubLogin: admin.user.githubLogin,
@@ -60,7 +89,11 @@ export const Route = createFileRoute(
           return json(
             {
               ok: true,
-              notificationId: result.notification.id,
+              notificationId: result.notifications[0]?.id || null,
+              notificationIds: result.notifications.map(
+                (notification) => notification.id,
+              ),
+              queuedCount: result.notifications.length,
               connectionId: result.connection.id,
               flowId,
               config: result.config,

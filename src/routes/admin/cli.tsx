@@ -76,6 +76,7 @@ import { m } from '#/paraglide/messages'
 
 const CLI_CONNECTION_POLL_INTERVAL_MS = 10_000
 const BOOLEAN_DEFAULT_SENTINEL = '__default__'
+const CHATGPT_REGISTER_BATCH_LIMIT = 20
 
 const loadAdminCliConnections = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -291,13 +292,20 @@ function AdminCliConnectionsPage() {
             setSelectedConnection(null)
           }
         }}
-        onDispatched={(flowId, connection) => {
+        onDispatched={(flowId, connection, queuedCount) => {
           setDispatchFlash({
             title: m.admin_cli_dispatch_success_title(),
-            description: m.admin_cli_dispatch_success_description({
-              flow: getFlowDisplayName(flowId),
-              cli: connection.cliName || m.admin_cli_unknown_cli(),
-            }),
+            description:
+              queuedCount > 1
+                ? m.admin_cli_dispatch_success_description_batch({
+                    flow: getFlowDisplayName(flowId),
+                    cli: connection.cliName || m.admin_cli_unknown_cli(),
+                    count: String(queuedCount),
+                  })
+                : m.admin_cli_dispatch_success_description({
+                    flow: getFlowDisplayName(flowId),
+                    cli: connection.cliName || m.admin_cli_unknown_cli(),
+                  }),
           })
           setSelectedConnection(null)
         }}
@@ -452,6 +460,7 @@ function CliTaskDialog(props: {
   onDispatched: (
     flowId: CliFlowCommandId,
     connection: CliConnectionSummary,
+    queuedCount: number,
   ) => void
 }) {
   const availableFlows = useMemo(() => {
@@ -460,16 +469,20 @@ function CliTaskDialog(props: {
   const [selectedFlowId, setSelectedFlowId] = useState<CliFlowCommandId | ''>(
     '',
   )
+  const [dispatchCount, setDispatchCount] = useState('1')
   const [draftValues, setDraftValues] = useState<DraftOptionState>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
     setSelectedFlowId(availableFlows[0] || '')
+    setDispatchCount('1')
     setDraftValues({})
     setSubmitting(false)
     setSubmitError(null)
   }, [props.connection?.id, availableFlows])
+
+  const batchingEnabled = supportsBatchDispatch(selectedFlowId)
 
   const optionDefinitions = useMemo(() => {
     return selectedFlowId
@@ -491,6 +504,7 @@ function CliTaskDialog(props: {
     setSubmitting(true)
     setSubmitError(null)
     try {
+      const repeatCount = readDispatchCount(selectedFlowId, dispatchCount)
       const response = await fetch(
         `/api/admin/cli-connections/${encodeURIComponent(props.connection.id)}/tasks`,
         {
@@ -504,6 +518,7 @@ function CliTaskDialog(props: {
               selectedFlowId,
               buildDispatchConfig(selectedFlowId, draftValues),
             ),
+            repeatCount,
           }),
         },
       )
@@ -512,7 +527,17 @@ function CliTaskDialog(props: {
         throw new Error(await response.text())
       }
 
-      props.onDispatched(selectedFlowId, props.connection)
+      const result = (await response.json()) as {
+        queuedCount?: number
+      }
+
+      props.onDispatched(
+        selectedFlowId,
+        props.connection,
+        typeof result.queuedCount === 'number' && result.queuedCount > 0
+          ? result.queuedCount
+          : repeatCount,
+      )
     } catch (error) {
       setSubmitError(
         error instanceof Error
@@ -552,6 +577,7 @@ function CliTaskDialog(props: {
                     value={selectedFlowId}
                     onValueChange={(value) => {
                       setSelectedFlowId(value as CliFlowCommandId)
+                      setDispatchCount('1')
                       setSubmitError(null)
                     }}
                     disabled={!availableFlows.length || submitting}
@@ -580,6 +606,44 @@ function CliTaskDialog(props: {
                 </Field>
               </FieldGroup>
             </FieldSet>
+
+            {batchingEnabled ? (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    {m.admin_cli_dispatch_repeat_count_label()}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <FieldSet>
+                    <FieldGroup>
+                      <Field>
+                        <FieldLabel htmlFor="dispatch-repeat-count">
+                          {m.admin_cli_dispatch_repeat_count_label()}
+                        </FieldLabel>
+                        <Input
+                          id="dispatch-repeat-count"
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={CHATGPT_REGISTER_BATCH_LIMIT}
+                          value={dispatchCount}
+                          disabled={submitting}
+                          onChange={(event) => {
+                            setDispatchCount(event.currentTarget.value)
+                          }}
+                        />
+                        <FieldDescription>
+                          {m.admin_cli_dispatch_repeat_count_description({
+                            max: String(CHATGPT_REGISTER_BATCH_LIMIT),
+                          })}
+                        </FieldDescription>
+                      </Field>
+                    </FieldGroup>
+                  </FieldSet>
+                </CardContent>
+              </Card>
+            ) : null}
 
             {selectedFlowId ? (
               <>
@@ -851,6 +915,41 @@ function getDispatchableFlowIds(
   return cliFlowDefinitions
     .filter((definition) => reported.has(definition.id))
     .map((definition) => definition.id)
+}
+
+function supportsBatchDispatch(
+  flowId: CliFlowCommandId | '',
+): flowId is 'chatgpt-register' {
+  return flowId === 'chatgpt-register'
+}
+
+function readDispatchCount(
+  flowId: CliFlowCommandId,
+  rawValue: string,
+): number {
+  if (!supportsBatchDispatch(flowId)) {
+    return 1
+  }
+
+  const normalized = rawValue.trim()
+  if (!normalized) {
+    return 1
+  }
+
+  const parsed = Number.parseInt(normalized, 10)
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 1 ||
+    parsed > CHATGPT_REGISTER_BATCH_LIMIT
+  ) {
+    throw new Error(
+      m.admin_cli_dispatch_repeat_count_error({
+        max: String(CHATGPT_REGISTER_BATCH_LIMIT),
+      }),
+    )
+  }
+
+  return parsed
 }
 
 function buildDispatchConfig<TFlowId extends CliFlowCommandId>(

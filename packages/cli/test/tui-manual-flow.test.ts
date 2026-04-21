@@ -5,6 +5,8 @@ import {
   buildManualFlowOptionChoices,
   describeManualFlow,
   normalizeManualFlowAnswers,
+  normalizeManualFlowRepeatCount,
+  supportsManualFlowBatching,
 } from '../src/modules/tui/manual-flow'
 
 describe('tui manual flow helpers', () => {
@@ -40,5 +42,16 @@ describe('tui manual flow helpers', () => {
       inviteEmail: ['a@example.com', 'b@example.com'],
       email: 'person@example.com',
     })
+  })
+
+  it('limits manual repeat counts and defaults to one when missing', () => {
+    expect(normalizeManualFlowRepeatCount('')).toBe(1)
+    expect(normalizeManualFlowRepeatCount('3')).toBe(3)
+    expect(normalizeManualFlowRepeatCount('99')).toBe(20)
+  })
+
+  it('only enables local batching for registration flows', () => {
+    expect(supportsManualFlowBatching('chatgpt-register')).toBe(true)
+    expect(supportsManualFlowBatching('chatgpt-login')).toBe(false)
   })
 })

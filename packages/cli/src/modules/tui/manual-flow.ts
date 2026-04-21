@@ -13,7 +13,10 @@ import {
 export interface ManualFlowTaskInput {
   flowId: CliFlowCommandId
   config: FlowOptions
+  repeatCount: number
 }
+
+export const MAX_MANUAL_FLOW_REPEAT_COUNT = 20
 
 type EnquirerChoice = {
   name: string
@@ -86,6 +89,12 @@ export function describeManualFlowOption(optionKey: string): string {
   return flowOptionDescriptionByKey[optionKey] || humanizeKey(optionKey)
 }
 
+export function supportsManualFlowBatching(
+  flowId: CliFlowCommandId,
+): boolean {
+  return flowId === 'chatgpt-register'
+}
+
 function formatManualFlowChoice(definition: CliFlowDefinition): EnquirerChoice {
   return {
     name: definition.id,
@@ -103,7 +112,7 @@ function formatManualFlowOptionChoice(
 
   return {
     name: definition.key,
-    message: `${definition.flag}  ${label}`,
+    message: `${definition.cliFlag}  ${label}`,
     hint: `${scope}: ${describeManualFlowOption(definition.key)}`,
   }
 }
@@ -146,6 +155,28 @@ export function normalizeManualFlowAnswers(
   return normalizeCliFlowConfig(flowId, answers) as FlowOptions
 }
 
+export function normalizeManualFlowRepeatCount(value: unknown): number {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return Math.min(value, MAX_MANUAL_FLOW_REPEAT_COUNT)
+  }
+
+  if (typeof value !== 'string') {
+    return 1
+  }
+
+  const normalized = value.trim()
+  if (!normalized) {
+    return 1
+  }
+
+  const parsed = Number.parseInt(normalized, 10)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return 1
+  }
+
+  return Math.min(parsed, MAX_MANUAL_FLOW_REPEAT_COUNT)
+}
+
 async function runEnquirerPrompt<T>(
   config: Record<string, unknown>,
 ): Promise<T> {
@@ -162,6 +193,40 @@ async function promptForFlowId(): Promise<CliFlowCommandId> {
   })
 
   return answer.flowId
+}
+
+async function promptForRepeatCount(
+  flowId: CliFlowCommandId,
+): Promise<number> {
+  if (!supportsManualFlowBatching(flowId)) {
+    return 1
+  }
+
+  const answer = await runEnquirerPrompt<{ repeatCount: string }>({
+    type: 'input',
+    name: 'repeatCount',
+    message: 'How many local registration tasks should Codey queue?',
+    initial: '1',
+    validate: (current: string) => {
+      const normalized = current.trim()
+      if (!normalized) {
+        return true
+      }
+
+      const parsed = Number.parseInt(normalized, 10)
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return 'Enter a whole number greater than 0.'
+      }
+
+      if (parsed > MAX_MANUAL_FLOW_REPEAT_COUNT) {
+        return `Enter a value from 1 to ${MAX_MANUAL_FLOW_REPEAT_COUNT}.`
+      }
+
+      return true
+    },
+  })
+
+  return normalizeManualFlowRepeatCount(answer.repeatCount)
 }
 
 async function promptForSelectedOptionKeys(
@@ -192,7 +257,7 @@ async function promptForOptionValue(
     const answer = await runEnquirerPrompt<{ value: string }>({
       type: 'select',
       name: 'value',
-      message: `${definition.flag}\n${description}`,
+      message: `${definition.cliFlag}\n${description}`,
       choices: [
         {
           name: 'true',
@@ -220,7 +285,7 @@ async function promptForOptionValue(
   const answer = await runEnquirerPrompt<{ value: string }>({
     type: 'input',
     name: 'value',
-    message: `${definition.flag}${inputSuffix}\n${description}`,
+    message: `${definition.cliFlag}${inputSuffix}\n${description}`,
     validate: (current: string) => {
       const normalized = current.trim()
       if (!normalized) {
@@ -243,6 +308,7 @@ async function promptForOptionValue(
 
 export async function promptForManualFlowTask(): Promise<ManualFlowTaskInput> {
   const flowId = await promptForFlowId()
+  const repeatCount = await promptForRepeatCount(flowId)
   const optionKeys = await promptForSelectedOptionKeys(flowId)
   const optionDefinitions = listCliFlowConfigFieldDefinitions(flowId)
   const rawOptions: Record<string, unknown> = {}
@@ -261,5 +327,6 @@ export async function promptForManualFlowTask(): Promise<ManualFlowTaskInput> {
   return {
     flowId,
     config: normalizeManualFlowAnswers(flowId, rawOptions),
+    repeatCount,
   }
 }
