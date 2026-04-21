@@ -5,7 +5,71 @@ import { printFlowArtifactPath } from './helpers'
 
 const FINAL_PAGE_CLOSE_GRACE_MS = 250
 
-function keepSessionAlive(session: Session): () => void {
+export class FlowInterruptedError extends Error {
+  constructor(message = 'Flow stopped by operator.') {
+    super(message)
+    this.name = 'FlowInterruptedError'
+  }
+}
+
+export function isFlowInterruptedError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'FlowInterruptedError'
+}
+
+function toFlowInterruptedError(reason: unknown): Error {
+  if (reason instanceof Error) {
+    return reason
+  }
+
+  if (typeof reason === 'string' && reason.trim()) {
+    return new FlowInterruptedError(reason.trim())
+  }
+
+  return new FlowInterruptedError()
+}
+
+async function runAbortable<TResult>(
+  task: Promise<TResult>,
+  signal: AbortSignal | undefined,
+  onAbort: () => Promise<void>,
+): Promise<TResult> {
+  if (!signal) {
+    return task
+  }
+
+  if (signal.aborted) {
+    await onAbort()
+    throw toFlowInterruptedError(signal.reason)
+  }
+
+  let abortHandler: (() => void) | undefined
+  const taskWithCleanup = task.finally(() => {
+    if (abortHandler) {
+      signal.removeEventListener('abort', abortHandler)
+    }
+  })
+
+  // If the abort path wins the race, the task may still reject once the
+  // browser context finishes unwinding. Swallow that secondary rejection.
+  void taskWithCleanup.catch(() => undefined)
+
+  const abortPromise = new Promise<never>((_, reject) => {
+    abortHandler = () => {
+      void onAbort().finally(() => {
+        reject(toFlowInterruptedError(signal.reason))
+      })
+    }
+
+    signal.addEventListener('abort', abortHandler, { once: true })
+  })
+
+  return Promise.race([taskWithCleanup, abortPromise])
+}
+
+function keepSessionAlive(session: Session): {
+  markFlowCompleted(): void
+  closeNow(): Promise<void>
+} {
   let closing = false
   let listenersDetached = false
   let flowCompleted = false
@@ -95,11 +159,14 @@ function keepSessionAlive(session: Session): () => void {
   // connection even while the visible browser window is still usable.
   process.stdin.resume()
 
-  return () => {
-    flowCompleted = true
-    if (!hasOpenPages()) {
-      void cleanup()
-    }
+  return {
+    markFlowCompleted() {
+      flowCompleted = true
+      if (!hasOpenPages()) {
+        void cleanup()
+      }
+    },
+    closeNow: cleanup,
   }
 }
 
@@ -108,6 +175,7 @@ export async function runWithSession<TResult>(
   runner: (session: Awaited<ReturnType<typeof newSession>>) => Promise<TResult>,
   runtime: {
     closeOnComplete?: boolean
+    abortSignal?: AbortSignal
   } = {},
 ): Promise<TResult> {
   const session = await newSession(options)
@@ -118,19 +186,25 @@ export async function runWithSession<TResult>(
   )
   const closeOnComplete = runtime.closeOnComplete ?? true
   if (!closeOnComplete) {
-    const markFlowCompleted = keepSessionAlive(session)
+    const keepAlive = keepSessionAlive(session)
     try {
-      const result = await runner(session)
-      markFlowCompleted()
+      const result = await runAbortable(
+        runner(session),
+        runtime.abortSignal,
+        keepAlive.closeNow,
+      )
+      keepAlive.markFlowCompleted()
       return result
     } catch (error) {
-      await session.close()
+      await keepAlive.closeNow()
       throw error
     }
   }
 
   try {
-    return await runner(session)
+    return await runAbortable(runner(session), runtime.abortSignal, () =>
+      session.close(),
+    )
   } finally {
     await session.close()
   }

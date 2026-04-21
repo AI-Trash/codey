@@ -58,6 +58,9 @@ import { sleep } from './utils/wait'
 async function runFlowCommand(
   subcommand: CliFlowCommandId,
   options: FlowOptions,
+  runtime: {
+    abortSignal?: AbortSignal
+  } = {},
 ): Promise<unknown> {
   const runtimeOptions: FlowOptions = {
     ...options,
@@ -102,7 +105,10 @@ async function runFlowCommand(
 
       throw new Error(`Unsupported flow command: ${subcommand || '(missing)'}`)
     },
-    { closeOnComplete: !shouldKeepFlowOpen(runtimeOptions) },
+    {
+      closeOnComplete: !shouldKeepFlowOpen(runtimeOptions),
+      abortSignal: runtime.abortSignal,
+    },
   )
 
   result = attachFlowArtifactPaths(result, {
@@ -159,12 +165,15 @@ function formatRuntimeProgressMessage(
 async function executeFlowSubcommand(
   subcommand: CliFlowCommandId,
   options: FlowOptions,
+  runtime: {
+    abortSignal?: AbortSignal
+  } = {},
 ): Promise<FlowCommandExecution> {
   const resolvedOptions = resolveFlowCommandOptions(subcommand, options)
   const command = `flow:${subcommand}`
   const startedAt = new Date().toISOString()
   prepareRuntimeConfig(command, resolvedOptions)
-  const result = await runFlowCommand(subcommand, resolvedOptions)
+  const result = await runFlowCommand(subcommand, resolvedOptions, runtime)
   const completedAt = new Date().toISOString()
 
   return buildFlowCommandExecutionResult({

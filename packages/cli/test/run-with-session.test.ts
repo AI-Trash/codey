@@ -71,11 +71,9 @@ describe('runWithSession keep-open mode', () => {
 
     newSessionMock.mockResolvedValue(session)
 
-    const result = await runWithSession(
-      {},
-      async () => 'ok',
-      { closeOnComplete: false },
-    )
+    const result = await runWithSession({}, async () => 'ok', {
+      closeOnComplete: false,
+    })
 
     expect(result).toBe('ok')
     expect(printFlowArtifactPathMock).toHaveBeenCalledWith(
@@ -202,5 +200,74 @@ describe('runWithSession keep-open mode', () => {
     await vi.runAllTimersAsync()
 
     expect(session.close).not.toHaveBeenCalled()
+  })
+
+  it('closes the session immediately when the flow is aborted in keep-open mode', async () => {
+    const browser = new FakeBrowser()
+    const context = new FakeContext()
+    const page = createPage(() => false)
+    const session = {
+      browser,
+      context: Object.assign(context, {
+        pages: vi.fn(() => [page]),
+      }),
+      page,
+      harPath: undefined,
+      close: vi.fn(async () => undefined),
+    }
+    const abortController = new AbortController()
+    const initialSigintListeners = process.listenerCount('SIGINT')
+    const initialSigtermListeners = process.listenerCount('SIGTERM')
+
+    newSessionMock.mockResolvedValue(session)
+
+    const result = runWithSession(
+      {},
+      async () => new Promise<never>(() => undefined),
+      {
+        closeOnComplete: false,
+        abortSignal: abortController.signal,
+      },
+    )
+
+    abortController.abort(new Error('Flow stopped by operator.'))
+
+    await expect(result).rejects.toThrow('Flow stopped by operator.')
+    expect(session.close).toHaveBeenCalledOnce()
+    expect(process.listenerCount('SIGINT')).toBe(initialSigintListeners)
+    expect(process.listenerCount('SIGTERM')).toBe(initialSigtermListeners)
+  })
+
+  it('detaches keep-open signal listeners when the runner fails', async () => {
+    const browser = new FakeBrowser()
+    const context = new FakeContext()
+    const page = createPage(() => false)
+    const session = {
+      browser,
+      context: Object.assign(context, {
+        pages: vi.fn(() => [page]),
+      }),
+      page,
+      harPath: undefined,
+      close: vi.fn(async () => undefined),
+    }
+    const initialSigintListeners = process.listenerCount('SIGINT')
+    const initialSigtermListeners = process.listenerCount('SIGTERM')
+
+    newSessionMock.mockResolvedValue(session)
+
+    await expect(
+      runWithSession(
+        {},
+        async () => {
+          throw new Error('runner failed')
+        },
+        { closeOnComplete: false },
+      ),
+    ).rejects.toThrow('runner failed')
+
+    expect(session.close).toHaveBeenCalledOnce()
+    expect(process.listenerCount('SIGINT')).toBe(initialSigintListeners)
+    expect(process.listenerCount('SIGTERM')).toBe(initialSigtermListeners)
   })
 })

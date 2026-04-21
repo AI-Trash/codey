@@ -44,6 +44,7 @@ import {
   type DashboardState,
 } from './dashboard-model'
 import { promptForManualFlowTask } from './manual-flow'
+import { FlowInterruptedError } from '../flow-cli/run-with-session'
 
 const REQUIRED_TUI_SCOPE = 'notifications:read'
 
@@ -345,10 +346,11 @@ function renderDashboardView(state: DashboardState): VNode {
                 },
                 [
                   renderHint('s', 'start local flow'),
-                  renderHint('q', 'quit'),
+                  renderHint('x', 'stop flow'),
+                  renderHint('q', 'quit after flow'),
                   renderHint('r', 'reconnect'),
                   renderHint('c', 'clear events'),
-                  renderHint('Ctrl+C', 'quit'),
+                  renderHint('Ctrl+C', 'quit now'),
                 ],
               ),
             ],
@@ -388,6 +390,22 @@ function toPromptCancelError(error: unknown): Error {
   }
 
   return new Error('TUI startup canceled.')
+}
+
+function restoreTerminalState(): void {
+  if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+    try {
+      process.stdin.setRawMode(false)
+    } catch {}
+  }
+
+  if (process.stdout.isTTY) {
+    process.stdout.write(
+      '\u001b[0m\u001b[?25h\u001b[?2004l\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1006l\u001b[?1049l',
+    )
+  }
+
+  process.stdin.pause()
 }
 
 async function promptForStartupAuth(input: {
@@ -502,6 +520,9 @@ export async function runTuiDashboard(input: {
   executeFlow: (
     flowId: CliFlowCommandId,
     options: FlowOptions,
+    runtime?: {
+      abortSignal?: AbortSignal
+    },
   ) => Promise<FlowCommandExecution>
 }): Promise<void> {
   setRuntimeConfig(input.config)
@@ -530,8 +551,10 @@ export async function runTuiDashboard(input: {
   let initialAuthState: CliNotificationsAuthState | undefined =
     startup.authState
   let stopRequested = false
+  let forceStopRequested = false
   let reconnectRequested = false
   let streamAbortController: AbortController | null = null
+  let currentFlowAbortController: AbortController | null = null
   let runtimeReporter: CliConnectionRuntimeReporter | null = null
   let flowExecutionChain: Promise<void> = Promise.resolve()
   let localPromptInFlight = false
@@ -566,7 +589,7 @@ export async function runTuiDashboard(input: {
     streamAbortController?.abort()
   }
 
-  const requestStop = () => {
+  const requestGracefulStop = () => {
     if (stopRequested) {
       return
     }
@@ -586,8 +609,75 @@ export async function runTuiDashboard(input: {
     }
   }
 
-  const handleSignalStop = () => {
-    requestStop()
+  const requestImmediateStop = (
+    message = 'Immediate exit requested.',
+    flowAbortMessage = 'Flow interrupted by Ctrl+C.',
+  ) => {
+    if (forceStopRequested) {
+      return
+    }
+
+    stopRequested = true
+    forceStopRequested = true
+    reconnectRequested = false
+
+    const flowAbortController = currentFlowAbortController
+    updateState((state) =>
+      appendDashboardEvent(
+        state,
+        flowAbortController
+          ? `${message} Stopping the current flow now.`
+          : message,
+      ),
+    )
+
+    if (flowAbortController && !flowAbortController.signal.aborted) {
+      flowAbortController.abort(new FlowInterruptedError(flowAbortMessage))
+    }
+
+    streamAbortController?.abort()
+  }
+
+  const requestCurrentFlowStop = () => {
+    const flowAbortController = currentFlowAbortController
+
+    if (
+      dashboardState.currentFlow?.status !== 'running' ||
+      !flowAbortController
+    ) {
+      updateState((state) =>
+        appendDashboardEvent(state, 'No running flow to stop.'),
+      )
+      return
+    }
+
+    if (flowAbortController.signal.aborted) {
+      updateState((state) =>
+        appendDashboardEvent(state, 'Flow stop is already in progress.'),
+      )
+      return
+    }
+
+    updateState((state) =>
+      appendDashboardEvent(
+        state,
+        `Stopping ${dashboardState.currentFlow?.flowId || 'the current flow'}...`,
+      ),
+    )
+    flowAbortController.abort(
+      new FlowInterruptedError('Flow stopped by operator.'),
+    )
+  }
+
+  const handleSignalStop = (signal: 'SIGINT' | 'SIGTERM') => {
+    requestImmediateStop(
+      signal === 'SIGINT'
+        ? 'Immediate exit requested from Ctrl+C.'
+        : 'Process termination requested.',
+      signal === 'SIGINT'
+        ? 'Flow interrupted by Ctrl+C.'
+        : 'Flow interrupted by process termination.',
+    )
   }
 
   const withDashboardSuspended = async <T>(
@@ -617,6 +707,9 @@ export async function runTuiDashboard(input: {
   }): Promise<void> => {
     const executeTask = async () => {
       const startedAt = new Date().toISOString()
+      const flowAbortController = new AbortController()
+      let flowSettled = false
+      currentFlowAbortController = flowAbortController
 
       updateState((state) =>
         startDashboardFlow(state, {
@@ -636,6 +729,10 @@ export async function runTuiDashboard(input: {
       })
 
       const progressReporter: FlowProgressReporter = (update) => {
+        if (flowSettled) {
+          return
+        }
+
         const message = formatProgressMessage(update)
         updateState((state) =>
           updateDashboardFlowProgress(state, {
@@ -657,10 +754,16 @@ export async function runTuiDashboard(input: {
       }
 
       try {
-        const execution = await input.executeFlow(task.flowId, {
-          ...task.options,
-          progressReporter,
-        })
+        const execution = await input.executeFlow(
+          task.flowId,
+          {
+            ...task.options,
+            progressReporter,
+          },
+          {
+            abortSignal: flowAbortController.signal,
+          },
+        )
         const completedAt = execution.completedAt || new Date().toISOString()
         const summary =
           formatFlowCompletionSummary(execution.command, execution.result)
@@ -702,11 +805,15 @@ export async function runTuiDashboard(input: {
           runtimeFlowCompletedAt: completedAt,
         })
       } finally {
+        flowSettled = true
+        if (currentFlowAbortController === flowAbortController) {
+          currentFlowAbortController = null
+        }
         await runtimeReporter?.flush()
         setRuntimeConfig(input.config)
 
         if (
-          (stopRequested || reconnectRequested) &&
+          (stopRequested || reconnectRequested || forceStopRequested) &&
           dashboardState.currentFlow?.status !== 'running'
         ) {
           streamAbortController?.abort()
@@ -793,9 +900,15 @@ export async function runTuiDashboard(input: {
       },
     },
     q: {
-      description: 'Quit the TUI',
+      description: 'Quit after the current flow finishes',
       handler: () => {
-        requestStop()
+        requestGracefulStop()
+      },
+    },
+    x: {
+      description: 'Stop the current flow',
+      handler: () => {
+        requestCurrentFlowStop()
       },
     },
     r: {
@@ -811,15 +924,22 @@ export async function runTuiDashboard(input: {
       },
     },
     'ctrl+c': {
-      description: 'Quit the TUI',
+      description: 'Quit immediately',
       handler: () => {
-        requestStop()
+        requestImmediateStop('Immediate exit requested from Ctrl+C.')
       },
     },
   })
 
-  process.on('SIGINT', handleSignalStop)
-  process.on('SIGTERM', handleSignalStop)
+  const handleSigint = () => {
+    handleSignalStop('SIGINT')
+  }
+  const handleSigterm = () => {
+    handleSignalStop('SIGTERM')
+  }
+
+  process.on('SIGINT', handleSigint)
+  process.on('SIGTERM', handleSigterm)
 
   try {
     await app.start()
@@ -989,12 +1109,13 @@ export async function runTuiDashboard(input: {
     }
   } finally {
     streamAbortController?.abort()
-    process.off('SIGINT', handleSignalStop)
-    process.off('SIGTERM', handleSignalStop)
+    process.off('SIGINT', handleSigint)
+    process.off('SIGTERM', handleSigterm)
 
     if (appStarted) {
       await app.stop()
     }
     app.dispose()
+    restoreTerminalState()
   }
 }

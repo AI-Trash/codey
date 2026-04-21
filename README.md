@@ -188,7 +188,7 @@ The dashboard can also start flows locally from inside the terminal UI: press `s
 When `CODEY_APP_CLIENT_SECRET` is configured, the TUI authenticates with `client_credentials`.
 Otherwise it reuses the stored session from `pnpm codey auth login`.
 If no reusable app session is available, the TUI now offers an in-terminal device-login prompt before opening the dashboard.
-The dashboard exposes a few built-in shortcuts: `s` starts a local flow, `q` / `Ctrl+C` exits, `r` reconnects to the app stream, and `c` clears the recent event list.
+The dashboard exposes a few built-in shortcuts: `s` starts a local flow, `x` stops the active flow, `q` exits after the active flow finishes, `Ctrl+C` exits immediately, `r` reconnects to the app stream, and `c` clears the recent event list.
 
 ### Legacy stream mode
 
