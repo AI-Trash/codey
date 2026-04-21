@@ -442,6 +442,24 @@ function redactToken(token: CodexTokenResponse): RedactedCodexTokenResult {
   }
 }
 
+function normalizeCodexOAuthIdentityId(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
+function normalizeCodexOAuthEmail(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim().toLowerCase()
+  return normalized || undefined
+}
+
 function hasCodeyAppSyncConfig(): boolean {
   const config = getRuntimeConfig()
   return Boolean(
@@ -800,7 +818,7 @@ async function completeCodexOAuthOrganizationSelection(
   )
 }
 
-function resolveCodexOAuthStoredIdentitySelection(
+export function resolveCodexOAuthStoredIdentitySelection(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
 ): {
@@ -808,24 +826,57 @@ function resolveCodexOAuthStoredIdentitySelection(
   email?: string
 } {
   const snapshot = machine.getSnapshot().context
-  const identityIdCandidates = [
-    typeof options.identityId === 'string' ? options.identityId : undefined,
-    snapshot.storedIdentity?.id,
-  ]
-    .map((value) => value?.trim())
+  const optionIdentityId = normalizeCodexOAuthIdentityId(options.identityId)
+  const optionEmail = normalizeCodexOAuthEmail(options.email)
+
+  if (optionIdentityId || optionEmail) {
+    return {
+      id: optionIdentityId,
+      email: optionEmail,
+    }
+  }
+
+  const identityIdCandidates = [snapshot.storedIdentity?.id]
+    .map(normalizeCodexOAuthIdentityId)
     .filter((value): value is string => Boolean(value))
-  const emailCandidates = [
-    typeof options.email === 'string' ? options.email : undefined,
-    snapshot.email,
-    snapshot.storedIdentity?.email,
-  ]
-    .map((value) => value?.trim())
+  const emailCandidates = [snapshot.email, snapshot.storedIdentity?.email]
+    .map(normalizeCodexOAuthEmail)
     .filter((value): value is string => Boolean(value))
 
   return {
     id: identityIdCandidates[0],
     email: emailCandidates[0],
   }
+}
+
+export function shouldReuseCodexOAuthStoredIdentity(
+  storedIdentity: StoredChatGPTIdentitySummary | undefined,
+  selection: {
+    id?: string
+    email?: string
+  },
+): boolean {
+  if (!storedIdentity) {
+    return false
+  }
+
+  const selectedId = normalizeCodexOAuthIdentityId(selection.id)
+  if (
+    selectedId &&
+    selectedId !== normalizeCodexOAuthIdentityId(storedIdentity.id)
+  ) {
+    return false
+  }
+
+  const selectedEmail = normalizeCodexOAuthEmail(selection.email)
+  if (
+    selectedEmail &&
+    selectedEmail !== normalizeCodexOAuthEmail(storedIdentity.email)
+  ) {
+    return false
+  }
+
+  return true
 }
 
 async function requireCodexOAuthStoredLoginIdentity(
@@ -972,11 +1023,11 @@ async function resolveCodexOAuthStoredIdentity(
   options: FlowOptions,
 ): Promise<StoredChatGPTIdentitySummary | undefined> {
   const snapshot = machine.getSnapshot().context
-  if (snapshot.storedIdentity) {
+  const selected = resolveCodexOAuthStoredIdentitySelection(machine, options)
+  if (shouldReuseCodexOAuthStoredIdentity(snapshot.storedIdentity, selected)) {
     return snapshot.storedIdentity
   }
 
-  const selected = resolveCodexOAuthStoredIdentitySelection(machine, options)
   try {
     return (await resolveStoredChatGPTIdentity(selected)).summary
   } catch {

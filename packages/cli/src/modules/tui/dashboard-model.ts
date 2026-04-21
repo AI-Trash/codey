@@ -4,6 +4,7 @@ import type {
   CliConnectionEvent,
 } from '../app-auth/types'
 import type { FlowProgressUpdate } from '../flow-cli/helpers'
+import { formatFlowProgressMessage } from '../flow-cli/helpers'
 
 export type DashboardPhase = 'starting' | 'listening' | 'reconnecting' | 'error'
 export type DashboardFlowStatus = 'idle' | 'running' | 'passed' | 'failed'
@@ -330,12 +331,7 @@ export function formatRelativeTime(
 export function formatProgressMessage(
   update: FlowProgressUpdate,
 ): string | undefined {
-  return (
-    normalizeOptionalText(update.message) ||
-    normalizeOptionalText(update.state) ||
-    normalizeOptionalText(update.event) ||
-    normalizeOptionalText(update.status)
-  )
+  return formatFlowProgressMessage(update)
 }
 
 export function isTuiAuthRecoveryError(error: unknown): boolean {

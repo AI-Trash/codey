@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { noopFlow } from '../src/flows/noop'
 import {
+  attachStateMachineProgressReporter,
   applyFlowOptionDefaults,
   createConsoleFlowProgressReporter,
   formatFlowProgressUpdate,
@@ -10,6 +11,7 @@ import {
   shouldKeepFlowOpen,
   type FlowOptions,
 } from '../src/modules/flow-cli/helpers'
+import { assignContext, createStateMachine } from '../src/state-machine'
 import { withCliOutput } from '../src/utils/cli-output'
 
 describe('flow cli helpers', () => {
@@ -207,11 +209,13 @@ describe('flow cli helpers', () => {
     )
   })
 
-  it('formats live flow progress updates as readable one-line messages', () => {
+  it('formats live flow progress updates with state-machine transitions', () => {
     const progress = formatFlowProgressUpdate('flow:chatgpt-register', {
       status: 'running',
+      fromState: 'email-step',
+      toState: 'verification-polling',
       state: 'verification-polling',
-      event: 'context.updated',
+      event: 'chatgpt.password.submitted',
       message: 'Polling verification provider for verification code',
       attempt: 3,
     })
@@ -223,10 +227,63 @@ describe('flow cli helpers', () => {
     })
 
     expect(progress).toBe(
-      '[flow:chatgpt-register] Polling verification provider for verification code (attempt 3)',
+      '[flow:chatgpt-register] email-step --chatgpt.password.submitted--> verification-polling | Polling verification provider for verification code (attempt 3)',
     )
     expect(failure).toContain('ChatGPT registration failed')
     expect(failure).toContain('Verification code=***redacted*** was rejected')
+  })
+
+  it('reports state-machine transition snapshots to the progress reporter', async () => {
+    const machine = createStateMachine<
+      'idle' | 'done',
+      {
+        lastMessage?: string
+      },
+      'finish'
+    >({
+      id: 'test.flow.progress',
+      initialState: 'idle',
+      initialContext: {},
+      states: {
+        idle: {
+          on: {
+            finish: {
+              target: 'done',
+              actions: assignContext(() => ({
+                lastMessage: 'Flow finished',
+              })),
+            },
+          },
+        },
+        done: {},
+      },
+    })
+
+    const updates: Array<Record<string, unknown>> = []
+    const detach = attachStateMachineProgressReporter(machine, (update) => {
+      updates.push(update as Record<string, unknown>)
+    })
+
+    machine.start({
+      lastMessage: 'Flow started',
+    })
+    await machine.send('finish')
+    detach()
+
+    expect(updates[0]).toMatchObject({
+      state: 'idle',
+      event: 'machine.started',
+      fromState: 'idle',
+      toState: 'idle',
+      message: 'Flow started',
+    })
+    expect(updates.at(-1)).toMatchObject({
+      state: 'done',
+      event: 'finish',
+      fromState: 'idle',
+      toState: 'done',
+      message: 'Flow finished',
+    })
   })
 
   it('routes flow output through the configured cli sink', async () => {

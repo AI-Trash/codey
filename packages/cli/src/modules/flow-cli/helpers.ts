@@ -57,6 +57,8 @@ export interface FlowProgressUpdate {
   message?: string
   attempt?: number
   error?: string
+  fromState?: string
+  toState?: string
 }
 
 export type FlowProgressReporter = (update: FlowProgressUpdate) => void
@@ -100,6 +102,15 @@ function sanitizeSummaryString(value: string): string {
   }
 
   return sanitizeText(value)
+}
+
+function normalizeProgressField(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const sanitized = sanitizeSummaryString(value)
+  return sanitized.trim() ? sanitized.trim() : undefined
 }
 
 function sanitizeValue(key: string, current: unknown): unknown {
@@ -484,21 +495,49 @@ export function formatFlowProgressUpdate(
   command: string,
   update: FlowProgressUpdate,
 ): string | undefined {
-  if (update.status === 'failed' && !update.error) {
+  const body = formatFlowProgressMessage(update)
+  if (!body) {
     return undefined
   }
 
-  let body =
-    typeof update.message === 'string'
-      ? sanitizeSummaryString(update.message)
-      : undefined
+  return `[${command}] ${body}`
+}
 
-  if (!body && update.event && update.event !== 'machine.started') {
-    body = update.event
+export function formatFlowProgressMessage(
+  update: FlowProgressUpdate,
+): string | undefined {
+  const fromState = normalizeProgressField(update.fromState)
+  const toState =
+    normalizeProgressField(update.toState) ||
+    (update.state !== 'idle' ? normalizeProgressField(update.state) : undefined)
+  const event = normalizeProgressField(update.event)
+  const message = normalizeProgressField(update.message)
+  const transition = formatFlowProgressTransition({
+    fromState,
+    toState,
+    event,
+  })
+
+  let body = transition
+
+  if (message) {
+    body = body ? `${body} | ${message}` : message
   }
 
-  if (!body && update.state && update.state !== 'idle') {
-    body = update.state
+  if (!body && event && event !== 'machine.started') {
+    body = `event ${event}`
+  }
+
+  if (!body && toState) {
+    body = `state ${toState}`
+  }
+
+  if (!body && update.status === 'failed' && !update.error) {
+    return undefined
+  }
+
+  if (!body) {
+    body = normalizeProgressField(update.status)
   }
 
   if (!body) {
@@ -516,7 +555,43 @@ export function formatFlowProgressUpdate(
     }
   }
 
-  return `[${command}] ${body}`
+  return body
+}
+
+function formatFlowProgressTransition(input: {
+  fromState?: string
+  toState?: string
+  event?: string
+}): string | undefined {
+  const fromState = input.fromState
+  const toState = input.toState
+  const event = input.event
+
+  if (event === 'machine.started' && toState) {
+    return `state ${toState} (${event})`
+  }
+
+  if (fromState && toState && event) {
+    return `${fromState} --${event}--> ${toState}`
+  }
+
+  if (fromState && toState) {
+    return `${fromState} -> ${toState}`
+  }
+
+  if (toState && event) {
+    return `${toState} (${event})`
+  }
+
+  if (toState) {
+    return `state ${toState}`
+  }
+
+  if (event && event !== 'machine.started') {
+    return `event ${event}`
+  }
+
+  return undefined
 }
 
 export function createConsoleFlowProgressReporter(
@@ -549,6 +624,7 @@ export function attachStateMachineProgressReporter<
 
   return machine.subscribe((snapshot) => {
     const context = asRecord(snapshot.context)
+    const lastTransition = snapshot.history.at(-1)
     reporter({
       status: snapshot.status,
       state: snapshot.state,
@@ -562,6 +638,8 @@ export function attachStateMachineProgressReporter<
           ? context.lastAttempt
           : undefined,
       error: snapshot.error?.message,
+      fromState: lastTransition?.from,
+      toState: lastTransition?.to || snapshot.state,
     })
   })
 }

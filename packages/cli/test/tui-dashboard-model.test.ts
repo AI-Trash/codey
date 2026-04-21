@@ -4,6 +4,7 @@ import {
   appendDashboardEvent,
   createDashboardState,
   deriveTargetFromAuthState,
+  formatProgressMessage,
   handleDashboardNotification,
   isTuiAuthRecoveryError,
   setDashboardTaskCounts,
@@ -35,6 +36,21 @@ describe('tui dashboard model', () => {
 
     expect(state.recentEvents[0]?.message).toBe(
       'Task queued: chatgpt-login is ready',
+    )
+  })
+
+  it('formats progress messages with state-machine transitions', () => {
+    expect(
+      formatProgressMessage({
+        status: 'running',
+        fromState: 'opening-entry',
+        toState: 'email-step',
+        state: 'email-step',
+        event: 'chatgpt.entry.opened',
+        message: 'Opening ChatGPT login entry',
+      }),
+    ).toBe(
+      'opening-entry --chatgpt.entry.opened--> email-step | Opening ChatGPT login entry',
     )
   })
 

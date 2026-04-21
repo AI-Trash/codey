@@ -28,6 +28,7 @@ import {
   attachFlowArtifactPaths,
   createConsoleFlowProgressReporter,
   execute,
+  formatFlowProgressMessage,
   keepBrowserOpenForHarWhenUnspecified,
   parseBooleanFlag,
   parseNumberFlag,
@@ -169,19 +170,7 @@ function normalizeFlowCommandOptions(
 function formatRuntimeProgressMessage(
   update: FlowProgressUpdate,
 ): string | undefined {
-  if (typeof update.message === 'string' && update.message.trim()) {
-    return update.message.trim()
-  }
-
-  if (typeof update.state === 'string' && update.state.trim()) {
-    return update.state.trim()
-  }
-
-  if (typeof update.event === 'string' && update.event.trim()) {
-    return update.event.trim()
-  }
-
-  return update.status
+  return formatFlowProgressMessage(update)
 }
 
 async function executeFlowSubcommand(

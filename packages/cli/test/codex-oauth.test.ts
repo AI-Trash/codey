@@ -65,6 +65,23 @@ vi.mock('../src/modules/app-auth/codex-oauth-sharing', () => ({
   syncCodexOAuthSessionToSub2Api,
 }))
 
+function createStoredIdentitySummary(
+  overrides: Partial<{
+    id: string
+    email: string
+  }> = {},
+) {
+  return {
+    id: overrides.id ?? 'identity-123',
+    email: overrides.email ?? 'person@example.com',
+    createdAt: '2026-04-17T00:00:00.000Z',
+    updatedAt: '2026-04-17T00:00:00.000Z',
+    credentialCount: 1,
+    storePath: 'codey-app://managed-identities/identity-123',
+    encrypted: false,
+  }
+}
+
 describe('runCodexOAuthFlow', () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -139,6 +156,53 @@ describe('runCodexOAuthFlow', () => {
     waitForPostEmailLoginCandidates.mockResolvedValue([])
     waitForVerificationCode.mockResolvedValue('654321')
     waitForVerificationCodeInputReady.mockResolvedValue(false)
+  })
+
+  it('prefers current task inputs over stale machine context when selecting a stored identity', async () => {
+    const {
+      createCodexOAuthMachine,
+      resolveCodexOAuthStoredIdentitySelection,
+    } = await import('../src/flows/codex-oauth')
+    const machine = createCodexOAuthMachine()
+
+    machine.start({}, { source: 'test' })
+    await machine.send('context.updated', {
+      target: 'email-step',
+      patch: {
+        email: 'codey+0312fea571c7@ohmyaitrash.org',
+        storedIdentity: createStoredIdentitySummary({
+          id: 'identity-stale',
+          email: 'codey+0312fea571c7@ohmyaitrash.org',
+        }),
+      },
+    })
+
+    expect(
+      resolveCodexOAuthStoredIdentitySelection(machine, {
+        email: 'codey+cc4d505eb03b@ohmyaitrash.org',
+      }),
+    ).toEqual({
+      id: undefined,
+      email: 'codey+cc4d505eb03b@ohmyaitrash.org',
+    })
+  })
+
+  it('does not reuse a stored identity when the selected task email changes', async () => {
+    const { shouldReuseCodexOAuthStoredIdentity } = await import(
+      '../src/flows/codex-oauth'
+    )
+
+    expect(
+      shouldReuseCodexOAuthStoredIdentity(
+        createStoredIdentitySummary({
+          id: 'identity-stale',
+          email: 'codey+0312fea571c7@ohmyaitrash.org',
+        }),
+        {
+          email: 'codey+cc4d505eb03b@ohmyaitrash.org',
+        },
+      ),
+    ).toBe(false)
   })
 
   it('advances stored identity login even when an earlier post-email candidate is a false positive', async () => {
