@@ -6,6 +6,7 @@ import {
   deriveTargetFromAuthState,
   handleDashboardNotification,
   isTuiAuthRecoveryError,
+  setDashboardTaskCounts,
 } from '../src/modules/tui/dashboard-model'
 
 describe('tui dashboard model', () => {
@@ -77,5 +78,18 @@ describe('tui dashboard model', () => {
         },
       }),
     ).toBe('octocat')
+  })
+
+  it('tracks running and queued task counts separately', () => {
+    const state = setDashboardTaskCounts(
+      createDashboardState({ cliName: 'codey-test' }),
+      {
+        activeFlowCount: 2,
+        queuedFlowCount: 3,
+      },
+    )
+
+    expect(state.activeFlowCount).toBe(2)
+    expect(state.queuedFlowCount).toBe(3)
   })
 })

@@ -11,7 +11,9 @@ import {
 } from '../../utils/cli-output'
 import { sleep } from '../../utils/wait'
 import {
+  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
   normalizeCliFlowTaskPayload,
+  type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
 } from '../flow-cli/flow-registry'
 import {
@@ -43,16 +45,20 @@ import {
   formatRelativeTime,
   handleDashboardNotification,
   isTuiAuthRecoveryError,
+  setDashboardTaskCounts,
   setDashboardPhase,
   startDashboardFlow,
   touchDashboardState,
   updateDashboardFlowProgress,
-  type DashboardFlowStatus,
   type DashboardPhase,
   type DashboardState,
 } from './dashboard-model'
 import { promptForManualFlowTask } from './manual-flow'
 import { FlowInterruptedError } from '../flow-cli/run-with-session'
+import {
+  FlowTaskScheduler,
+  FlowTaskSchedulerCancelledError,
+} from '../flow-cli/task-scheduler'
 
 const REQUIRED_TUI_SCOPE = 'notifications:read'
 
@@ -111,8 +117,14 @@ function mapPhaseStatus(
 }
 
 function mapFlowVariant(
-  status: DashboardFlowStatus | undefined,
+  status: string | undefined,
 ): 'default' | 'success' | 'warning' | 'error' | 'info' {
+  if (typeof status === 'string') {
+    if (status.includes('running') || status.includes('queued')) {
+      return 'info'
+    }
+  }
+
   switch (status) {
     case 'running':
       return 'info'
@@ -181,9 +193,51 @@ function renderRecentEvents(state: DashboardState): VNode {
   )
 }
 
+function formatRuntimeFlowLabel(state: DashboardState): string {
+  const outstandingCount = state.activeFlowCount + state.queuedFlowCount
+  if (outstandingCount > 1) {
+    return 'task queue'
+  }
+
+  return toDisplayValue(state.currentFlow?.flowId, 'idle')
+}
+
+function formatRuntimeStatusLabel(state: DashboardState): string {
+  if (state.activeFlowCount > 1) {
+    return `${state.activeFlowCount} running`
+  }
+
+  if (state.activeFlowCount === 1) {
+    return 'running'
+  }
+
+  if (state.queuedFlowCount > 0) {
+    return `${state.queuedFlowCount} queued`
+  }
+
+  return state.currentFlow?.status || 'idle'
+}
+
+function formatRuntimeMessage(state: DashboardState): string {
+  const outstandingCount = state.activeFlowCount + state.queuedFlowCount
+  if (outstandingCount > 1) {
+    const latest = toDisplayValue(state.currentFlow?.message, 'Task queue active.')
+    return `${state.activeFlowCount} running, ${state.queuedFlowCount} queued. Latest: ${latest}`
+  }
+
+  if (outstandingCount === 1 && state.queuedFlowCount > 0) {
+    return `${state.queuedFlowCount} queued. Waiting for a worker slot.`
+  }
+
+  return toDisplayValue(
+    state.currentFlow?.message,
+    'Waiting for a task from Codey web, or press s to start one locally.',
+  )
+}
+
 function renderDashboardView(state: DashboardState): VNode {
   const currentFlow = state.currentFlow
-  const currentFlowStatus = currentFlow?.status || 'idle'
+  const currentFlowStatus = formatRuntimeStatusLabel(state)
 
   return ui.column(
     {
@@ -295,18 +349,11 @@ function renderDashboardView(state: DashboardState): VNode {
               minWidth: 36,
             },
             [
-              renderInfoRow(
-                'Flow',
-                toDisplayValue(currentFlow?.flowId, 'idle'),
-              ),
+              renderInfoRow('Flow', formatRuntimeFlowLabel(state)),
               renderInfoRow('Status', currentFlowStatus),
-              renderInfoRow(
-                'Message',
-                toDisplayValue(
-                  currentFlow?.message,
-                  'Waiting for a task from Codey web, or press s to start one locally.',
-                ),
-              ),
+              renderInfoRow('Message', formatRuntimeMessage(state)),
+              renderInfoRow('Running', String(state.activeFlowCount)),
+              renderInfoRow('Queued', String(state.queuedFlowCount)),
               renderInfoRow(
                 'Started',
                 formatTimestamp(currentFlow?.startedAt, state.nowMs),
@@ -354,8 +401,8 @@ function renderDashboardView(state: DashboardState): VNode {
                 },
                 [
                   renderHint('s', 'start local flow'),
-                  renderHint('x', 'stop flow'),
-                  renderHint('q', 'quit after flow'),
+                  renderHint('x', 'stop running tasks'),
+                  renderHint('q', 'quit after tasks'),
                   renderHint('r', 'reconnect'),
                   renderHint('c', 'clear events'),
                   renderHint('Ctrl+C', 'quit now'),
@@ -562,9 +609,12 @@ export async function runTuiDashboard(input: {
   let forceStopRequested = false
   let reconnectRequested = false
   let streamAbortController: AbortController | null = null
-  let currentFlowAbortController: AbortController | null = null
+  const activeFlowAbortControllers = new Map<string, AbortController>()
+  const taskScheduler = new FlowTaskScheduler<{
+    interrupted: boolean
+  }>()
   let runtimeReporter: CliConnectionRuntimeReporter | null = null
-  let flowExecutionChain: Promise<void> = Promise.resolve()
+  let outstandingStartedAt: string | undefined
   let localPromptInFlight = false
   let appStarted = false
 
@@ -602,21 +652,78 @@ export async function runTuiDashboard(input: {
     stderrLine: appendCliOutputToDashboard,
   }
 
+  const syncDashboardTaskState = () => {
+    const snapshot = taskScheduler.getSnapshot()
+    updateState((state) =>
+      setDashboardTaskCounts(state, {
+        activeFlowCount: snapshot.activeCount,
+        queuedFlowCount: snapshot.pendingCount,
+      }),
+    )
+  }
+
+  const syncRuntimeReporterState = () => {
+    if (!runtimeReporter) {
+      return
+    }
+
+    const snapshot = taskScheduler.getSnapshot()
+    if (!snapshot.activeCount && !snapshot.pendingCount) {
+      outstandingStartedAt = undefined
+      runtimeReporter.update({
+        runtimeFlowId: dashboardState.currentFlow?.flowId || null,
+        runtimeTaskId: dashboardState.currentFlow?.notificationId || null,
+        runtimeFlowStatus: dashboardState.currentFlow?.status || null,
+        runtimeFlowMessage: dashboardState.currentFlow?.message || null,
+        runtimeFlowStartedAt: dashboardState.currentFlow?.startedAt || null,
+        runtimeFlowCompletedAt:
+          dashboardState.currentFlow?.completedAt || null,
+      })
+      return
+    }
+
+    runtimeReporter.update({
+      runtimeFlowId:
+        snapshot.activeCount + snapshot.pendingCount > 1
+          ? 'task-queue'
+          : dashboardState.currentFlow?.flowId || 'task-queue',
+      runtimeTaskId:
+        snapshot.activeCount === 1 && !snapshot.pendingCount
+          ? dashboardState.currentFlow?.notificationId || null
+          : null,
+      runtimeFlowStatus: 'running',
+      runtimeFlowMessage: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (parallelism ${snapshot.parallelism || DEFAULT_CLI_FLOW_TASK_PARALLELISM})`,
+      runtimeFlowStartedAt:
+        outstandingStartedAt || dashboardState.currentFlow?.startedAt || null,
+      runtimeFlowCompletedAt: null,
+    })
+  }
+
+  const hasOutstandingTasks = () => {
+    const snapshot = taskScheduler.getSnapshot()
+    return snapshot.activeCount > 0 || snapshot.pendingCount > 0
+  }
+
+  const hasActiveTasks = () => taskScheduler.getSnapshot().activeCount > 0
+
   const requestReconnect = () => {
     if (stopRequested) {
       return
     }
 
     reconnectRequested = true
+    const waitingForTasks = hasOutstandingTasks()
     updateState((state) =>
       appendDashboardEvent(
         state,
-        state.currentFlow?.status === 'running'
-          ? 'Reconnect requested. Waiting for the current flow to finish.'
+        waitingForTasks
+          ? 'Reconnect requested. Waiting for queued and running tasks to finish.'
           : 'Reconnect requested.',
       ),
     )
-    streamAbortController?.abort()
+    if (!waitingForTasks) {
+      streamAbortController?.abort()
+    }
   }
 
   const requestGracefulStop = () => {
@@ -625,16 +732,24 @@ export async function runTuiDashboard(input: {
     }
 
     stopRequested = true
+    const cleared = taskScheduler.clearPending(
+      'Queued task canceled because the dashboard is shutting down.',
+    )
     updateState((state) =>
       appendDashboardEvent(
         state,
-        state.currentFlow?.status === 'running'
-          ? 'Exit requested. Waiting for the current flow to finish.'
+        hasActiveTasks()
+          ? cleared
+            ? `Exit requested. Waiting for running tasks to finish and cleared ${cleared} queued tasks.`
+            : 'Exit requested. Waiting for running tasks to finish.'
+          : cleared
+            ? `Exit requested. Cleared ${cleared} queued tasks.`
           : 'Exit requested.',
       ),
     )
-
-    if (dashboardState.currentFlow?.status !== 'running') {
+    syncDashboardTaskState()
+    syncRuntimeReporterState()
+    if (!hasActiveTasks()) {
       streamAbortController?.abort()
     }
   }
@@ -651,52 +766,68 @@ export async function runTuiDashboard(input: {
     forceStopRequested = true
     reconnectRequested = false
 
-    const flowAbortController = currentFlowAbortController
+    const activeTaskCount = activeFlowAbortControllers.size
+    const cleared = taskScheduler.clearPending(
+      'Queued task canceled because the dashboard was interrupted.',
+    )
     updateState((state) =>
       appendDashboardEvent(
         state,
-        flowAbortController
-          ? `${message} Stopping the current flow now.`
+        activeTaskCount
+          ? `${message} Stopping ${activeTaskCount} running task${activeTaskCount === 1 ? '' : 's'} now.${cleared ? ` Cleared ${cleared} queued tasks.` : ''}`
           : message,
       ),
     )
 
-    if (flowAbortController && !flowAbortController.signal.aborted) {
-      flowAbortController.abort(new FlowInterruptedError(flowAbortMessage))
+    for (const controller of activeFlowAbortControllers.values()) {
+      if (!controller.signal.aborted) {
+        controller.abort(new FlowInterruptedError(flowAbortMessage))
+      }
     }
 
+    syncDashboardTaskState()
+    syncRuntimeReporterState()
     streamAbortController?.abort()
   }
 
   const requestCurrentFlowStop = () => {
-    const flowAbortController = currentFlowAbortController
-
-    if (
-      dashboardState.currentFlow?.status !== 'running' ||
-      !flowAbortController
-    ) {
+    const activeTaskCount = activeFlowAbortControllers.size
+    if (!activeTaskCount) {
       updateState((state) =>
-        appendDashboardEvent(state, 'No running flow to stop.'),
+        appendDashboardEvent(state, 'No running tasks to stop.'),
       )
       return
     }
 
-    if (flowAbortController.signal.aborted) {
+    const pendingCount = taskScheduler.getSnapshot().pendingCount
+    const allAborted = Array.from(activeFlowAbortControllers.values()).every(
+      (controller) => controller.signal.aborted,
+    )
+    if (allAborted) {
       updateState((state) =>
-        appendDashboardEvent(state, 'Flow stop is already in progress.'),
+        appendDashboardEvent(state, 'Task stop is already in progress.'),
       )
       return
     }
 
+    const cleared = taskScheduler.clearPending(
+      'Queued task canceled because the operator stopped the task queue.',
+    )
     updateState((state) =>
       appendDashboardEvent(
         state,
-        `Stopping ${dashboardState.currentFlow?.flowId || 'the current flow'}...`,
+        `Stopping ${activeTaskCount} running task${activeTaskCount === 1 ? '' : 's'}${pendingCount || cleared ? ` and clearing ${Math.max(pendingCount, cleared)} queued tasks` : ''}...`,
       ),
     )
-    flowAbortController.abort(
-      new FlowInterruptedError('Flow stopped by operator.'),
-    )
+
+    for (const controller of activeFlowAbortControllers.values()) {
+      if (!controller.signal.aborted) {
+        controller.abort(new FlowInterruptedError('Flow stopped by operator.'))
+      }
+    }
+
+    syncDashboardTaskState()
+    syncRuntimeReporterState()
   }
 
   const handleSignalStop = (signal: 'SIGINT' | 'SIGTERM') => {
@@ -729,21 +860,30 @@ export async function runTuiDashboard(input: {
     }
   }
 
-  const runDashboardFlowTask = async (task: {
+  const queueDashboardFlowTask = (task: {
     flowId: CliFlowCommandId
     config: FlowOptions
     notificationId: string
     message: string
-  }): Promise<{
-    interrupted: boolean
-  }> => {
-    const executeTask = async (): Promise<{
-      interrupted: boolean
-    }> => {
+    batch?: CliFlowTaskBatchMetadata
+  }) => {
+    const scheduled = taskScheduler.enqueue({
+      taskId: task.notificationId,
+      batchId: task.batch?.batchId,
+      parallelism: task.batch?.parallelism,
+      run: async (): Promise<{
+        interrupted: boolean
+      }> => {
       const startedAt = new Date().toISOString()
       const flowAbortController = new AbortController()
       let flowSettled = false
-      currentFlowAbortController = flowAbortController
+      activeFlowAbortControllers.set(task.notificationId, flowAbortController)
+      if (
+        !outstandingStartedAt ||
+        Date.parse(startedAt) < Date.parse(outstandingStartedAt)
+      ) {
+        outstandingStartedAt = startedAt
+      }
 
       updateState((state) =>
         startDashboardFlow(state, {
@@ -753,6 +893,7 @@ export async function runTuiDashboard(input: {
           startedAt,
         }),
       )
+      syncDashboardTaskState()
       runtimeReporter?.update({
         runtimeFlowId: task.flowId,
         runtimeTaskId: task.notificationId,
@@ -761,6 +902,7 @@ export async function runTuiDashboard(input: {
         runtimeFlowStartedAt: startedAt,
         runtimeFlowCompletedAt: null,
       })
+      syncRuntimeReporterState()
 
       const progressReporter: FlowProgressReporter = (update) => {
         if (flowSettled) {
@@ -782,14 +924,16 @@ export async function runTuiDashboard(input: {
             runtimeFlowStatus:
               update.status === 'failed' ? 'failed' : 'running',
             runtimeFlowMessage: message,
-            runtimeFlowStartedAt: startedAt,
-          })
-        }
-      }
+              runtimeFlowStartedAt: startedAt,
+            })
+          }
 
-      try {
-        const execution = await withCliOutput(dashboardCliOutput, () =>
-          input.executeFlow(
+          syncRuntimeReporterState()
+        }
+
+        try {
+          const execution = await withCliOutput(dashboardCliOutput, () =>
+            input.executeFlow(
             task.flowId,
             {
               ...task.config,
@@ -850,81 +994,83 @@ export async function runTuiDashboard(input: {
         }
       } finally {
         flowSettled = true
-        if (currentFlowAbortController === flowAbortController) {
-          currentFlowAbortController = null
-        }
+        activeFlowAbortControllers.delete(task.notificationId)
         await runtimeReporter?.flush()
         setRuntimeConfig(input.config)
-
-        if (
-          (stopRequested || reconnectRequested || forceStopRequested) &&
-          dashboardState.currentFlow?.status !== 'running'
-        ) {
-          streamAbortController?.abort()
-        }
       }
-    }
+      },
+    })
 
-    const scheduled = flowExecutionChain.then(executeTask, executeTask)
-    flowExecutionChain = scheduled.then(() => undefined, () => undefined)
-    return scheduled
+    syncDashboardTaskState()
+    syncRuntimeReporterState()
+    return scheduled.finally(() => {
+      syncDashboardTaskState()
+      syncRuntimeReporterState()
+
+      if ((stopRequested || reconnectRequested || forceStopRequested) && !hasOutstandingTasks()) {
+        streamAbortController?.abort()
+      }
+    })
   }
 
   const runLocalFlowBatch = async (task: {
     flowId: CliFlowCommandId
     config: FlowOptions
     repeatCount: number
+    parallelism: number
   }) => {
     const repeatCount = Math.max(task.repeatCount, 1)
     const notificationSeed = Date.now()
+    const batchId =
+      repeatCount > 1 ? `local-batch:${notificationSeed}` : undefined
 
     if (repeatCount > 1) {
       updateState((state) =>
         appendDashboardEvent(
           state,
-          `Queued ${repeatCount} local ${task.flowId} tasks.`,
+          `Queued ${repeatCount} local ${task.flowId} tasks with parallelism ${task.parallelism}.`,
         ),
       )
     }
 
-    for (let index = 0; index < repeatCount; index += 1) {
-      if (stopRequested || reconnectRequested || forceStopRequested) {
-        const remaining = repeatCount - index
-        if (remaining > 0) {
-          updateState((state) =>
-            appendDashboardEvent(
-              state,
-              `Stopped ${remaining} queued local ${task.flowId} tasks before start.`,
-            ),
-          )
-        }
-        break
+    const results = await Promise.allSettled(
+      Array.from({ length: repeatCount }, (_, index) =>
+        queueDashboardFlowTask({
+          flowId: task.flowId,
+          config: task.config,
+          notificationId: `local:${notificationSeed}:${index + 1}`,
+          message:
+            repeatCount > 1
+              ? `Local task ${index + 1}/${repeatCount}`
+              : 'Local task started',
+          batch:
+            batchId || repeatCount > 1
+              ? {
+                  ...(batchId ? { batchId } : {}),
+                  sequence: index + 1,
+                  total: repeatCount,
+                  parallelism: task.parallelism,
+                }
+              : undefined,
+        }),
+      ),
+    )
+
+    const interruptedCount = results.filter((result) => {
+      if (result.status === 'fulfilled') {
+        return result.value.interrupted
       }
 
-      const batchLabel =
-        repeatCount > 1
-          ? `Local task ${index + 1}/${repeatCount}`
-          : 'Local task started'
+      return result.reason instanceof FlowTaskSchedulerCancelledError
+    }).length
 
-      const result = await runDashboardFlowTask({
-        flowId: task.flowId,
-        config: task.config,
-        notificationId: `local:${notificationSeed}:${index + 1}`,
-        message: batchLabel,
-      })
-
-      if (result.interrupted) {
-        const remaining = repeatCount - index - 1
-        if (remaining > 0) {
-          updateState((state) =>
-            appendDashboardEvent(
-              state,
-              `Stopped ${remaining} queued local ${task.flowId} tasks after interruption.`,
-            ),
-          )
-        }
-        break
-      }
+    if (interruptedCount && !forceStopRequested) {
+      updateState((state) =>
+        appendDashboardEvent(
+          state,
+          `${interruptedCount} local ${task.flowId} task${interruptedCount === 1 ? '' : 's'} did not finish because the queue was interrupted.`,
+        ),
+      )
     }
   }
 
@@ -940,11 +1086,11 @@ export async function runTuiDashboard(input: {
       return
     }
 
-    if (dashboardState.currentFlow?.status === 'running') {
+    if (hasOutstandingTasks()) {
       updateState((state) =>
         appendDashboardEvent(
           state,
-          'A flow is already running. Wait for it to finish before starting another one locally.',
+          'The local task queue is busy. Wait for it to finish before starting another batch locally.',
         ),
       )
       return
@@ -965,11 +1111,11 @@ export async function runTuiDashboard(input: {
           return
         }
 
-        if (dashboardState.currentFlow?.status === 'running') {
+        if (hasOutstandingTasks()) {
           updateState((state) =>
             appendDashboardEvent(
               state,
-              'Another flow started while the local launcher was open. Try again once it finishes.',
+              'Another task started while the local launcher was open. Try again once the queue finishes.',
             ),
           )
           return
@@ -979,6 +1125,7 @@ export async function runTuiDashboard(input: {
           flowId: task.flowId,
           config: task.config,
           repeatCount: task.repeatCount,
+          parallelism: task.parallelism,
         })
       } catch (error) {
         const normalized = toPromptCancelError(error)
@@ -1001,7 +1148,7 @@ export async function runTuiDashboard(input: {
       },
     },
     q: {
-      description: 'Quit after the current flow finishes',
+      description: 'Quit after running tasks finish',
       handler: () => {
         requestGracefulStop()
       },
@@ -1153,16 +1300,28 @@ export async function runTuiDashboard(input: {
               continue
             }
 
-            await runDashboardFlowTask({
+            if (stopRequested || reconnectRequested || forceStopRequested) {
+              continue
+            }
+
+            void queueDashboardFlowTask({
               flowId: taskPayload.flowId,
               config: taskPayload.config as FlowOptions,
               notificationId: notification.id,
               message: notification.title || 'Task started',
-            })
+              batch: taskPayload.batch,
+            }).catch((error) => {
+              if (error instanceof FlowTaskSchedulerCancelledError) {
+                return
+              }
 
-            if (stopRequested) {
-              break
-            }
+              updateState((state) =>
+                appendDashboardEvent(
+                  state,
+                  `Queued task failed before start: ${sanitizeErrorForOutput(error).message}`,
+                ),
+              )
+            })
           }
 
           if (!stopRequested && !reconnectRequested && connectionOpened) {
@@ -1186,8 +1345,24 @@ export async function runTuiDashboard(input: {
           }
         } finally {
           streamAbortController = null
-          runtimeReporter = null
         }
+
+        if (hasOutstandingTasks()) {
+          updateState((state) =>
+            appendDashboardEvent(
+              state,
+              stopRequested
+                ? 'Waiting for running tasks to finish before exit.'
+                : reconnectRequested
+                  ? 'Waiting for queued and running tasks to finish before reconnecting.'
+                  : 'Connection closed while tasks are still running. Waiting for the queue to drain before reconnecting.',
+            ),
+          )
+          await taskScheduler.waitForIdle()
+        }
+        await runtimeReporter?.flush()
+
+        runtimeReporter = null
 
         if (stopRequested) {
           break

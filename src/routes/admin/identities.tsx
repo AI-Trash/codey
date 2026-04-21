@@ -11,6 +11,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
   CalendarIcon,
+  ClipboardCopyIcon,
   HashIcon,
   SearchIcon,
   ShieldIcon,
@@ -72,6 +73,7 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
+import { Textarea } from '#/components/ui/textarea'
 import {
   Tooltip,
   TooltipContent,
@@ -148,6 +150,11 @@ type BulkUpdateManagedIdentityTagsResponse = {
   identities: IdentitySummary[]
 }
 
+type BulkDeleteManagedIdentityResponse = {
+  ok: boolean
+  identityIds: string[]
+}
+
 const managedIdentityStatusOptions = [
   {
     value: 'active',
@@ -195,6 +202,24 @@ const managedIdentityTagOptions = managedIdentityPresetTagValues.map(
   value: (typeof managedIdentityPresetTagValues)[number]
   label: () => string
 }>
+
+const managedIdentityBulkCopyFieldOptions = [
+  {
+    value: 'id',
+    label: () => m.admin_identity_bulk_copy_field_identity_id(),
+    getValue: (summary: IdentitySummary) => summary.id,
+    getDedupeKey: (value: string) => value,
+  },
+  {
+    value: 'email',
+    label: () => m.admin_identity_bulk_copy_field_email(),
+    getValue: (summary: IdentitySummary) => summary.account?.trim() || '',
+    getDedupeKey: (value: string) => value.toLowerCase(),
+  },
+] as const
+
+type ManagedIdentityBulkCopyField =
+  (typeof managedIdentityBulkCopyFieldOptions)[number]['value']
 
 function normalizeManagedIdentityStatus(
   status?: string | null,
@@ -247,6 +272,52 @@ function mergeIdentitySummaries(
 ) {
   const updatesById = new Map(updates.map((summary) => [summary.id, summary]))
   return current.map((summary) => updatesById.get(summary.id) || summary)
+}
+
+function removeIdentitySummaries(
+  current: IdentitySummary[],
+  identityIds: string[],
+) {
+  const removedIds = new Set(identityIds)
+  return current.filter((summary) => !removedIds.has(summary.id))
+}
+
+function isManagedIdentityBulkCopyField(
+  value: string,
+): value is ManagedIdentityBulkCopyField {
+  return managedIdentityBulkCopyFieldOptions.some((option) => option.value === value)
+}
+
+function getCopyableIdentityValues(
+  rows: IdentitySummary[],
+  field: ManagedIdentityBulkCopyField,
+) {
+  const fieldOption = managedIdentityBulkCopyFieldOptions.find(
+    (option) => option.value === field,
+  )
+  if (!fieldOption) {
+    return []
+  }
+
+  const dedupedValues = new Set<string>()
+  const values: string[] = []
+
+  for (const row of rows) {
+    const value = fieldOption.getValue(row).trim()
+    if (!value) {
+      continue
+    }
+
+    const dedupeKey = fieldOption.getDedupeKey(value)
+    if (dedupedValues.has(dedupeKey)) {
+      continue
+    }
+
+    dedupedValues.add(dedupeKey)
+    values.push(value)
+  }
+
+  return values
 }
 
 function AdminIdentitiesPage() {
@@ -384,11 +455,20 @@ function AdminIdentitiesPage() {
             }
             renderActions={(rows) => (
               <TooltipProvider>
+                <BulkCopyIdentityValuesAction rows={rows} />
                 <BulkIdentityTagEditAction
                   rows={rows}
                   onSaved={(updatedIdentities) => {
                     setIdentitySummaries((current) =>
                       mergeIdentitySummaries(current, updatedIdentities),
+                    )
+                  }}
+                />
+                <BulkDeleteIdentityAction
+                  rows={rows}
+                  onDeleted={(identityIds) => {
+                    setIdentitySummaries((current) =>
+                      removeIdentitySummaries(current, identityIds),
                     )
                   }}
                 />
@@ -484,6 +564,332 @@ function AdminIdentitiesPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
+  const [open, setOpen] = useState(false)
+  const [selectedField, setSelectedField] =
+    useState<ManagedIdentityBulkCopyField>('email')
+  const [copyMessage, setCopyMessage] = useState<string | null>(null)
+  const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null)
+  const rowIdsKey = useMemo(
+    () => props.rows.map((row) => row.id).join('|'),
+    [props.rows],
+  )
+  const fieldOptions = useMemo(
+    () =>
+      managedIdentityBulkCopyFieldOptions.map((option) => ({
+        ...option,
+        values: getCopyableIdentityValues(props.rows, option.value),
+      })),
+    [props.rows],
+  )
+  const defaultField =
+    fieldOptions.find(
+      (option) => option.value === 'email' && option.values.length > 0,
+    )?.value ||
+    fieldOptions[0]?.value ||
+    'email'
+  const activeField =
+    fieldOptions.find((option) => option.value === selectedField) ||
+    fieldOptions[0]
+  const previewValue = activeField ? activeField.values.join('\n') : ''
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    setSelectedField(defaultField)
+    setCopyMessage(null)
+    setCopyStatus(null)
+  }, [defaultField, open, rowIdsKey])
+
+  async function handleCopy() {
+    const fieldLabel =
+      activeField?.label() || m.admin_identity_bulk_copy_field_email()
+
+    if (!previewValue) {
+      setCopyStatus('error')
+      setCopyMessage(m.admin_identity_bulk_copy_empty({ field: fieldLabel }))
+      return
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      setCopyStatus('error')
+      setCopyMessage(m.admin_identity_bulk_copy_error({ field: fieldLabel }))
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(previewValue)
+      setCopyStatus('success')
+      setCopyMessage(
+        m.admin_identity_bulk_copy_success({
+          count: String(activeField?.values.length || 0),
+          field: fieldLabel,
+        }),
+      )
+    } catch {
+      setCopyStatus('error')
+      setCopyMessage(m.admin_identity_bulk_copy_error({ field: fieldLabel }))
+    }
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={!props.rows.length}
+        onClick={() => {
+          setOpen(true)
+        }}
+      >
+        <ClipboardCopyIcon />
+        {m.admin_identity_bulk_copy_button()}
+      </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-[min(620px,calc(100%-2rem))] gap-5">
+          <DialogHeader>
+            <DialogTitle>
+              {m.admin_identity_bulk_copy_title({
+                count: String(props.rows.length),
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {m.admin_identity_bulk_copy_description()}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+              {m.admin_identity_bulk_copy_scope({
+                count: String(props.rows.length),
+              })}
+            </div>
+
+            <DialogField label={m.admin_identity_bulk_copy_field_label()}>
+              <Select
+                value={activeField?.value || defaultField}
+                onValueChange={(nextField) => {
+                  if (!isManagedIdentityBulkCopyField(nextField)) {
+                    return
+                  }
+
+                  setSelectedField(nextField)
+                  setCopyMessage(null)
+                  setCopyStatus(null)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {fieldOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </DialogField>
+
+            <DialogField
+              label={m.admin_identity_bulk_copy_preview_label()}
+              description={m.admin_identity_bulk_copy_preview_description({
+                count: String(activeField?.values.length || 0),
+                field:
+                  activeField?.label() || m.admin_identity_bulk_copy_field_email(),
+              })}
+            >
+              <Textarea
+                readOnly
+                value={previewValue}
+                rows={8}
+                className="min-h-40 font-mono text-xs"
+                placeholder={m.admin_identity_bulk_copy_empty({
+                  field:
+                    activeField?.label() ||
+                    m.admin_identity_bulk_copy_field_email(),
+                })}
+              />
+            </DialogField>
+
+            {copyMessage ? (
+              <p
+                aria-live="polite"
+                className={cn(
+                  'text-sm',
+                  copyStatus === 'success'
+                    ? 'text-emerald-600 dark:text-emerald-300'
+                    : 'text-destructive',
+                )}
+              >
+                {copyMessage}
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpen(false)
+              }}
+            >
+              {m.ui_close()}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void handleCopy()
+              }}
+              disabled={!activeField?.values.length}
+            >
+              {m.admin_identity_bulk_copy_confirm_button()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+function BulkDeleteIdentityAction(props: {
+  rows: IdentitySummary[]
+  onDeleted: (identityIds: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const rowIds = useMemo(() => props.rows.map((row) => row.id), [props.rows])
+  const rowIdsKey = rowIds.join('|')
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    setSubmitting(false)
+    setSaveError(null)
+  }, [open, rowIdsKey])
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    setSaveError(null)
+
+    try {
+      const form = new FormData()
+      form.set('intent', 'bulk-delete')
+      form.set('redirectTo', '/admin/identities')
+
+      for (const identityId of rowIds) {
+        form.append('identityIds', identityId)
+      }
+
+      const response = await fetch('/api/admin/identities', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+        },
+        body: form,
+      })
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      const result =
+        (await response.json()) as BulkDeleteManagedIdentityResponse
+
+      props.onDeleted(result.identityIds)
+      setOpen(false)
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : m.admin_identity_bulk_delete_error_fallback(),
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="destructive"
+        disabled={!rowIds.length}
+        onClick={() => {
+          setOpen(true)
+        }}
+      >
+        <Trash2Icon />
+        {m.admin_identity_bulk_delete_button()}
+      </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-[min(620px,calc(100%-2rem))] gap-5">
+          <DialogHeader>
+            <DialogTitle>
+              {m.admin_identity_bulk_delete_title({
+                count: String(rowIds.length),
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {m.admin_identity_bulk_delete_description()}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm text-muted-foreground">
+              {m.admin_identity_bulk_delete_scope({
+                count: String(rowIds.length),
+              })}
+            </div>
+
+            {saveError ? (
+              <Alert variant="destructive">
+                <AlertTitle>{m.oauth_unable_to_save_title()}</AlertTitle>
+                <AlertDescription>{saveError}</AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOpen(false)
+              }}
+              disabled={submitting}
+            >
+              {m.ui_close()}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                void handleSubmit()
+              }}
+              disabled={submitting || !rowIds.length}
+            >
+              {submitting
+                ? m.oauth_saving()
+                : m.admin_identity_bulk_delete_button()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

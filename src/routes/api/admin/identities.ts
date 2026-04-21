@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { requireAdminPermission } from '../../../lib/server/auth'
 import { json, redirect, text } from '../../../lib/server/http'
 import {
+  deleteManagedIdentities,
   deleteManagedIdentity,
   findAdminIdentitySummary,
   listAdminIdentitySummaries,
@@ -140,6 +141,41 @@ export const Route = createFileRoute('/api/admin/identities')({
               ok: true,
               identityIds,
               identities,
+            })
+          }
+
+          return redirect(
+            readRedirectTo(form.get('redirectTo')) || '/admin/identities',
+          )
+        }
+
+        if (intent === 'bulk-delete') {
+          const identityIds = readManagedIdentityIds(form)
+
+          if (!identityIds.length) {
+            return text('identityIds are required', 400)
+          }
+
+          const existingSummaries = await listAdminIdentitySummaries()
+          const summariesById = new Map(
+            existingSummaries.map((summary) => [summary.id, summary]),
+          )
+
+          for (const managedIdentityId of identityIds) {
+            if (!summariesById.has(managedIdentityId)) {
+              return text(`Unknown identityId: ${managedIdentityId}`, 400)
+            }
+          }
+
+          const deletedRecords = await deleteManagedIdentities(identityIds)
+          if (deletedRecords.length !== identityIds.length) {
+            return text('Unable to delete all managed identities', 400)
+          }
+
+          if (wantsJson) {
+            return json({
+              ok: true,
+              identityIds,
             })
           }
 

@@ -31,6 +31,8 @@ export interface DashboardState {
   authMode?: string
   authClientId?: string
   lastError?: string
+  activeFlowCount: number
+  queuedFlowCount: number
   currentFlow: DashboardFlowState | null
   recentEvents: DashboardEventLogEntry[]
   nowMs: number
@@ -58,6 +60,8 @@ export function createDashboardState(input: {
     phase: 'starting',
     cliName: input.cliName,
     target: normalizeOptionalText(input.target),
+    activeFlowCount: 0,
+    queuedFlowCount: 0,
     currentFlow: null,
     recentEvents: [],
     nowMs: Date.now(),
@@ -75,6 +79,20 @@ export function clearDashboardEvents(state: DashboardState): DashboardState {
   return {
     ...state,
     recentEvents: [],
+  }
+}
+
+export function setDashboardTaskCounts(
+  state: DashboardState,
+  input: {
+    activeFlowCount: number
+    queuedFlowCount: number
+  },
+): DashboardState {
+  return {
+    ...state,
+    activeFlowCount: Math.max(input.activeFlowCount, 0),
+    queuedFlowCount: Math.max(input.queuedFlowCount, 0),
   }
 }
 

@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only'
 
-import { and, desc, eq, isNotNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { getDb } from './db/client'
 import { decryptSecret, encryptSecret } from './encrypted-secrets'
 import { managedIdentities, verificationEmailReservations } from './db/schema'
@@ -333,6 +333,21 @@ export async function deleteManagedIdentity(identityId: string) {
     .returning()
 
   return record ?? null
+}
+
+export async function deleteManagedIdentities(identityIds: string[]) {
+  const normalizedIdentityIds = Array.from(
+    new Set(identityIds.map((identityId) => identityId.trim()).filter(Boolean)),
+  )
+
+  if (!normalizedIdentityIds.length) {
+    return []
+  }
+
+  return getDb()
+    .delete(managedIdentities)
+    .where(inArray(managedIdentities.identityId, normalizedIdentityIds))
+    .returning()
 }
 
 export async function syncManagedIdentity(params: {

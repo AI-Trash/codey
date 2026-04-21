@@ -2,6 +2,9 @@ import { startTransition, useEffect, useMemo, useState } from 'react'
 
 import {
   createCliFlowTaskRequest,
+  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
+  MAX_CLI_FLOW_TASK_BATCH_SIZE,
+  MAX_CLI_FLOW_TASK_PARALLELISM,
   type CliFlowCommandId,
   type CliFlowConfigById,
   type CliFlowConfigFieldDefinition,
@@ -29,6 +32,7 @@ import {
   StatusBadge,
   formatAdminDate,
 } from '#/components/admin/layout'
+import { AdminPaginatedTable } from '#/components/admin/filterable-table'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
@@ -76,7 +80,6 @@ import { m } from '#/paraglide/messages'
 
 const CLI_CONNECTION_POLL_INTERVAL_MS = 10_000
 const BOOLEAN_DEFAULT_SENTINEL = '__default__'
-const CHATGPT_REGISTER_BATCH_LIMIT = 20
 
 const loadAdminCliConnections = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -330,118 +333,128 @@ function CliConnectionsTableCard(props: {
       </CardHeader>
       <CardContent>
         {props.connections.length ? (
-          <div className="overflow-hidden rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{m.admin_cli_table_cli()}</TableHead>
-                  <TableHead>{m.admin_cli_table_operator()}</TableHead>
-                  <TableHead>{m.admin_cli_table_target()}</TableHead>
-                  <TableHead>{m.admin_cli_table_auth_client()}</TableHead>
-                  <TableHead>{m.admin_cli_table_flow()}</TableHead>
-                  <TableHead>{m.admin_cli_table_status()}</TableHead>
-                  <TableHead>{m.admin_cli_table_connected_at()}</TableHead>
-                  <TableHead>{m.admin_cli_table_last_seen()}</TableHead>
-                  {props.onDispatch ? (
-                    <TableHead>{m.admin_cli_table_actions()}</TableHead>
-                  ) : null}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {props.connections.map((connection) => {
-                  const dispatchableCount =
-                    getDispatchableFlowIds(connection).length
+          <AdminPaginatedTable
+            rows={props.connections}
+            emptyState={
+              <EmptyState
+                title={props.emptyTitle}
+                description={props.emptyDescription}
+              />
+            }
+            renderTable={(rows) => (
+              <Table className="min-w-[1280px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{m.admin_cli_table_cli()}</TableHead>
+                    <TableHead>{m.admin_cli_table_operator()}</TableHead>
+                    <TableHead>{m.admin_cli_table_target()}</TableHead>
+                    <TableHead>{m.admin_cli_table_auth_client()}</TableHead>
+                    <TableHead>{m.admin_cli_table_flow()}</TableHead>
+                    <TableHead>{m.admin_cli_table_status()}</TableHead>
+                    <TableHead>{m.admin_cli_table_connected_at()}</TableHead>
+                    <TableHead>{m.admin_cli_table_last_seen()}</TableHead>
+                    {props.onDispatch ? (
+                      <TableHead>{m.admin_cli_table_actions()}</TableHead>
+                    ) : null}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((connection) => {
+                    const dispatchableCount =
+                      getDispatchableFlowIds(connection).length
 
-                  return (
-                    <TableRow key={connection.id}>
-                      <TableCell>
-                        <div className="flex min-w-0 flex-col gap-1">
-                          <span className="inline-flex items-center gap-2 font-medium">
-                            <BotIcon className="size-4 text-muted-foreground" />
-                            {connection.cliName || m.admin_cli_unknown_cli()}
-                          </span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {connection.connectionPath}
-                          </span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {m.admin_cli_registered_flows_count({
-                              count: String(dispatchableCount),
-                            })}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex min-w-0 flex-col gap-1">
-                          <span className="inline-flex items-center gap-2 font-medium">
-                            <UserRoundIcon className="size-4 text-muted-foreground" />
-                            {connection.userLabel}
-                          </span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {formatSecondaryIdentity(connection)}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex min-w-0 flex-col gap-1">
-                          <span className="font-medium">
-                            {connection.target || m.admin_cli_unknown_target()}
-                          </span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {connection.sessionRef || m.oauth_none()}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex min-w-0 flex-col gap-1">
-                          <span className="inline-flex items-center gap-2 font-medium">
-                            <ShieldIcon className="size-4 text-muted-foreground" />
-                            {connection.authClientId ||
-                              m.admin_cli_unknown_auth_client()}
-                          </span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            {connection.userAgent || m.oauth_none()}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <RuntimeFlowCell connection={connection} />
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge value={connection.status} />
-                      </TableCell>
-                      <TableCell>
-                        <DateCell
-                          value={connection.connectedAt}
-                          icon={ActivityIcon}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <DateCell
-                          value={connection.lastSeenAt}
-                          icon={RefreshCcwIcon}
-                        />
-                      </TableCell>
-                      {props.onDispatch ? (
-                        <TableCell className="w-[132px]">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={dispatchableCount === 0}
-                            onClick={() => {
-                              props.onDispatch?.(connection)
-                            }}
-                          >
-                            {m.admin_cli_dispatch_action()}
-                          </Button>
+                    return (
+                      <TableRow key={connection.id}>
+                        <TableCell>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <span className="inline-flex items-center gap-2 font-medium">
+                              <BotIcon className="size-4 text-muted-foreground" />
+                              {connection.cliName || m.admin_cli_unknown_cli()}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {connection.connectionPath}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {m.admin_cli_registered_flows_count({
+                                count: String(dispatchableCount),
+                              })}
+                            </span>
+                          </div>
                         </TableCell>
-                      ) : null}
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
+                        <TableCell>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <span className="inline-flex items-center gap-2 font-medium">
+                              <UserRoundIcon className="size-4 text-muted-foreground" />
+                              {connection.userLabel}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {formatSecondaryIdentity(connection)}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <span className="font-medium">
+                              {connection.target ||
+                                m.admin_cli_unknown_target()}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {connection.sessionRef || m.oauth_none()}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <span className="inline-flex items-center gap-2 font-medium">
+                              <ShieldIcon className="size-4 text-muted-foreground" />
+                              {connection.authClientId ||
+                                m.admin_cli_unknown_auth_client()}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {connection.userAgent || m.oauth_none()}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <RuntimeFlowCell connection={connection} />
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge value={connection.status} />
+                        </TableCell>
+                        <TableCell>
+                          <DateCell
+                            value={connection.connectedAt}
+                            icon={ActivityIcon}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <DateCell
+                            value={connection.lastSeenAt}
+                            icon={RefreshCcwIcon}
+                          />
+                        </TableCell>
+                        {props.onDispatch ? (
+                          <TableCell className="w-[132px]">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={dispatchableCount === 0}
+                              onClick={() => {
+                                props.onDispatch?.(connection)
+                              }}
+                            >
+                              {m.admin_cli_dispatch_action()}
+                            </Button>
+                          </TableCell>
+                        ) : null}
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          />
         ) : (
           <EmptyState
             title={props.emptyTitle}
@@ -470,6 +483,9 @@ function CliTaskDialog(props: {
     '',
   )
   const [dispatchCount, setDispatchCount] = useState('1')
+  const [dispatchParallelism, setDispatchParallelism] = useState(
+    String(DEFAULT_CLI_FLOW_TASK_PARALLELISM),
+  )
   const [draftValues, setDraftValues] = useState<DraftOptionState>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -477,6 +493,7 @@ function CliTaskDialog(props: {
   useEffect(() => {
     setSelectedFlowId(availableFlows[0] || '')
     setDispatchCount('1')
+    setDispatchParallelism(String(DEFAULT_CLI_FLOW_TASK_PARALLELISM))
     setDraftValues({})
     setSubmitting(false)
     setSubmitError(null)
@@ -505,6 +522,11 @@ function CliTaskDialog(props: {
     setSubmitError(null)
     try {
       const repeatCount = readDispatchCount(selectedFlowId, dispatchCount)
+      const parallelism = readDispatchParallelism(
+        selectedFlowId,
+        dispatchParallelism,
+        repeatCount,
+      )
       const response = await fetch(
         `/api/admin/cli-connections/${encodeURIComponent(props.connection.id)}/tasks`,
         {
@@ -519,6 +541,7 @@ function CliTaskDialog(props: {
               buildDispatchConfig(selectedFlowId, draftValues),
             ),
             repeatCount,
+            parallelism,
           }),
         },
       )
@@ -578,6 +601,9 @@ function CliTaskDialog(props: {
                     onValueChange={(value) => {
                       setSelectedFlowId(value as CliFlowCommandId)
                       setDispatchCount('1')
+                      setDispatchParallelism(
+                        String(DEFAULT_CLI_FLOW_TASK_PARALLELISM),
+                      )
                       setSubmitError(null)
                     }}
                     disabled={!availableFlows.length || submitting}
@@ -611,12 +637,12 @@ function CliTaskDialog(props: {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">
-                    {m.admin_cli_dispatch_repeat_count_label()}
+                    {m.admin_cli_dispatch_batch_section_title()}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <FieldSet>
-                    <FieldGroup>
+                    <FieldGroup className="grid gap-4 md:grid-cols-2">
                       <Field>
                         <FieldLabel htmlFor="dispatch-repeat-count">
                           {m.admin_cli_dispatch_repeat_count_label()}
@@ -626,7 +652,7 @@ function CliTaskDialog(props: {
                           type="number"
                           inputMode="numeric"
                           min={1}
-                          max={CHATGPT_REGISTER_BATCH_LIMIT}
+                          max={MAX_CLI_FLOW_TASK_BATCH_SIZE}
                           value={dispatchCount}
                           disabled={submitting}
                           onChange={(event) => {
@@ -635,7 +661,29 @@ function CliTaskDialog(props: {
                         />
                         <FieldDescription>
                           {m.admin_cli_dispatch_repeat_count_description({
-                            max: String(CHATGPT_REGISTER_BATCH_LIMIT),
+                            max: String(MAX_CLI_FLOW_TASK_BATCH_SIZE),
+                          })}
+                        </FieldDescription>
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="dispatch-parallelism">
+                          {m.admin_cli_dispatch_parallelism_label()}
+                        </FieldLabel>
+                        <Input
+                          id="dispatch-parallelism"
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          max={MAX_CLI_FLOW_TASK_PARALLELISM}
+                          value={dispatchParallelism}
+                          disabled={submitting}
+                          onChange={(event) => {
+                            setDispatchParallelism(event.currentTarget.value)
+                          }}
+                        />
+                        <FieldDescription>
+                          {m.admin_cli_dispatch_parallelism_description({
+                            max: String(MAX_CLI_FLOW_TASK_PARALLELISM),
                           })}
                         </FieldDescription>
                       </Field>
@@ -923,10 +971,7 @@ function supportsBatchDispatch(
   return flowId === 'chatgpt-register'
 }
 
-function readDispatchCount(
-  flowId: CliFlowCommandId,
-  rawValue: string,
-): number {
+function readDispatchCount(flowId: CliFlowCommandId, rawValue: string): number {
   if (!supportsBatchDispatch(flowId)) {
     return 1
   }
@@ -940,11 +985,49 @@ function readDispatchCount(
   if (
     !Number.isInteger(parsed) ||
     parsed < 1 ||
-    parsed > CHATGPT_REGISTER_BATCH_LIMIT
+    parsed > MAX_CLI_FLOW_TASK_BATCH_SIZE
   ) {
     throw new Error(
       m.admin_cli_dispatch_repeat_count_error({
-        max: String(CHATGPT_REGISTER_BATCH_LIMIT),
+        max: String(MAX_CLI_FLOW_TASK_BATCH_SIZE),
+      }),
+    )
+  }
+
+  return parsed
+}
+
+function readDispatchParallelism(
+  flowId: CliFlowCommandId,
+  rawValue: string,
+  repeatCount: number,
+): number {
+  if (!supportsBatchDispatch(flowId)) {
+    return DEFAULT_CLI_FLOW_TASK_PARALLELISM
+  }
+
+  const normalized = rawValue.trim()
+  if (!normalized) {
+    return DEFAULT_CLI_FLOW_TASK_PARALLELISM
+  }
+
+  const parsed = Number.parseInt(normalized, 10)
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 1 ||
+    parsed > MAX_CLI_FLOW_TASK_PARALLELISM
+  ) {
+    throw new Error(
+      m.admin_cli_dispatch_parallelism_error({
+        max: String(MAX_CLI_FLOW_TASK_PARALLELISM),
+      }),
+    )
+  }
+
+  if (parsed > repeatCount) {
+    throw new Error(
+      m.admin_cli_dispatch_parallelism_count_error({
+        count: String(repeatCount),
       }),
     )
   }
@@ -1020,49 +1103,46 @@ const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
 const optionDisplayNameMap: Record<
   CliFlowConfigFieldDisplayNameKey,
   () => string
-> =
-  {
-    chromeDefaultProfile: () =>
-      m.admin_cli_option_chrome_default_profile_name(),
-    headless: () => m.admin_cli_option_headless_name(),
-    slowMo: () => m.admin_cli_option_slow_mo_name(),
-    har: () => m.admin_cli_option_har_name(),
-    record: () => m.admin_cli_option_record_name(),
-    password: () => m.admin_cli_option_password_name(),
-    verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
-    pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
-    identityId: () => m.admin_cli_option_identity_id_name(),
-    email: () => m.admin_cli_option_email_name(),
-    inviteEmail: () => m.admin_cli_option_invite_email_name(),
-    inviteFile: () => m.admin_cli_option_invite_file_name(),
-    workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
-    redirectPort: () => m.admin_cli_option_redirect_port_name(),
-    authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
-  }
+> = {
+  chromeDefaultProfile: () => m.admin_cli_option_chrome_default_profile_name(),
+  headless: () => m.admin_cli_option_headless_name(),
+  slowMo: () => m.admin_cli_option_slow_mo_name(),
+  har: () => m.admin_cli_option_har_name(),
+  record: () => m.admin_cli_option_record_name(),
+  password: () => m.admin_cli_option_password_name(),
+  verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
+  pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
+  identityId: () => m.admin_cli_option_identity_id_name(),
+  email: () => m.admin_cli_option_email_name(),
+  inviteEmail: () => m.admin_cli_option_invite_email_name(),
+  inviteFile: () => m.admin_cli_option_invite_file_name(),
+  workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
+  redirectPort: () => m.admin_cli_option_redirect_port_name(),
+  authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
+}
 
 const optionDescriptionMap: Record<
   CliFlowConfigFieldDescriptionKey,
   () => string
-> =
-  {
-    chromeDefaultProfile: () =>
-      m.admin_cli_option_chrome_default_profile_description(),
-    headless: () => m.admin_cli_option_headless_description(),
-    slowMo: () => m.admin_cli_option_slow_mo_description(),
-    har: () => m.admin_cli_option_har_description(),
-    record: () => m.admin_cli_option_record_description(),
-    password: () => m.admin_cli_option_password_description(),
-    verificationTimeoutMs: () =>
-      m.admin_cli_option_verification_timeout_description(),
-    pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),
-    identityId: () => m.admin_cli_option_identity_id_description(),
-    email: () => m.admin_cli_option_email_description(),
-    inviteEmail: () => m.admin_cli_option_invite_email_description(),
-    inviteFile: () => m.admin_cli_option_invite_file_description(),
-    workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
-    redirectPort: () => m.admin_cli_option_redirect_port_description(),
-    authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_description(),
-  }
+> = {
+  chromeDefaultProfile: () =>
+    m.admin_cli_option_chrome_default_profile_description(),
+  headless: () => m.admin_cli_option_headless_description(),
+  slowMo: () => m.admin_cli_option_slow_mo_description(),
+  har: () => m.admin_cli_option_har_description(),
+  record: () => m.admin_cli_option_record_description(),
+  password: () => m.admin_cli_option_password_description(),
+  verificationTimeoutMs: () =>
+    m.admin_cli_option_verification_timeout_description(),
+  pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),
+  identityId: () => m.admin_cli_option_identity_id_description(),
+  email: () => m.admin_cli_option_email_description(),
+  inviteEmail: () => m.admin_cli_option_invite_email_description(),
+  inviteFile: () => m.admin_cli_option_invite_file_description(),
+  workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
+  redirectPort: () => m.admin_cli_option_redirect_port_description(),
+  authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_description(),
+}
 
 function getFlowDisplayName(flowId: CliFlowCommandId): string {
   const flowDefinition = cliFlowDefinitions.find(

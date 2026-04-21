@@ -3,8 +3,12 @@ import Enquirer from 'enquirer'
 import type { FlowOptions } from '../flow-cli/helpers'
 import {
   cliFlowDefinitions,
+  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
   listCliFlowConfigFieldDefinitions,
+  MAX_CLI_FLOW_TASK_BATCH_SIZE,
+  MAX_CLI_FLOW_TASK_PARALLELISM,
   normalizeCliFlowConfig,
+  normalizeCliFlowTaskParallelism,
   type CliFlowCommandId,
   type CliFlowConfigFieldDefinition,
   type CliFlowDefinition,
@@ -14,9 +18,8 @@ export interface ManualFlowTaskInput {
   flowId: CliFlowCommandId
   config: FlowOptions
   repeatCount: number
+  parallelism: number
 }
-
-export const MAX_MANUAL_FLOW_REPEAT_COUNT = 20
 
 type EnquirerChoice = {
   name: string
@@ -157,7 +160,7 @@ export function normalizeManualFlowAnswers(
 
 export function normalizeManualFlowRepeatCount(value: unknown): number {
   if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
-    return Math.min(value, MAX_MANUAL_FLOW_REPEAT_COUNT)
+    return Math.min(value, MAX_CLI_FLOW_TASK_BATCH_SIZE)
   }
 
   if (typeof value !== 'string') {
@@ -174,7 +177,16 @@ export function normalizeManualFlowRepeatCount(value: unknown): number {
     return 1
   }
 
-  return Math.min(parsed, MAX_MANUAL_FLOW_REPEAT_COUNT)
+  return Math.min(parsed, MAX_CLI_FLOW_TASK_BATCH_SIZE)
+}
+
+export function normalizeManualFlowParallelism(
+  value: unknown,
+  repeatCount: number,
+): number {
+  return normalizeCliFlowTaskParallelism(value, {
+    count: repeatCount,
+  })
 }
 
 async function runEnquirerPrompt<T>(
@@ -218,8 +230,8 @@ async function promptForRepeatCount(
         return 'Enter a whole number greater than 0.'
       }
 
-      if (parsed > MAX_MANUAL_FLOW_REPEAT_COUNT) {
-        return `Enter a value from 1 to ${MAX_MANUAL_FLOW_REPEAT_COUNT}.`
+      if (parsed > MAX_CLI_FLOW_TASK_BATCH_SIZE) {
+        return `Enter a value from 1 to ${MAX_CLI_FLOW_TASK_BATCH_SIZE}.`
       }
 
       return true
@@ -227,6 +239,42 @@ async function promptForRepeatCount(
   })
 
   return normalizeManualFlowRepeatCount(answer.repeatCount)
+}
+
+async function promptForParallelism(repeatCount: number): Promise<number> {
+  if (repeatCount <= 1) {
+    return DEFAULT_CLI_FLOW_TASK_PARALLELISM
+  }
+
+  const answer = await runEnquirerPrompt<{ parallelism: string }>({
+    type: 'input',
+    name: 'parallelism',
+    message: 'How many registration tasks should run in parallel?',
+    initial: String(DEFAULT_CLI_FLOW_TASK_PARALLELISM),
+    validate: (current: string) => {
+      const normalized = current.trim()
+      if (!normalized) {
+        return true
+      }
+
+      const parsed = Number.parseInt(normalized, 10)
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        return 'Enter a whole number greater than 0.'
+      }
+
+      if (parsed > MAX_CLI_FLOW_TASK_PARALLELISM) {
+        return `Enter a value from 1 to ${MAX_CLI_FLOW_TASK_PARALLELISM}.`
+      }
+
+      if (parsed > repeatCount) {
+        return `Parallelism cannot exceed the task count (${repeatCount}).`
+      }
+
+      return true
+    },
+  })
+
+  return normalizeManualFlowParallelism(answer.parallelism, repeatCount)
 }
 
 async function promptForSelectedOptionKeys(
@@ -309,6 +357,7 @@ async function promptForOptionValue(
 export async function promptForManualFlowTask(): Promise<ManualFlowTaskInput> {
   const flowId = await promptForFlowId()
   const repeatCount = await promptForRepeatCount(flowId)
+  const parallelism = await promptForParallelism(repeatCount)
   const optionKeys = await promptForSelectedOptionKeys(flowId)
   const optionDefinitions = listCliFlowConfigFieldDefinitions(flowId)
   const rawOptions: Record<string, unknown> = {}
@@ -328,5 +377,6 @@ export async function promptForManualFlowTask(): Promise<ManualFlowTaskInput> {
     flowId,
     config: normalizeManualFlowAnswers(flowId, rawOptions),
     repeatCount,
+    parallelism,
   }
 }

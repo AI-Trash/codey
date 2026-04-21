@@ -42,7 +42,9 @@ import {
   type FlowProgressUpdate,
 } from './modules/flow-cli/helpers'
 import {
+  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
   normalizeCliFlowTaskPayload,
+  type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
 } from './modules/flow-cli/flow-registry'
 import { normalizeFlowCliArgsForCommand } from './modules/flow-cli/parse-argv'
@@ -56,6 +58,7 @@ import {
 } from './modules/flow-cli/result-file'
 import { sleep } from './utils/wait'
 import { writeCliStderrLine, writeCliStdoutLine } from './utils/cli-output'
+import { FlowTaskScheduler } from './modules/flow-cli/task-scheduler'
 
 async function runFlowCommand(
   subcommand: CliFlowCommandId,
@@ -410,6 +413,178 @@ async function runDaemonCommand(
         )
       },
     })
+    const taskScheduler = new FlowTaskScheduler<void>()
+    let outstandingStartedAt: string | undefined
+    let lastRuntimeState:
+      | {
+          flowId?: string
+          notificationId?: string
+          status?: string
+          message?: string
+          startedAt?: string
+          completedAt?: string
+        }
+      | undefined
+
+    const syncRuntimeReporterState = () => {
+      const snapshot = taskScheduler.getSnapshot()
+      if (!snapshot.activeCount && !snapshot.pendingCount) {
+        outstandingStartedAt = undefined
+        runtimeReporter.update({
+          runtimeFlowId: lastRuntimeState?.flowId || null,
+          runtimeTaskId: lastRuntimeState?.notificationId || null,
+          runtimeFlowStatus: lastRuntimeState?.status || null,
+          runtimeFlowMessage: lastRuntimeState?.message || null,
+          runtimeFlowStartedAt: lastRuntimeState?.startedAt || null,
+          runtimeFlowCompletedAt: lastRuntimeState?.completedAt || null,
+        })
+        return
+      }
+
+      runtimeReporter.update({
+        runtimeFlowId:
+          snapshot.activeCount + snapshot.pendingCount > 1
+            ? 'task-queue'
+            : lastRuntimeState?.flowId || 'task-queue',
+        runtimeTaskId:
+          snapshot.activeCount === 1 && !snapshot.pendingCount
+            ? lastRuntimeState?.notificationId || null
+            : null,
+        runtimeFlowStatus: 'running',
+        runtimeFlowMessage: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (parallelism ${snapshot.parallelism || DEFAULT_CLI_FLOW_TASK_PARALLELISM})`,
+        runtimeFlowStartedAt:
+          outstandingStartedAt || lastRuntimeState?.startedAt || null,
+        runtimeFlowCompletedAt: null,
+      })
+    }
+
+    const scheduleDaemonFlowTask = (task: {
+      flowId: CliFlowCommandId
+      config: FlowOptions
+      notificationId: string
+      message: string
+      batch?: CliFlowTaskBatchMetadata
+    }) => {
+      const scheduled = taskScheduler.enqueue({
+        taskId: task.notificationId,
+        batchId: task.batch?.batchId,
+        parallelism: task.batch?.parallelism,
+        run: async () => {
+          const startedAt = new Date().toISOString()
+          if (
+            !outstandingStartedAt ||
+            Date.parse(startedAt) < Date.parse(outstandingStartedAt)
+          ) {
+            outstandingStartedAt = startedAt
+          }
+
+          writeCliStdoutLine(
+            JSON.stringify(
+              {
+                command: 'daemon:task:start',
+                notificationId: task.notificationId,
+                flowId: task.flowId,
+                config: redactForOutput(task.config),
+              },
+              null,
+              2,
+            ),
+          )
+
+          lastRuntimeState = {
+            flowId: task.flowId,
+            notificationId: task.notificationId,
+            status: 'running',
+            message: task.message,
+            startedAt,
+          }
+          syncRuntimeReporterState()
+
+          const consoleProgressReporter = createConsoleFlowProgressReporter(
+            `flow:${task.flowId}`,
+          )
+
+          try {
+            const execution = await executeFlowSubcommand(task.flowId, {
+              ...task.config,
+              progressReporter: (update) => {
+                consoleProgressReporter(update)
+
+                const message = formatRuntimeProgressMessage(update)
+                if (!message) {
+                  return
+                }
+
+                lastRuntimeState = {
+                  flowId: task.flowId,
+                  notificationId: task.notificationId,
+                  status: update.status === 'failed' ? 'failed' : 'running',
+                  message,
+                  startedAt,
+                }
+                syncRuntimeReporterState()
+              },
+            })
+
+            lastRuntimeState = {
+              flowId: task.flowId,
+              notificationId: task.notificationId,
+              status: execution.status,
+              message: 'Flow completed',
+              startedAt,
+              completedAt: execution.completedAt || new Date().toISOString(),
+            }
+            syncRuntimeReporterState()
+            writeCliStdoutLine(
+              JSON.stringify(
+                {
+                  command: 'daemon:task:completed',
+                  notificationId: task.notificationId,
+                  flowId: task.flowId,
+                  execution: redactForOutput({
+                    status: execution.status,
+                    completedAt: execution.completedAt,
+                  }),
+                },
+                null,
+                2,
+              ),
+            )
+          } catch (error) {
+            const sanitized = sanitizeErrorForOutput(error)
+            lastRuntimeState = {
+              flowId: task.flowId,
+              notificationId: task.notificationId,
+              status: 'failed',
+              message: sanitized.message,
+              startedAt,
+              completedAt: new Date().toISOString(),
+            }
+            syncRuntimeReporterState()
+            writeCliStderrLine(
+              JSON.stringify(
+                {
+                  command: 'daemon:task:error',
+                  notificationId: task.notificationId,
+                  flowId: task.flowId,
+                  error: sanitized.message,
+                },
+                null,
+                2,
+              ),
+            )
+          } finally {
+            await runtimeReporter.flush()
+            setRuntimeConfig(config)
+          }
+        },
+      })
+
+      syncRuntimeReporterState()
+      return scheduled.finally(() => {
+        syncRuntimeReporterState()
+      })
+    }
 
     writeCliStdoutLine(
       JSON.stringify(
@@ -481,104 +656,13 @@ async function runDaemonCommand(
 
         const flowId = taskPayload.flowId
         const taskConfig = taskPayload.config as FlowOptions
-        const startedAt = new Date().toISOString()
-        const consoleProgressReporter = createConsoleFlowProgressReporter(
-          `flow:${flowId}`,
-        )
-
-        writeCliStdoutLine(
-          JSON.stringify(
-            {
-              command: 'daemon:task:start',
-              notificationId: notification.id,
-              flowId,
-              config: redactForOutput(taskConfig),
-            },
-            null,
-            2,
-          ),
-        )
-
-        try {
-          runtimeReporter.update({
-            runtimeFlowId: flowId,
-            runtimeTaskId: notification.id,
-            runtimeFlowStatus: 'running',
-            runtimeFlowMessage: notification.title || 'Task started',
-            runtimeFlowStartedAt: startedAt,
-            runtimeFlowCompletedAt: null,
-          })
-
-          const execution = await executeFlowSubcommand(flowId, {
-            ...taskConfig,
-            progressReporter: (update) => {
-              consoleProgressReporter(update)
-
-              const message = formatRuntimeProgressMessage(update)
-              if (!message) {
-                return
-              }
-
-              runtimeReporter.update({
-                runtimeFlowId: flowId,
-                runtimeTaskId: notification.id,
-                runtimeFlowStatus:
-                  update.status === 'failed' ? 'failed' : 'running',
-                runtimeFlowMessage: message,
-                runtimeFlowStartedAt: startedAt,
-              })
-            },
-          })
-          runtimeReporter.update({
-            runtimeFlowId: flowId,
-            runtimeTaskId: notification.id,
-            runtimeFlowStatus: execution.status,
-            runtimeFlowMessage: 'Flow completed',
-            runtimeFlowStartedAt: startedAt,
-            runtimeFlowCompletedAt:
-              execution.completedAt || new Date().toISOString(),
-          })
-          writeCliStdoutLine(
-            JSON.stringify(
-              {
-                command: 'daemon:task:completed',
-                notificationId: notification.id,
-                flowId,
-                execution: redactForOutput({
-                  status: execution.status,
-                  completedAt: execution.completedAt,
-                }),
-              },
-              null,
-              2,
-            ),
-          )
-        } catch (error) {
-          const sanitized = sanitizeErrorForOutput(error)
-          runtimeReporter.update({
-            runtimeFlowId: flowId,
-            runtimeTaskId: notification.id,
-            runtimeFlowStatus: 'failed',
-            runtimeFlowMessage: sanitized.message,
-            runtimeFlowStartedAt: startedAt,
-            runtimeFlowCompletedAt: new Date().toISOString(),
-          })
-          writeCliStderrLine(
-            JSON.stringify(
-              {
-                command: 'daemon:task:error',
-                notificationId: notification.id,
-                flowId,
-                error: sanitized.message,
-              },
-              null,
-              2,
-            ),
-          )
-        } finally {
-          await runtimeReporter.flush()
-          setRuntimeConfig(config)
-        }
+        void scheduleDaemonFlowTask({
+          flowId,
+          config: taskConfig,
+          notificationId: notification.id,
+          message: notification.title || 'Task started',
+          batch: taskPayload.batch,
+        })
       }
     } catch (error) {
       writeCliStderrLine(
@@ -592,6 +676,9 @@ async function runDaemonCommand(
         ),
       )
     }
+
+    await taskScheduler.waitForIdle()
+    await runtimeReporter.flush()
 
     await sleep(1000)
   }

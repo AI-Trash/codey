@@ -236,6 +236,18 @@ export type CliFlowConfig<T extends CliFlowCommandId = CliFlowCommandId> =
 
 export type AnyCliFlowConfig = CliFlowConfigById[CliFlowCommandId]
 
+export interface CliFlowTaskBatchMetadata {
+  batchId?: string
+  sequence?: number
+  total?: number
+  parallelism?: number
+}
+
+export const DEFAULT_CLI_FLOW_TASK_COUNT = 1
+export const DEFAULT_CLI_FLOW_TASK_PARALLELISM = 1
+export const MAX_CLI_FLOW_TASK_BATCH_SIZE = 20
+export const MAX_CLI_FLOW_TASK_PARALLELISM = 4
+
 export type CliFlowTaskRequestById = {
   [FlowId in CliFlowCommandId]: {
     flowId: FlowId
@@ -251,6 +263,7 @@ export type CliFlowTaskPayloadById = {
     kind: 'flow_task'
     flowId: FlowId
     config: CliFlowConfigById[FlowId]
+    batch?: CliFlowTaskBatchMetadata
   }
 }
 
@@ -523,6 +536,102 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
+function normalizePositiveInteger(
+  value: unknown,
+  max: number,
+): number | undefined {
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value) || value < 1) {
+      return undefined
+    }
+    return Math.min(value, max)
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  if (!normalized) {
+    return undefined
+  }
+
+  const parsed = Number.parseInt(normalized, 10)
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return undefined
+  }
+
+  return Math.min(parsed, max)
+}
+
+function normalizeBatchId(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
+export function normalizeCliFlowTaskCount(value: unknown): number {
+  return (
+    normalizePositiveInteger(value, MAX_CLI_FLOW_TASK_BATCH_SIZE) ||
+    DEFAULT_CLI_FLOW_TASK_COUNT
+  )
+}
+
+export function normalizeCliFlowTaskParallelism(
+  value: unknown,
+  input: {
+    count?: number
+  } = {},
+): number {
+  const count = Math.max(
+    DEFAULT_CLI_FLOW_TASK_COUNT,
+    Math.min(
+      input.count || DEFAULT_CLI_FLOW_TASK_COUNT,
+      MAX_CLI_FLOW_TASK_BATCH_SIZE,
+    ),
+  )
+  const normalized =
+    normalizePositiveInteger(value, MAX_CLI_FLOW_TASK_PARALLELISM) ||
+    DEFAULT_CLI_FLOW_TASK_PARALLELISM
+
+  return Math.min(normalized, count)
+}
+
+export function normalizeCliFlowTaskBatchMetadata(
+  value: unknown,
+): CliFlowTaskBatchMetadata | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const batchId = normalizeBatchId(value.batchId)
+  const total = normalizePositiveInteger(
+    value.total,
+    MAX_CLI_FLOW_TASK_BATCH_SIZE,
+  )
+  const sequence = normalizePositiveInteger(
+    value.sequence,
+    MAX_CLI_FLOW_TASK_BATCH_SIZE,
+  )
+  const parallelism = normalizeCliFlowTaskParallelism(value.parallelism, {
+    count: total,
+  })
+
+  if (!batchId && !sequence && !total && parallelism === 1) {
+    return undefined
+  }
+
+  return {
+    ...(batchId ? { batchId } : {}),
+    ...(sequence ? { sequence } : {}),
+    ...(total ? { total } : {}),
+    ...(parallelism > 1 ? { parallelism } : {}),
+  }
+}
+
 export function listCliFlowCommandIds(): CliFlowCommandId[] {
   return cliFlowDefinitions.map((definition) => definition.id)
 }
@@ -599,11 +708,13 @@ export function createCliFlowTaskRequest<TFlowId extends CliFlowCommandId>(
 export function createCliFlowTaskPayload<TFlowId extends CliFlowCommandId>(
   flowId: TFlowId,
   config: CliFlowConfigById[TFlowId],
+  batch?: CliFlowTaskBatchMetadata,
 ): CliFlowTaskPayloadById[TFlowId] {
   return {
     kind: 'flow_task',
     flowId,
     config,
+    ...(batch ? { batch } : {}),
   }
 }
 
@@ -626,10 +737,12 @@ export function normalizeCliFlowTaskPayload(
     : isRecord(value.options)
       ? value.options
       : {}
+  const batch = normalizeCliFlowTaskBatchMetadata(value.batch)
 
   return createCliFlowTaskPayload(
     flowDefinition.id,
     normalizeCliFlowConfig(flowDefinition.id, rawConfig),
+    batch,
   )
 }
 

@@ -4,7 +4,9 @@ import { json, text } from "../../../../../lib/server/http";
 import {
   dispatchCliFlowTasks,
   MAX_CLI_FLOW_TASK_BATCH_SIZE,
+  MAX_CLI_FLOW_TASK_PARALLELISM,
 } from "../../../../../lib/server/cli-tasks";
+import { DEFAULT_CLI_FLOW_TASK_PARALLELISM } from "../../../../../../packages/cli/src/modules/flow-cli/flow-registry";
 
 function readRequestedTaskCount(body: Record<string, unknown> | null) {
   const rawValue =
@@ -25,6 +27,35 @@ function readRequestedTaskCount(body: Record<string, unknown> | null) {
     throw new Error(
       `repeatCount cannot exceed ${MAX_CLI_FLOW_TASK_BATCH_SIZE}.`,
     );
+  }
+
+  return parsed;
+}
+
+function readRequestedParallelism(
+  body: Record<string, unknown> | null,
+  repeatCount: number,
+) {
+  const rawValue =
+    typeof body?.parallelism === "number" || typeof body?.parallelism === "string"
+      ? body.parallelism
+      : DEFAULT_CLI_FLOW_TASK_PARALLELISM;
+
+  const parsed =
+    typeof rawValue === "number" ? rawValue : Number.parseInt(rawValue, 10);
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error("parallelism must be a whole number greater than 0.");
+  }
+
+  if (parsed > MAX_CLI_FLOW_TASK_PARALLELISM) {
+    throw new Error(
+      `parallelism cannot exceed ${MAX_CLI_FLOW_TASK_PARALLELISM}.`,
+    );
+  }
+
+  if (parsed > repeatCount) {
+    throw new Error("parallelism cannot exceed repeatCount.");
   }
 
   return parsed;
@@ -65,10 +96,12 @@ export const Route = createFileRoute(
 
         try {
           const repeatCount = readRequestedTaskCount(body);
+          const parallelism = readRequestedParallelism(body, repeatCount);
           const result = await dispatchCliFlowTasks({
             connectionId: params.connectionId,
             flowId,
             count: repeatCount,
+            parallelism,
             actor: {
               userId: admin.user.id,
               githubLogin: admin.user.githubLogin,
@@ -94,6 +127,8 @@ export const Route = createFileRoute(
                 (notification) => notification.id,
               ),
               queuedCount: result.notifications.length,
+              parallelism: result.parallelism,
+              batchId: result.batchId || null,
               connectionId: result.connection.id,
               flowId,
               config: result.config,

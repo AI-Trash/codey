@@ -2,8 +2,12 @@ import "@tanstack/react-start/server-only";
 
 import {
   createCliFlowTaskPayload,
+  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
   getCliFlowDefinition,
+  MAX_CLI_FLOW_TASK_BATCH_SIZE,
+  MAX_CLI_FLOW_TASK_PARALLELISM,
   normalizeCliFlowConfig,
+  normalizeCliFlowTaskParallelism,
 } from "../../../packages/cli/src/modules/flow-cli/flow-registry";
 import {
   getAdminCliConnectionSummaryById,
@@ -15,7 +19,10 @@ import { getDb } from "./db/client";
 import { adminNotifications } from "./db/schema";
 import { createId } from "./security";
 
-export const MAX_CLI_FLOW_TASK_BATCH_SIZE = 20;
+export {
+  MAX_CLI_FLOW_TASK_BATCH_SIZE,
+  MAX_CLI_FLOW_TASK_PARALLELISM,
+};
 
 function buildTaskTitle(input: {
   flowId: string;
@@ -35,6 +42,7 @@ function buildTaskBody(input: {
   configCount: number;
   sequence: number;
   total: number;
+  parallelism: number;
 }) {
   const target = input.cliName?.trim() || "CLI";
   const configLabel = input.configCount === 1 ? "override" : "overrides";
@@ -44,7 +52,7 @@ function buildTaskBody(input: {
     return base;
   }
 
-  return `${base} Batch item ${input.sequence} of ${input.total}.`;
+  return `${base} Batch item ${input.sequence} of ${input.total}. Parallelism ${input.parallelism}.`;
 }
 
 function resolveRequestedTaskCount(count?: number | null) {
@@ -63,6 +71,33 @@ function resolveRequestedTaskCount(count?: number | null) {
   }
 
   return count;
+}
+
+function resolveRequestedParallelism(input: {
+  parallelism?: number | null;
+  count: number;
+}) {
+  if (input.parallelism == null) {
+    return DEFAULT_CLI_FLOW_TASK_PARALLELISM;
+  }
+
+  if (!Number.isInteger(input.parallelism) || input.parallelism < 1) {
+    throw new Error("Parallelism must be a whole number greater than 0.");
+  }
+
+  if (input.parallelism > MAX_CLI_FLOW_TASK_PARALLELISM) {
+    throw new Error(
+      `Parallelism cannot exceed ${MAX_CLI_FLOW_TASK_PARALLELISM}.`,
+    );
+  }
+
+  if (input.parallelism > input.count) {
+    throw new Error("Parallelism cannot exceed the task count.");
+  }
+
+  return normalizeCliFlowTaskParallelism(input.parallelism, {
+    count: input.count,
+  });
 }
 
 async function resolveDispatchableCliFlow(input: {
@@ -117,12 +152,18 @@ export async function dispatchCliFlowTasks(input: {
   flowId: string;
   config?: Record<string, unknown> | null;
   count?: number | null;
+  parallelism?: number | null;
   actor?: CliConnectionActorScope;
 }) {
   const count = resolveRequestedTaskCount(input.count);
+  const parallelism = resolveRequestedParallelism({
+    parallelism: input.parallelism,
+    count,
+  });
   const { connection, flowDefinition, config } =
     await resolveDispatchableCliFlow(input);
   const configCount = Object.keys(config).length;
+  const batchId = count > 1 ? createId() : undefined;
   const notifications = await getDb()
     .insert(adminNotifications)
     .values(
@@ -141,12 +182,17 @@ export async function dispatchCliFlowTasks(input: {
             configCount,
             sequence,
             total: count,
+            parallelism,
           }),
           kind: "flow_task" as const,
           flowType: flowDefinition.id,
           target: connection.target,
           cliConnectionId: connection.id,
-          payload: createCliFlowTaskPayload(flowDefinition.id, config),
+          payload: createCliFlowTaskPayload(flowDefinition.id, config, {
+            ...(batchId ? { batchId } : {}),
+            ...(count > 1 ? { sequence, total: count } : {}),
+            ...(parallelism > 1 ? { parallelism } : {}),
+          }),
         };
       }),
     )
@@ -156,6 +202,8 @@ export async function dispatchCliFlowTasks(input: {
     notifications,
     connection,
     config,
+    batchId,
+    parallelism,
   };
 }
 

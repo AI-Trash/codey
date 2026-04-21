@@ -31,6 +31,14 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog'
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '#/components/ui/table'
+import {
   AdminPageHeader,
   EmptyState,
   formatAdminDate,
@@ -112,8 +120,7 @@ function AdminUsersPage() {
     setUsers(data.users as AdminUserSummary[])
   }, [data.users])
 
-  const editingUser =
-    users.find((user) => user.id === editingUserId) || null
+  const editingUser = users.find((user) => user.id === editingUserId) || null
 
   const userColumns = useMemo(() => {
     const dtf = createColumnConfigHelper<AdminUserSummary>()
@@ -192,7 +199,9 @@ function AdminUsersPage() {
       {data.policy === 'ALLOWLIST' ? (
         <Alert>
           <AlertTitle>{m.admin_users_allowlist_title()}</AlertTitle>
-          <AlertDescription>{m.admin_users_allowlist_description()}</AlertDescription>
+          <AlertDescription>
+            {m.admin_users_allowlist_description()}
+          </AlertDescription>
         </Alert>
       ) : null}
 
@@ -212,118 +221,105 @@ function AdminUsersPage() {
               />
             }
             renderTable={(rows) => (
-              <div className="overflow-hidden rounded-xl border">
-                <table className="w-full min-w-[1380px] caption-bottom text-sm">
-                  <thead className="[&_tr]:border-b">
-                    <tr className="border-b transition-colors hover:bg-muted/50">
-                      <th className="h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground">
-                        {m.admin_users_table_user()}
-                      </th>
-                      <th className="h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground">
-                        {m.admin_users_table_role()}
-                      </th>
-                      <th className="h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground">
-                        {m.admin_users_table_access()}
-                      </th>
-                      <th className="h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground">
-                        {m.admin_users_table_joined()}
-                      </th>
-                      <th className="h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground">
-                        {m.oauth_clients_table_updated()}
-                      </th>
-                      <th className="h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground">
-                        {m.admin_dashboard_table_manage()}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="[&_tr:last-child]:border-0">
-                    {rows.map((user) => (
-                      <tr
-                        key={user.id}
-                        className="border-b transition-colors hover:bg-muted/50"
-                      >
-                        <td className="p-2 align-middle whitespace-nowrap">
-                          <div className="flex items-start gap-3">
-                            <Avatar className="mt-0.5" size="sm">
-                              <AvatarImage src={user.avatarUrl || undefined} />
-                              <AvatarFallback>
-                                {getUserInitials(user)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium text-foreground">
-                                  {getUserPrimaryLabel(user)}
-                                </span>
-                                {user.id === data.currentUserId ? (
-                                  <Badge variant="outline">
-                                    {m.admin_users_you_badge()}
-                                  </Badge>
-                                ) : null}
-                                {user.isAllowlistedAdmin ? (
-                                  <Badge variant="outline">
-                                    {m.admin_users_allowlist_badge()}
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="text-sm text-muted-foreground">
-                                {getUserSecondaryLabel(user)}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-2 align-middle whitespace-nowrap">
-                          <Badge variant={user.role === 'ADMIN' ? 'default' : 'outline'}>
-                            {user.role === 'ADMIN'
-                              ? m.admin_sidebar_role_admin()
-                              : m.admin_sidebar_role_user()}
-                          </Badge>
-                        </td>
-                        <td className="p-2 align-middle">
-                          <div className="flex max-w-[380px] flex-wrap gap-2">
-                            {user.permissions.length ? (
-                              user.permissions.map((permission) => (
-                                <Badge key={permission} variant="outline">
-                                  {getPermissionLabel(permission)}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-sm text-muted-foreground">
-                                {m.admin_users_no_access()}
+              <Table className="min-w-[1380px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{m.admin_users_table_user()}</TableHead>
+                    <TableHead>{m.admin_users_table_role()}</TableHead>
+                    <TableHead>{m.admin_users_table_access()}</TableHead>
+                    <TableHead>{m.admin_users_table_joined()}</TableHead>
+                    <TableHead>{m.oauth_clients_table_updated()}</TableHead>
+                    <TableHead>{m.admin_dashboard_table_manage()}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="align-top">
+                        <div className="flex items-start gap-3">
+                          <Avatar className="mt-0.5" size="sm">
+                            <AvatarImage src={user.avatarUrl || undefined} />
+                            <AvatarFallback>
+                              {getUserInitials(user)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-foreground">
+                                {getUserPrimaryLabel(user)}
                               </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-2 align-middle whitespace-nowrap text-muted-foreground">
-                          {formatAdminDate(user.createdAt) || m.status_unknown()}
-                        </td>
-                        <td className="p-2 align-middle whitespace-nowrap text-muted-foreground">
-                          {formatAdminDate(user.updatedAt) || m.status_unknown()}
-                        </td>
-                        <td className="p-2 align-middle">
-                          {data.policy === 'ALLOWLIST' ? (
-                            <p className="max-w-[280px] text-sm text-muted-foreground">
-                              {m.admin_users_allowlist_row_locked()}
+                              {user.id === data.currentUserId ? (
+                                <Badge variant="outline">
+                                  {m.admin_users_you_badge()}
+                                </Badge>
+                              ) : null}
+                              {user.isAllowlistedAdmin ? (
+                                <Badge variant="outline">
+                                  {m.admin_users_allowlist_badge()}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {getUserSecondaryLabel(user)}
                             </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <Badge
+                          variant={
+                            user.role === 'ADMIN' ? 'default' : 'outline'
+                          }
+                        >
+                          {user.role === 'ADMIN'
+                            ? m.admin_sidebar_role_admin()
+                            : m.admin_sidebar_role_user()}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <div className="flex max-w-[380px] flex-wrap gap-2">
+                          {user.permissions.length ? (
+                            user.permissions.map((permission) => (
+                              <Badge key={permission} variant="outline">
+                                {getPermissionLabel(permission)}
+                              </Badge>
+                            ))
                           ) : (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setEditingUserId(user.id)
-                              }}
-                            >
-                              <SquarePenIcon />
-                              {m.admin_users_edit_button()}
-                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                              {m.admin_users_no_access()}
+                            </span>
                           )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="align-top text-muted-foreground">
+                        {formatAdminDate(user.createdAt) || m.status_unknown()}
+                      </TableCell>
+                      <TableCell className="align-top text-muted-foreground">
+                        {formatAdminDate(user.updatedAt) || m.status_unknown()}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        {data.policy === 'ALLOWLIST' ? (
+                          <p className="max-w-[280px] text-sm text-muted-foreground">
+                            {m.admin_users_allowlist_row_locked()}
+                          </p>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setEditingUserId(user.id)
+                            }}
+                          >
+                            <SquarePenIcon />
+                            {m.admin_users_edit_button()}
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           />
         </CardContent>
@@ -368,10 +364,7 @@ function UserPermissionsDialog(props: {
   currentUserId: string
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSaved: (result: {
-    user: AdminUserSummary
-    updatedSelf: boolean
-  }) => void
+  onSaved: (result: { user: AdminUserSummary; updatedSelf: boolean }) => void
 }) {
   const [selectedPermissions, setSelectedPermissions] = useState<
     AdminPermission[]
@@ -463,7 +456,9 @@ function UserPermissionsDialog(props: {
                     {getUserPrimaryLabel(props.user)}
                   </span>
                   <Badge
-                    variant={selectedPermissions.length > 0 ? 'default' : 'outline'}
+                    variant={
+                      selectedPermissions.length > 0 ? 'default' : 'outline'
+                    }
                   >
                     {nextRole}
                   </Badge>
@@ -622,7 +617,12 @@ function getPermissionDescription(permission: AdminPermission) {
 }
 
 function getUserPrimaryLabel(user: AdminUserSummary) {
-  return user.name || user.githubLogin || user.email || m.admin_dashboard_unknown_user()
+  return (
+    user.name ||
+    user.githubLogin ||
+    user.email ||
+    m.admin_dashboard_unknown_user()
+  )
 }
 
 function getUserSecondaryLabel(user: AdminUserSummary) {
