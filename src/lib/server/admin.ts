@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import { and, count, eq, gt, isNull, or, desc, asc } from "drizzle-orm";
+import { and, count, eq, isNull, or, desc, asc, sql } from "drizzle-orm";
 import { getAppEnv } from "./env";
 import {
   adminNotifications,
@@ -219,8 +219,20 @@ export async function createFlowAppRequest(params: {
 export async function listCliNotifications(params: {
   target?: string;
   connectionId?: string;
-  after?: Date;
+  after?:
+    | Date
+    | {
+        createdAt: Date;
+        id?: string;
+      };
 }) {
+  const createdAtCursor =
+    params.after instanceof Date
+      ? {
+          createdAt: params.after,
+          id: undefined,
+        }
+      : params.after;
   const targetFilter = params.target
     ? or(
         isNull(adminNotifications.target),
@@ -237,17 +249,24 @@ export async function listCliNotifications(params: {
         eq(adminNotifications.cliConnectionId, params.connectionId),
       )
     : isNull(adminNotifications.cliConnectionId);
+  const createdAtMs = sql`date_trunc('milliseconds', ${adminNotifications.createdAt})`;
+  const afterFilter = createdAtCursor
+    ? createdAtCursor.id?.trim()
+      ? sql`(
+          ${createdAtMs} > ${createdAtCursor.createdAt}
+          or (
+            ${createdAtMs} = ${createdAtCursor.createdAt}
+            and ${adminNotifications.id} > ${createdAtCursor.id.trim()}
+          )
+        )`
+      : sql`${createdAtMs} > ${createdAtCursor.createdAt}`
+    : undefined;
 
   return getDb().query.adminNotifications.findMany({
-    where:
-      params.after
-        ? and(
-            targetFilter,
-            connectionFilter,
-            gt(adminNotifications.createdAt, params.after),
-          )
-        : and(targetFilter, connectionFilter),
-    orderBy: [asc(adminNotifications.createdAt)],
+    where: afterFilter
+      ? and(targetFilter, connectionFilter, afterFilter)
+      : and(targetFilter, connectionFilter),
+    orderBy: [asc(createdAtMs), asc(adminNotifications.id)],
     limit: 50,
   });
 }

@@ -64,9 +64,12 @@ export const Route = createFileRoute('/api/cli/events')({
           url.searchParams.get('cliName') ||
           readOptionalHeader(request, 'x-codey-cli-name') ||
           'codey'
-        let cursor = url.searchParams.get('after')
-          ? new Date(url.searchParams.get('after') as string)
-          : new Date()
+        let cursor = {
+          createdAt: url.searchParams.get('after')
+            ? new Date(url.searchParams.get('after') as string)
+            : new Date(),
+          id: undefined as string | undefined,
+        }
 
         return createSubscriptionSseResponse({
           request,
@@ -140,7 +143,10 @@ export const Route = createFileRoute('/api/cli/events')({
                 }
 
                 const next = notifications[0]
-                cursor = next.createdAt
+                cursor = {
+                  createdAt: next.createdAt,
+                  id: next.id,
+                }
                 await touchConnection(true)
                 send({
                   id: next.id,
