@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { cac } from 'cac'
+import { fileURLToPath } from 'url'
 
 import { loadWorkspaceEnv } from './utils/env'
 loadWorkspaceEnv()
@@ -57,8 +58,17 @@ import {
   type FlowCommandExecution,
 } from './modules/flow-cli/result-file'
 import { sleep } from './utils/wait'
-import { writeCliStderrLine, writeCliStdoutLine } from './utils/cli-output'
+import {
+  initializeCliFileLogging,
+  writeCliStderrLine,
+  writeCliStdoutLine,
+} from './utils/cli-output'
+import { resolveWorkspaceRoot } from './utils/workspace-root'
 import { FlowTaskScheduler } from './modules/flow-cli/task-scheduler'
+
+initializeCliFileLogging({
+  rootDir: resolveWorkspaceRoot(fileURLToPath(import.meta.url)),
+})
 
 async function runFlowCommand(
   subcommand: CliFlowCommandId,

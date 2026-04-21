@@ -113,6 +113,58 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function normalizeEmailKey(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+function validateBatchedCliFlowConfigs<TFlowId extends CliFlowCommandId>(input: {
+  flowId: TFlowId;
+  configs: ReturnType<typeof normalizeCliFlowConfig<TFlowId>>[];
+  requestedCount?: number | null;
+}) {
+  if (input.flowId !== "codex-oauth") {
+    return;
+  }
+
+  if (input.configs.length <= 1) {
+    if ((input.requestedCount || 1) > 1) {
+      throw new Error(
+        "Codex OAuth batch dispatch requires one unique email address per task.",
+      );
+    }
+    return;
+  }
+
+  const seenEmails = new Set<string>();
+  for (const config of input.configs) {
+    if (typeof config.identityId === "string" && config.identityId.trim()) {
+      throw new Error(
+        "Codex OAuth email batches cannot include identityId overrides.",
+      );
+    }
+
+    const email = normalizeEmailKey(config.email);
+    if (!email) {
+      throw new Error(
+        "Each Codex OAuth batch item must include an email address.",
+      );
+    }
+
+    if (seenEmails.has(email)) {
+      throw new Error(
+        `Duplicate Codex OAuth batch email detected: ${email}.`,
+      );
+    }
+
+    seenEmails.add(email);
+  }
+}
+
 function resolveRequestedTaskConfigs<TFlowId extends CliFlowCommandId>(input: {
   flowId: TFlowId;
   config?: Record<string, unknown> | null;
@@ -137,9 +189,15 @@ function resolveRequestedTaskConfigs<TFlowId extends CliFlowCommandId>(input: {
     throw new Error("Task count must match the provided config count.");
   }
 
-  return requestedConfigs.map((config) =>
+  const normalizedConfigs = requestedConfigs.map((config) =>
     normalizeCliFlowConfig(input.flowId, config),
   );
+  validateBatchedCliFlowConfigs({
+    flowId: input.flowId,
+    configs: normalizedConfigs,
+    requestedCount: input.count,
+  });
+  return normalizedConfigs;
 }
 
 async function resolveDispatchableCliFlow(input: {

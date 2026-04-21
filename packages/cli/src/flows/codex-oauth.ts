@@ -809,15 +809,15 @@ function resolveCodexOAuthStoredIdentitySelection(
 } {
   const snapshot = machine.getSnapshot().context
   const identityIdCandidates = [
-    snapshot.storedIdentity?.id,
     typeof options.identityId === 'string' ? options.identityId : undefined,
+    snapshot.storedIdentity?.id,
   ]
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value))
   const emailCandidates = [
+    typeof options.email === 'string' ? options.email : undefined,
     snapshot.email,
     snapshot.storedIdentity?.email,
-    typeof options.email === 'string' ? options.email : undefined,
   ]
     .map((value) => value?.trim())
     .filter((value): value is string => Boolean(value))
@@ -1558,6 +1558,7 @@ export async function runCodexOAuthFlow(
       authorizationUrl: sanitizeUrl(started.authorizationUrl),
       url: sanitizeUrl(page.url()),
       redirectUri: started.redirectUri,
+      email: typeof options.email === 'string' ? options.email.trim() : undefined,
       lastMessage:
         'Waiting for Codex OAuth callback, login, or workspace surface',
     })

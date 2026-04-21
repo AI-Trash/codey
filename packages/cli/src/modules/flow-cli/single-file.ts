@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'url'
 import type { Page } from 'patchright'
 import { loadWorkspaceEnv } from '../../utils/env'
 import type { CliFlowCommandId } from './flow-registry'
@@ -13,7 +14,11 @@ import {
 } from './helpers'
 import { parseFlowCliArgsForCommand } from './parse-argv'
 import { runWithSession } from './run-with-session'
-import { writeCliStderrLine } from '../../utils/cli-output'
+import {
+  initializeCliFileLogging,
+  writeCliStderrLine,
+} from '../../utils/cli-output'
+import { resolveWorkspaceRoot } from '../../utils/workspace-root'
 
 export interface SingleFileFlowDefinition<
   TOptions extends CommonOptions & { record?: string | boolean } =
@@ -75,6 +80,10 @@ export function runSingleFileFlowFromCli<
   definition: SingleFileFlowDefinition<TOptions, TResult>,
   options: TOptions,
 ): void {
+  initializeCliFileLogging({
+    rootDir: resolveWorkspaceRoot(fileURLToPath(import.meta.url)),
+    argv: process.argv.slice(2),
+  })
   void runSingleFileFlow(definition, options).catch(reportError)
 }
 
@@ -86,6 +95,10 @@ export function runSingleFileFlowFromCommandLine<
   flowId: CliFlowCommandId,
   definition: SingleFileFlowDefinition<TOptions, TResult>,
 ): void {
+  initializeCliFileLogging({
+    rootDir: resolveWorkspaceRoot(fileURLToPath(import.meta.url)),
+    argv: process.argv.slice(2),
+  })
   runSingleFileFlowFromCli(
     definition,
     parseFlowCliArgsForCommand(flowId, process.argv.slice(2)) as TOptions,

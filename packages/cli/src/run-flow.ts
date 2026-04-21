@@ -1,6 +1,16 @@
+import { fileURLToPath } from 'url'
 import { loadWorkspaceEnv } from './utils/env'
-import { writeCliStderrLine, writeCliStdoutLine } from './utils/cli-output'
+import {
+  initializeCliFileLogging,
+  writeCliStderrLine,
+  writeCliStdoutLine,
+} from './utils/cli-output'
+import { resolveWorkspaceRoot } from './utils/workspace-root'
 loadWorkspaceEnv()
+
+initializeCliFileLogging({
+  rootDir: resolveWorkspaceRoot(fileURLToPath(import.meta.url)),
+})
 
 import { newSession } from './core/browser'
 import { saveScreenshot, writeJson } from './core/report'
