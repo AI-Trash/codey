@@ -19,6 +19,7 @@ import {
   setRuntimeConfig,
   type CliRuntimeConfig,
 } from '../src/config'
+import { resolveAppBaseUrl } from '../src/modules/app-auth/http'
 
 const tempRoot = path.join(os.tmpdir(), `codey-flows-test-${process.pid}`)
 
@@ -351,6 +352,25 @@ describe('app auth OIDC helpers', () => {
         const config = resolveConfig()
         expect(config.app).toBeUndefined()
         expect(config.verification).toBeUndefined()
+      },
+    )
+  })
+
+  it('defaults app auth helpers to the local Codey web app url', async () => {
+    await withEnv(
+      {
+        APP_BASE_URL: undefined,
+        CODEY_APP_BASE_URL: undefined,
+      },
+      async () => {
+        const rootDir = path.join(tempRoot, 'default-app-base-url')
+        const config = createConfig(rootDir)
+        setRuntimeConfig({
+          ...config,
+          app: undefined,
+        })
+
+        expect(resolveAppBaseUrl()).toBe('http://localhost:3000')
       },
     )
   })

@@ -13,9 +13,6 @@ export interface CommonOptions {
   headless?: string | boolean
   slowMo?: string | number | boolean
   har?: string | boolean
-  batchFile?: string
-  batchConcurrency?: string | number | boolean
-  summaryCsv?: string
   progressReporter?: FlowProgressReporter
 }
 

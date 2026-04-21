@@ -52,3 +52,10 @@ export interface AdminNotificationEvent {
   payload?: Record<string, unknown> | null
   createdAt: string
 }
+
+export interface CliConnectionEvent {
+  connectionId: string
+  cliName?: string
+  target?: string
+  connectedAt: string
+}

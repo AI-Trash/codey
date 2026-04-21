@@ -1,84 +1,93 @@
-import "@tanstack/react-start/server-only";
+import '@tanstack/react-start/server-only'
 
-import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
-import { getDb } from "./db/client";
-import { cliConnections } from "./db/schema";
-import { createId } from "./security";
+import { and, desc, eq, gt, isNull, or } from 'drizzle-orm'
+import { getDb } from './db/client'
+import { cliConnections } from './db/schema'
+import { createId } from './security'
 
-const ACTIVE_CONNECTION_STALE_MS = 30_000;
-const ACTIVE_CONNECTION_LIMIT = 50;
+const ACTIVE_CONNECTION_STALE_MS = 30_000
+const ACTIVE_CONNECTION_LIMIT = 50
 
 export interface AdminCliConnectionSummary {
-  id: string;
-  sessionRef: string | null;
-  userId: string | null;
-  authClientId: string | null;
-  cliName: string | null;
-  target: string | null;
-  userAgent: string | null;
-  registeredFlows: string[];
-  connectionPath: string;
-  status: "active" | "offline";
-  connectedAt: string;
-  lastSeenAt: string;
-  disconnectedAt: string | null;
-  githubLogin: string | null;
-  email: string | null;
-  userLabel: string;
+  id: string
+  sessionRef: string | null
+  userId: string | null
+  authClientId: string | null
+  cliName: string | null
+  target: string | null
+  userAgent: string | null
+  registeredFlows: string[]
+  connectionPath: string
+  status: 'active' | 'offline'
+  connectedAt: string
+  lastSeenAt: string
+  disconnectedAt: string | null
+  githubLogin: string | null
+  email: string | null
+  userLabel: string
+  runtimeFlowId: string | null
+  runtimeTaskId: string | null
+  runtimeFlowStatus: string | null
+  runtimeFlowMessage: string | null
+  runtimeFlowStartedAt: string | null
+  runtimeFlowCompletedAt: string | null
+  runtimeFlowUpdatedAt: string | null
 }
 
 export interface CliConnectionActorScope {
-  userId?: string | null;
-  githubLogin?: string | null;
-  email?: string | null;
+  userId?: string | null
+  githubLogin?: string | null
+  email?: string | null
 }
 
 function toOptionalString(value: string | null | undefined): string | null {
-  if (typeof value !== "string") {
-    return null;
+  if (typeof value !== 'string') {
+    return null
   }
 
-  const normalized = value.trim();
-  return normalized ? normalized : null;
+  const normalized = value.trim()
+  return normalized ? normalized : null
 }
 
 function getActiveCutoff(now = Date.now()) {
-  return new Date(now - ACTIVE_CONNECTION_STALE_MS);
+  return new Date(now - ACTIVE_CONNECTION_STALE_MS)
 }
 
 function getCliConnectionStatus(input: {
-  lastSeenAt: Date;
-  disconnectedAt?: Date | null;
-}): "active" | "offline" {
+  lastSeenAt: Date
+  disconnectedAt?: Date | null
+}): 'active' | 'offline' {
   if (input.disconnectedAt) {
-    return "offline";
+    return 'offline'
   }
 
   return input.lastSeenAt.getTime() >= getActiveCutoff().getTime()
-    ? "active"
-    : "offline";
+    ? 'active'
+    : 'offline'
 }
 
-function getUserLabel(user: {
-  githubLogin?: string | null;
-  email?: string | null;
-  name?: string | null;
-} | null): string {
+function getUserLabel(
+  user: {
+    githubLogin?: string | null
+    email?: string | null
+    name?: string | null
+  } | null,
+): string {
   if (!user) {
-    return "Unknown user";
+    return 'Unknown user'
   }
 
   return (
     user.name?.trim() ||
     user.githubLogin?.trim() ||
     user.email?.trim() ||
-    "Unknown user"
-  );
+    'Unknown user'
+  )
 }
 
 function toComparableString(value: string | null | undefined): string | null {
-  const normalized = toOptionalString(value);
-  return normalized ? normalized.toLowerCase() : null;
+  const normalized = toOptionalString(value)
+  return normalized ? normalized.toLowerCase() : null
 }
 
 function getActorTargetValues(actor: CliConnectionActorScope): string[] {
@@ -88,33 +97,35 @@ function getActorTargetValues(actor: CliConnectionActorScope): string[] {
         .map((value) => toOptionalString(value))
         .filter((value): value is string => Boolean(value)),
     ),
-  );
+  )
 }
 
 export function isCliConnectionOwnedByActor(
-  connection: Pick<AdminCliConnectionSummary, "userId" | "target">,
+  connection: Pick<AdminCliConnectionSummary, 'userId' | 'target'>,
   actor: CliConnectionActorScope,
 ): boolean {
-  const actorUserId = toOptionalString(actor.userId);
+  const actorUserId = toOptionalString(actor.userId)
   if (connection.userId) {
-    return Boolean(actorUserId && connection.userId === actorUserId);
+    return Boolean(actorUserId && connection.userId === actorUserId)
   }
 
-  const connectionTarget = toComparableString(connection.target);
+  const connectionTarget = toComparableString(connection.target)
   if (!connectionTarget) {
-    return false;
+    return false
   }
 
   const actorTargets = new Set(
     [actor.githubLogin, actor.email]
       .map((value) => toComparableString(value))
       .filter((value): value is string => Boolean(value)),
-  );
+  )
 
-  return actorTargets.has(connectionTarget);
+  return actorTargets.has(connectionTarget)
 }
 
-function mapSummary(row: Awaited<ReturnType<typeof listRecentCliConnectionRows>>[number]): AdminCliConnectionSummary {
+function mapSummary(
+  row: Awaited<ReturnType<typeof listRecentCliConnectionRows>>[number],
+): AdminCliConnectionSummary {
   return {
     id: row.id,
     sessionRef: row.sessionRef,
@@ -134,7 +145,14 @@ function mapSummary(row: Awaited<ReturnType<typeof listRecentCliConnectionRows>>
     githubLogin: row.user?.githubLogin || null,
     email: row.user?.email || null,
     userLabel: getUserLabel(row.user),
-  };
+    runtimeFlowId: row.runtimeFlowId || null,
+    runtimeTaskId: row.runtimeTaskId || null,
+    runtimeFlowStatus: row.runtimeFlowStatus || null,
+    runtimeFlowMessage: row.runtimeFlowMessage || null,
+    runtimeFlowStartedAt: row.runtimeFlowStartedAt?.toISOString() || null,
+    runtimeFlowCompletedAt: row.runtimeFlowCompletedAt?.toISOString() || null,
+    runtimeFlowUpdatedAt: row.runtimeFlowUpdatedAt?.toISOString() || null,
+  }
 }
 
 async function listRecentCliConnectionRows(limit = 100) {
@@ -144,18 +162,18 @@ async function listRecentCliConnectionRows(limit = 100) {
     },
     orderBy: [desc(cliConnections.lastSeenAt)],
     limit,
-  });
+  })
 }
 
 export async function registerCliConnection(input: {
-  sessionRef?: string | null;
-  userId?: string | null;
-  authClientId?: string | null;
-  cliName?: string | null;
-  target?: string | null;
-  userAgent?: string | null;
-  registeredFlows?: string[] | null;
-  connectionPath: string;
+  sessionRef?: string | null
+  userId?: string | null
+  authClientId?: string | null
+  cliName?: string | null
+  target?: string | null
+  userAgent?: string | null
+  registeredFlows?: string[] | null
+  connectionPath: string
 }) {
   const [connection] = await getDb()
     .insert(cliConnections)
@@ -178,9 +196,9 @@ export async function registerCliConnection(input: {
         : [],
       connectionPath: input.connectionPath,
     })
-    .returning();
+    .returning()
 
-  return connection;
+  return connection
 }
 
 export async function touchCliConnection(connectionId: string) {
@@ -194,7 +212,7 @@ export async function touchCliConnection(connectionId: string) {
         eq(cliConnections.id, connectionId),
         isNull(cliConnections.disconnectedAt),
       ),
-    );
+    )
 }
 
 export async function markCliConnectionDisconnected(connectionId: string) {
@@ -203,17 +221,79 @@ export async function markCliConnectionDisconnected(connectionId: string) {
     .set({
       lastSeenAt: new Date(),
       disconnectedAt: new Date(),
+      runtimeFlowId: null,
+      runtimeTaskId: null,
+      runtimeFlowStatus: null,
+      runtimeFlowMessage: null,
+      runtimeFlowStartedAt: null,
+      runtimeFlowCompletedAt: null,
+      runtimeFlowUpdatedAt: null,
     })
     .where(
       and(
         eq(cliConnections.id, connectionId),
         isNull(cliConnections.disconnectedAt),
       ),
-    );
+    )
+}
+
+function toOptionalDate(
+  value: string | Date | null | undefined,
+): Date | null | undefined {
+  if (value == null) {
+    return value === null ? null : undefined
+  }
+
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+export async function updateCliConnectionRuntimeState(
+  connectionId: string,
+  input: {
+    runtimeFlowId?: string | null
+    runtimeTaskId?: string | null
+    runtimeFlowStatus?: string | null
+    runtimeFlowMessage?: string | null
+    runtimeFlowStartedAt?: string | Date | null
+    runtimeFlowCompletedAt?: string | Date | null
+  },
+) {
+  const patch = {
+    runtimeFlowId:
+      input.runtimeFlowId === undefined
+        ? undefined
+        : toOptionalString(input.runtimeFlowId),
+    runtimeTaskId:
+      input.runtimeTaskId === undefined
+        ? undefined
+        : toOptionalString(input.runtimeTaskId),
+    runtimeFlowStatus:
+      input.runtimeFlowStatus === undefined
+        ? undefined
+        : toOptionalString(input.runtimeFlowStatus),
+    runtimeFlowMessage:
+      input.runtimeFlowMessage === undefined
+        ? undefined
+        : toOptionalString(input.runtimeFlowMessage),
+    runtimeFlowStartedAt: toOptionalDate(input.runtimeFlowStartedAt),
+    runtimeFlowCompletedAt: toOptionalDate(input.runtimeFlowCompletedAt),
+    runtimeFlowUpdatedAt: new Date(),
+  }
+
+  await getDb()
+    .update(cliConnections)
+    .set(patch)
+    .where(
+      and(
+        eq(cliConnections.id, connectionId),
+        isNull(cliConnections.disconnectedAt),
+      ),
+    )
 }
 
 export async function listAdminCliConnectionState() {
-  const activeCutoff = getActiveCutoff();
+  const activeCutoff = getActiveCutoff()
   const activeRows = await getDb().query.cliConnections.findMany({
     with: {
       user: true,
@@ -224,25 +304,25 @@ export async function listAdminCliConnectionState() {
     ),
     orderBy: [desc(cliConnections.lastSeenAt)],
     limit: ACTIVE_CONNECTION_LIMIT,
-  });
+  })
 
-  const activeConnections = activeRows.map(mapSummary);
+  const activeConnections = activeRows.map(mapSummary)
 
   return {
     snapshotAt: new Date().toISOString(),
     activeConnections,
-  };
+  }
 }
 
 export async function listAdminCliConnectionStateForActor(
   actor: CliConnectionActorScope,
 ) {
-  const activeCutoff = getActiveCutoff();
-  const actorUserId = toOptionalString(actor.userId);
-  const actorTargets = getActorTargetValues(actor);
+  const activeCutoff = getActiveCutoff()
+  const actorUserId = toOptionalString(actor.userId)
+  const actorTargets = getActorTargetValues(actor)
   const targetFilter = actorTargets.length
     ? or(...actorTargets.map((target) => eq(cliConnections.target, target)))
-    : null;
+    : null
   const ownershipFilter =
     actorUserId && targetFilter
       ? or(
@@ -253,13 +333,13 @@ export async function listAdminCliConnectionStateForActor(
         ? eq(cliConnections.userId, actorUserId)
         : targetFilter
           ? and(isNull(cliConnections.userId), targetFilter)
-          : null;
+          : null
 
   if (!ownershipFilter) {
     return {
       snapshotAt: new Date().toISOString(),
       activeConnections: [],
-    };
+    }
   }
 
   const activeRows = await getDb().query.cliConnections.findMany({
@@ -273,16 +353,14 @@ export async function listAdminCliConnectionStateForActor(
     ),
     orderBy: [desc(cliConnections.lastSeenAt)],
     limit: ACTIVE_CONNECTION_LIMIT,
-  });
+  })
 
   return {
     snapshotAt: new Date().toISOString(),
     activeConnections: activeRows
       .map(mapSummary)
-      .filter((connection) =>
-        isCliConnectionOwnedByActor(connection, actor),
-      ),
-  };
+      .filter((connection) => isCliConnectionOwnedByActor(connection, actor)),
+  }
 }
 
 export async function getAdminCliConnectionSummaryById(
@@ -293,7 +371,7 @@ export async function getAdminCliConnectionSummaryById(
       user: true,
     },
     where: eq(cliConnections.id, connectionId),
-  });
+  })
 
-  return row ? mapSummary(row) : null;
+  return row ? mapSummary(row) : null
 }

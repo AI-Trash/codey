@@ -1,13 +1,14 @@
 import { getRuntimeConfig } from '../../config'
 
+export const DEFAULT_CODEY_APP_BASE_URL = 'http://localhost:3000'
+
 export function resolveAppBaseUrl(): string {
   const config = getRuntimeConfig()
-  const baseUrl = config.app?.baseUrl || config.verification?.app?.baseUrl
-  if (!baseUrl) {
-    throw new Error(
-      'CODEY_APP_BASE_URL is required for app-backed auth and SSE features.',
-    )
-  }
+  const baseUrl =
+    config.app?.baseUrl ||
+    config.verification?.app?.baseUrl ||
+    process.env.APP_BASE_URL ||
+    DEFAULT_CODEY_APP_BASE_URL
   return baseUrl
 }
 

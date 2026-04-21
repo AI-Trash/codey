@@ -1,6 +1,6 @@
 import { getRuntimeConfig } from '../../config'
 import { sleep } from '../../utils/wait'
-import { resolveAppUrl } from './http'
+import { DEFAULT_CODEY_APP_BASE_URL, resolveAppUrl } from './http'
 import {
   exchangeOidcClientCredentials,
   exchangeOidcDeviceCode,
@@ -9,6 +9,7 @@ import {
 } from './oidc'
 import type {
   AdminNotificationEvent,
+  CliConnectionEvent,
   DeviceChallengeResponse,
   DeviceChallengeStatusResponse,
   DeviceChallengeTokenResponse,
@@ -36,10 +37,16 @@ export interface CliNotificationsAuthState {
 function getCodeyAppConfig() {
   const config = getRuntimeConfig()
   return {
-    baseUrl: config.app?.baseUrl ?? config.verification?.app?.baseUrl,
+    baseUrl:
+      config.app?.baseUrl ??
+      config.verification?.app?.baseUrl ??
+      process.env.APP_BASE_URL ??
+      DEFAULT_CODEY_APP_BASE_URL,
     oidcIssuer: config.app?.oidcIssuer ?? config.verification?.app?.oidcIssuer,
     oidcBasePath:
-      config.app?.oidcBasePath ?? config.verification?.app?.oidcBasePath,
+      config.app?.oidcBasePath ??
+      config.verification?.app?.oidcBasePath ??
+      '/oidc',
     clientId: config.app?.clientId ?? config.verification?.app?.clientId,
     clientSecret:
       config.app?.clientSecret ?? config.verification?.app?.clientSecret,
@@ -49,7 +56,9 @@ function getCodeyAppConfig() {
       config.app?.tokenEndpointAuthMethod ??
       config.verification?.app?.tokenEndpointAuthMethod,
     cliEventsPath:
-      config.app?.cliEventsPath ?? config.verification?.app?.cliEventsPath,
+      config.app?.cliEventsPath ??
+      config.verification?.app?.cliEventsPath ??
+      '/api/cli/events',
   }
 }
 
@@ -294,6 +303,9 @@ export async function* streamCliNotifications(
     cliName?: string
   } = {},
   authState?: CliNotificationsAuthState,
+  handlers?: {
+    onConnection?: (event: CliConnectionEvent) => void
+  },
 ): AsyncGenerator<AdminNotificationEvent, void, void> {
   const config = getCodeyAppConfig()
   const resolvedAuthState =
@@ -326,6 +338,11 @@ export async function* streamCliNotifications(
   }
 
   for await (const event of streamSse(response)) {
+    if (event.event === 'cli_connection' && event.data) {
+      handlers?.onConnection?.(JSON.parse(event.data) as CliConnectionEvent)
+      continue
+    }
+
     if (event.event !== 'admin_notification' || !event.data) continue
     yield JSON.parse(event.data) as AdminNotificationEvent
   }

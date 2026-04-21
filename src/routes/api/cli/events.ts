@@ -1,72 +1,72 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { listCliNotifications } from "../../../lib/server/admin";
-import { text } from "../../../lib/server/http";
-import { NOTIFICATIONS_READ_SCOPE } from "../../../lib/server/oauth-scopes";
-import { getBearerTokenContext } from "../../../lib/server/oauth-resource";
-import { getCliSessionUser } from "../../../lib/server/auth";
+import { createFileRoute } from '@tanstack/react-router'
+import { listCliNotifications } from '../../../lib/server/admin'
+import { text } from '../../../lib/server/http'
+import { NOTIFICATIONS_READ_SCOPE } from '../../../lib/server/oauth-scopes'
+import { getBearerTokenContext } from '../../../lib/server/oauth-resource'
+import { getCliSessionUser } from '../../../lib/server/auth'
 import {
   markCliConnectionDisconnected,
   registerCliConnection,
   touchCliConnection,
-} from "../../../lib/server/cli-connections";
-import { createSubscriptionSseResponse } from "../../../lib/server/sse";
+} from '../../../lib/server/cli-connections'
+import { createSubscriptionSseResponse } from '../../../lib/server/sse'
 
-const CLI_EVENT_POLL_INTERVAL_MS = 2000;
-const CLI_EVENT_TIMEOUT_MS = 10 * 60 * 1000;
-const CLI_CONNECTION_TOUCH_INTERVAL_MS = 10_000;
+const CLI_EVENT_POLL_INTERVAL_MS = 2000
+const CLI_EVENT_TIMEOUT_MS = 10 * 60 * 1000
+const CLI_CONNECTION_TOUCH_INTERVAL_MS = 10_000
 
-function readOptionalHeader(request: Request, name: string): string | undefined {
-  const value = request.headers.get(name);
-  const normalized = value?.trim();
-  return normalized || undefined;
+function readOptionalHeader(
+  request: Request,
+  name: string,
+): string | undefined {
+  const value = request.headers.get(name)
+  const normalized = value?.trim()
+  return normalized || undefined
 }
 
 function readListHeader(request: Request, name: string): string[] {
-  const value = readOptionalHeader(request, name);
+  const value = readOptionalHeader(request, name)
   if (!value) {
-    return [];
+    return []
   }
 
   return Array.from(
     new Set(
       value
-        .split(",")
+        .split(',')
         .map((entry) => entry.trim())
         .filter(Boolean),
     ),
-  );
+  )
 }
 
-export const Route = createFileRoute("/api/cli/events")({
+export const Route = createFileRoute('/api/cli/events')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const sessionUser = await getCliSessionUser(request);
-        const bearerContext = await getBearerTokenContext(request);
+        const sessionUser = await getCliSessionUser(request)
+        const bearerContext = await getBearerTokenContext(request)
         const serviceClientAuthorized =
-          bearerContext?.kind === "client_credentials" &&
-          bearerContext.scope.includes(NOTIFICATIONS_READ_SCOPE);
+          bearerContext?.kind === 'client_credentials' &&
+          bearerContext.scope.includes(NOTIFICATIONS_READ_SCOPE)
 
         if (!sessionUser && !serviceClientAuthorized) {
-          return text(
-            "CLI authentication required",
-            401,
-          );
+          return text('CLI authentication required', 401)
         }
 
-        const url = new URL(request.url);
+        const url = new URL(request.url)
         const target =
-          url.searchParams.get("target") ||
+          url.searchParams.get('target') ||
           sessionUser?.user.githubLogin ||
           sessionUser?.user.email ||
-          undefined;
+          undefined
         const cliName =
-          url.searchParams.get("cliName") ||
-          readOptionalHeader(request, "x-codey-cli-name") ||
-          "codey";
-        let cursor = url.searchParams.get("after")
-          ? new Date(url.searchParams.get("after") as string)
-          : new Date();
+          url.searchParams.get('cliName') ||
+          readOptionalHeader(request, 'x-codey-cli-name') ||
+          'codey'
+        let cursor = url.searchParams.get('after')
+          ? new Date(url.searchParams.get('after') as string)
+          : new Date()
 
         return createSubscriptionSseResponse({
           request,
@@ -80,58 +80,71 @@ export const Route = createFileRoute("/api/cli/events")({
               userId: sessionUser?.user.id || null,
               authClientId:
                 bearerContext?.clientId ||
-                (sessionUser?.session.id.startsWith("oidc:")
-                  ? sessionUser.session.id.slice("oidc:".length)
+                (sessionUser?.session.id.startsWith('oidc:')
+                  ? sessionUser.session.id.slice('oidc:'.length)
                   : null),
               cliName,
               target,
-              userAgent: readOptionalHeader(request, "user-agent"),
+              userAgent: readOptionalHeader(request, 'user-agent'),
               registeredFlows: readListHeader(
                 request,
-                "x-codey-registered-flows",
+                'x-codey-registered-flows',
               ),
-              connectionPath: "/api/cli/events",
-            });
+              connectionPath: '/api/cli/events',
+            })
 
-            let closed = false;
-            let ticking = false;
-            let lastTouchedAt = 0;
+            send({
+              event: 'cli_connection',
+              data: {
+                connectionId: connection.id,
+                cliName,
+                target,
+                connectedAt: connection.connectedAt.toISOString(),
+              },
+            })
+
+            let closed = false
+            let ticking = false
+            let lastTouchedAt = 0
 
             const touchConnection = async (force = false) => {
-              const now = Date.now();
-              if (!force && now - lastTouchedAt < CLI_CONNECTION_TOUCH_INTERVAL_MS) {
-                return;
+              const now = Date.now()
+              if (
+                !force &&
+                now - lastTouchedAt < CLI_CONNECTION_TOUCH_INTERVAL_MS
+              ) {
+                return
               }
 
-              lastTouchedAt = now;
-              await touchCliConnection(connection.id);
-            };
+              lastTouchedAt = now
+              await touchCliConnection(connection.id)
+            }
 
             const runTick = async () => {
               if (closed || ticking) {
-                return;
+                return
               }
 
-              ticking = true;
+              ticking = true
               try {
-                await touchConnection();
+                await touchConnection()
 
                 const notifications = await listCliNotifications({
                   target,
                   connectionId: connection.id,
                   after: cursor,
-                });
+                })
 
                 if (!notifications.length) {
-                  return;
+                  return
                 }
 
-                const next = notifications[0];
-                cursor = next.createdAt;
-                await touchConnection(true);
+                const next = notifications[0]
+                cursor = next.createdAt
+                await touchConnection(true)
                 send({
                   id: next.id,
-                  event: "admin_notification",
+                  event: 'admin_notification',
                   data: {
                     id: next.id,
                     title: next.title,
@@ -143,54 +156,54 @@ export const Route = createFileRoute("/api/cli/events")({
                     payload: next.payload,
                     createdAt: next.createdAt.toISOString(),
                   },
-                });
+                })
               } finally {
-                ticking = false;
+                ticking = false
               }
-            };
+            }
 
             const interval = setInterval(() => {
               void runTick().catch(() => {
-                close();
-              });
-            }, CLI_EVENT_POLL_INTERVAL_MS);
+                close()
+              })
+            }, CLI_EVENT_POLL_INTERVAL_MS)
 
             const timeout = setTimeout(() => {
               if (closed) {
-                return;
+                return
               }
 
               send({
-                event: "timeout",
-                data: { status: "timeout" },
-              });
-              close();
-            }, CLI_EVENT_TIMEOUT_MS);
+                event: 'timeout',
+                data: { status: 'timeout' },
+              })
+              close()
+            }, CLI_EVENT_TIMEOUT_MS)
 
             try {
-              await touchConnection(true);
-              await runTick();
+              await touchConnection(true)
+              await runTick()
             } catch (error) {
-              closed = true;
-              clearInterval(interval);
-              clearTimeout(timeout);
-              await markCliConnectionDisconnected(connection.id);
-              throw error;
+              closed = true
+              clearInterval(interval)
+              clearTimeout(timeout)
+              await markCliConnectionDisconnected(connection.id)
+              throw error
             }
 
             return () => {
               if (closed) {
-                return;
+                return
               }
 
-              closed = true;
-              clearInterval(interval);
-              clearTimeout(timeout);
-              void markCliConnectionDisconnected(connection.id);
-            };
+              closed = true
+              clearInterval(interval)
+              clearTimeout(timeout)
+              void markCliConnectionDisconnected(connection.id)
+            }
           },
-        });
+        })
       },
     },
   },
-});
+})

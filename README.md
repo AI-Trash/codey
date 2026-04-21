@@ -1,13 +1,13 @@
 # Codey
 
-Codey is now a small TanStack Start control plane plus a TypeScript CLI for ChatGPT/OpenAI browser flows.
+Codey is now a small TanStack Start control plane plus a TypeScript terminal client for ChatGPT/OpenAI browser flows.
 
 It preserves the original Exchange mailbox verification path, adds a pluggable verification-provider layer, and includes a built-in app-backed path for:
 
 - Cloudflare Email Routing -> Email Worker -> TanStack Start ingest
 - GitHub OAuth browser login for admins
 - device-code style CLI authentication
-- SSE delivery of verification codes and admin notifications to CLI daemons
+- SSE delivery of verification codes and admin notifications to connected TUI clients
 
 ## What is implemented
 
@@ -32,7 +32,8 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
   - `flow ...`
   - `exchange ...`
   - `auth login|status|logout`
-  - `daemon start`
+  - `tui start`
+  - `daemon start` (legacy stream alias)
 - a Cloudflare Email Worker package exists at `packages/cloudflare-email-worker`
 
 ## Requirements
@@ -140,10 +141,10 @@ Then open:
 
 - `http://localhost:3000/admin/login` to sign in with GitHub
 - `http://localhost:3000/admin` to inspect device challenges, notifications, reservations, and verification codes
-- `http://localhost:3000/admin/cli` to inspect which CLI daemons are currently connected
+- `http://localhost:3000/admin/cli` to inspect which TUI terminals are currently connected and what flow each one is running
 - `http://localhost:3000/admin/domains` to register verification domains and choose defaults
 
-## CLI usage
+## CLI and TUI usage
 
 ### Flow commands
 
@@ -156,54 +157,6 @@ pnpm flow codex-oauth --projectId gid://axonhub/project/123
 
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
 
-### Batch flow runs
-
-Every `flow` subcommand now supports `--batchFile <file>`. Batch files can be CSV or JSON, and the final summary is emitted as CSV to stdout. Use `--summaryCsv <file>` if you also want a copy written to a specific path, and `--batchConcurrency <n>` to run several tasks in parallel.
-
-Single-flow batch examples:
-
-```bash
-pnpm flow chatgpt-login --batchFile ./logins.csv
-pnpm flow codex-oauth --batchFile ./oauth.json --batchConcurrency 3
-```
-
-Mixed-flow batch example:
-
-```bash
-pnpm flow batch --batchFile ./flows.csv --batchConcurrency 2
-```
-
-CSV batches use column names that match CLI option keys. For a mixed batch, include a `flowId` column. Example:
-
-```csv
-flowId,label,email,identityId,workspaceIndex,authorizeUrlOnly
-chatgpt-login,login-a,person@example.com,,,
-codex-oauth,oauth-b,,identity-123,2,true
-```
-
-JSON batches accept either an array of task objects or `{ "tasks": [...] }`. Each task can provide options directly on the object or under an `options` object:
-
-```json
-[
-  {
-    "flowId": "chatgpt-login",
-    "label": "login-a",
-    "email": "person@example.com"
-  },
-  {
-    "flowId": "codex-oauth",
-    "name": "oauth-b",
-    "options": {
-      "identityId": "identity-123",
-      "workspaceIndex": 2,
-      "authorizeUrlOnly": true
-    }
-  }
-]
-```
-
-Batch mode forces `record=false` so each browser session can close and the CSV summary can be generated reliably.
-
 ### Exchange commands
 
 ```bash
@@ -212,9 +165,9 @@ pnpm codey exchange folders
 pnpm codey exchange messages --maxItems 20
 ```
 
-### CLI auth commands
+### App auth commands
 
-Authenticate the CLI against the app with a device-code style flow:
+Authenticate the terminal client against the app with a device-code style flow:
 
 ```bash
 pnpm codey auth login --target octocat
@@ -222,15 +175,25 @@ pnpm codey auth status
 pnpm codey auth logout
 ```
 
-### CLI daemon notifications
+### TUI mode
+
+```bash
+pnpm codey
+pnpm codey tui start --target octocat
+```
+
+The default `pnpm codey` entry now opens a terminal UI that connects to the Codey web app at `http://localhost:3000` unless `CODEY_APP_BASE_URL` is configured.
+The TUI keeps an SSE connection to `/api/cli/events`, waits for tasks dispatched from `/admin/cli`, and reports its current flow back to the web app so the admin page can show what is running.
+When `CODEY_APP_CLIENT_SECRET` is configured, the TUI authenticates with `client_credentials`.
+Otherwise it reuses the stored session from `pnpm codey auth login`.
+
+### Legacy stream mode
 
 ```bash
 pnpm codey daemon start --target octocat
 ```
 
-The daemon keeps an SSE connection to `/api/cli/events` and prints admin notifications as JSON.
-When `CODEY_APP_CLIENT_SECRET` is configured, the daemon authenticates with `client_credentials`.
-Otherwise it reuses the stored session from `pnpm codey auth login`.
+`daemon start` still works for non-interactive terminals and keeps the same SSE worker loop, but the TUI is now the preferred operator-facing mode.
 
 ### Codex OAuth session sharing flow
 

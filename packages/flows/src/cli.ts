@@ -19,6 +19,7 @@ import {
   startDeviceLogin,
   streamCliNotifications,
 } from './modules/app-auth/device-login'
+import { CliConnectionRuntimeReporter } from './modules/app-auth/cli-connection'
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
 import { getDefaultCliName } from './utils/cli-name'
 import {
@@ -38,12 +39,13 @@ import {
   type CommonOptions,
   type ExchangeOptions,
   type FlowOptions,
+  type FlowProgressUpdate,
 } from './modules/flow-cli/helpers'
 import {
   isCliFlowTaskPayload,
   type CliFlowCommandId,
 } from './modules/flow-cli/flow-registry'
-import { runFlowBatch } from './modules/flow-cli/batch'
+import { runTuiDashboard } from './modules/tui/dashboard'
 import { runWithSession } from './modules/flow-cli/run-with-session'
 import {
   buildFailedFlowCommandExecution,
@@ -136,6 +138,24 @@ function resolveFlowCommandOptions(
   return applyFlowOptionDefaults(options)
 }
 
+function formatRuntimeProgressMessage(
+  update: FlowProgressUpdate,
+): string | undefined {
+  if (typeof update.message === 'string' && update.message.trim()) {
+    return update.message.trim()
+  }
+
+  if (typeof update.state === 'string' && update.state.trim()) {
+    return update.state.trim()
+  }
+
+  if (typeof update.event === 'string' && update.event.trim()) {
+    return update.event.trim()
+  }
+
+  return update.status
+}
+
 async function executeFlowSubcommand(
   subcommand: CliFlowCommandId,
   options: FlowOptions,
@@ -162,26 +182,6 @@ async function executeFlowSubcommandWithReporting(
   subcommand: CliFlowCommandId,
   options: FlowOptions,
 ): Promise<FlowCommandExecution> {
-  if (typeof options.batchFile === 'string' && options.batchFile.trim()) {
-    const command = `flow:${subcommand}:batch`
-    const config = prepareRuntimeConfig(command, options)
-    await runFlowBatch({
-      command,
-      options,
-      artifactsDir: config.artifactsDir,
-      workspaceRoot: config.rootDir,
-      defaultFlowId: subcommand,
-    })
-    return buildFlowCommandExecutionResult({
-      flowId: subcommand,
-      command,
-      status: 'passed',
-      startedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
-      options: redactForOutput(options),
-    })
-  }
-
   const startedAt = new Date().toISOString()
 
   try {
@@ -274,7 +274,7 @@ async function runAuthCommand(
   if (subcommand === 'login') {
     const cliName = options.cliName || getDefaultCliName()
     const challenge = await startDeviceLogin({
-      flowType: options.flowType || 'flow-cli',
+      flowType: options.flowType || 'flow-tui',
       cliName,
       scope: options.scope,
     })
@@ -377,6 +377,21 @@ async function runDaemonCommand(
   while (true) {
     setRuntimeConfig(config)
     const authState = await resolveCliNotificationsAuthState()
+    const runtimeReporter = new CliConnectionRuntimeReporter({
+      authState,
+      onError: (error) => {
+        console.error(
+          JSON.stringify(
+            {
+              command: 'daemon:runtime:error',
+              error: error.message,
+            },
+            null,
+            2,
+          ),
+        )
+      },
+    })
 
     console.log(
       JSON.stringify(
@@ -410,6 +425,21 @@ async function runDaemonCommand(
           target: options.target,
         },
         authState,
+        {
+          onConnection: (connection) => {
+            runtimeReporter.setConnectionId(connection.connectionId)
+            console.log(
+              JSON.stringify(
+                {
+                  command: 'daemon:connected',
+                  connection,
+                },
+                null,
+                2,
+              ),
+            )
+          },
+        },
       )) {
         console.log(
           JSON.stringify(
@@ -428,6 +458,10 @@ async function runDaemonCommand(
 
         const flowId = notification.payload.flowId
         const taskOptions = notification.payload.options as FlowOptions
+        const startedAt = new Date().toISOString()
+        const consoleProgressReporter = createConsoleFlowProgressReporter(
+          `flow:${flowId}`,
+        )
 
         console.log(
           JSON.stringify(
@@ -443,32 +477,83 @@ async function runDaemonCommand(
         )
 
         try {
-          await executeFlowSubcommand(flowId, taskOptions)
+          runtimeReporter.update({
+            runtimeFlowId: flowId,
+            runtimeTaskId: notification.id,
+            runtimeFlowStatus: 'running',
+            runtimeFlowMessage: notification.title || 'Task started',
+            runtimeFlowStartedAt: startedAt,
+            runtimeFlowCompletedAt: null,
+          })
+
+          const execution = await executeFlowSubcommand(flowId, {
+            ...taskOptions,
+            progressReporter: (update) => {
+              consoleProgressReporter(update)
+
+              const message = formatRuntimeProgressMessage(update)
+              if (!message) {
+                return
+              }
+
+              runtimeReporter.update({
+                runtimeFlowId: flowId,
+                runtimeTaskId: notification.id,
+                runtimeFlowStatus:
+                  update.status === 'failed' ? 'failed' : 'running',
+                runtimeFlowMessage: message,
+                runtimeFlowStartedAt: startedAt,
+              })
+            },
+          })
+          runtimeReporter.update({
+            runtimeFlowId: flowId,
+            runtimeTaskId: notification.id,
+            runtimeFlowStatus: execution.status,
+            runtimeFlowMessage: 'Flow completed',
+            runtimeFlowStartedAt: startedAt,
+            runtimeFlowCompletedAt:
+              execution.completedAt || new Date().toISOString(),
+          })
           console.log(
             JSON.stringify(
               {
                 command: 'daemon:task:completed',
                 notificationId: notification.id,
                 flowId,
+                execution: redactForOutput({
+                  status: execution.status,
+                  completedAt: execution.completedAt,
+                }),
               },
               null,
               2,
             ),
           )
         } catch (error) {
+          const sanitized = sanitizeErrorForOutput(error)
+          runtimeReporter.update({
+            runtimeFlowId: flowId,
+            runtimeTaskId: notification.id,
+            runtimeFlowStatus: 'failed',
+            runtimeFlowMessage: sanitized.message,
+            runtimeFlowStartedAt: startedAt,
+            runtimeFlowCompletedAt: new Date().toISOString(),
+          })
           console.error(
             JSON.stringify(
               {
                 command: 'daemon:task:error',
                 notificationId: notification.id,
                 flowId,
-                error: sanitizeErrorForOutput(error).message,
+                error: sanitized.message,
               },
               null,
               2,
             ),
           )
         } finally {
+          await runtimeReporter.flush()
           setRuntimeConfig(config)
         }
       }
@@ -489,11 +574,36 @@ async function runDaemonCommand(
   }
 }
 
+async function runTuiCommand(
+  subcommand: string,
+  options: AuthOptions,
+  config: ReturnType<typeof prepareRuntimeConfig>,
+): Promise<void> {
+  if (subcommand !== 'start') {
+    throw new Error(`Unsupported tui command: ${subcommand || '(missing)'}`)
+  }
+
+  if (!process.stdout.isTTY || !process.stdin.isTTY) {
+    throw new Error(
+      'The TUI requires an interactive terminal. Use `codey daemon start` for non-interactive streaming mode.',
+    )
+  }
+
+  const cliName = options.cliName || getDefaultCliName()
+  await runTuiDashboard({
+    cliName,
+    target: options.target,
+    config,
+    executeFlow: executeFlowSubcommand,
+  })
+}
+
 const cli = cac('codey')
 const flowCli = cac('codey flow')
 const exchangeCli = cac('codey exchange')
 const authCli = cac('codey auth')
 const daemonCli = cac('codey daemon')
+const tuiCli = cac('codey tui')
 
 function withCommonOptions<
   TCommand extends {
@@ -511,50 +621,27 @@ function withCommonOptions<
     .option('--slowMo <ms>', 'Override browser slow motion delay')
 }
 
-function withBatchOptions<
-  TCommand extends {
-    option(name: string, description?: string, config?: never): TCommand
-  },
->(command: TCommand): TCommand {
-  return command
+withCommonOptions(
+  flowCli
+    .command(
+      'chatgpt-register',
+      'Register a ChatGPT account using the configured Exchange mailbox',
+    )
+    .option('--password <password>', 'Optional password override')
+    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
-      '--batchFile <file>',
-      'CSV or JSON file describing multiple flow runs for this command',
+      '--record <bool>',
+      'Whether to keep the browser session open after the flow completes',
     )
     .option(
-      '--batchConcurrency <count>',
-      'How many batch flow runs to execute at once (defaults to 1)',
+      '--verificationTimeoutMs <ms>',
+      'How long to wait for the verification email',
     )
     .option(
-      '--summaryCsv <file>',
-      'Optional output path for the final batch summary CSV',
+      '--pollIntervalMs <ms>',
+      'How often to poll Exchange for the verification email',
     )
-}
-
-withBatchOptions(
-  withCommonOptions(
-    flowCli
-      .command(
-        'chatgpt-register',
-        'Register a ChatGPT account using the configured Exchange mailbox',
-      )
-      .option('--password <password>', 'Optional password override')
-      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-      .option(
-        '--record <bool>',
-        'Whether to keep the browser session open after the flow completes',
-      )
-      .option(
-        '--verificationTimeoutMs <ms>',
-        'How long to wait for the verification email',
-      )
-      .option(
-        '--pollIntervalMs <ms>',
-        'How often to poll Exchange for the verification email',
-      )
-      .example('codey flow chatgpt-register --verificationTimeoutMs 180000')
-      .example('codey flow chatgpt-register --batchFile ./register.csv'),
-  ),
+    .example('codey flow chatgpt-register --verificationTimeoutMs 180000'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -563,30 +650,27 @@ withBatchOptions(
   )
 })
 
-withBatchOptions(
-  withCommonOptions(
-    flowCli
-      .command(
-        'chatgpt-login',
-        'Sign in to ChatGPT with a previously shared identity',
-      )
-      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-      .option(
-        '--record <bool>',
-        'Whether to keep the browser session open after the flow completes',
-      )
-      .option(
-        '--identityId <id>',
-        'Shared identity id from a previous chatgpt-register run',
-      )
-      .option(
-        '--email <email>',
-        'Shared identity email; defaults to the latest shared identity',
-      )
-      .example('codey flow chatgpt-login')
-      .example('codey flow chatgpt-login --email someone@example.com')
-      .example('codey flow chatgpt-login --batchFile ./logins.csv'),
-  ),
+withCommonOptions(
+  flowCli
+    .command(
+      'chatgpt-login',
+      'Sign in to ChatGPT with a previously shared identity',
+    )
+    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+    .option(
+      '--record <bool>',
+      'Whether to keep the browser session open after the flow completes',
+    )
+    .option(
+      '--identityId <id>',
+      'Shared identity id from a previous chatgpt-register run',
+    )
+    .option(
+      '--email <email>',
+      'Shared identity email; defaults to the latest shared identity',
+    )
+    .example('codey flow chatgpt-login')
+    .example('codey flow chatgpt-login --email someone@example.com'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -595,45 +679,42 @@ withBatchOptions(
   )
 })
 
-withBatchOptions(
-  withCommonOptions(
-    flowCli
-      .command(
-        'chatgpt-login-invite',
-        'Sign in with a shared ChatGPT identity and invite workspace members',
-      )
-      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-      .option(
-        '--record <bool>',
-        'Whether to keep the browser session open after the flow completes',
-      )
-      .option(
-        '--identityId <id>',
-        'Shared identity id from a previous chatgpt-register run',
-      )
-      .option(
-        '--email <email>',
-        'Shared identity email; defaults to the latest shared identity',
-      )
-      .option(
-        '--inviteEmail <email>',
-        'Invite email(s), repeatable or comma-separated',
-      )
-      .option(
-        '--inviteFile <file>',
-        'CSV or JSON file containing invite email addresses',
-      )
-      .example(
-        'codey flow chatgpt-login-invite --inviteEmail a@example.com --inviteEmail b@example.com',
-      )
-      .example(
-        'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
-      )
-      .example(
-        'codey flow chatgpt-login-invite --inviteFile ./members.csv --record true',
-      )
-      .example('codey flow chatgpt-login-invite --batchFile ./invites.csv'),
-  ),
+withCommonOptions(
+  flowCli
+    .command(
+      'chatgpt-login-invite',
+      'Sign in with a shared ChatGPT identity and invite workspace members',
+    )
+    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+    .option(
+      '--record <bool>',
+      'Whether to keep the browser session open after the flow completes',
+    )
+    .option(
+      '--identityId <id>',
+      'Shared identity id from a previous chatgpt-register run',
+    )
+    .option(
+      '--email <email>',
+      'Shared identity email; defaults to the latest shared identity',
+    )
+    .option(
+      '--inviteEmail <email>',
+      'Invite email(s), repeatable or comma-separated',
+    )
+    .option(
+      '--inviteFile <file>',
+      'CSV or JSON file containing invite email addresses',
+    )
+    .example(
+      'codey flow chatgpt-login-invite --inviteEmail a@example.com --inviteEmail b@example.com',
+    )
+    .example(
+      'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
+    )
+    .example(
+      'codey flow chatgpt-login-invite --inviteFile ./members.csv --record true',
+    ),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -642,50 +723,47 @@ withBatchOptions(
   )
 })
 
-withBatchOptions(
-  withCommonOptions(
-    flowCli
-      .command(
-        'codex-oauth',
-        'Run Codex OAuth, save the session in Codey app, and optionally create an AxonHub Codex channel',
-      )
-      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-      .option(
-        '--record <bool>',
-        'Whether to keep the browser session open after the flow completes',
-      )
-      .option(
-        '--identityId <id>',
-        'Shared identity id to use if the OpenAI login flow needs credentials',
-      )
-      .option(
-        '--email <email>',
-        'Shared identity email to use if the OpenAI login flow needs credentials; defaults to the latest shared identity',
-      )
-      .option(
-        '--workspaceIndex <index>',
-        '1-based workspace position to select on the Codex consent page (defaults to 1)',
-      )
-      .option('--redirectPort <port>', 'Override OAuth callback redirect port')
-      .option(
-        '--authorizeUrlOnly <bool>',
-        'Generate the OAuth URL and exit before continuing browser login',
-      )
-      .option(
-        '--projectId <id>',
-        'Optional AxonHub project context sent as X-Project-ID when channel creation is enabled',
-      )
-      .option(
-        '--channelName <name>',
-        'Override the AxonHub channel name for this run when channel creation is enabled',
-      )
-      .example('codey flow codex-oauth --redirectPort 3005')
-      .example('codey flow codex-oauth --authorizeUrlOnly true')
-      .example('codey flow codex-oauth --email someone@example.com')
-      .example('codey flow codex-oauth --workspaceIndex 2')
-      .example('codey flow codex-oauth --projectId gid://axonhub/project/123')
-      .example('codey flow codex-oauth --batchFile ./oauth.csv'),
-  ),
+withCommonOptions(
+  flowCli
+    .command(
+      'codex-oauth',
+      'Run Codex OAuth, save the session in Codey app, and optionally create an AxonHub Codex channel',
+    )
+    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+    .option(
+      '--record <bool>',
+      'Whether to keep the browser session open after the flow completes',
+    )
+    .option(
+      '--identityId <id>',
+      'Shared identity id to use if the OpenAI login flow needs credentials',
+    )
+    .option(
+      '--email <email>',
+      'Shared identity email to use if the OpenAI login flow needs credentials; defaults to the latest shared identity',
+    )
+    .option(
+      '--workspaceIndex <index>',
+      '1-based workspace position to select on the Codex consent page (defaults to 1)',
+    )
+    .option('--redirectPort <port>', 'Override OAuth callback redirect port')
+    .option(
+      '--authorizeUrlOnly <bool>',
+      'Generate the OAuth URL and exit before continuing browser login',
+    )
+    .option(
+      '--projectId <id>',
+      'Optional AxonHub project context sent as X-Project-ID when channel creation is enabled',
+    )
+    .option(
+      '--channelName <name>',
+      'Override the AxonHub channel name for this run when channel creation is enabled',
+    )
+    .example('codey flow codex-oauth --redirectPort 3005')
+    .example('codey flow codex-oauth --authorizeUrlOnly true')
+    .example('codey flow codex-oauth --email someone@example.com')
+    .example('codey flow codex-oauth --workspaceIndex 2')
+    .example('codey flow codex-oauth --projectId gid://axonhub/project/123'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -694,22 +772,19 @@ withBatchOptions(
   )
 })
 
-withBatchOptions(
-  withCommonOptions(
-    flowCli
-      .command(
-        'noop',
-        'Open an empty browser page and keep it available for manual inspection',
-      )
-      .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-      .option(
-        '--record <bool>',
-        'Whether to keep the browser session open after the flow completes',
-      )
-      .example('codey flow noop')
-      .example('codey flow noop --record false --har false')
-      .example('codey flow noop --batchFile ./noop.csv'),
-  ),
+withCommonOptions(
+  flowCli
+    .command(
+      'noop',
+      'Open an empty browser page and keep it available for manual inspection',
+    )
+    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
+    .option(
+      '--record <bool>',
+      'Whether to keep the browser session open after the flow completes',
+    )
+    .example('codey flow noop')
+    .example('codey flow noop --record false --har false'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -718,34 +793,11 @@ withBatchOptions(
   )
 })
 
-withBatchOptions(
-  withCommonOptions(
-    flowCli
-      .command('batch', 'Run a mixed flow batch from a CSV or JSON task file')
-      .example('codey flow batch --batchFile ./flows.csv')
-      .example(
-        'codey flow batch --batchFile ./flows.json --batchConcurrency 3',
-      ),
-  ),
-).action((options: FlowOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('flow:batch', options)
-      await runFlowBatch({
-        command: 'flow:batch',
-        options,
-        artifactsDir: config.artifactsDir,
-        workspaceRoot: config.rootDir,
-      })
-    })(),
-  )
-})
-
 withCommonOptions(
   authCli
     .command(
       'login',
-      'Authenticate this CLI with the Codey app via device flow',
+      'Authenticate this TUI client with the Codey app via device flow',
     )
     .option('--flowType <name>', 'Logical flow type for the device challenge')
     .option('--cliName <name>', 'CLI instance label')
@@ -787,8 +839,33 @@ withCommonOptions(
 })
 
 withCommonOptions(
+  tuiCli
+    .command(
+      'start',
+      'Run the Codey TUI and wait for flow tasks from the web app',
+    )
+    .option('--cliName <name>', 'TUI instance label')
+    .option(
+      '--target <target>',
+      'Notification target label, such as a GitHub login',
+    )
+    .example('codey tui start --target octocat')
+    .example('codey'),
+).action((options: AuthOptions) => {
+  execute(
+    (async () => {
+      const config = prepareRuntimeConfig('tui:start', options)
+      await runTuiCommand('start', options, config)
+    })(),
+  )
+})
+
+withCommonOptions(
   daemonCli
-    .command('start', 'Run the CLI in notification daemon mode')
+    .command(
+      'start',
+      'Run the legacy stream client (alias for the TUI worker loop)',
+    )
     .option('--cliName <name>', 'CLI instance label')
     .option(
       '--target <target>',
@@ -883,7 +960,18 @@ cli
   })
 
 cli
-  .command('daemon', 'Run CLI daemon and notification commands')
+  .command(
+    'tui',
+    'Run the Codey terminal UI and wait for tasks from the web app',
+  )
+  .example('codey')
+  .example('codey tui start --target octocat')
+  .action(() => {
+    tuiCli.outputHelp()
+  })
+
+cli
+  .command('daemon', 'Run the legacy stream client and notification commands')
   .example('codey daemon start --target octocat')
   .action(() => {
     daemonCli.outputHelp()
@@ -893,18 +981,25 @@ cli.help()
 flowCli.help()
 exchangeCli.help()
 authCli.help()
+tuiCli.help()
 daemonCli.help()
 
 const argv = process.argv.slice(2)
 
 if (argv.length === 0) {
-  cli.outputHelp()
+  if (process.stdout.isTTY && process.stdin.isTTY) {
+    tuiCli.parse(['codey', 'tui', 'start'])
+  } else {
+    cli.outputHelp()
+  }
 } else if (argv[0] === 'flow') {
   flowCli.parse(['codey', 'flow', ...argv.slice(1)])
 } else if (argv[0] === 'exchange') {
   exchangeCli.parse(['codey', 'exchange', ...argv.slice(1)])
 } else if (argv[0] === 'auth') {
   authCli.parse(['codey', 'auth', ...argv.slice(1)])
+} else if (argv[0] === 'tui') {
+  tuiCli.parse(['codey', 'tui', ...argv.slice(1)])
 } else if (argv[0] === 'daemon') {
   daemonCli.parse(['codey', 'daemon', ...argv.slice(1)])
 } else {

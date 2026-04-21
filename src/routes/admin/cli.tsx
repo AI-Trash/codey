@@ -128,6 +128,13 @@ type CliConnectionSummary = {
   githubLogin: string | null
   email: string | null
   userLabel: string
+  runtimeFlowId: string | null
+  runtimeTaskId: string | null
+  runtimeFlowStatus: string | null
+  runtimeFlowMessage: string | null
+  runtimeFlowStartedAt: string | null
+  runtimeFlowCompletedAt: string | null
+  runtimeFlowUpdatedAt: string | null
 }
 
 type CliConnectionState = {
@@ -321,6 +328,7 @@ function CliConnectionsTableCard(props: {
                   <TableHead>{m.admin_cli_table_operator()}</TableHead>
                   <TableHead>{m.admin_cli_table_target()}</TableHead>
                   <TableHead>{m.admin_cli_table_auth_client()}</TableHead>
+                  <TableHead>{m.admin_cli_table_flow()}</TableHead>
                   <TableHead>{m.admin_cli_table_status()}</TableHead>
                   <TableHead>{m.admin_cli_table_connected_at()}</TableHead>
                   <TableHead>{m.admin_cli_table_last_seen()}</TableHead>
@@ -331,7 +339,8 @@ function CliConnectionsTableCard(props: {
               </TableHeader>
               <TableBody>
                 {props.connections.map((connection) => {
-                  const dispatchableCount = getDispatchableFlowIds(connection).length
+                  const dispatchableCount =
+                    getDispatchableFlowIds(connection).length
 
                   return (
                     <TableRow key={connection.id}>
@@ -385,13 +394,22 @@ function CliConnectionsTableCard(props: {
                         </div>
                       </TableCell>
                       <TableCell>
+                        <RuntimeFlowCell connection={connection} />
+                      </TableCell>
+                      <TableCell>
                         <StatusBadge value={connection.status} />
                       </TableCell>
                       <TableCell>
-                        <DateCell value={connection.connectedAt} icon={ActivityIcon} />
+                        <DateCell
+                          value={connection.connectedAt}
+                          icon={ActivityIcon}
+                        />
                       </TableCell>
                       <TableCell>
-                        <DateCell value={connection.lastSeenAt} icon={RefreshCcwIcon} />
+                        <DateCell
+                          value={connection.lastSeenAt}
+                          icon={RefreshCcwIcon}
+                        />
                       </TableCell>
                       {props.onDispatch ? (
                         <TableCell className="w-[132px]">
@@ -429,12 +447,17 @@ function CliTaskDialog(props: {
   connection: CliConnectionSummary | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onDispatched: (flowId: CliFlowCommandId, connection: CliConnectionSummary) => void
+  onDispatched: (
+    flowId: CliFlowCommandId,
+    connection: CliConnectionSummary,
+  ) => void
 }) {
   const availableFlows = useMemo(() => {
     return props.connection ? getDispatchableFlowIds(props.connection) : []
   }, [props.connection])
-  const [selectedFlowId, setSelectedFlowId] = useState<CliFlowCommandId | ''>('')
+  const [selectedFlowId, setSelectedFlowId] = useState<CliFlowCommandId | ''>(
+    '',
+  )
   const [draftValues, setDraftValues] = useState<DraftOptionState>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -696,7 +719,9 @@ function DispatchOptionField(props: {
             <SelectItem value={BOOLEAN_DEFAULT_SENTINEL}>
               {m.admin_cli_dispatch_boolean_default()}
             </SelectItem>
-            <SelectItem value="true">{m.admin_cli_dispatch_boolean_true()}</SelectItem>
+            <SelectItem value="true">
+              {m.admin_cli_dispatch_boolean_true()}
+            </SelectItem>
             <SelectItem value="false">
               {m.admin_cli_dispatch_boolean_false()}
             </SelectItem>
@@ -725,14 +750,18 @@ function DispatchOptionField(props: {
             props.onChange(event.currentTarget.value)
           }}
         />
-        <FieldDescription>{formatOptionDescription(props.option)}</FieldDescription>
+        <FieldDescription>
+          {formatOptionDescription(props.option)}
+        </FieldDescription>
       </Field>
     )
   }
 
   return (
     <Field>
-      <FieldLabel htmlFor={inputId}>{getOptionDisplayName(props.option)}</FieldLabel>
+      <FieldLabel htmlFor={inputId}>
+        {getOptionDisplayName(props.option)}
+      </FieldLabel>
       <Input
         id={inputId}
         type={props.option.type === 'number' ? 'number' : 'text'}
@@ -743,20 +772,56 @@ function DispatchOptionField(props: {
           props.onChange(event.currentTarget.value)
         }}
       />
-      <FieldDescription>{formatOptionDescription(props.option)}</FieldDescription>
+      <FieldDescription>
+        {formatOptionDescription(props.option)}
+      </FieldDescription>
     </Field>
   )
 }
 
-function DateCell(props: {
-  value?: string | null
-  icon: typeof ActivityIcon
-}) {
+function DateCell(props: { value?: string | null; icon: typeof ActivityIcon }) {
   return (
     <span className="inline-flex items-center gap-2 text-sm">
       <props.icon className="size-4 text-muted-foreground" />
       {formatAdminDate(props.value) || m.oauth_none()}
     </span>
+  )
+}
+
+function RuntimeFlowCell(props: { connection: CliConnectionSummary }) {
+  const { connection } = props
+  const flowId = connection.runtimeFlowId
+
+  if (!flowId) {
+    return (
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="font-medium">{m.admin_cli_flow_idle_title()}</span>
+        <span className="text-xs text-muted-foreground">
+          {m.admin_cli_flow_idle_description()}
+        </span>
+      </div>
+    )
+  }
+
+  const status = connection.runtimeFlowStatus || 'running'
+  const detail =
+    connection.runtimeFlowMessage ||
+    formatAdminDate(connection.runtimeFlowUpdatedAt) ||
+    m.oauth_none()
+  const timestamp =
+    connection.runtimeFlowCompletedAt || connection.runtimeFlowStartedAt
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <span className="font-medium">{getRuntimeFlowDisplayName(flowId)}</span>
+      <div className="inline-flex items-center gap-2">
+        <StatusBadge value={status} className="w-fit" />
+        <span className="truncate text-xs text-muted-foreground">{detail}</span>
+      </div>
+      <span className="truncate text-xs text-muted-foreground">
+        {timestamp ? formatAdminDate(timestamp) || timestamp : m.oauth_none()}
+      </span>
+    </div>
   )
 }
 
@@ -847,55 +912,69 @@ const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
   noop: () => m.admin_cli_flow_noop_description(),
 }
 
-const optionDisplayNameMap: Record<CliFlowOptionDisplayNameKey, () => string> = {
-  chromeDefaultProfile: () => m.admin_cli_option_chrome_default_profile_name(),
-  headless: () => m.admin_cli_option_headless_name(),
-  slowMo: () => m.admin_cli_option_slow_mo_name(),
-  har: () => m.admin_cli_option_har_name(),
-  record: () => m.admin_cli_option_record_name(),
-  password: () => m.admin_cli_option_password_name(),
-  verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
-  pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
-  identityId: () => m.admin_cli_option_identity_id_name(),
-  email: () => m.admin_cli_option_email_name(),
-  inviteEmail: () => m.admin_cli_option_invite_email_name(),
-  inviteFile: () => m.admin_cli_option_invite_file_name(),
-  workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
-  redirectPort: () => m.admin_cli_option_redirect_port_name(),
-  authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
-  projectId: () => m.admin_cli_option_project_id_name(),
-  channelName: () => m.admin_cli_option_channel_name_name(),
-}
+const optionDisplayNameMap: Record<CliFlowOptionDisplayNameKey, () => string> =
+  {
+    chromeDefaultProfile: () =>
+      m.admin_cli_option_chrome_default_profile_name(),
+    headless: () => m.admin_cli_option_headless_name(),
+    slowMo: () => m.admin_cli_option_slow_mo_name(),
+    har: () => m.admin_cli_option_har_name(),
+    record: () => m.admin_cli_option_record_name(),
+    password: () => m.admin_cli_option_password_name(),
+    verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
+    pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
+    identityId: () => m.admin_cli_option_identity_id_name(),
+    email: () => m.admin_cli_option_email_name(),
+    inviteEmail: () => m.admin_cli_option_invite_email_name(),
+    inviteFile: () => m.admin_cli_option_invite_file_name(),
+    workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
+    redirectPort: () => m.admin_cli_option_redirect_port_name(),
+    authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
+    projectId: () => m.admin_cli_option_project_id_name(),
+    channelName: () => m.admin_cli_option_channel_name_name(),
+  }
 
-const optionDescriptionMap: Record<CliFlowOptionDescriptionKey, () => string> = {
-  chromeDefaultProfile: () =>
-    m.admin_cli_option_chrome_default_profile_description(),
-  headless: () => m.admin_cli_option_headless_description(),
-  slowMo: () => m.admin_cli_option_slow_mo_description(),
-  har: () => m.admin_cli_option_har_description(),
-  record: () => m.admin_cli_option_record_description(),
-  password: () => m.admin_cli_option_password_description(),
-  verificationTimeoutMs: () =>
-    m.admin_cli_option_verification_timeout_description(),
-  pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),
-  identityId: () => m.admin_cli_option_identity_id_description(),
-  email: () => m.admin_cli_option_email_description(),
-  inviteEmail: () => m.admin_cli_option_invite_email_description(),
-  inviteFile: () => m.admin_cli_option_invite_file_description(),
-  workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
-  redirectPort: () => m.admin_cli_option_redirect_port_description(),
-  authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_description(),
-  projectId: () => m.admin_cli_option_project_id_description(),
-  channelName: () => m.admin_cli_option_channel_name_description(),
-}
+const optionDescriptionMap: Record<CliFlowOptionDescriptionKey, () => string> =
+  {
+    chromeDefaultProfile: () =>
+      m.admin_cli_option_chrome_default_profile_description(),
+    headless: () => m.admin_cli_option_headless_description(),
+    slowMo: () => m.admin_cli_option_slow_mo_description(),
+    har: () => m.admin_cli_option_har_description(),
+    record: () => m.admin_cli_option_record_description(),
+    password: () => m.admin_cli_option_password_description(),
+    verificationTimeoutMs: () =>
+      m.admin_cli_option_verification_timeout_description(),
+    pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),
+    identityId: () => m.admin_cli_option_identity_id_description(),
+    email: () => m.admin_cli_option_email_description(),
+    inviteEmail: () => m.admin_cli_option_invite_email_description(),
+    inviteFile: () => m.admin_cli_option_invite_file_description(),
+    workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
+    redirectPort: () => m.admin_cli_option_redirect_port_description(),
+    authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_description(),
+    projectId: () => m.admin_cli_option_project_id_description(),
+    channelName: () => m.admin_cli_option_channel_name_description(),
+  }
 
 function getFlowDisplayName(flowId: CliFlowCommandId): string {
-  const flowDefinition = cliFlowDefinitions.find((definition) => definition.id === flowId)
+  const flowDefinition = cliFlowDefinitions.find(
+    (definition) => definition.id === flowId,
+  )
+  return flowDefinition ? resolveFlowDisplayName(flowDefinition) : flowId
+}
+
+function getRuntimeFlowDisplayName(flowId: string): string {
+  const flowDefinition = cliFlowDefinitions.find(
+    (definition) => definition.id === flowId,
+  )
   return flowDefinition ? resolveFlowDisplayName(flowDefinition) : flowId
 }
 
 function getFlowDescription(flowId: CliFlowCommandId): string {
-  const flowDefinition = cliFlowDefinitions.find((definition) => definition.id === flowId)
+  const flowDefinition = cliFlowDefinitions.find(
+    (definition) => definition.id === flowId,
+  )
   return flowDefinition
     ? resolveFlowDescription(flowDefinition)
     : m.admin_cli_dispatch_flow_description()
