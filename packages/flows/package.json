@@ -16,7 +16,10 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
+    "@rezi-ui/core": "catalog:",
+    "@rezi-ui/node": "catalog:",
     "dotenv": "catalog:",
+    "enquirer": "catalog:",
     "xstate": "catalog:"
   },
   "devDependencies": {

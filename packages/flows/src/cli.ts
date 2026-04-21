@@ -727,7 +727,7 @@ withCommonOptions(
   flowCli
     .command(
       'codex-oauth',
-      'Run Codex OAuth, save the session in Codey app, and optionally create an AxonHub Codex channel',
+      'Run Codex OAuth and save the session in Codey app',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
@@ -751,19 +751,10 @@ withCommonOptions(
       '--authorizeUrlOnly <bool>',
       'Generate the OAuth URL and exit before continuing browser login',
     )
-    .option(
-      '--projectId <id>',
-      'Optional AxonHub project context sent as X-Project-ID when channel creation is enabled',
-    )
-    .option(
-      '--channelName <name>',
-      'Override the AxonHub channel name for this run when channel creation is enabled',
-    )
     .example('codey flow codex-oauth --redirectPort 3005')
     .example('codey flow codex-oauth --authorizeUrlOnly true')
     .example('codey flow codex-oauth --email someone@example.com')
-    .example('codey flow codex-oauth --workspaceIndex 2')
-    .example('codey flow codex-oauth --projectId gid://axonhub/project/123'),
+    .example('codey flow codex-oauth --workspaceIndex 2'),
 ).action((options: FlowOptions) => {
   execute(
     (async () => {
@@ -935,7 +926,7 @@ cli
   .example(
     'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
   )
-  .example('codey flow codex-oauth --projectId gid://axonhub/project/123')
+  .example('codey flow codex-oauth --workspaceIndex 2')
   .action(() => {
     flowCli.outputHelp()
   })

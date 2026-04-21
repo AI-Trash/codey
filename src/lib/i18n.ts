@@ -89,6 +89,11 @@ const managedIdentityPlanLabelMap = {
   team: () => m.admin_identity_plan_team(),
 } satisfies Record<string, () => string>
 
+const managedIdentityTagLabelMap = {
+  'sub-account': () => m.admin_identity_tag_sub_account(),
+  'parent-account': () => m.admin_identity_tag_parent_account(),
+} satisfies Record<string, () => string>
+
 export function translateStatusLabel(value?: string | null) {
   if (!value) {
     return m.status_unknown()
@@ -111,6 +116,21 @@ export function translateManagedIdentityPlanLabel(value?: string | null) {
 
   const normalized = value.trim().toLowerCase()
   const message = managedIdentityPlanLabelMap[normalized]
+
+  if (message) {
+    return message()
+  }
+
+  return value
+}
+
+export function translateManagedIdentityTagLabel(value?: string | null) {
+  if (!value) {
+    return ''
+  }
+
+  const normalized = value.trim().toLowerCase()
+  const message = managedIdentityTagLabelMap[normalized]
 
   if (message) {
     return message()

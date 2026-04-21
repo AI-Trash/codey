@@ -1,192 +1,496 @@
+import Enquirer from 'enquirer'
+import { ui, type VNode } from '@rezi-ui/core'
+import { createNodeApp } from '@rezi-ui/node'
+
 import type { CliRuntimeConfig } from '../../config'
+import { setRuntimeConfig } from '../../config'
+import { sleep } from '../../utils/wait'
 import type { CliFlowCommandId } from '../flow-cli/flow-registry'
 import {
   formatFlowCompletionSummary,
   sanitizeErrorForOutput,
   type FlowOptions,
   type FlowProgressReporter,
-  type FlowProgressUpdate,
 } from '../flow-cli/helpers'
 import type { FlowCommandExecution } from '../flow-cli/result-file'
-import type {
-  AdminNotificationEvent,
-  CliConnectionEvent,
-} from '../app-auth/types'
 import {
+  exchangeDeviceChallenge,
   resolveCliNotificationsAuthState,
+  startDeviceLogin,
   streamCliNotifications,
+  type CliNotificationsAuthState,
 } from '../app-auth/device-login'
 import { CliConnectionRuntimeReporter } from '../app-auth/cli-connection'
-import { sleep } from '../../utils/wait'
-import { setRuntimeConfig } from '../../config'
+import type { CliConnectionEvent } from '../app-auth/types'
+import {
+  applyAuthStateToDashboard,
+  applyCliConnectionEvent,
+  appendDashboardEvent,
+  clearDashboardEvents,
+  completeDashboardFlow,
+  createDashboardState,
+  deriveTargetFromAuthState,
+  failDashboardFlow,
+  formatProgressMessage,
+  formatRelativeTime,
+  handleDashboardNotification,
+  isTuiAuthRecoveryError,
+  setDashboardPhase,
+  startDashboardFlow,
+  touchDashboardState,
+  updateDashboardFlowProgress,
+  type DashboardFlowStatus,
+  type DashboardPhase,
+  type DashboardState,
+} from './dashboard-model'
 
-type DashboardPhase = 'starting' | 'listening' | 'reconnecting' | 'error'
-type DashboardFlowStatus = 'idle' | 'running' | 'passed' | 'failed'
+const REQUIRED_TUI_SCOPE = 'notifications:read'
 
-interface DashboardEventLogEntry {
-  at: string
-  message: string
+function compactNodes(
+  children: Array<VNode | null | undefined>,
+): readonly VNode[] {
+  return children.filter((child): child is VNode => Boolean(child))
 }
 
-interface DashboardFlowState {
-  flowId: string
-  status: DashboardFlowStatus
-  notificationId?: string
-  message?: string
-  startedAt?: string
-  completedAt?: string
-}
-
-interface DashboardState {
-  phase: DashboardPhase
-  cliName: string
-  target?: string
-  connectionId?: string
-  connectedAt?: string
-  authMode?: string
-  authClientId?: string
-  lastError?: string
-  currentFlow: DashboardFlowState | null
-  recentEvents: DashboardEventLogEntry[]
-  snapshotAt: string
-}
-
-function truncate(value: string, maxWidth: number): string {
-  if (value.length <= maxWidth) {
-    return value
+function toDisplayValue(value: string | undefined, fallback = 'n/a'): string {
+  if (typeof value !== 'string') {
+    return fallback
   }
 
-  if (maxWidth <= 1) {
-    return value.slice(0, maxWidth)
-  }
-
-  return `${value.slice(0, Math.max(maxWidth - 1, 0))}…`
+  const normalized = value.trim()
+  return normalized || fallback
 }
 
-function formatRelativeTime(value: string | undefined): string {
+function formatTimestamp(value: string | undefined, nowMs: number): string {
   if (!value) {
     return 'n/a'
   }
 
-  const timestamp = Date.parse(value)
-  if (Number.isNaN(timestamp)) {
-    return value
-  }
-
-  const deltaSeconds = Math.max(Math.round((Date.now() - timestamp) / 1000), 0)
-  if (deltaSeconds < 5) {
-    return 'just now'
-  }
-  if (deltaSeconds < 60) {
-    return `${deltaSeconds}s ago`
-  }
-
-  const deltaMinutes = Math.round(deltaSeconds / 60)
-  if (deltaMinutes < 60) {
-    return `${deltaMinutes}m ago`
-  }
-
-  const deltaHours = Math.round(deltaMinutes / 60)
-  if (deltaHours < 24) {
-    return `${deltaHours}h ago`
-  }
-
-  const deltaDays = Math.round(deltaHours / 24)
-  return `${deltaDays}d ago`
+  return `${value} (${formatRelativeTime(value, nowMs)})`
 }
 
-function formatProgressMessage(update: FlowProgressUpdate): string | undefined {
-  if (typeof update.message === 'string' && update.message.trim()) {
-    return update.message.trim()
+function formatPhaseLabel(phase: DashboardPhase): string {
+  switch (phase) {
+    case 'starting':
+      return 'Starting'
+    case 'listening':
+      return 'Listening'
+    case 'reconnecting':
+      return 'Reconnecting'
+    case 'error':
+      return 'Error'
+    default:
+      return phase
   }
-
-  if (typeof update.state === 'string' && update.state.trim()) {
-    return update.state.trim()
-  }
-
-  if (typeof update.event === 'string' && update.event.trim()) {
-    return update.event.trim()
-  }
-
-  return update.status
 }
 
-function createDashboardRenderer(state: DashboardState) {
-  const isInteractive =
-    Boolean(process.stdout.isTTY) && Boolean(process.stdin.isTTY)
+function mapPhaseStatus(
+  phase: DashboardPhase,
+): 'online' | 'offline' | 'away' | 'busy' | 'unknown' {
+  switch (phase) {
+    case 'listening':
+      return 'online'
+    case 'error':
+      return 'busy'
+    case 'starting':
+    case 'reconnecting':
+      return 'away'
+    default:
+      return 'unknown'
+  }
+}
 
-  const render = () => {
-    if (!isInteractive) {
-      return
+function mapFlowVariant(
+  status: DashboardFlowStatus | undefined,
+): 'default' | 'success' | 'warning' | 'error' | 'info' {
+  switch (status) {
+    case 'running':
+      return 'info'
+    case 'passed':
+      return 'success'
+    case 'failed':
+      return 'error'
+    case 'idle':
+    default:
+      return 'default'
+  }
+}
+
+function mapAuthVariant(
+  authMode: string | undefined,
+): 'default' | 'success' | 'warning' | 'error' | 'info' {
+  if (authMode === 'client_credentials') {
+    return 'success'
+  }
+
+  if (authMode === 'device_session') {
+    return 'info'
+  }
+
+  return 'default'
+}
+
+function renderInfoRow(label: string, value: string): VNode {
+  return ui.row(
+    {
+      gap: 1,
+      wrap: true,
+    },
+    [
+      ui.text(`${label}:`, { variant: 'label' }),
+      ui.text(value, {
+        wrap: true,
+      }),
+    ],
+  )
+}
+
+function renderHint(keys: string, label: string): VNode {
+  return ui.row(
+    {
+      gap: 1,
+    },
+    [ui.kbd(keys), ui.text(label, { variant: 'caption' })],
+  )
+}
+
+function renderRecentEvents(state: DashboardState): VNode {
+  if (!state.recentEvents.length) {
+    return ui.text('No events yet.', { variant: 'caption' })
+  }
+
+  return ui.column(
+    {
+      gap: 1,
+    },
+    state.recentEvents.map((entry) =>
+      ui.text(`[${entry.at}] ${entry.message}`, {
+        wrap: true,
+      }),
+    ),
+  )
+}
+
+function renderDashboardView(state: DashboardState): VNode {
+  const currentFlow = state.currentFlow
+  const currentFlowStatus = currentFlow?.status || 'idle'
+
+  return ui.column(
+    {
+      width: 'full',
+      height: 'full',
+      p: 1,
+      gap: 1,
+    },
+    compactNodes([
+      ui.box(
+        {
+          title: 'Codey TUI',
+          border: 'single',
+          p: 1,
+        },
+        [
+          ui.row(
+            {
+              justify: 'between',
+              items: 'center',
+              gap: 1,
+              wrap: true,
+            },
+            [
+              ui.column(
+                {
+                  gap: 0,
+                },
+                [
+                  ui.text('Realtime operator dashboard', {
+                    variant: 'heading',
+                  }),
+                  ui.text('Rezi view with Enquirer startup prompts.', {
+                    variant: 'caption',
+                  }),
+                ],
+              ),
+              ui.row(
+                {
+                  gap: 1,
+                  wrap: true,
+                },
+                [
+                  ui.status(mapPhaseStatus(state.phase), {
+                    label: formatPhaseLabel(state.phase),
+                  }),
+                  ui.badge(`auth:${toDisplayValue(state.authMode)}`, {
+                    variant: mapAuthVariant(state.authMode),
+                  }),
+                  ui.badge(`flow:${currentFlowStatus}`, {
+                    variant: mapFlowVariant(currentFlowStatus),
+                  }),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+      state.lastError
+        ? ui.callout(state.lastError, {
+            title: 'Last error',
+            variant: 'error',
+          })
+        : undefined,
+      ui.row(
+        {
+          gap: 1,
+          wrap: true,
+        },
+        [
+          ui.box(
+            {
+              title: 'Connection',
+              border: 'single',
+              p: 1,
+              flex: 1,
+              minWidth: 36,
+            },
+            [
+              renderInfoRow('CLI', state.cliName),
+              renderInfoRow('Target', toDisplayValue(state.target)),
+              renderInfoRow(
+                'Connection ID',
+                toDisplayValue(
+                  state.connectionId,
+                  'waiting for /api/cli/events',
+                ),
+              ),
+              renderInfoRow(
+                'Connected',
+                state.connectedAt
+                  ? formatTimestamp(state.connectedAt, state.nowMs)
+                  : 'connecting',
+              ),
+              renderInfoRow(
+                'Auth',
+                state.authClientId
+                  ? `${toDisplayValue(state.authMode)} (${state.authClientId})`
+                  : toDisplayValue(state.authMode),
+              ),
+            ],
+          ),
+          ui.box(
+            {
+              title: 'Runtime',
+              border: 'single',
+              p: 1,
+              flex: 1,
+              minWidth: 36,
+            },
+            [
+              renderInfoRow(
+                'Flow',
+                toDisplayValue(currentFlow?.flowId, 'idle'),
+              ),
+              renderInfoRow('Status', currentFlowStatus),
+              renderInfoRow(
+                'Message',
+                toDisplayValue(
+                  currentFlow?.message,
+                  'Waiting for a task from Codey web...',
+                ),
+              ),
+              renderInfoRow(
+                'Started',
+                formatTimestamp(currentFlow?.startedAt, state.nowMs),
+              ),
+              renderInfoRow(
+                'Completed',
+                formatTimestamp(currentFlow?.completedAt, state.nowMs),
+              ),
+            ],
+          ),
+        ],
+      ),
+      ui.box(
+        {
+          title: 'Recent Events',
+          border: 'single',
+          p: 1,
+          flex: 1,
+          overflow: 'scroll',
+        },
+        [renderRecentEvents(state)],
+      ),
+      ui.box(
+        {
+          border: 'single',
+          p: 1,
+        },
+        [
+          ui.column(
+            {
+              gap: 1,
+            },
+            [
+              ui.text(
+                'Open Codey web at /admin/cli to inspect connected clients.',
+                {
+                  variant: 'caption',
+                  wrap: true,
+                },
+              ),
+              ui.row(
+                {
+                  gap: 2,
+                  wrap: true,
+                },
+                [
+                  renderHint('q', 'quit'),
+                  renderHint('r', 'reconnect'),
+                  renderHint('c', 'clear events'),
+                  renderHint('Ctrl+C', 'quit'),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    ]),
+  )
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.name === 'AbortError') ||
+    (typeof error === 'object' &&
+      error !== null &&
+      'name' in error &&
+      error.name === 'AbortError')
+  )
+}
+
+function normalizePromptTarget(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized ? normalized : undefined
+}
+
+function toPromptCancelError(error: unknown): Error {
+  if (error instanceof Error) {
+    const message = error.message.trim()
+    if (!message || /cancel/i.test(message)) {
+      return new Error('TUI startup canceled.')
+    }
+    return error
+  }
+
+  return new Error('TUI startup canceled.')
+}
+
+async function promptForStartupAuth(input: {
+  cliName: string
+  target?: string
+  reason: string
+}): Promise<string | undefined> {
+  let shouldLogin = false
+  try {
+    const loginPrompt = new Enquirer<{ shouldLogin: boolean }>()
+    const answer = await loginPrompt.prompt({
+      type: 'confirm',
+      name: 'shouldLogin',
+      message: `${input.reason}\nStart Codey device login now?`,
+      initial: true,
+    })
+    shouldLogin = Boolean(answer.shouldLogin)
+  } catch (error) {
+    throw toPromptCancelError(error)
+  }
+
+  if (!shouldLogin) {
+    throw new Error('TUI startup canceled.')
+  }
+
+  let target = normalizePromptTarget(input.target)
+  if (!target) {
+    try {
+      const targetPrompt = new Enquirer<{ target: string }>()
+      const answer = await targetPrompt.prompt({
+        type: 'input',
+        name: 'target',
+        message:
+          'Optional target label shown in Codey web (press Enter to skip)',
+        initial: '',
+      })
+      target = normalizePromptTarget(answer.target)
+    } catch (error) {
+      throw toPromptCancelError(error)
+    }
+  }
+
+  const challenge = await startDeviceLogin({
+    cliName: input.cliName,
+    scope: REQUIRED_TUI_SCOPE,
+  })
+
+  console.log('')
+  console.log('Codey device login')
+  console.log(
+    `Open: ${challenge.verificationUriComplete || challenge.verificationUri}`,
+  )
+  console.log(`User code: ${challenge.userCode}`)
+  console.log(`Expires at: ${challenge.expiresAt}`)
+  console.log('Waiting for approval...')
+
+  const approved = await exchangeDeviceChallenge(challenge, target)
+  const approvedAs =
+    approved.user?.githubLogin ||
+    approved.user?.email ||
+    approved.subject ||
+    'this terminal'
+
+  console.log(`Approved for ${approvedAs}. Launching TUI...`)
+  console.log('')
+
+  return target
+}
+
+async function resolveStartupAuthState(input: {
+  cliName: string
+  target?: string
+}): Promise<{
+  authState: CliNotificationsAuthState
+  target?: string
+}> {
+  try {
+    const authState = await resolveCliNotificationsAuthState()
+    return {
+      authState,
+      target:
+        normalizePromptTarget(input.target) ||
+        deriveTargetFromAuthState(authState),
+    }
+  } catch (error) {
+    if (!isTuiAuthRecoveryError(error)) {
+      throw error
     }
 
-    state.snapshotAt = new Date().toISOString()
-
-    const width = Math.max(process.stdout.columns || 100, 72)
-    const lines = [
-      'Codey TUI',
-      ''.padEnd(Math.min(width, 72), '='),
-      `Connection: ${state.phase}`,
-      `CLI: ${state.cliName}`,
-      `Target: ${state.target || 'n/a'}`,
-      `Connection ID: ${state.connectionId || 'waiting for /api/cli/events'}`,
-      `Connected: ${
-        state.connectedAt
-          ? `${state.connectedAt} (${formatRelativeTime(state.connectedAt)})`
-          : 'connecting'
-      }`,
-      `Auth: ${state.authMode || 'n/a'}${state.authClientId ? ` (${state.authClientId})` : ''}`,
-      ...(state.lastError ? [`Last error: ${state.lastError}`] : []),
-      '',
-      'Runtime',
-      `Flow: ${state.currentFlow?.flowId || 'idle'}`,
-      `Status: ${state.currentFlow?.status || 'idle'}`,
-      `Message: ${state.currentFlow?.message || 'Waiting for a task from Codey web...'}`,
-      `Started: ${
-        state.currentFlow?.startedAt
-          ? `${state.currentFlow.startedAt} (${formatRelativeTime(state.currentFlow.startedAt)})`
-          : 'n/a'
-      }`,
-      `Completed: ${
-        state.currentFlow?.completedAt
-          ? `${state.currentFlow.completedAt} (${formatRelativeTime(state.currentFlow.completedAt)})`
-          : 'n/a'
-      }`,
-      '',
-      'Recent Events',
-      ...(state.recentEvents.length
-        ? state.recentEvents.map((entry) =>
-            truncate(`[${entry.at}] ${entry.message}`, width),
-          )
-        : ['No events yet.']),
-      '',
-      'Open Codey web at /admin/cli to inspect connected clients.',
-      'Press Ctrl+C to exit.',
-    ]
-
-    process.stdout.write('\x1Bc')
-    process.stdout.write(`${lines.join('\n')}\n`)
-  }
-
-  if (isInteractive) {
-    process.stdout.write('\x1b[?25l')
-    process.once('exit', () => {
-      process.stdout.write('\x1b[?25h')
+    const reason = sanitizeErrorForOutput(error).message
+    const target = await promptForStartupAuth({
+      cliName: input.cliName,
+      target: input.target,
+      reason,
     })
-  }
+    const authState = await resolveCliNotificationsAuthState()
 
-  return {
-    interactive: isInteractive,
-    render,
+    return {
+      authState,
+      target:
+        normalizePromptTarget(input.target) ||
+        target ||
+        deriveTargetFromAuthState(authState),
+    }
   }
-}
-
-function appendEvent(state: DashboardState, message: string): void {
-  state.recentEvents.unshift({
-    at: new Date().toISOString(),
-    message,
-  })
-  state.recentEvents = state.recentEvents.slice(0, 8)
 }
 
 export async function runTuiDashboard(input: {
@@ -198,226 +502,375 @@ export async function runTuiDashboard(input: {
     options: FlowOptions,
   ) => Promise<FlowCommandExecution>
 }): Promise<void> {
-  const state: DashboardState = {
-    phase: 'starting',
+  setRuntimeConfig(input.config)
+  const startup = await resolveStartupAuthState({
     cliName: input.cliName,
     target: input.target,
-    currentFlow: null,
-    recentEvents: [],
-    snapshotAt: new Date().toISOString(),
+  })
+
+  const app = createNodeApp<DashboardState>({
+    initialState: createDashboardState({
+      cliName: input.cliName,
+      target: startup.target,
+    }),
+    config: {
+      executionMode: 'inline',
+      fpsCap: 10,
+      rootPadding: 0,
+    },
+  })
+  app.view(renderDashboardView)
+
+  let dashboardState = createDashboardState({
+    cliName: input.cliName,
+    target: startup.target,
+  })
+  let initialAuthState: CliNotificationsAuthState | undefined =
+    startup.authState
+  let stopRequested = false
+  let reconnectRequested = false
+  let streamAbortController: AbortController | null = null
+  let appStarted = false
+
+  const updateState = (
+    updater:
+      | DashboardState
+      | ((prev: Readonly<DashboardState>) => DashboardState),
+  ): DashboardState => {
+    const next =
+      typeof updater === 'function' ? updater(dashboardState) : updater
+    dashboardState = touchDashboardState(next)
+    app.update(dashboardState)
+    return dashboardState
   }
-  const renderer = createDashboardRenderer(state)
-  const refreshInterval = renderer.interactive
-    ? setInterval(() => {
-        renderer.render()
-      }, 1000)
-    : null
+
+  const requestReconnect = () => {
+    if (stopRequested) {
+      return
+    }
+
+    reconnectRequested = true
+    updateState((state) =>
+      appendDashboardEvent(
+        state,
+        state.currentFlow?.status === 'running'
+          ? 'Reconnect requested. Waiting for the current flow to finish.'
+          : 'Reconnect requested.',
+      ),
+    )
+    streamAbortController?.abort()
+  }
+
+  const requestStop = () => {
+    if (stopRequested) {
+      return
+    }
+
+    stopRequested = true
+    updateState((state) =>
+      appendDashboardEvent(
+        state,
+        state.currentFlow?.status === 'running'
+          ? 'Exit requested. Waiting for the current flow to finish.'
+          : 'Exit requested.',
+      ),
+    )
+
+    if (dashboardState.currentFlow?.status !== 'running') {
+      streamAbortController?.abort()
+    }
+  }
+
+  const handleSignalStop = () => {
+    requestStop()
+  }
+
+  app.keys({
+    q: {
+      description: 'Quit the TUI',
+      handler: () => {
+        requestStop()
+      },
+    },
+    r: {
+      description: 'Reconnect to Codey web',
+      handler: () => {
+        requestReconnect()
+      },
+    },
+    c: {
+      description: 'Clear recent events',
+      handler: () => {
+        updateState((state) => clearDashboardEvents(state))
+      },
+    },
+    'ctrl+c': {
+      description: 'Quit the TUI',
+      handler: () => {
+        requestStop()
+      },
+    },
+  })
+
+  process.on('SIGINT', handleSignalStop)
+  process.on('SIGTERM', handleSignalStop)
 
   try {
-    renderer.render()
+    await app.start()
+    appStarted = true
 
-    let announced = false
+    const clockInterval = setInterval(() => {
+      updateState((state) => state)
+    }, 1000)
 
-    while (true) {
-      setRuntimeConfig(input.config)
-      state.phase = announced ? 'reconnecting' : 'starting'
-      state.lastError = undefined
-      renderer.render()
+    try {
+      let announced = false
 
-      const authState = await resolveCliNotificationsAuthState()
-      state.authMode = authState.mode
-      state.authClientId = authState.clientId
-      state.target =
-        input.target ||
-        authState.session?.target ||
-        authState.session?.user?.githubLogin ||
-        authState.session?.user?.email ||
-        authState.session?.subject ||
-        state.target
-      renderer.render()
+      while (!stopRequested) {
+        setRuntimeConfig(input.config)
+        updateState((state) =>
+          setDashboardPhase(state, announced ? 'reconnecting' : 'starting'),
+        )
 
-      const runtimeReporter = new CliConnectionRuntimeReporter({
-        authState,
-        onError: (error) => {
-          appendEvent(state, `runtime state update failed: ${error.message}`)
-          renderer.render()
-        },
-      })
+        let authState = initialAuthState
+        initialAuthState = undefined
 
-      appendEvent(
-        state,
-        announced
-          ? 'Reconnecting to Codey web app...'
-          : 'Connecting to Codey web app...',
-      )
-      renderer.render()
+        try {
+          authState = authState || (await resolveCliNotificationsAuthState())
+        } catch (error) {
+          const sanitized = sanitizeErrorForOutput(error)
+          const message = isTuiAuthRecoveryError(error)
+            ? `${sanitized.message} Press q to exit and rerun codey to sign in again.`
+            : sanitized.message
 
-      try {
-        for await (const notification of streamCliNotifications(
-          {
-            cliName: input.cliName,
-            target: input.target,
-          },
-          authState,
-          {
-            onConnection: (event: CliConnectionEvent) => {
-              state.phase = 'listening'
-              state.connectionId = event.connectionId
-              state.connectedAt = event.connectedAt
-              state.target = event.target || state.target
-              runtimeReporter.setConnectionId(event.connectionId)
-              appendEvent(
-                state,
-                `Connected to Codey web app as ${input.cliName}.`,
-              )
-              renderer.render()
-            },
-          },
-        )) {
+          updateState((state) =>
+            appendDashboardEvent(
+              setDashboardPhase(state, 'error', message),
+              `Connection lost: ${message}`,
+            ),
+          )
+
+          if (stopRequested) {
+            break
+          }
+
           announced = true
-          handleNotification(state, notification)
-          renderer.render()
-
-          if (
-            notification.payload?.kind !== 'flow_task' ||
-            typeof notification.payload.flowId !== 'string'
-          ) {
-            continue
+          const shouldSleep = !reconnectRequested
+          reconnectRequested = false
+          if (shouldSleep) {
+            await sleep(1000)
           }
+          continue
+        }
 
-          const flowId = notification.payload.flowId as CliFlowCommandId
-          const taskOptions = (notification.payload.options ||
-            {}) as FlowOptions
-          const startedAt = new Date().toISOString()
+        updateState((state) =>
+          applyAuthStateToDashboard(
+            setDashboardPhase(state, announced ? 'reconnecting' : 'starting'),
+            authState,
+          ),
+        )
 
-          state.currentFlow = {
-            flowId,
-            status: 'running',
-            notificationId: notification.id,
-            message: notification.title || 'Task started',
-            startedAt,
-          }
-          appendEvent(state, `Starting ${flowId}.`)
-          runtimeReporter.update({
-            runtimeFlowId: flowId,
-            runtimeTaskId: notification.id,
-            runtimeFlowStatus: 'running',
-            runtimeFlowMessage: notification.title || 'Task started',
-            runtimeFlowStartedAt: startedAt,
-            runtimeFlowCompletedAt: null,
-          })
-          renderer.render()
+        const runtimeReporter = new CliConnectionRuntimeReporter({
+          authState,
+          onError: (error) => {
+            updateState((state) =>
+              appendDashboardEvent(
+                state,
+                `Runtime state update failed: ${error.message}`,
+              ),
+            )
+          },
+        })
 
-          const progressReporter: FlowProgressReporter = (update) => {
-            const message = formatProgressMessage(update)
-            if (!state.currentFlow) {
-              return
+        updateState((state) =>
+          appendDashboardEvent(
+            state,
+            announced
+              ? 'Reconnecting to Codey web app...'
+              : 'Connecting to Codey web app...',
+          ),
+        )
+
+        streamAbortController = new AbortController()
+        let connectionOpened = false
+
+        try {
+          for await (const notification of streamCliNotifications(
+            {
+              cliName: input.cliName,
+              target: input.target,
+            },
+            authState,
+            {
+              onConnection: (event: CliConnectionEvent) => {
+                connectionOpened = true
+                runtimeReporter.setConnectionId(event.connectionId)
+                updateState((state) => applyCliConnectionEvent(state, event))
+              },
+            },
+            {
+              signal: streamAbortController.signal,
+            },
+          )) {
+            announced = true
+            updateState((state) =>
+              handleDashboardNotification(state, notification),
+            )
+
+            if (
+              notification.payload?.kind !== 'flow_task' ||
+              typeof notification.payload.flowId !== 'string'
+            ) {
+              if (stopRequested) {
+                break
+              }
+              continue
             }
 
-            state.currentFlow = {
-              ...state.currentFlow,
-              status: update.status === 'failed' ? 'failed' : 'running',
-              message: message || state.currentFlow.message,
+            const flowId = notification.payload.flowId as CliFlowCommandId
+            const taskOptions = (notification.payload.options ||
+              {}) as FlowOptions
+            const startedAt = new Date().toISOString()
+
+            updateState((state) =>
+              startDashboardFlow(state, {
+                flowId,
+                notificationId: notification.id,
+                message: notification.title || 'Task started',
+                startedAt,
+              }),
+            )
+            runtimeReporter.update({
+              runtimeFlowId: flowId,
+              runtimeTaskId: notification.id,
+              runtimeFlowStatus: 'running',
+              runtimeFlowMessage: notification.title || 'Task started',
+              runtimeFlowStartedAt: startedAt,
+              runtimeFlowCompletedAt: null,
+            })
+
+            const progressReporter: FlowProgressReporter = (update) => {
+              const message = formatProgressMessage(update)
+              updateState((state) =>
+                updateDashboardFlowProgress(state, {
+                  status: update.status,
+                  message,
+                }),
+              )
+
+              if (message) {
+                runtimeReporter.update({
+                  runtimeFlowId: flowId,
+                  runtimeTaskId: notification.id,
+                  runtimeFlowStatus:
+                    update.status === 'failed' ? 'failed' : 'running',
+                  runtimeFlowMessage: message,
+                  runtimeFlowStartedAt: startedAt,
+                })
+              }
             }
-            if (message) {
+
+            try {
+              const execution = await input.executeFlow(flowId, {
+                ...taskOptions,
+                progressReporter,
+              })
+              const completedAt =
+                execution.completedAt || new Date().toISOString()
+              const summary =
+                formatFlowCompletionSummary(execution.command, execution.result)
+                  .split('\n')
+                  .find((line) => line.trim()) || 'Flow completed'
+
+              updateState((state) =>
+                completeDashboardFlow(state, {
+                  flowId,
+                  message: summary,
+                  completedAt,
+                }),
+              )
               runtimeReporter.update({
                 runtimeFlowId: flowId,
                 runtimeTaskId: notification.id,
-                runtimeFlowStatus:
-                  update.status === 'failed' ? 'failed' : 'running',
-                runtimeFlowMessage: message,
+                runtimeFlowStatus: execution.status,
+                runtimeFlowMessage: 'Flow completed',
                 runtimeFlowStartedAt: startedAt,
+                runtimeFlowCompletedAt: completedAt,
               })
+            } catch (error) {
+              const sanitized = sanitizeErrorForOutput(error)
+              const completedAt = new Date().toISOString()
+
+              updateState((state) =>
+                failDashboardFlow(state, {
+                  flowId,
+                  message: sanitized.message,
+                  completedAt,
+                }),
+              )
+              runtimeReporter.update({
+                runtimeFlowId: flowId,
+                runtimeTaskId: notification.id,
+                runtimeFlowStatus: 'failed',
+                runtimeFlowMessage: sanitized.message,
+                runtimeFlowStartedAt: startedAt,
+                runtimeFlowCompletedAt: completedAt,
+              })
+            } finally {
+              await runtimeReporter.flush()
+              setRuntimeConfig(input.config)
             }
-            renderer.render()
+
+            if (stopRequested) {
+              break
+            }
           }
 
-          try {
-            const execution = await input.executeFlow(flowId, {
-              ...taskOptions,
-              progressReporter,
-            })
-            const completedAt =
-              execution.completedAt || new Date().toISOString()
-            const summary =
-              formatFlowCompletionSummary(execution.command, execution.result)
-                .split('\n')
-                .find((line) => line.trim()) || 'Flow completed'
-            state.currentFlow = {
-              ...state.currentFlow,
-              flowId,
-              status: 'passed',
-              message: summary,
-              completedAt,
+          if (!stopRequested && !reconnectRequested && connectionOpened) {
+            updateState((state) =>
+              appendDashboardEvent(state, 'Connection closed. Reconnecting...'),
+            )
+          }
+        } catch (error) {
+          if (isAbortError(error)) {
+            if (!stopRequested && reconnectRequested) {
+              updateState((state) => setDashboardPhase(state, 'reconnecting'))
             }
-            appendEvent(state, `${flowId} completed.`)
-            runtimeReporter.update({
-              runtimeFlowId: flowId,
-              runtimeTaskId: notification.id,
-              runtimeFlowStatus: execution.status,
-              runtimeFlowMessage: 'Flow completed',
-              runtimeFlowStartedAt: startedAt,
-              runtimeFlowCompletedAt: completedAt,
-            })
-          } catch (error) {
+          } else {
             const sanitized = sanitizeErrorForOutput(error)
-            const completedAt = new Date().toISOString()
-            state.currentFlow = {
-              ...state.currentFlow,
-              flowId,
-              status: 'failed',
-              message: sanitized.message,
-              completedAt,
-            }
-            appendEvent(state, `${flowId} failed: ${sanitized.message}`)
-            runtimeReporter.update({
-              runtimeFlowId: flowId,
-              runtimeTaskId: notification.id,
-              runtimeFlowStatus: 'failed',
-              runtimeFlowMessage: sanitized.message,
-              runtimeFlowStartedAt: startedAt,
-              runtimeFlowCompletedAt: completedAt,
-            })
-          } finally {
-            await runtimeReporter.flush()
-            setRuntimeConfig(input.config)
-            renderer.render()
+            updateState((state) =>
+              appendDashboardEvent(
+                setDashboardPhase(state, 'error', sanitized.message),
+                `Connection lost: ${sanitized.message}`,
+              ),
+            )
           }
+        } finally {
+          streamAbortController = null
         }
-      } catch (error) {
-        const sanitized = sanitizeErrorForOutput(error)
-        state.phase = 'error'
-        state.lastError = sanitized.message
-        appendEvent(state, `Connection lost: ${sanitized.message}`)
-        renderer.render()
-      }
 
-      await sleep(1000)
+        if (stopRequested) {
+          break
+        }
+
+        announced = true
+        const shouldSleep = !reconnectRequested
+        reconnectRequested = false
+        if (shouldSleep) {
+          await sleep(1000)
+        }
+      }
+    } finally {
+      clearInterval(clockInterval)
     }
   } finally {
-    if (refreshInterval) {
-      clearInterval(refreshInterval)
+    streamAbortController?.abort()
+    process.off('SIGINT', handleSignalStop)
+    process.off('SIGTERM', handleSignalStop)
+
+    if (appStarted) {
+      await app.stop()
     }
-  }
-}
-
-function handleNotification(
-  state: DashboardState,
-  notification: AdminNotificationEvent,
-): void {
-  const title = notification.title?.trim()
-  const body = notification.body?.trim()
-  if (title && body) {
-    appendEvent(state, `${title}: ${body}`)
-    return
-  }
-
-  if (title) {
-    appendEvent(state, title)
-    return
-  }
-
-  if (body) {
-    appendEvent(state, body)
+    app.dispose()
   }
 }

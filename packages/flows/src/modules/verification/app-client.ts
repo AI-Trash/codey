@@ -83,6 +83,7 @@ export interface AppManagedIdentitySummaryRecord {
   id: string
   email: string
   label?: string | null
+  tags?: string[]
   credentialCount: number
   encrypted: boolean
   createdAt: string
@@ -448,6 +449,7 @@ export class AppVerificationProviderClient {
     identityId: string
     email: string
     label?: string
+    tags?: string[]
     plan?: AppManagedIdentityPlan
     password?: string
     metadata?: AppManagedIdentityMetadata
@@ -465,6 +467,7 @@ export class AppVerificationProviderClient {
           identityId: input.identityId,
           email: input.email,
           label: input.label,
+          tags: input.tags,
           plan: input.plan,
           password: input.password,
           metadata: input.metadata,

@@ -306,6 +306,9 @@ export async function* streamCliNotifications(
   handlers?: {
     onConnection?: (event: CliConnectionEvent) => void
   },
+  options?: {
+    signal?: AbortSignal
+  },
 ): AsyncGenerator<AdminNotificationEvent, void, void> {
   const config = getCodeyAppConfig()
   const resolvedAuthState =
@@ -325,6 +328,7 @@ export async function* streamCliNotifications(
   }
 
   const response = await fetch(eventsUrl, {
+    signal: options?.signal,
     headers: {
       Accept: 'text/event-stream',
       Authorization: `Bearer ${resolvedAuthState.accessToken}`,

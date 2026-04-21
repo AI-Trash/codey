@@ -37,8 +37,6 @@ export type CliFlowOptionDisplayNameKey =
   | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
-  | 'projectId'
-  | 'channelName'
 
 export type CliFlowOptionDescriptionKey =
   | 'chromeDefaultProfile'
@@ -56,8 +54,6 @@ export type CliFlowOptionDescriptionKey =
   | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
-  | 'projectId'
-  | 'channelName'
 
 export interface CliFlowOptionDefinition {
   key: string
@@ -198,20 +194,6 @@ export const cliFlowOptionDefinitions = [
     displayNameKey: 'authorizeUrlOnly',
     descriptionKey: 'authorizeUrlOnly',
   },
-  {
-    key: 'projectId',
-    flag: '--projectId',
-    type: 'string',
-    displayNameKey: 'projectId',
-    descriptionKey: 'projectId',
-  },
-  {
-    key: 'channelName',
-    flag: '--channelName',
-    type: 'string',
-    displayNameKey: 'channelName',
-    descriptionKey: 'channelName',
-  },
 ] as const satisfies readonly CliFlowOptionDefinition[]
 
 export const cliFlowDefinitions = [
@@ -245,8 +227,6 @@ export const cliFlowDefinitions = [
       'workspaceIndex',
       'redirectPort',
       'authorizeUrlOnly',
-      'projectId',
-      'channelName',
     ],
   },
   {

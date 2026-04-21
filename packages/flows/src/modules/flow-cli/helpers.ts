@@ -28,8 +28,6 @@ export interface FlowOptions extends CommonOptions {
   workspaceIndex?: string | number | boolean
   target?: string
   redirectPort?: string | number | boolean
-  projectId?: string
-  channelName?: string
   inviteEmail?: string | string[]
   inviteFile?: string
 }
@@ -403,13 +401,9 @@ export function formatFlowCompletionSummary(
 
   if (pageName === 'codex-oauth') {
     const codeyApp = asRecord(record.codeyApp)
-    const axonHub = asRecord(record.axonHub)
-    const channel = asRecord(axonHub?.channel)
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'shared identity', codeyApp?.identityId)
     appendSummaryLine(lines, 'shared session', codeyApp?.sessionRecordId)
-    appendSummaryLine(lines, 'channel', channel?.name ?? channel?.id)
-    appendSummaryLine(lines, 'project', axonHub?.projectId)
     appendSummaryLine(lines, 'redirect', record.redirectUri)
     appendSummaryLine(lines, 'token', 'stored in Codey app')
     appendSummaryLine(lines, 'page', record.url)

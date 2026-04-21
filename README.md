@@ -152,7 +152,7 @@ Then open:
 pnpm flow chatgpt-register --verificationTimeoutMs 180000
 pnpm flow chatgpt-login
 pnpm flow chatgpt-login --chromeDefaultProfile true
-pnpm flow codex-oauth --projectId gid://axonhub/project/123
+pnpm flow codex-oauth --workspaceIndex 2
 ```
 
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
@@ -186,6 +186,8 @@ The default `pnpm codey` entry now opens a terminal UI that connects to the Code
 The TUI keeps an SSE connection to `/api/cli/events`, waits for tasks dispatched from `/admin/cli`, and reports its current flow back to the web app so the admin page can show what is running.
 When `CODEY_APP_CLIENT_SECRET` is configured, the TUI authenticates with `client_credentials`.
 Otherwise it reuses the stored session from `pnpm codey auth login`.
+If no reusable app session is available, the TUI now offers an in-terminal device-login prompt before opening the dashboard.
+The dashboard exposes a few built-in shortcuts: `q` / `Ctrl+C` exits, `r` reconnects to the app stream, and `c` clears the recent event list.
 
 ### Legacy stream mode
 
@@ -203,7 +205,7 @@ pnpm flow codex-oauth --email someone@example.com
 pnpm flow codex-oauth --workspaceIndex 2
 ```
 
-This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, saves the resulting Codex OAuth session directly into the Codey app for sharing, and optionally creates an AxonHub Codex channel when full AxonHub admin config is present. CLI output redacts access tokens, refresh tokens, and passwords.
+This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, and saves the resulting Codex OAuth session directly into the Codey app for sharing. CLI output redacts access tokens, refresh tokens, and passwords.
 
 When login is required, `flow codex-oauth` can target a specific shared ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `flow chatgpt-login`. If neither flag is provided, it falls back to the latest shared identity stored in the app.
 
@@ -211,9 +213,9 @@ If OpenAI shows the Codex workspace picker, `flow codex-oauth` now auto-selects 
 
 When you run `flow codex-oauth --har true`, the CLI now keeps the browser open by default so the normal browser HAR is flushed when you close the browser window. Pass `--record false` if you want the browser to close automatically after the flow finishes.
 
-When `--har true` is enabled, the browser HAR still captures the in-browser OAuth navigation, and `codex-oauth` also writes a separate `*-flow-codex-oauth-api.har` sidecar under `artifacts/` for the token exchange and any optional AxonHub API calls that run outside the browser context.
+When `--har true` is enabled, the browser HAR still captures the in-browser OAuth navigation, and `codex-oauth` also writes a separate `*-flow-codex-oauth-api.har` sidecar under `artifacts/` for the token exchange that runs outside the browser context.
 
-Built-in defaults from `axonhub` are used for Codex OAuth, so these overrides are optional:
+Built-in OpenAI defaults are used for Codex OAuth, so these overrides are optional:
 
 ```env
 CODEX_AUTHORIZE_URL=https://auth.openai.com/oauth/authorize
@@ -224,14 +226,6 @@ CODEX_SCOPE=openid profile email offline_access
 
 If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
 
-To also create an AxonHub channel, provide:
-
-```env
-AXONHUB_BASE_URL=http://localhost:8080
-AXONHUB_ADMIN_EMAIL=admin@example.com
-AXONHUB_ADMIN_PASSWORD=replace-with-admin-password
-```
-
 Optional environment variables:
 
 ```env
@@ -239,14 +233,6 @@ CODEX_CLIENT_SECRET=your-codex-client-secret
 CODEX_REDIRECT_HOST=localhost
 CODEX_REDIRECT_PORT=1455
 CODEX_REDIRECT_PATH=/auth/callback
-AXONHUB_PROJECT_ID=your-axonhub-project-guid
-AXONHUB_GRAPHQL_PATH=/admin/graphql
-CODEX_CHANNEL_NAME=Codex OAuth
-CODEX_CHANNEL_BASE_URL=https://api.openai.com
-CODEX_CHANNEL_TAGS=codex
-CODEX_CHANNEL_SUPPORTED_MODELS=codex-mini-latest
-CODEX_CHANNEL_MANUAL_MODELS=
-CODEX_CHANNEL_DEFAULT_TEST_MODEL=codex-mini-latest
 ```
 
 ## Cloudflare Email Worker

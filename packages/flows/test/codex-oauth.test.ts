@@ -20,10 +20,6 @@ const waitForVerificationCodeInputReady = vi.fn()
 const createAuthorizationCallbackCapture = vi.fn()
 const startCodexAuthorization = vi.fn()
 const exchangeCodexAuthorizationCode = vi.fn()
-const signIn = vi.fn()
-const createChannel = vi.fn()
-const buildCodexOAuthCredentials = vi.fn()
-const AxonHubAdminClient = vi.fn()
 const shareCodexOAuthSessionWithCodeyApp = vi.fn()
 const resolveStoredChatGPTIdentity = vi.fn()
 
@@ -67,11 +63,6 @@ vi.mock('../src/modules/app-auth/codex-oauth-sharing', () => ({
   shareCodexOAuthSessionWithCodeyApp,
 }))
 
-vi.mock('../src/modules/authorization/axonhub-client', () => ({
-  AxonHubAdminClient,
-  buildCodexOAuthCredentials,
-}))
-
 describe('runCodexOAuthFlow', () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -94,20 +85,6 @@ describe('runCodexOAuthFlow', () => {
         redirectHost: 'localhost',
         redirectPort: 1455,
         redirectPath: '/auth/callback',
-      },
-      axonHub: {
-        baseUrl: 'https://axonhub.example.com',
-        email: 'admin@example.com',
-        password: 'admin-password',
-        projectId: 'project-from-config',
-      },
-      codexChannel: {
-        name: 'Codex OAuth',
-        baseUrl: 'https://api.openai.com',
-        tags: ['codex'],
-        supportedModels: ['codex-mini-latest'],
-        manualModels: [],
-        defaultTestModel: 'codex-mini-latest',
       },
     })
 
@@ -139,45 +116,6 @@ describe('runCodexOAuthFlow', () => {
         credentialCount: 0,
       },
     })
-
-    buildCodexOAuthCredentials.mockImplementation(
-      (
-        token: {
-          accessToken: string
-          refreshToken?: string
-          tokenType?: string
-          scope?: string
-        },
-        clientId: string,
-      ) => ({
-        oauth: {
-          accessToken: token.accessToken,
-          refreshToken: token.refreshToken,
-          clientID: clientId,
-          tokenType: token.tokenType,
-          scopes: token.scope?.split(/\s+/).filter(Boolean) || [],
-        },
-      }),
-    )
-
-    signIn.mockResolvedValue({
-      token: 'axonhub-admin-token',
-    })
-
-    createChannel.mockResolvedValue({
-      id: 'channel-123',
-      name: 'Codex OAuth',
-      credentials: {
-        oauth: {
-          accessToken: 'channel-access-token',
-        },
-      },
-    })
-
-    AxonHubAdminClient.mockImplementation(() => ({
-      signIn,
-      createChannel,
-    }))
 
     clickPasswordSubmit.mockResolvedValue(undefined)
     clickVerificationContinue.mockResolvedValue(true)
@@ -335,12 +273,6 @@ describe('runCodexOAuthFlow', () => {
       email: 'person@example.com',
       redirectUri: 'http://localhost:1455/auth/callback',
       tokenStorePath: 'codey-app://managed-sessions/managed-session-1',
-      axonHub: {
-        channel: {
-          id: 'channel-123',
-          name: 'Codex OAuth',
-        },
-      },
     })
     expect(
       result.machine.history.some(
@@ -1168,7 +1100,7 @@ describe('runCodexOAuthFlow', () => {
     expect(result.url).toContain('http://localhost:1455/auth/callback')
   })
 
-  it('shares the Codex OAuth session with Codey app and skips incomplete AxonHub config', async () => {
+  it('shares the Codex OAuth session with Codey app', async () => {
     let currentUrl =
       'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
 
@@ -1201,9 +1133,6 @@ describe('runCodexOAuthFlow', () => {
         redirectHost: 'localhost',
         redirectPort: 1455,
         redirectPath: '/auth/callback',
-      },
-      axonHub: {
-        baseUrl: 'https://axonhub.example.com',
       },
     })
 
@@ -1245,8 +1174,6 @@ describe('runCodexOAuthFlow', () => {
         }),
       }),
     )
-    expect(signIn).not.toHaveBeenCalled()
-    expect(createChannel).not.toHaveBeenCalled()
     expect(result).toMatchObject({
       pageName: 'codex-oauth',
       email: 'person@example.com',

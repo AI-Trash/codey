@@ -1,150 +1,166 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { requireAdminPermission } from "../../../lib/server/auth";
-import { json, redirect, text } from "../../../lib/server/http";
+import { createFileRoute } from '@tanstack/react-router'
+import { requireAdminPermission } from '../../../lib/server/auth'
+import { json, redirect, text } from '../../../lib/server/http'
 import {
   deleteManagedIdentity,
   findAdminIdentitySummary,
   updateManagedIdentity,
   upsertManagedIdentity,
-} from "../../../lib/server/identities";
+} from '../../../lib/server/identities'
+import { parseManagedIdentityTagsInput } from '../../../lib/managed-identity-tags'
 
 function readManagedIdentityPlan(
   value: FormDataEntryValue | null,
-): "free" | "plus" | "team" {
-  const normalized = String(value || "free").trim().toLowerCase();
-  if (
-    normalized === "free" ||
-    normalized === "plus" ||
-    normalized === "team"
-  ) {
-    return normalized;
+): 'free' | 'plus' | 'team' {
+  const normalized = String(value || 'free')
+    .trim()
+    .toLowerCase()
+  if (normalized === 'free' || normalized === 'plus' || normalized === 'team') {
+    return normalized
   }
 
-  return "free";
+  return 'free'
 }
 
 function readManagedIdentityStatus(
   value: FormDataEntryValue | null,
-): "ACTIVE" | "REVIEW" | "ARCHIVED" {
-  const normalized = String(value || "ACTIVE").toUpperCase();
+): 'ACTIVE' | 'REVIEW' | 'ARCHIVED' {
+  const normalized = String(value || 'ACTIVE').toUpperCase()
   if (
-    normalized === "ACTIVE" ||
-    normalized === "REVIEW" ||
-    normalized === "ARCHIVED"
+    normalized === 'ACTIVE' ||
+    normalized === 'REVIEW' ||
+    normalized === 'ARCHIVED'
   ) {
-    return normalized;
+    return normalized
   }
 
-  return "ACTIVE";
+  return 'ACTIVE'
 }
 
 function readRedirectTo(value: FormDataEntryValue | null): string | undefined {
-  const redirectTo = String(value || "").trim();
-  if (!redirectTo || !redirectTo.startsWith("/admin")) {
-    return undefined;
+  const redirectTo = String(value || '').trim()
+  if (!redirectTo || !redirectTo.startsWith('/admin')) {
+    return undefined
   }
 
-  return redirectTo;
+  return redirectTo
 }
 
 function readManagedIdentityIntent(value: FormDataEntryValue | null) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase()
 }
 
-export const Route = createFileRoute("/api/admin/identities")({
+function readManagedIdentityTags(value: FormDataEntryValue | null) {
+  return parseManagedIdentityTagsInput(String(value || ''))
+}
+
+export const Route = createFileRoute('/api/admin/identities')({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "MANAGED_IDENTITIES");
+          await requireAdminPermission(request, 'MANAGED_IDENTITIES')
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : "Unauthorized",
+            error instanceof Error ? error.message : 'Unauthorized',
             401,
-          );
+          )
         }
 
-        const form = await request.formData();
-        const identityId = String(form.get("identityId") || "").trim();
-        const email = String(form.get("email") || "").trim();
-        const intent = readManagedIdentityIntent(form.get("intent"));
+        const form = await request.formData()
+        const identityId = String(form.get('identityId') || '').trim()
+        const email = String(form.get('email') || '').trim()
+        const intent = readManagedIdentityIntent(form.get('intent'))
 
         if (!identityId) {
-          return text("identityId is required", 400);
+          return text('identityId is required', 400)
         }
 
-        const knownIdentity = await findAdminIdentitySummary(identityId);
+        const knownIdentity = await findAdminIdentitySummary(identityId)
         if (!knownIdentity) {
-          return text("Unknown identityId", 400);
+          return text('Unknown identityId', 400)
         }
 
         if (email && knownIdentity.account !== email) {
-          return text("Identity email mismatch", 400);
+          return text('Identity email mismatch', 400)
         }
 
-        if (intent === "delete") {
-          const record = await deleteManagedIdentity(identityId);
+        if (intent === 'delete') {
+          const record = await deleteManagedIdentity(identityId)
           if (!record) {
-            return text("Unknown identityId", 400);
+            return text('Unknown identityId', 400)
           }
 
-          const accept = request.headers.get("accept") || "";
-          if (accept.includes("application/json")) {
-            return json({ ok: true, id: record.id });
+          const accept = request.headers.get('accept') || ''
+          if (accept.includes('application/json')) {
+            return json({ ok: true, id: record.id })
           }
 
           return redirect(
-            readRedirectTo(form.get("redirectTo")) || "/admin/identities",
-          );
+            readRedirectTo(form.get('redirectTo')) || '/admin/identities',
+          )
         }
 
         const record =
-          intent === "save-label"
+          intent === 'save-label'
             ? await updateManagedIdentity({
                 identityId,
-                label: String(form.get("label") || ""),
+                label: String(form.get('label') || ''),
               })
-            : intent === "save-plan"
+            : intent === 'save-details'
               ? await updateManagedIdentity({
                   identityId,
-                  plan: readManagedIdentityPlan(form.get("plan")),
+                  label: String(form.get('label') || ''),
+                  tags: readManagedIdentityTags(form.get('tags')),
                 })
-            : intent === "activate"
-              ? await updateManagedIdentity({
-                  identityId,
-                  status: "ACTIVE",
-                })
-              : intent === "review"
+              : intent === 'save-plan'
                 ? await updateManagedIdentity({
                     identityId,
-                    status: "REVIEW",
+                    plan: readManagedIdentityPlan(form.get('plan')),
                   })
-                : intent === "archive"
+                : intent === 'activate'
                   ? await updateManagedIdentity({
                       identityId,
-                      status: "ARCHIVED",
+                      status: 'ACTIVE',
                     })
-                  : !email
-                    ? null
-                    : await upsertManagedIdentity({
+                  : intent === 'review'
+                    ? await updateManagedIdentity({
                         identityId,
-                        email,
-                        label: String(form.get("label") || ""),
-                        plan: readManagedIdentityPlan(form.get("plan")),
-                        status: readManagedIdentityStatus(form.get("status")),
-                      });
+                        status: 'REVIEW',
+                      })
+                    : intent === 'archive'
+                      ? await updateManagedIdentity({
+                          identityId,
+                          status: 'ARCHIVED',
+                        })
+                      : !email
+                        ? null
+                        : await upsertManagedIdentity({
+                            identityId,
+                            email,
+                            label: String(form.get('label') || ''),
+                            tags: readManagedIdentityTags(form.get('tags')),
+                            plan: readManagedIdentityPlan(form.get('plan')),
+                            status: readManagedIdentityStatus(
+                              form.get('status'),
+                            ),
+                          })
 
         if (!record) {
-          return text("Unable to update managed identity", 400);
+          return text('Unable to update managed identity', 400)
         }
 
-        const accept = request.headers.get("accept") || "";
-        if (accept.includes("application/json")) {
-          return json({ ok: true, id: record.id });
+        const accept = request.headers.get('accept') || ''
+        if (accept.includes('application/json')) {
+          return json({ ok: true, id: record.id })
         }
 
-        return redirect(readRedirectTo(form.get("redirectTo")) || "/admin/identities");
+        return redirect(
+          readRedirectTo(form.get('redirectTo')) || '/admin/identities',
+        )
       },
     },
   },
-});
+})

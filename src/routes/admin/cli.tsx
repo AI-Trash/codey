@@ -930,8 +930,6 @@ const optionDisplayNameMap: Record<CliFlowOptionDisplayNameKey, () => string> =
     workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
     redirectPort: () => m.admin_cli_option_redirect_port_name(),
     authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
-    projectId: () => m.admin_cli_option_project_id_name(),
-    channelName: () => m.admin_cli_option_channel_name_name(),
   }
 
 const optionDescriptionMap: Record<CliFlowOptionDescriptionKey, () => string> =
@@ -953,8 +951,6 @@ const optionDescriptionMap: Record<CliFlowOptionDescriptionKey, () => string> =
     workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
     redirectPort: () => m.admin_cli_option_redirect_port_description(),
     authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_description(),
-    projectId: () => m.admin_cli_option_project_id_description(),
-    channelName: () => m.admin_cli_option_channel_name_description(),
   }
 
 function getFlowDisplayName(flowId: CliFlowCommandId): string {

@@ -336,6 +336,11 @@ export const managedIdentities = pgTable(
     identityId: text('identity_id').notNull(),
     email: text('email').notNull(),
     label: text('label'),
+    tags: text('tags')
+      .array()
+      .$type<string[]>()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
     passwordCiphertext: text('password_ciphertext'),
     credentialMetadata: jsonb('credential_metadata').$type<
       Record<string, unknown>

@@ -40,11 +40,6 @@ import {
   type StoredChatGPTIdentitySummary,
 } from '../modules/credentials'
 import {
-  AxonHubAdminClient,
-  buildCodexOAuthCredentials,
-  type CreateAxonHubChannelInput,
-} from '../modules/authorization/axonhub-client'
-import {
   exchangeCodexAuthorizationCode,
   startCodexAuthorization,
   type CodexTokenResponse,
@@ -88,8 +83,6 @@ export type CodexOAuthFlowState =
   | 'exchanging-token'
   | 'persisting-token'
   | 'sharing-session'
-  | 'signing-in-admin'
-  | 'creating-channel'
   | 'completed'
   | 'failed'
 
@@ -103,8 +96,6 @@ export type CodexOAuthFlowEvent =
   | 'codey.app.sync.started'
   | 'codey.app.sync.completed'
   | 'codex.oauth.retry.requested'
-  | 'axonhub.admin.signin.started'
-  | 'axonhub.admin.signin.completed'
   | 'codex.oauth.completed'
   | 'codex.oauth.failed'
   | 'context.updated'
@@ -118,30 +109,6 @@ interface RedactedCodexTokenResult {
   scope?: string
   tokenType?: string
   createdAt: string
-}
-
-interface CodexOAuthChannelResult {
-  id?: string
-  type?: string
-  name?: string
-  baseURL?: string | null
-  supportedModels?: string[] | null
-  manualModels?: string[] | null
-  tags?: string[] | null
-  defaultTestModel?: string | null
-  remark?: string | null
-  createdAt?: string | null
-  updatedAt?: string | null
-  credentials: {
-    oauth: {
-      accessToken: string
-      refreshToken?: string
-      clientID: string
-      expiresAt?: string
-      tokenType?: string
-      scopes: string[]
-    }
-  }
 }
 
 function sanitizeUrl(value: string): string {
@@ -163,8 +130,6 @@ export interface CodexOAuthFlowContext<Result = unknown> {
   redirectUri?: string
   authorizationUrl?: string
   tokenStorePath?: string
-  channelName?: string
-  projectId?: string
   surface?: CodexOAuthLoginSurface
   method?: 'password' | 'verification'
   storedIdentity?: StoredChatGPTIdentitySummary
@@ -200,10 +165,6 @@ export interface CodexOAuthFlowResult {
     identityId: string
     identityRecordId: string
     sessionRecordId: string
-  }
-  axonHub?: {
-    projectId?: string
-    channel: CodexOAuthChannelResult
   }
   apiHarPath?: string
   machine: CodexOAuthFlowSnapshot<CodexOAuthFlowRunResult>
@@ -255,8 +216,6 @@ const codexOAuthEventTargets = {
   'codex.oauth.token.persisted': 'persisting-token',
   'codey.app.sync.started': 'sharing-session',
   'codey.app.sync.completed': 'sharing-session',
-  'axonhub.admin.signin.started': 'signing-in-admin',
-  'axonhub.admin.signin.completed': 'creating-channel',
 } as const satisfies Partial<Record<CodexOAuthFlowEvent, CodexOAuthFlowState>>
 
 const codexOAuthMutableContextEvents = [
@@ -274,8 +233,6 @@ const codexOAuthAddPhoneGuardEvents = [
   'codey.app.sync.started',
   'codey.app.sync.completed',
   'codex.oauth.retry.requested',
-  'axonhub.admin.signin.started',
-  'axonhub.admin.signin.completed',
   ...codexOAuthMutableContextEvents,
 ] as const satisfies CodexOAuthFlowEvent[]
 
@@ -295,8 +252,6 @@ const codexOAuthStates = [
   'exchanging-token',
   'persisting-token',
   'sharing-session',
-  'signing-in-admin',
-  'creating-channel',
   'completed',
   'failed',
 ] as const satisfies readonly CodexOAuthFlowState[]
@@ -481,39 +436,11 @@ function redactToken(token: CodexTokenResponse): RedactedCodexTokenResult {
   }
 }
 
-function resolveChannelName(options: FlowOptions): string {
-  const config = getRuntimeConfig()
-  return (
-    options.channelName?.trim() ||
-    config.codexChannel?.name?.trim() ||
-    'Codex OAuth'
-  )
-}
-
-function resolveProjectId(options: FlowOptions): string | undefined {
-  const config = getRuntimeConfig()
-  return options.projectId?.trim() || config.axonHub?.projectId?.trim()
-}
-
 function hasCodeyAppSyncConfig(): boolean {
   const config = getRuntimeConfig()
   return Boolean(
     config.verification?.app?.baseUrl?.trim() || config.app?.baseUrl?.trim(),
   )
-}
-
-function hasCompleteAxonHubConfig(): boolean {
-  const config = getRuntimeConfig()
-  return Boolean(
-    config.axonHub?.baseUrl?.trim() &&
-    config.axonHub?.email?.trim() &&
-    config.axonHub?.password?.trim(),
-  )
-}
-
-function hasPartialAxonHubConfig(): boolean {
-  const config = getRuntimeConfig()
-  return Boolean(config.axonHub)
 }
 
 function getRequiredCodexConfig(): {
@@ -546,53 +473,6 @@ function getRequiredCodexConfig(): {
     redirectHost: config.codex.redirectHost,
     redirectPort: config.codex.redirectPort,
     redirectPath: config.codex.redirectPath,
-  }
-}
-
-function buildCreateChannelInput(
-  token: CodexTokenResponse,
-  options: FlowOptions,
-): CreateAxonHubChannelInput {
-  const config = getRuntimeConfig()
-  const codexConfig = getRequiredCodexConfig()
-  const channelName = resolveChannelName(options)
-  const supportedModels = config.codexChannel?.supportedModels || []
-  const manualModels = config.codexChannel?.manualModels || []
-  const defaultTestModel =
-    config.codexChannel?.defaultTestModel ||
-    supportedModels[0] ||
-    manualModels[0] ||
-    'codex-mini-latest'
-
-  return {
-    type: 'codex',
-    baseURL: config.codexChannel?.baseUrl,
-    name: channelName,
-    credentials: buildCodexOAuthCredentials(token, codexConfig.clientId),
-    supportedModels,
-    manualModels,
-    tags: config.codexChannel?.tags || ['codex'],
-    defaultTestModel,
-    autoSyncSupportedModels: supportedModels.length === 0,
-    remark: 'Created by codey flow codex-oauth',
-  }
-}
-
-function redactChannelCredentials(
-  input: CreateAxonHubChannelInput,
-  createdChannel: Awaited<ReturnType<AxonHubAdminClient['createChannel']>>,
-): CodexOAuthChannelResult {
-  return {
-    ...createdChannel,
-    credentials: {
-      oauth: {
-        ...input.credentials.oauth,
-        accessToken: '***redacted***',
-        refreshToken: input.credentials.oauth.refreshToken
-          ? '***redacted***'
-          : undefined,
-      },
-    },
   }
 }
 
@@ -1588,7 +1468,6 @@ export async function runCodexOAuthFlow(
   page: Page,
   options: FlowOptions = {},
 ): Promise<CodexOAuthFlowRunResult> {
-  const config = getRuntimeConfig()
   const codexConfig = getRequiredCodexConfig()
   const apiHarRecorder = createNodeHarRecorder('flow-codex-oauth-api')
   printFlowArtifactPath('API HAR', apiHarRecorder?.path, 'flow:codex-oauth')
@@ -1597,20 +1476,10 @@ export async function runCodexOAuthFlow(
     machine,
     options.progressReporter,
   )
-  const channelName = resolveChannelName(options)
-  const projectId = resolveProjectId(options)
   const authorizeUrlOnly = parseBooleanFlag(options.authorizeUrlOnly, false)
 
   try {
-    machine.start(
-      {
-        channelName,
-        projectId,
-      },
-      {
-        source: 'runCodexOAuthFlow',
-      },
-    )
+    machine.start({}, { source: 'runCodexOAuthFlow' })
 
     const redirectPort =
       parseNumberFlag(options.redirectPort, codexConfig.redirectPort) ||
@@ -1622,8 +1491,6 @@ export async function runCodexOAuthFlow(
       'starting-oauth',
       'codex.oauth.started',
       {
-        channelName,
-        projectId,
         lastMessage: 'Starting Codex PKCE OAuth',
       },
     )
@@ -1656,8 +1523,6 @@ export async function runCodexOAuthFlow(
           title: result.title,
           redirectUri: started.redirectUri,
           authorizationUrl: result.oauthUrl,
-          channelName,
-          projectId,
           lastMessage:
             'Generated Codex OAuth URL and exited before browser login',
         },
@@ -1830,71 +1695,6 @@ export async function runCodexOAuthFlow(
       },
     )
 
-    let axonHub:
-      | {
-          projectId?: string
-          channel: CodexOAuthChannelResult
-        }
-      | undefined
-
-    if (hasCompleteAxonHubConfig()) {
-      await sendCodexOAuthMachine(
-        machine,
-        'signing-in-admin',
-        'axonhub.admin.signin.started',
-        {
-          url: sanitizeUrl(page.url()),
-          tokenStorePath,
-          lastMessage: 'Signing into AxonHub admin',
-        },
-      )
-
-      const axonHubClient = new AxonHubAdminClient(
-        {
-          ...config.axonHub,
-          projectId,
-        },
-        {
-          harRecorder: apiHarRecorder,
-        },
-      )
-      const adminSession = await axonHubClient.signIn()
-
-      await sendCodexOAuthMachine(
-        machine,
-        'creating-channel',
-        'action.started',
-        {
-          url: sanitizeUrl(page.url()),
-          tokenStorePath,
-          lastMessage: 'Creating Codex channel in AxonHub',
-        },
-      )
-
-      const channelInput = buildCreateChannelInput(token, options)
-      const createdChannel = await axonHubClient.createChannel(
-        adminSession.token,
-        channelInput,
-      )
-
-      axonHub = {
-        projectId,
-        channel: redactChannelCredentials(channelInput, createdChannel),
-      }
-    } else if (hasPartialAxonHubConfig()) {
-      await sendCodexOAuthMachine(
-        machine,
-        'persisting-token',
-        'context.updated',
-        {
-          url: sanitizeUrl(page.url()),
-          tokenStorePath,
-          lastMessage:
-            'Skipping AxonHub channel creation because the admin config is incomplete',
-        },
-      )
-    }
-
     const title = await page.title()
     const email = machine.getSnapshot().context.email || storedIdentity?.email
     const result = {
@@ -1912,7 +1712,6 @@ export async function runCodexOAuthFlow(
             sessionRecordId: codeyApp.sessionRecordId,
           }
         : undefined,
-      axonHub,
       apiHarPath: apiHarRecorder?.path,
       machine:
         undefined as unknown as CodexOAuthFlowSnapshot<CodexOAuthFlowRunResult>,
@@ -1926,8 +1725,6 @@ export async function runCodexOAuthFlow(
         email: result.email,
         redirectUri: started.redirectUri,
         tokenStorePath,
-        channelName,
-        projectId,
         lastMessage: 'Codex OAuth flow completed',
       },
     })
@@ -1938,8 +1735,6 @@ export async function runCodexOAuthFlow(
       event: 'codex.oauth.failed',
       patch: {
         url: sanitizeUrl(page.url()),
-        channelName,
-        projectId,
         lastMessage: sanitizeErrorForOutput(error).message,
       },
     })

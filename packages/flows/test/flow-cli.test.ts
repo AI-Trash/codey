@@ -157,18 +157,6 @@ describe('flow cli helpers', () => {
         identityId: 'identity-123',
         sessionRecordId: 'managed-session-1',
       },
-      axonHub: {
-        projectId: 'project-42',
-        channel: {
-          id: 'channel-1',
-          name: 'Codey',
-          credentials: {
-            oauth: {
-              accessToken: 'secret',
-            },
-          },
-        },
-      },
     })
 
     expect(loginSummary).toContain('flow:chatgpt-login completed')
@@ -189,8 +177,6 @@ describe('flow cli helpers', () => {
     expect(oauthSummary).toContain('email: person@example.com')
     expect(oauthSummary).toContain('shared identity: identity-123')
     expect(oauthSummary).toContain('shared session: managed-session-1')
-    expect(oauthSummary).toContain('channel: Codey')
-    expect(oauthSummary).toContain('project: project-42')
     expect(oauthSummary).toContain('token: stored in Codey app')
     expect(oauthSummary).toContain('har: C:/tmp/flow-codex-oauth.har')
     expect(oauthSummary).toContain('api har: C:/tmp/flow-codex-oauth-api.har')

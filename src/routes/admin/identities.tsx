@@ -1,6 +1,7 @@
 import {
   type ComponentProps,
   type ReactNode,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -14,6 +15,7 @@ import {
   SearchIcon,
   ShieldIcon,
   SquarePenIcon,
+  TagsIcon,
   Trash2Icon,
 } from 'lucide-react'
 
@@ -34,6 +36,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '#/components/ui/alert-dialog'
+import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -68,19 +71,28 @@ import {
 } from '#/components/ui/tooltip'
 import {
   translateManagedIdentityPlanLabel,
+  translateManagedIdentityTagLabel,
   translateStatusLabel,
 } from '#/lib/i18n'
+import {
+  managedIdentityPresetTagValues,
+  normalizeManagedIdentityTags,
+} from '#/lib/managed-identity-tags'
+import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
 const loadAdminIdentities = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const [{ getRequest }, { requireAdminPermission }, { listAdminIdentitySummaries }] =
-      await Promise.all([
-        import('@tanstack/react-start/server'),
-        import('../../lib/server/auth'),
-        import('../../lib/server/identities'),
-      ])
+    const [
+      { getRequest },
+      { requireAdminPermission },
+      { listAdminIdentitySummaries },
+    ] = await Promise.all([
+      import('@tanstack/react-start/server'),
+      import('../../lib/server/auth'),
+      import('../../lib/server/identities'),
+    ])
 
     const request = getRequest()
 
@@ -106,6 +118,7 @@ export const Route = createFileRoute('/admin/identities')({
 type IdentitySummary = {
   id: string
   label: string
+  tags?: string[] | null
   provider?: string | null
   account?: string | null
   flowCount?: number | null
@@ -152,6 +165,16 @@ const managedIdentityPlanOptions = [
 
 type ManagedIdentityPlan = (typeof managedIdentityPlanOptions)[number]['value']
 
+const managedIdentityTagOptions = managedIdentityPresetTagValues.map(
+  (value) => ({
+    value,
+    label: () => translateManagedIdentityTagLabel(value),
+  }),
+) as ReadonlyArray<{
+  value: (typeof managedIdentityPresetTagValues)[number]
+  label: () => string
+}>
+
 function normalizeManagedIdentityStatus(
   status?: string | null,
 ): ManagedIdentityStatus {
@@ -180,6 +203,10 @@ function normalizeManagedIdentityPlan(
 
 function isManagedIdentityPlan(value: string): value is ManagedIdentityPlan {
   return managedIdentityPlanOptions.some((option) => option.value === value)
+}
+
+function normalizeManagedIdentitySummaryTags(tags?: string[] | null) {
+  return normalizeManagedIdentityTags(tags || [])
 }
 
 function getManagedIdentityIntent(status: ManagedIdentityStatus) {
@@ -246,6 +273,19 @@ function AdminIdentitiesPage() {
         .icon(HashIcon)
         .build(),
       dtf
+        .multiOption()
+        .id('tags')
+        .accessor((summary) =>
+          normalizeManagedIdentitySummaryTags(summary.tags),
+        )
+        .displayName(m.admin_dashboard_table_tags())
+        .icon(TagsIcon)
+        .transformOptionFn((tag) => ({
+          label: translateManagedIdentityTagLabel(tag),
+          value: tag,
+        }))
+        .build(),
+      dtf
         .date()
         .id('lastSeen')
         .accessor((summary) => normalizeDate(summary.lastSeenAt))
@@ -304,7 +344,7 @@ function AdminIdentitiesPage() {
               />
             }
             renderTable={(rows) => (
-              <Table className="min-w-[1320px]">
+              <Table className="min-w-[1460px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
@@ -312,6 +352,7 @@ function AdminIdentitiesPage() {
                     <TableHead>{m.admin_dashboard_table_provider()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_plan()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_flows()}</TableHead>
+                    <TableHead>{m.admin_dashboard_table_tags()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_last_seen()}</TableHead>
                     <TableHead>{m.oauth_clients_table_status()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_manage()}</TableHead>
@@ -363,6 +404,9 @@ function AdminIdentitiesPage() {
                             })
                           : '0'}
                       </TableCell>
+                      <TableCell className="align-top">
+                        <ManagedIdentityTagList tags={summary.tags} />
+                      </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
                         {formatAdminDate(summary.lastSeenAt) ||
                           m.admin_dashboard_not_captured_yet()}
@@ -389,33 +433,121 @@ function IdentityRowActions(props: { summary: IdentitySummary }) {
   const { summary } = props
   const labelDefaultValue =
     summary.label !== summary.account ? summary.label : ''
+  const [selectedTags, setSelectedTags] = useState(() =>
+    normalizeManagedIdentitySummaryTags(summary.tags),
+  )
+
+  useEffect(() => {
+    setSelectedTags(normalizeManagedIdentitySummaryTags(summary.tags))
+  }, [summary.tags])
 
   return (
     <TooltipProvider>
-      <div className="flex min-w-[320px] items-start gap-2">
+      <div className="flex min-w-[420px] items-start gap-2">
         <form
           method="post"
           action="/api/admin/identities"
-          className="flex min-w-0 flex-1 items-start gap-2"
+          className="min-w-0 flex-1 space-y-2"
         >
           <IdentityActionFields summary={summary} />
-          <Input
-            name="label"
-            defaultValue={labelDefaultValue}
-            placeholder={summary.account || m.admin_dashboard_identity_label()}
-            className="h-8 min-w-0 flex-1"
+          <input type="hidden" name="tags" value={selectedTags.join('\n')} />
+          <IdentityTagSelector
+            value={selectedTags}
+            onChange={setSelectedTags}
           />
-          <ActionIconButton
-            type="submit"
-            name="intent"
-            value="save-label"
-            label={m.admin_identity_update_label_button()}
-            icon={<SquarePenIcon />}
-          />
+          <div className="flex min-w-0 items-start gap-2">
+            <Input
+              name="label"
+              defaultValue={labelDefaultValue}
+              placeholder={
+                summary.account || m.admin_dashboard_identity_label()
+              }
+              className="h-8 min-w-0 flex-1"
+            />
+            <ActionIconButton
+              type="submit"
+              name="intent"
+              value="save-details"
+              label={m.admin_identity_update_details_button()}
+              icon={<SquarePenIcon />}
+            />
+          </div>
         </form>
         <IdentityDeleteAction summary={summary} />
       </div>
     </TooltipProvider>
+  )
+}
+
+function ManagedIdentityTagList(props: { tags?: string[] | null }) {
+  const tags = normalizeManagedIdentitySummaryTags(props.tags)
+
+  if (!tags.length) {
+    return (
+      <span className="text-sm text-muted-foreground">
+        {m.admin_identity_tags_empty()}
+      </span>
+    )
+  }
+
+  return (
+    <div className="flex max-w-[220px] flex-wrap gap-2">
+      {tags.map((tag) => (
+        <Badge key={tag} variant="outline">
+          {translateManagedIdentityTagLabel(tag)}
+        </Badge>
+      ))}
+    </div>
+  )
+}
+
+function IdentityTagSelector(props: {
+  value: string[]
+  onChange: (nextTags: string[]) => void
+}) {
+  const selectedTags = new Set(props.value)
+
+  return (
+    <div className="flex min-h-9 flex-wrap gap-2 rounded-md border border-input bg-transparent p-2">
+      {managedIdentityTagOptions.map((option) => {
+        const selected = selectedTags.has(option.value)
+
+        return (
+          <Badge
+            asChild
+            key={option.value}
+            variant={selected ? 'default' : 'outline'}
+            className={cn(
+              'px-3 py-1 text-sm',
+              selected
+                ? 'shadow-xs'
+                : 'hover:bg-accent hover:text-accent-foreground',
+            )}
+          >
+            <button
+              type="button"
+              aria-pressed={selected}
+              title={option.label()}
+              onClick={() => {
+                const nextTags = normalizeManagedIdentityTags(
+                  managedIdentityTagOptions
+                    .filter((tagOption) =>
+                      tagOption.value === option.value
+                        ? !selected
+                        : selectedTags.has(tagOption.value),
+                    )
+                    .map((tagOption) => tagOption.value),
+                )
+
+                props.onChange(nextTags)
+              }}
+            >
+              {option.label()}
+            </button>
+          </Badge>
+        )
+      })}
+    </div>
   )
 }
 

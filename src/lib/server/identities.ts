@@ -1,126 +1,129 @@
-import "@tanstack/react-start/server-only";
+import '@tanstack/react-start/server-only'
 
-import { and, desc, eq, isNotNull } from "drizzle-orm";
-import { getDb } from "./db/client";
-import { decryptSecret, encryptSecret } from "./encrypted-secrets";
-import { managedIdentities, verificationEmailReservations } from "./db/schema";
-import { createId } from "./security";
-import { m } from "#/paraglide/messages";
-import type { ManagedIdentityPlan } from "./db/schema";
+import { and, desc, eq, isNotNull } from 'drizzle-orm'
+import { getDb } from './db/client'
+import { decryptSecret, encryptSecret } from './encrypted-secrets'
+import { managedIdentities, verificationEmailReservations } from './db/schema'
+import { createId } from './security'
+import { normalizeManagedIdentityTags } from '../managed-identity-tags'
+import { m } from '#/paraglide/messages'
+import type { ManagedIdentityPlan } from './db/schema'
 
 export interface AdminIdentitySummary {
-  id: string;
-  label: string;
-  provider: string;
-  account: string;
-  flowCount: number;
-  lastSeenAt: string;
-  status: string;
-  plan: ManagedIdentityPlan;
+  id: string
+  label: string
+  tags: string[]
+  provider: string
+  account: string
+  flowCount: number
+  lastSeenAt: string
+  status: string
+  plan: ManagedIdentityPlan
 }
 
 export interface ManagedIdentityCredentialMetadata {
-  prefix?: string;
-  mailbox?: string;
-  source?: "chatgpt-register";
-  chatgptUrl?: string;
+  prefix?: string
+  mailbox?: string
+  source?: 'chatgpt-register'
+  chatgptUrl?: string
 }
 
 export interface ManagedIdentityCredentialSummary {
-  id: string;
-  email: string;
-  label: string | null;
-  credentialCount: number;
-  encrypted: boolean;
-  createdAt: string;
-  updatedAt: string;
-  status: string;
-  plan: ManagedIdentityPlan;
-  metadata?: ManagedIdentityCredentialMetadata;
+  id: string
+  email: string
+  label: string | null
+  tags: string[]
+  credentialCount: number
+  encrypted: boolean
+  createdAt: string
+  updatedAt: string
+  status: string
+  plan: ManagedIdentityPlan
+  metadata?: ManagedIdentityCredentialMetadata
 }
 
-export interface ManagedIdentityCredentialRecord
-  extends ManagedIdentityCredentialSummary {
-  password: string;
+export interface ManagedIdentityCredentialRecord extends ManagedIdentityCredentialSummary {
+  password: string
 }
 
 function mapManagedStatus(status?: string | null) {
-  if (status === "ARCHIVED") {
-    return "archived";
+  if (status === 'ARCHIVED') {
+    return 'archived'
   }
 
-  if (status === "REVIEW") {
-    return "review";
+  if (status === 'REVIEW') {
+    return 'review'
   }
 
-  return "active";
+  return 'active'
 }
 
 function normalizeCredentialMetadata(
   metadata?: Record<string, unknown> | null,
 ): ManagedIdentityCredentialMetadata | undefined {
   if (!metadata) {
-    return undefined;
+    return undefined
   }
 
-  const normalized: ManagedIdentityCredentialMetadata = {};
+  const normalized: ManagedIdentityCredentialMetadata = {}
 
-  if (typeof metadata.prefix === "string" && metadata.prefix.trim()) {
-    normalized.prefix = metadata.prefix.trim();
+  if (typeof metadata.prefix === 'string' && metadata.prefix.trim()) {
+    normalized.prefix = metadata.prefix.trim()
   }
-  if (typeof metadata.mailbox === "string" && metadata.mailbox.trim()) {
-    normalized.mailbox = metadata.mailbox.trim();
+  if (typeof metadata.mailbox === 'string' && metadata.mailbox.trim()) {
+    normalized.mailbox = metadata.mailbox.trim()
   }
-  if (metadata.source === "chatgpt-register") {
-    normalized.source = "chatgpt-register";
+  if (metadata.source === 'chatgpt-register') {
+    normalized.source = 'chatgpt-register'
   }
-  if (
-    typeof metadata.chatgptUrl === "string" &&
-    metadata.chatgptUrl.trim()
-  ) {
-    normalized.chatgptUrl = metadata.chatgptUrl.trim();
+  if (typeof metadata.chatgptUrl === 'string' && metadata.chatgptUrl.trim()) {
+    normalized.chatgptUrl = metadata.chatgptUrl.trim()
   }
 
-  return Object.keys(normalized).length ? normalized : undefined;
+  return Object.keys(normalized).length ? normalized : undefined
 }
 
 function buildManagedIdentitySummary(row: {
-  identityId: string;
-  email: string;
-  label: string | null;
-  credentialCount: number;
-  status: string;
-  plan: ManagedIdentityPlan;
-  lastSeenAt: Date;
+  identityId: string
+  email: string
+  label: string | null
+  tags: string[]
+  credentialCount: number
+  status: string
+  plan: ManagedIdentityPlan
+  lastSeenAt: Date
 }): AdminIdentitySummary {
   return {
     id: row.identityId,
     label: row.label || row.email,
+    tags: normalizeManagedIdentityTags(row.tags),
     provider: m.server_identity_provider(),
     account: row.email,
     flowCount: row.credentialCount,
     lastSeenAt: row.lastSeenAt.toISOString(),
     status: mapManagedStatus(row.status),
     plan: row.plan,
-  } satisfies AdminIdentitySummary;
+  } satisfies AdminIdentitySummary
 }
 
 function buildManagedIdentityCredentialSummary(row: {
-  identityId: string;
-  email: string;
-  label: string | null;
-  credentialCount: number;
-  passwordCiphertext: string | null;
-  credentialMetadata: Record<string, unknown> | null;
-  status: string;
-  plan: ManagedIdentityPlan;
-  createdAt: Date;
-  updatedAt: Date;
+  identityId: string
+  email: string
+  label: string | null
+  tags: string[]
+  credentialCount: number
+  passwordCiphertext: string | null
+  credentialMetadata: Record<string, unknown> | null
+  status: string
+  plan: ManagedIdentityPlan
+  createdAt: Date
+  updatedAt: Date
 }): ManagedIdentityCredentialSummary {
   return {
     id: row.identityId,
     email: row.email,
     label: row.label,
+    tags: normalizeManagedIdentityTags(row.tags),
     credentialCount: row.credentialCount,
     encrypted: Boolean(row.passwordCiphertext),
     createdAt: row.createdAt.toISOString(),
@@ -128,65 +131,68 @@ function buildManagedIdentityCredentialSummary(row: {
     status: mapManagedStatus(row.status),
     plan: row.plan,
     metadata: normalizeCredentialMetadata(row.credentialMetadata),
-  };
+  }
 }
 
 function buildManagedIdentityCredentialRecord(row: {
-  identityId: string;
-  email: string;
-  label: string | null;
-  credentialCount: number;
-  passwordCiphertext: string | null;
-  credentialMetadata: Record<string, unknown> | null;
-  status: string;
-  plan: ManagedIdentityPlan;
-  createdAt: Date;
-  updatedAt: Date;
+  identityId: string
+  email: string
+  label: string | null
+  tags: string[]
+  credentialCount: number
+  passwordCiphertext: string | null
+  credentialMetadata: Record<string, unknown> | null
+  status: string
+  plan: ManagedIdentityPlan
+  createdAt: Date
+  updatedAt: Date
 }): ManagedIdentityCredentialRecord {
   if (!row.passwordCiphertext) {
     throw new Error(
       `Managed identity ${row.identityId} does not have a shared password stored in Codey app.`,
-    );
+    )
   }
 
   return {
     ...buildManagedIdentityCredentialSummary(row),
     password: decryptSecret(
       row.passwordCiphertext,
-      "decrypt shared managed identity credentials",
+      'decrypt shared managed identity credentials',
     ),
-  };
+  }
 }
 
 function normalizeCredentialCount(value?: number): number | undefined {
   if (value === undefined || value === null || !Number.isFinite(value)) {
-    return undefined;
+    return undefined
   }
 
-  const normalized = Math.floor(Number(value));
-  return normalized >= 0 ? normalized : undefined;
+  const normalized = Math.floor(Number(value))
+  return normalized >= 0 ? normalized : undefined
 }
 
 function normalizePassword(value?: string): string | undefined {
-  const normalized = value?.trim();
-  return normalized || undefined;
+  const normalized = value?.trim()
+  return normalized || undefined
 }
 
 function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
+  return value.trim().toLowerCase()
 }
 
-export async function listAdminIdentitySummaries(): Promise<AdminIdentitySummary[]> {
+export async function listAdminIdentitySummaries(): Promise<
+  AdminIdentitySummary[]
+> {
   const managedIdentityRows = await getDb().query.managedIdentities.findMany({
     orderBy: [desc(managedIdentities.lastSeenAt)],
-  });
+  })
 
-  return managedIdentityRows.map((row) => buildManagedIdentitySummary(row));
+  return managedIdentityRows.map((row) => buildManagedIdentitySummary(row))
 }
 
 export async function findAdminIdentitySummary(identityId: string) {
-  const summaries = await listAdminIdentitySummaries();
-  return summaries.find((summary) => summary.id === identityId) || null;
+  const summaries = await listAdminIdentitySummaries()
+  return summaries.find((summary) => summary.id === identityId) || null
 }
 
 export async function listManagedIdentityCredentialSummaries(): Promise<
@@ -195,17 +201,17 @@ export async function listManagedIdentityCredentialSummaries(): Promise<
   const rows = await getDb().query.managedIdentities.findMany({
     where: isNotNull(managedIdentities.passwordCiphertext),
     orderBy: [desc(managedIdentities.updatedAt)],
-  });
+  })
 
-  return rows.map((row) => buildManagedIdentityCredentialSummary(row));
+  return rows.map((row) => buildManagedIdentityCredentialSummary(row))
 }
 
 export async function resolveManagedIdentityCredential(params: {
-  identityId?: string;
-  email?: string;
+  identityId?: string
+  email?: string
 }): Promise<ManagedIdentityCredentialRecord | null> {
-  const identityId = params.identityId?.trim() || undefined;
-  const email = params.email ? normalizeEmail(params.email) : undefined;
+  const identityId = params.identityId?.trim() || undefined
+  const email = params.email ? normalizeEmail(params.email) : undefined
 
   const row = identityId
     ? await getDb().query.managedIdentities.findFirst({
@@ -225,21 +231,26 @@ export async function resolveManagedIdentityCredential(params: {
       : await getDb().query.managedIdentities.findFirst({
           where: isNotNull(managedIdentities.passwordCiphertext),
           orderBy: [desc(managedIdentities.updatedAt)],
-        });
+        })
 
-  return row ? buildManagedIdentityCredentialRecord(row) : null;
+  return row ? buildManagedIdentityCredentialRecord(row) : null
 }
 
 export async function upsertManagedIdentity(params: {
-  identityId: string;
-  email: string;
-  label?: string;
-  status?: "ACTIVE" | "REVIEW" | "ARCHIVED";
-  plan?: ManagedIdentityPlan;
+  identityId: string
+  email: string
+  label?: string
+  tags?: string[]
+  status?: 'ACTIVE' | 'REVIEW' | 'ARCHIVED'
+  plan?: ManagedIdentityPlan
 }) {
-  const label = params.label?.trim() || undefined;
-  const status = params.status || "ACTIVE";
-  const plan = params.plan || "free";
+  const label = params.label?.trim() || undefined
+  const tags =
+    params.tags === undefined
+      ? undefined
+      : normalizeManagedIdentityTags(params.tags)
+  const status = params.status || 'ACTIVE'
+  const plan = params.plan || 'free'
 
   const [record] = await getDb()
     .insert(managedIdentities)
@@ -247,7 +258,8 @@ export async function upsertManagedIdentity(params: {
       id: createId(),
       identityId: params.identityId,
       email: normalizeEmail(params.email),
-      label,
+      ...(label !== undefined ? { label } : {}),
+      ...(tags !== undefined ? { tags } : {}),
       status,
       plan,
     })
@@ -255,99 +267,111 @@ export async function upsertManagedIdentity(params: {
       target: managedIdentities.identityId,
       set: {
         email: normalizeEmail(params.email),
-        label,
+        ...(label !== undefined ? { label } : {}),
+        ...(tags !== undefined ? { tags } : {}),
         status,
         plan,
         updatedAt: new Date(),
       },
     })
-    .returning();
+    .returning()
 
   if (!record) {
     const existing = await getDb().query.managedIdentities.findFirst({
       where: eq(managedIdentities.identityId, params.identityId),
-    });
+    })
     if (!existing) {
-      throw new Error("Unable to persist managed identity");
+      throw new Error('Unable to persist managed identity')
     }
-    return existing;
+    return existing
   }
 
-  return record;
+  return record
 }
 
 export async function updateManagedIdentity(params: {
-  identityId: string;
-  label?: string | null;
-  status?: "ACTIVE" | "REVIEW" | "ARCHIVED";
-  plan?: ManagedIdentityPlan;
+  identityId: string
+  label?: string | null
+  tags?: string[]
+  status?: 'ACTIVE' | 'REVIEW' | 'ARCHIVED'
+  plan?: ManagedIdentityPlan
 }) {
   const existing = await getDb().query.managedIdentities.findFirst({
     where: eq(managedIdentities.identityId, params.identityId),
-  });
+  })
   if (!existing) {
-    return null;
+    return null
   }
 
   const label =
-    params.label === undefined ? existing.label : params.label?.trim() || null;
-  const status = params.status ?? existing.status;
-  const plan = params.plan ?? existing.plan;
+    params.label === undefined ? existing.label : params.label?.trim() || null
+  const tags =
+    params.tags === undefined
+      ? normalizeManagedIdentityTags(existing.tags)
+      : normalizeManagedIdentityTags(params.tags)
+  const status = params.status ?? existing.status
+  const plan = params.plan ?? existing.plan
   const [record] = await getDb()
     .update(managedIdentities)
     .set({
       label,
+      tags,
       status,
       plan,
       updatedAt: new Date(),
     })
     .where(eq(managedIdentities.identityId, params.identityId))
-    .returning();
+    .returning()
 
-  return record ?? existing;
+  return record ?? existing
 }
 
 export async function deleteManagedIdentity(identityId: string) {
   const [record] = await getDb()
     .delete(managedIdentities)
     .where(eq(managedIdentities.identityId, identityId))
-    .returning();
+    .returning()
 
-  return record ?? null;
+  return record ?? null
 }
 
 export async function syncManagedIdentity(params: {
-  identityId: string;
-  email: string;
-  credentialCount?: number;
-  label?: string;
-  plan?: ManagedIdentityPlan;
-  password?: string;
-  metadata?: Record<string, unknown>;
-  reservationId?: string;
+  identityId: string
+  email: string
+  credentialCount?: number
+  label?: string
+  tags?: string[]
+  plan?: ManagedIdentityPlan
+  password?: string
+  metadata?: Record<string, unknown>
+  reservationId?: string
 }) {
-  const identityId = params.identityId.trim();
-  const email = normalizeEmail(params.email);
-  const reservationId = params.reservationId?.trim() || null;
-  const credentialCount = normalizeCredentialCount(params.credentialCount);
-  const label = params.label?.trim() || null;
-  const plan = params.plan;
-  const password = normalizePassword(params.password);
+  const identityId = params.identityId.trim()
+  const email = normalizeEmail(params.email)
+  const reservationId = params.reservationId?.trim() || null
+  const credentialCount = normalizeCredentialCount(params.credentialCount)
+  const label = params.label?.trim() || null
+  const tags =
+    params.tags === undefined
+      ? undefined
+      : normalizeManagedIdentityTags(params.tags)
+  const plan = params.plan
+  const password = normalizePassword(params.password)
   const passwordCiphertext = password
     ? encryptSecret(
         password,
-        "store shared managed identity credentials in Codey app",
+        'store shared managed identity credentials in Codey app',
       )
-    : undefined;
-  const metadata = normalizeCredentialMetadata(params.metadata);
-  const seenAt = new Date();
+    : undefined
+  const metadata = normalizeCredentialMetadata(params.metadata)
+  const seenAt = new Date()
   const existing = await getDb().query.managedIdentities.findFirst({
     where: eq(managedIdentities.identityId, identityId),
-  });
+  })
 
   const attachReservation = async () => {
     if (!reservationId) {
-      return;
+      return
     }
 
     await getDb()
@@ -356,8 +380,8 @@ export async function syncManagedIdentity(params: {
         identityId,
         updatedAt: seenAt,
       })
-      .where(eq(verificationEmailReservations.id, reservationId));
-  };
+      .where(eq(verificationEmailReservations.id, reservationId))
+  }
 
   if (existing) {
     const [record] = await getDb()
@@ -365,21 +389,22 @@ export async function syncManagedIdentity(params: {
       .set({
         email,
         label: label ?? existing.label,
-        passwordCiphertext:
-          passwordCiphertext ?? existing.passwordCiphertext,
-        credentialMetadata:
-          metadata ? { ...metadata } : existing.credentialMetadata,
+        tags: tags ?? existing.tags,
+        passwordCiphertext: passwordCiphertext ?? existing.passwordCiphertext,
+        credentialMetadata: metadata
+          ? { ...metadata }
+          : existing.credentialMetadata,
         credentialCount: credentialCount ?? existing.credentialCount,
         plan: plan ?? existing.plan,
         lastSeenAt: seenAt,
         updatedAt: seenAt,
       })
       .where(eq(managedIdentities.identityId, identityId))
-      .returning();
+      .returning()
 
     if (record) {
-      await attachReservation();
-      return record;
+      await attachReservation()
+      return record
     }
   }
 
@@ -390,19 +415,20 @@ export async function syncManagedIdentity(params: {
       identityId,
       email,
       label,
+      tags: tags ?? [],
       passwordCiphertext,
       credentialMetadata: metadata ? { ...metadata } : null,
       credentialCount: credentialCount ?? 0,
-      status: "ACTIVE",
-      plan: plan ?? "free",
+      status: 'ACTIVE',
+      plan: plan ?? 'free',
       lastSeenAt: seenAt,
     })
-    .returning();
+    .returning()
 
   if (!created) {
-    throw new Error("Unable to sync managed identity");
+    throw new Error('Unable to sync managed identity')
   }
 
-  await attachReservation();
-  return created;
+  await attachReservation()
+  return created
 }

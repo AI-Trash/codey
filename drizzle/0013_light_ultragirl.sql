@@ -1,0 +1,1 @@
+ALTER TABLE "managed_identities" ADD COLUMN "tags" text[] DEFAULT '{}'::text[] NOT NULL;
