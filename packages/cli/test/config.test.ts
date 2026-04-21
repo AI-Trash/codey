@@ -48,7 +48,10 @@ const codexEnvNames = {
 
 const sub2apiEnvNames = {
   SUB2API_BASE_URL: undefined,
-  SUB2API_BEARER_TOKEN: undefined,
+  SUB2API_BEARER_TOKEN: '',
+  SUB2API_EMAIL: undefined,
+  SUB2API_PASSWORD: undefined,
+  SUB2API_LOGIN_PATH: undefined,
   SUB2API_REFRESH_TOKEN_PATH: undefined,
   SUB2API_ACCOUNTS_PATH: undefined,
   SUB2API_CLIENT_ID: undefined,
@@ -108,6 +111,9 @@ describe('resolveConfig sub2api sync config', () => {
     expect(config.sub2api).toEqual({
       baseUrl: 'https://sub2api.example.com',
       bearerToken: 'sub2api-bearer',
+      email: undefined,
+      password: undefined,
+      loginPath: undefined,
       refreshTokenPath: undefined,
       accountsPath: undefined,
       clientId: undefined,
@@ -116,6 +122,35 @@ describe('resolveConfig sub2api sync config', () => {
       priority: 7,
       groupIds: [11, 12, 13],
       confirmMixedChannelRisk: true,
+    })
+  })
+
+  it('reads Sub2API password-login env vars into sync config', async () => {
+    const config = await withEnv(
+      {
+        ...sub2apiEnvNames,
+        SUB2API_BASE_URL: 'https://sub2api.example.com',
+        SUB2API_EMAIL: 'admin@example.com',
+        SUB2API_PASSWORD: 'super-secret',
+        SUB2API_LOGIN_PATH: '/api/v1/auth/login',
+      },
+      () => resolveConfig(),
+    )
+
+    expect(config.sub2api).toEqual({
+      baseUrl: 'https://sub2api.example.com',
+      bearerToken: '',
+      email: 'admin@example.com',
+      password: 'super-secret',
+      loginPath: '/api/v1/auth/login',
+      refreshTokenPath: undefined,
+      accountsPath: undefined,
+      clientId: undefined,
+      proxyId: undefined,
+      concurrency: undefined,
+      priority: undefined,
+      groupIds: undefined,
+      confirmMixedChannelRisk: undefined,
     })
   })
 })

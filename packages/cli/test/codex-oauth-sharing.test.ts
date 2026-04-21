@@ -285,4 +285,138 @@ describe('syncCodexOAuthSessionToSub2Api', () => {
       }),
     )
   })
+
+  it('logs into Sub2API with email/password when bearer token is not configured', async () => {
+    getRuntimeConfig.mockReturnValue({
+      sub2api: {
+        baseUrl: 'https://sub2api.example.com',
+        email: 'admin@example.com',
+        password: 'super-secret',
+      },
+    })
+
+    const fetchMock = vi.fn<typeof fetch>()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              access_token: 'admin-jwt-token',
+              token_type: 'Bearer',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              access_token: 'fresh-access-token',
+              refresh_token: 'fresh-refresh-token',
+              email: 'person@example.com',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              items: [],
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              id: 77,
+              name: 'person@example.com',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { syncCodexOAuthSessionToSub2Api } =
+      await import('../src/modules/app-auth/codex-oauth-sharing')
+
+    await expect(
+      syncCodexOAuthSessionToSub2Api({
+        identity: {
+          id: 'identity-1',
+          email: 'person@example.com',
+          createdAt: '2026-04-21T00:00:00.000Z',
+          updatedAt: '2026-04-21T00:00:00.000Z',
+          credentialCount: 1,
+          encrypted: true,
+          storePath: 'codey-app://managed-identities/identity-1',
+        },
+        token: {
+          accessToken: 'codex-access-token',
+          refreshToken: 'codex-refresh-token',
+          createdAt: '2026-04-21T00:00:00.000Z',
+        },
+        clientId: 'codex-client-id',
+      }),
+    ).resolves.toEqual({
+      accountId: 77,
+      action: 'created',
+      email: 'person@example.com',
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://sub2api.example.com/api/v1/auth/login',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify({
+          email: 'admin@example.com',
+          password: 'super-secret',
+        }),
+      }),
+    )
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://sub2api.example.com/api/v1/admin/openai/refresh-token',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer admin-jwt-token',
+          'Content-Type': 'application/json',
+        }),
+      }),
+    )
+  })
 })

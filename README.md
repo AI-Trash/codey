@@ -227,7 +227,7 @@ CODEX_SCOPE=openid profile email offline_access
 
 If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
 
-If `SUB2API_BASE_URL` and `SUB2API_BEARER_TOKEN` are configured, `flow codex-oauth` also refreshes the captured Codex refresh token against Sub2API and upserts an OpenAI OAuth account there. Codey matches existing Sub2API accounts by email and updates them in place; otherwise it creates a new account, using the email address as the Sub2API account name.
+If `SUB2API_BASE_URL` is configured together with either `SUB2API_BEARER_TOKEN` or the `SUB2API_EMAIL` / `SUB2API_PASSWORD` login pair, `flow codex-oauth` also refreshes the captured Codex refresh token against Sub2API and upserts an OpenAI OAuth account there. Codey matches existing Sub2API accounts by email and updates them in place; otherwise it creates a new account, using the email address as the Sub2API account name. When both auth modes are present, `SUB2API_BEARER_TOKEN` takes priority.
 
 Optional environment variables:
 
@@ -238,6 +238,9 @@ CODEX_REDIRECT_PORT=1455
 CODEX_REDIRECT_PATH=/auth/callback
 SUB2API_BASE_URL=https://sub2api.example.com
 SUB2API_BEARER_TOKEN=your-sub2api-admin-bearer-token
+SUB2API_EMAIL=admin@example.com
+SUB2API_PASSWORD=your-sub2api-admin-password
+SUB2API_LOGIN_PATH=/api/v1/auth/login
 SUB2API_REFRESH_TOKEN_PATH=/api/v1/admin/openai/refresh-token
 SUB2API_ACCOUNTS_PATH=/api/v1/admin/accounts
 ```

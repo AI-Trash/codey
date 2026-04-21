@@ -89,6 +89,9 @@ export interface CodexOAuthConfig {
 export interface Sub2ApiConfig {
   baseUrl?: string
   bearerToken?: string
+  email?: string
+  password?: string
+  loginPath?: string
   refreshTokenPath?: string
   accountsPath?: string
   clientId?: string
@@ -250,6 +253,9 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
   const relevantEnvNames = [
     'SUB2API_BASE_URL',
     'SUB2API_BEARER_TOKEN',
+    'SUB2API_EMAIL',
+    'SUB2API_PASSWORD',
+    'SUB2API_LOGIN_PATH',
     'SUB2API_REFRESH_TOKEN_PATH',
     'SUB2API_ACCOUNTS_PATH',
     'SUB2API_CLIENT_ID',
@@ -267,6 +273,9 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
   return {
     baseUrl: process.env.SUB2API_BASE_URL,
     bearerToken: process.env.SUB2API_BEARER_TOKEN,
+    email: process.env.SUB2API_EMAIL,
+    password: process.env.SUB2API_PASSWORD,
+    loginPath: process.env.SUB2API_LOGIN_PATH,
     refreshTokenPath: process.env.SUB2API_REFRESH_TOKEN_PATH,
     accountsPath: process.env.SUB2API_ACCOUNTS_PATH,
     clientId: process.env.SUB2API_CLIENT_ID,

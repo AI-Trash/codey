@@ -24,6 +24,15 @@ interface Sub2ApiEnvelope<T> {
   data?: T
 }
 
+interface Sub2ApiLoginResponse {
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+  token_type?: string
+  requires_2fa?: boolean
+  temp_token?: string
+}
+
 interface Sub2ApiTokenInfo {
   access_token?: string
   refresh_token?: string
@@ -49,6 +58,7 @@ interface Sub2ApiPaginatedData<T> {
 }
 
 const APP_SESSION_STORE_ROOT = 'codey-app://managed-sessions'
+const DEFAULT_SUB2API_LOGIN_PATH = '/api/v1/auth/login'
 const DEFAULT_SUB2API_REFRESH_TOKEN_PATH = '/api/v1/admin/openai/refresh-token'
 const DEFAULT_SUB2API_ACCOUNTS_PATH = '/api/v1/admin/accounts'
 
@@ -120,13 +130,27 @@ function requireSub2ApiConfig(): Sub2ApiConfig | null {
 
   const hasBaseUrl = Boolean(config.baseUrl?.trim())
   const hasBearerToken = Boolean(config.bearerToken?.trim())
-  if (!hasBaseUrl && !hasBearerToken) {
+  const hasEmail = Boolean(config.email?.trim())
+  const hasPassword = Boolean(config.password?.trim())
+  const hasPasswordLogin = hasEmail || hasPassword
+
+  if (!hasBaseUrl && !hasBearerToken && !hasPasswordLogin) {
     return null
   }
 
-  if (!hasBaseUrl || !hasBearerToken) {
+  if (!hasBaseUrl) {
+    throw new Error('Sub2API sync requires SUB2API_BASE_URL.')
+  }
+
+  if (!hasBearerToken && !hasPasswordLogin) {
     throw new Error(
-      'Sub2API sync requires both SUB2API_BASE_URL and SUB2API_BEARER_TOKEN.',
+      'Sub2API sync requires either SUB2API_BEARER_TOKEN or both SUB2API_EMAIL and SUB2API_PASSWORD.',
+    )
+  }
+
+  if (!hasBearerToken && hasEmail !== hasPassword) {
+    throw new Error(
+      'Sub2API password login requires both SUB2API_EMAIL and SUB2API_PASSWORD.',
     )
   }
 
@@ -154,14 +178,10 @@ function buildSub2ApiUrl(config: Sub2ApiConfig, pathname: string): string {
   return joinSub2ApiUrl(config.baseUrl, pathname)
 }
 
-function buildSub2ApiHeaders(config: Sub2ApiConfig): HeadersInit {
-  if (!config.bearerToken?.trim()) {
-    throw new Error('Sub2API bearer token is not configured.')
-  }
-
+function buildSub2ApiHeaders(accessToken: string): HeadersInit {
   return {
     Accept: 'application/json',
-    Authorization: `Bearer ${config.bearerToken.trim()}`,
+    Authorization: `Bearer ${accessToken}`,
   }
 }
 
@@ -191,6 +211,7 @@ async function parseSub2ApiResponse<T>(response: Response): Promise<T> {
 
 async function requestSub2ApiJson<T>(
   config: Sub2ApiConfig,
+  accessToken: string,
   input: {
     method: 'GET' | 'POST' | 'PUT'
     pathname: string
@@ -206,13 +227,62 @@ async function requestSub2ApiJson<T>(
   const response = await fetch(url.toString(), {
     method: input.method,
     headers: {
-      ...buildSub2ApiHeaders(config),
+      ...buildSub2ApiHeaders(accessToken),
       ...(input.body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: input.body ? JSON.stringify(input.body) : undefined,
   })
 
   return parseSub2ApiResponse<T>(response)
+}
+
+async function resolveSub2ApiAccessToken(config: Sub2ApiConfig): Promise<string> {
+  const bearerToken = asNonEmptyString(config.bearerToken)
+  if (bearerToken) {
+    return bearerToken
+  }
+
+  const email = asNonEmptyString(config.email)
+  const password = asNonEmptyString(config.password)
+  if (!email || !password) {
+    throw new Error(
+      'Sub2API password login requires both SUB2API_EMAIL and SUB2API_PASSWORD.',
+    )
+  }
+
+  const loginPath = config.loginPath?.trim() || DEFAULT_SUB2API_LOGIN_PATH
+  const response = await fetch(buildSub2ApiUrl(config, loginPath), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email,
+      password,
+    }),
+  })
+  const result = await parseSub2ApiResponse<Sub2ApiLoginResponse>(response)
+
+  if (result.requires_2fa) {
+    throw new Error(
+      'Sub2API password login requires completing 2FA, which Codey does not support yet.',
+    )
+  }
+
+  const accessToken = asNonEmptyString(result.access_token)
+  if (!accessToken) {
+    throw new Error('Sub2API login did not return an access token.')
+  }
+
+  const tokenType = asNonEmptyString(result.token_type) || 'Bearer'
+  if (tokenType.toLowerCase() !== 'bearer') {
+    throw new Error(
+      `Sub2API login returned unsupported token type "${tokenType}".`,
+    )
+  }
+
+  return accessToken
 }
 
 function buildSub2ApiAccountCredentials(input: {
@@ -397,18 +467,23 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
   const accountsPath =
     config.accountsPath?.trim() || DEFAULT_SUB2API_ACCOUNTS_PATH
   const resolvedClientId = config.clientId?.trim() || input.clientId
+  const accessToken = await resolveSub2ApiAccessToken(config)
 
-  const refreshedToken = await requestSub2ApiJson<Sub2ApiTokenInfo>(config, {
-    method: 'POST',
-    pathname: refreshTokenPath,
-    body: {
-      refresh_token: refreshToken,
-      client_id: resolvedClientId,
-      ...(typeof config.proxyId === 'number'
-        ? { proxy_id: config.proxyId }
-        : {}),
+  const refreshedToken = await requestSub2ApiJson<Sub2ApiTokenInfo>(
+    config,
+    accessToken,
+    {
+      method: 'POST',
+      pathname: refreshTokenPath,
+      body: {
+        refresh_token: refreshToken,
+        client_id: resolvedClientId,
+        ...(typeof config.proxyId === 'number'
+          ? { proxy_id: config.proxyId }
+          : {}),
+      },
     },
-  })
+  )
 
   const accountEmail = normalizeEmail(
     asNonEmptyString(refreshedToken.email) || normalizedEmail,
@@ -430,7 +505,7 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
   })
   const existingAccounts = await requestSub2ApiJson<
     Sub2ApiPaginatedData<Sub2ApiAccountRecord>
-  >(config, {
+  >(config, accessToken, {
     method: 'GET',
     pathname: accountsPath,
     searchParams,
@@ -441,14 +516,18 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
   )
 
   if (existing) {
-    const updated = await requestSub2ApiJson<Sub2ApiAccountRecord>(config, {
-      method: 'PUT',
-      pathname: `${accountsPath.replace(/\/+$/, '')}/${existing.id}`,
-      body: {
-        name: accountEmail,
-        credentials,
+    const updated = await requestSub2ApiJson<Sub2ApiAccountRecord>(
+      config,
+      accessToken,
+      {
+        method: 'PUT',
+        pathname: `${accountsPath.replace(/\/+$/, '')}/${existing.id}`,
+        body: {
+          name: accountEmail,
+          credentials,
+        },
       },
-    })
+    )
 
     return {
       accountId: updated.id || existing.id,
@@ -457,22 +536,26 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
     }
   }
 
-  const created = await requestSub2ApiJson<Sub2ApiAccountRecord>(config, {
-    method: 'POST',
-    pathname: accountsPath,
-    body: {
-      name: accountEmail,
-      platform: 'openai',
-      type: 'oauth',
-      credentials,
-      extra: buildSub2ApiAccountExtra(refreshedToken, accountEmail),
-      proxy_id: config.proxyId,
-      concurrency: config.concurrency ?? 0,
-      priority: config.priority ?? 0,
-      group_ids: config.groupIds,
-      confirm_mixed_channel_risk: config.confirmMixedChannelRisk,
+  const created = await requestSub2ApiJson<Sub2ApiAccountRecord>(
+    config,
+    accessToken,
+    {
+      method: 'POST',
+      pathname: accountsPath,
+      body: {
+        name: accountEmail,
+        platform: 'openai',
+        type: 'oauth',
+        credentials,
+        extra: buildSub2ApiAccountExtra(refreshedToken, accountEmail),
+        proxy_id: config.proxyId,
+        concurrency: config.concurrency ?? 0,
+        priority: config.priority ?? 0,
+        group_ids: config.groupIds,
+        confirm_mixed_channel_risk: config.confirmMixedChannelRisk,
+      },
     },
-  })
+  )
 
   return {
     accountId: created.id,
