@@ -443,10 +443,11 @@ function AdminIdentitiesPage() {
             />
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex min-h-0 flex-1 flex-col">
           <ClientFilterableAdminTable
             data={identitySummaries}
             columnsConfig={identityColumns}
+            fillHeight
             emptyState={
               <EmptyState
                 title={m.admin_dashboard_identities_empty_title()}
@@ -639,18 +640,14 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
 
   return (
     <>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
+      <ActionIconButton
+        label={m.admin_identity_bulk_copy_button()}
+        icon={<ClipboardCopyIcon />}
         disabled={!props.rows.length}
         onClick={() => {
           setOpen(true)
         }}
-      >
-        <ClipboardCopyIcon />
-        {m.admin_identity_bulk_copy_button()}
-      </Button>
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-[min(620px,calc(100%-2rem))] gap-5">

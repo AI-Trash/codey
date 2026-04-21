@@ -227,10 +227,15 @@ export function AdminMailInbox(props: {
   })
 
   useEffect(() => {
+    // `keepPreviousData` keeps the prior page visible while the next page loads.
+    if (query.isPlaceholderData) {
+      return
+    }
+
     if (data.page !== page) {
       setPage(data.page)
     }
-  }, [data.page, page])
+  }, [data.page, page, query.isPlaceholderData])
 
   useEffect(() => {
     setSelectedEmailId((current) => {

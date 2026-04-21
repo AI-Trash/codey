@@ -20,6 +20,7 @@ import { Button } from '#/components/ui/button'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import { filterDataTableRows } from '#/lib/data-table-filters'
 import { getDataTableFilterLocale } from '#/lib/i18n'
+import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 
 type FilterTableOptions<
@@ -30,7 +31,9 @@ type FilterTableOptions<
 
 const ADMIN_TABLE_PAGE_SIZE_OPTIONS = [10, 25, 50] as const
 const ADMIN_TABLE_VIEWPORT_CLASS_NAME =
-  'h-[clamp(24rem,65vh,36rem)] min-h-0 overflow-y-auto rounded-lg border [scrollbar-gutter:stable] [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card [&_th]:shadow-[0_1px_0_hsl(var(--border))]'
+  'h-[clamp(24rem,65vh,36rem)] min-h-0 overflow-auto rounded-lg border [scrollbar-gutter:stable] [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card [&_th]:shadow-[0_1px_0_hsl(var(--border))]'
+const ADMIN_TABLE_FILL_VIEWPORT_CLASS_NAME =
+  'min-h-0 flex-1 overflow-auto rounded-lg border [scrollbar-gutter:stable] [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card [&_th]:shadow-[0_1px_0_hsl(var(--border))]'
 
 export function useAdminDataTableFilters<
   TData,
@@ -91,6 +94,7 @@ export function AdminPaginatedTable<TData>(props: {
   renderActions?: (rows: TData[]) => ReactNode
   toolbar?: ReactNode
   resetPageKey?: string
+  fillHeight?: boolean
 }) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(ADMIN_TABLE_PAGE_SIZE_OPTIONS[1])
@@ -158,11 +162,28 @@ export function AdminPaginatedTable<TData>(props: {
     ) : null
 
   return (
-    <div className="space-y-4">
+    <div
+      className={cn(
+        props.fillHeight
+          ? 'flex min-h-0 flex-1 flex-col gap-4'
+          : 'space-y-4',
+      )}
+    >
       {topControls}
       {hasRows ? (
-        <div className="flex min-h-0 flex-col gap-4">
-          <div className={ADMIN_TABLE_VIEWPORT_CLASS_NAME}>
+        <div
+          className={cn(
+            'flex min-h-0 flex-col gap-4',
+            props.fillHeight && 'flex-1',
+          )}
+        >
+          <div
+            className={
+              props.fillHeight
+                ? ADMIN_TABLE_FILL_VIEWPORT_CLASS_NAME
+                : ADMIN_TABLE_VIEWPORT_CLASS_NAME
+            }
+          >
             {props.renderTable(pageRows)}
           </div>
 
@@ -219,6 +240,7 @@ export function ClientFilterableAdminTable<
   emptyState: ReactNode
   renderTable: (rows: TData[]) => ReactNode
   renderActions?: (rows: TData[]) => ReactNode
+  fillHeight?: boolean
 }) {
   const table = useAdminDataTableFilters({
     strategy: 'client',
@@ -238,6 +260,7 @@ export function ClientFilterableAdminTable<
       renderActions={props.renderActions}
       renderTable={props.renderTable}
       resetPageKey={JSON.stringify(table.filters)}
+      fillHeight={props.fillHeight}
     />
   )
 }
