@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { waitUntilChatGPTHomeReady } from '../src/modules/chatgpt/queries'
 
 class FakeLocator {
@@ -113,16 +113,33 @@ class FakePage {
 }
 
 describe('waitUntilChatGPTHomeReady', () => {
-  it('treats the authenticated home as ready when onboarding never appears', async () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('waits up to 10 seconds before reporting the authenticated home as ready when onboarding never appears', async () => {
     const page = new FakePage([
       {
         '[data-testid="composer-root"]': true,
       },
     ])
 
-    await expect(
-      waitUntilChatGPTHomeReady(page as never, async () => null, 3),
-    ).resolves.toBe(true)
+    const readyPromise = waitUntilChatGPTHomeReady(
+      page as never,
+      async () => null,
+      3,
+    )
+    const tracker = trackPromise(readyPromise)
+
+    await vi.advanceTimersByTimeAsync(9500)
+    expect(tracker.status()).toBe('pending')
+
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(readyPromise).resolves.toBe(true)
   })
 
   it('treats authenticated DOM signals as ready even when the URL is not the ChatGPT home URL', async () => {
@@ -135,12 +152,17 @@ describe('waitUntilChatGPTHomeReady', () => {
       'https://example.com/not-home',
     )
 
-    await expect(
-      waitUntilChatGPTHomeReady(page as never, async () => null, 3),
-    ).resolves.toBe(true)
+    const readyPromise = waitUntilChatGPTHomeReady(
+      page as never,
+      async () => null,
+      3,
+    )
+
+    await vi.advanceTimersByTimeAsync(10000)
+    await expect(readyPromise).resolves.toBe(true)
   })
 
-  it('waits for onboarding dismissal before reporting the home as ready', async () => {
+  it('waits up to 10 seconds when fewer than four onboarding actions were dismissed', async () => {
     const page = new FakePage([
       {
         '[data-testid="getting-started-button"]': true,
@@ -158,9 +180,18 @@ describe('waitUntilChatGPTHomeReady', () => {
       return 'getting-started'
     }
 
-    await expect(
-      waitUntilChatGPTHomeReady(page as never, clickOnboardingAction, 4),
-    ).resolves.toBe(true)
+    const readyPromise = waitUntilChatGPTHomeReady(
+      page as never,
+      clickOnboardingAction,
+      4,
+    )
+    const tracker = trackPromise(readyPromise)
+
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(tracker.status()).toBe('pending')
+
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(readyPromise).resolves.toBe(true)
     expect(clicks).toBe(1)
   })
 
@@ -175,9 +206,14 @@ describe('waitUntilChatGPTHomeReady', () => {
       [['oai/apps/hasSeenOnboardingFlow']],
     )
 
-    await expect(
-      waitUntilChatGPTHomeReady(page as never, async () => null, 3),
-    ).resolves.toBe(false)
+    const readyPromise = waitUntilChatGPTHomeReady(
+      page as never,
+      async () => null,
+      3,
+    )
+
+    await vi.advanceTimersByTimeAsync(15000)
+    await expect(readyPromise).resolves.toBe(false)
   })
 
   it('waits for onboarding announcements to clear after dismissal before reporting the home as ready', async () => {
@@ -202,9 +238,75 @@ describe('waitUntilChatGPTHomeReady', () => {
       return 'getting-started'
     }
 
-    await expect(
-      waitUntilChatGPTHomeReady(page as never, clickOnboardingAction, 4),
-    ).resolves.toBe(true)
+    const readyPromise = waitUntilChatGPTHomeReady(
+      page as never,
+      clickOnboardingAction,
+      4,
+    )
+
+    await vi.advanceTimersByTimeAsync(10500)
+    await expect(readyPromise).resolves.toBe(true)
     expect(clicks).toBe(1)
   })
+
+  it('waits only 3 seconds after dismissing at least four onboarding actions', async () => {
+    const page = new FakePage([
+      {
+        '[data-testid="getting-started-button"]': true,
+      },
+      {
+        '[data-testid="getting-started-button"]': true,
+      },
+      {
+        '[data-testid="getting-started-button"]': true,
+      },
+      {
+        '[data-testid="getting-started-button"]': true,
+      },
+      {
+        '[data-testid="composer-root"]': true,
+      },
+    ])
+
+    let clicks = 0
+    const clickOnboardingAction = async () => {
+      if (clicks >= 4) return null
+      clicks += 1
+      page.nextPhase()
+      return 'getting-started'
+    }
+
+    const readyPromise = waitUntilChatGPTHomeReady(
+      page as never,
+      clickOnboardingAction,
+      4,
+    )
+    const tracker = trackPromise(readyPromise)
+
+    await vi.advanceTimersByTimeAsync(4500)
+    expect(tracker.status()).toBe('pending')
+
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(readyPromise).resolves.toBe(true)
+    expect(clicks).toBe(4)
+  })
 })
+
+function trackPromise<T>(promise: Promise<T>): {
+  status: () => 'pending' | 'fulfilled' | 'rejected'
+} {
+  let status: 'pending' | 'fulfilled' | 'rejected' = 'pending'
+
+  promise.then(
+    () => {
+      status = 'fulfilled'
+    },
+    () => {
+      status = 'rejected'
+    },
+  )
+
+  return {
+    status: () => status,
+  }
+}

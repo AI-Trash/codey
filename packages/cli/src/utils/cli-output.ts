@@ -1,6 +1,12 @@
 import fs from 'fs'
 import path from 'path'
 import { ensureDir } from './fs'
+import {
+  initializeCliObservability,
+  recordCliOutput,
+  resetCliObservabilityForTests,
+  setCliHumanLogPath,
+} from './observability'
 
 export interface CliOutput {
   stdoutLine?: (line: string) => void
@@ -85,6 +91,10 @@ export function initializeCliFileLogging(input: {
   )
 
   ensureDir(logsDir)
+  initializeCliObservability({
+    rootDir: input.rootDir,
+    argv,
+  })
   fileCliOutput = {
     stdoutLine: (line) => {
       appendLogEntry(filePath, 'stdout', line)
@@ -94,6 +104,7 @@ export function initializeCliFileLogging(input: {
     },
   }
   runtimeCliLogFilePath = filePath
+  setCliHumanLogPath(filePath)
 
   appendLogEntry(filePath, 'session', `argv: ${JSON.stringify(argv)}`)
   appendLogEntry(filePath, 'session', `cwd: ${process.cwd()}`)
@@ -139,10 +150,12 @@ function resolveCliOutput(output?: CliOutput): Required<CliOutput> {
 }
 
 export function writeCliStdoutLine(line: string, output?: CliOutput): void {
+  recordCliOutput('stdout', line)
   resolveCliOutput(output).stdoutLine(line)
 }
 
 export function writeCliStderrLine(line: string, output?: CliOutput): void {
+  recordCliOutput('stderr', line)
   resolveCliOutput(output).stderrLine(line)
 }
 
@@ -164,4 +177,5 @@ export function resetCliOutputForTests(): void {
   runtimeCliOutput = undefined
   fileCliOutput = undefined
   runtimeCliLogFilePath = undefined
+  resetCliObservabilityForTests()
 }

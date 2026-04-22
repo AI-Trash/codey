@@ -23,7 +23,10 @@ export const ADULT_BIRTH_YEAR = '1999'
 export const ADULT_BIRTH_MONTH = '01'
 export const ADULT_BIRTH_DAY = '01'
 export const PROFILE_NAME = 'Alex Carter'
-export const MIN_ONBOARDING_CLICKS = 3
+export const MIN_ONBOARDING_CLICKS = 4
+export const ONBOARDING_IDLE_POLL_MS = 500
+export const ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS = 10000
+export const ONBOARDING_IDLE_WAIT_AFTER_MIN_CLICKS_MS = 3000
 export const DEFAULT_EVENT_TIMEOUT_MS = 5000
 
 const PROFILE_FIRST_NAMES = [

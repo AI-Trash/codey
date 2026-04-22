@@ -64,6 +64,11 @@ import {
   writeCliStderrLine,
   writeCliStdoutLine,
 } from './utils/cli-output'
+import {
+  setObservabilityRuntimeState,
+  traceCliOperation,
+  withObservabilityContext,
+} from './utils/observability'
 import { resolveWorkspaceRoot } from './utils/workspace-root'
 import { FlowTaskScheduler } from './modules/flow-cli/task-scheduler'
 
@@ -184,18 +189,58 @@ async function executeFlowSubcommand(
   const command = `flow:${subcommand}`
   const startedAt = new Date().toISOString()
   prepareRuntimeConfig(command, resolvedOptions)
-  const result = await runFlowCommand(subcommand, resolvedOptions, runtime)
-  const completedAt = new Date().toISOString()
+  return withObservabilityContext(
+    {
+      flowId: subcommand,
+    },
+    () =>
+      traceCliOperation(
+        'flow.execute',
+        {
+          flowId: subcommand,
+          command,
+        },
+        async () => {
+          setObservabilityRuntimeState({
+            flowId: subcommand,
+            status: 'running',
+            message: 'Flow started',
+            startedAt,
+          })
 
-  return buildFlowCommandExecutionResult({
-    flowId: subcommand,
-    command,
-    status: 'passed',
-    startedAt,
-    completedAt,
-    config: redactForOutput(resolvedOptions),
-    result: redactForOutput(result),
-  })
+          try {
+            const result = await runFlowCommand(subcommand, resolvedOptions, runtime)
+            const completedAt = new Date().toISOString()
+            setObservabilityRuntimeState({
+              flowId: subcommand,
+              status: 'passed',
+              message: 'Flow completed',
+              startedAt,
+              completedAt,
+            })
+
+            return buildFlowCommandExecutionResult({
+              flowId: subcommand,
+              command,
+              status: 'passed',
+              startedAt,
+              completedAt,
+              config: redactForOutput(resolvedOptions),
+              result: redactForOutput(result),
+            })
+          } catch (error) {
+            setObservabilityRuntimeState({
+              flowId: subcommand,
+              status: 'failed',
+              message: sanitizeErrorForOutput(error).message,
+              startedAt,
+              completedAt: new Date().toISOString(),
+            })
+            throw error
+          }
+        },
+      ),
+  )
 }
 
 async function executeFlowSubcommandWithReporting(
@@ -393,6 +438,11 @@ async function runDaemonCommand(
 
   const cliName = options.cliName || getDefaultCliName()
   let announced = false
+  setObservabilityRuntimeState({
+    cliName,
+    target: options.target || null,
+    phase: 'starting',
+  })
 
   while (true) {
     setRuntimeConfig(config)
@@ -437,6 +487,20 @@ async function runDaemonCommand(
           runtimeFlowStartedAt: lastRuntimeState?.startedAt || null,
           runtimeFlowCompletedAt: lastRuntimeState?.completedAt || null,
         })
+        setObservabilityRuntimeState({
+          cliName,
+          target: options.target || null,
+          phase: 'listening',
+          activeTaskCount: snapshot.activeCount,
+          pendingTaskCount: snapshot.pendingCount,
+          parallelism: snapshot.parallelism,
+          flowId: lastRuntimeState?.flowId || null,
+          taskId: lastRuntimeState?.notificationId || null,
+          status: lastRuntimeState?.status || null,
+          message: lastRuntimeState?.message || null,
+          startedAt: lastRuntimeState?.startedAt || null,
+          completedAt: lastRuntimeState?.completedAt || null,
+        })
         return
       }
 
@@ -455,6 +519,26 @@ async function runDaemonCommand(
           outstandingStartedAt || lastRuntimeState?.startedAt || null,
         runtimeFlowCompletedAt: null,
       })
+      setObservabilityRuntimeState({
+        cliName,
+        target: options.target || null,
+        phase: 'running',
+        activeTaskCount: snapshot.activeCount,
+        pendingTaskCount: snapshot.pendingCount,
+        parallelism: snapshot.parallelism,
+        flowId:
+          snapshot.activeCount + snapshot.pendingCount > 1
+            ? 'task-queue'
+            : lastRuntimeState?.flowId || 'task-queue',
+        taskId:
+          snapshot.activeCount === 1 && !snapshot.pendingCount
+            ? lastRuntimeState?.notificationId || null
+            : null,
+        status: 'running',
+        message: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (parallelism ${snapshot.parallelism || DEFAULT_CLI_FLOW_TASK_PARALLELISM})`,
+        startedAt: outstandingStartedAt || lastRuntimeState?.startedAt || null,
+        completedAt: null,
+      })
     }
 
     const scheduleDaemonFlowTask = (task: {
@@ -468,115 +552,124 @@ async function runDaemonCommand(
         taskId: task.notificationId,
         batchId: task.batch?.batchId,
         parallelism: task.batch?.parallelism,
-        run: async () => {
-          const startedAt = new Date().toISOString()
-          if (
-            !outstandingStartedAt ||
-            Date.parse(startedAt) < Date.parse(outstandingStartedAt)
-          ) {
-            outstandingStartedAt = startedAt
-          }
+        run: async () =>
+          withObservabilityContext(
+            {
+              flowId: task.flowId,
+              taskId: task.notificationId,
+              notificationId: task.notificationId,
+              batchId: task.batch?.batchId || null,
+            },
+            async () => {
+              const startedAt = new Date().toISOString()
+              if (
+                !outstandingStartedAt ||
+                Date.parse(startedAt) < Date.parse(outstandingStartedAt)
+              ) {
+                outstandingStartedAt = startedAt
+              }
 
-          writeCliStdoutLine(
-            JSON.stringify(
-              {
-                command: 'daemon:task:start',
-                notificationId: task.notificationId,
+              writeCliStdoutLine(
+                JSON.stringify(
+                  {
+                    command: 'daemon:task:start',
+                    notificationId: task.notificationId,
+                    flowId: task.flowId,
+                    config: redactForOutput(task.config),
+                  },
+                  null,
+                  2,
+                ),
+              )
+
+              lastRuntimeState = {
                 flowId: task.flowId,
-                config: redactForOutput(task.config),
-              },
-              null,
-              2,
-            ),
-          )
+                notificationId: task.notificationId,
+                status: 'running',
+                message: task.message,
+                startedAt,
+              }
+              syncRuntimeReporterState()
 
-          lastRuntimeState = {
-            flowId: task.flowId,
-            notificationId: task.notificationId,
-            status: 'running',
-            message: task.message,
-            startedAt,
-          }
-          syncRuntimeReporterState()
+              const consoleProgressReporter = createConsoleFlowProgressReporter(
+                `flow:${task.flowId}`,
+              )
 
-          const consoleProgressReporter = createConsoleFlowProgressReporter(
-            `flow:${task.flowId}`,
-          )
+              try {
+                const execution = await executeFlowSubcommand(task.flowId, {
+                  ...task.config,
+                  progressReporter: (update) => {
+                    consoleProgressReporter(update)
 
-          try {
-            const execution = await executeFlowSubcommand(task.flowId, {
-              ...task.config,
-              progressReporter: (update) => {
-                consoleProgressReporter(update)
+                    const message = formatRuntimeProgressMessage(update)
+                    if (!message) {
+                      return
+                    }
 
-                const message = formatRuntimeProgressMessage(update)
-                if (!message) {
-                  return
-                }
+                    lastRuntimeState = {
+                      flowId: task.flowId,
+                      notificationId: task.notificationId,
+                      status: update.status === 'failed' ? 'failed' : 'running',
+                      message,
+                      startedAt,
+                    }
+                    syncRuntimeReporterState()
+                  },
+                })
 
                 lastRuntimeState = {
                   flowId: task.flowId,
                   notificationId: task.notificationId,
-                  status: update.status === 'failed' ? 'failed' : 'running',
-                  message,
+                  status: execution.status,
+                  message: 'Flow completed',
                   startedAt,
+                  completedAt: execution.completedAt || new Date().toISOString(),
                 }
                 syncRuntimeReporterState()
-              },
-            })
-
-            lastRuntimeState = {
-              flowId: task.flowId,
-              notificationId: task.notificationId,
-              status: execution.status,
-              message: 'Flow completed',
-              startedAt,
-              completedAt: execution.completedAt || new Date().toISOString(),
-            }
-            syncRuntimeReporterState()
-            writeCliStdoutLine(
-              JSON.stringify(
-                {
-                  command: 'daemon:task:completed',
-                  notificationId: task.notificationId,
+                writeCliStdoutLine(
+                  JSON.stringify(
+                    {
+                      command: 'daemon:task:completed',
+                      notificationId: task.notificationId,
+                      flowId: task.flowId,
+                      execution: redactForOutput({
+                        status: execution.status,
+                        completedAt: execution.completedAt,
+                      }),
+                    },
+                    null,
+                    2,
+                  ),
+                )
+              } catch (error) {
+                const sanitized = sanitizeErrorForOutput(error)
+                lastRuntimeState = {
                   flowId: task.flowId,
-                  execution: redactForOutput({
-                    status: execution.status,
-                    completedAt: execution.completedAt,
-                  }),
-                },
-                null,
-                2,
-              ),
-            )
-          } catch (error) {
-            const sanitized = sanitizeErrorForOutput(error)
-            lastRuntimeState = {
-              flowId: task.flowId,
-              notificationId: task.notificationId,
-              status: 'failed',
-              message: sanitized.message,
-              startedAt,
-              completedAt: new Date().toISOString(),
-            }
-            syncRuntimeReporterState()
-            writeCliStderrLine(
-              JSON.stringify(
-                {
-                  command: 'daemon:task:error',
                   notificationId: task.notificationId,
-                  flowId: task.flowId,
-                  error: sanitized.message,
-                },
-                null,
-                2,
-              ),
-            )
-          } finally {
-            await runtimeReporter.flush()
-            setRuntimeConfig(config)
-          }
-        },
+                  status: 'failed',
+                  message: sanitized.message,
+                  startedAt,
+                  completedAt: new Date().toISOString(),
+                }
+                syncRuntimeReporterState()
+                writeCliStderrLine(
+                  JSON.stringify(
+                    {
+                      command: 'daemon:task:error',
+                      notificationId: task.notificationId,
+                      flowId: task.flowId,
+                      error: sanitized.message,
+                    },
+                    null,
+                    2,
+                  ),
+                )
+              } finally {
+                await runtimeReporter.flush()
+                setRuntimeConfig(config)
+              }
+            },
+          ),
       })
 
       syncRuntimeReporterState()
@@ -699,6 +792,11 @@ async function runTuiCommand(
   }
 
   const cliName = options.cliName || getDefaultCliName()
+  setObservabilityRuntimeState({
+    cliName,
+    target: options.target || null,
+    phase: 'starting',
+  })
   await runTuiDashboard({
     cliName,
     target: options.target,

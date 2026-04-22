@@ -15,6 +15,7 @@ initializeCliFileLogging({
 import { newSession } from './core/browser'
 import { saveScreenshot, writeJson } from './core/report'
 import type { FlowHandler } from './types'
+import { captureCliDiagnostics } from './utils/observability'
 
 export async function runFlow(name: string, flow: FlowHandler): Promise<void> {
   const session = await newSession()
@@ -42,11 +43,17 @@ export async function runFlow(name: string, flow: FlowHandler): Promise<void> {
     try {
       screenshotPath = await saveScreenshot(session.page, `${name}-failed`)
     } catch {}
+    const diagnostics = captureCliDiagnostics({
+      reason: 'run-flow-error',
+      error,
+      handled: true,
+    })
 
     const reportPath = writeJson(name, {
       status: 'failed',
       error: err.message,
       screenshotPath,
+      diagnostics,
       capturedAt: new Date().toISOString(),
     })
 
@@ -58,6 +65,7 @@ export async function runFlow(name: string, flow: FlowHandler): Promise<void> {
           error: err.message,
           screenshotPath,
           reportPath,
+          diagnostics,
         },
         null,
         2,

@@ -15,6 +15,11 @@ import {
 import { parseFlowCliArgsForCommand } from './parse-argv'
 import { runWithSession } from './run-with-session'
 import {
+  setObservabilityRuntimeState,
+  traceCliOperation,
+  withObservabilityContext,
+} from '../../utils/observability'
+import {
   initializeCliFileLogging,
   writeCliStderrLine,
 } from '../../utils/cli-output'
@@ -50,26 +55,54 @@ export async function runSingleFileFlow<
       createConsoleFlowProgressReporter(definition.command),
   } as TOptions
   prepareRuntimeConfig(definition.command, resolvedOptions)
-  let result!: TResult
-  let browserHarPath: string | undefined
-  await runWithSession(
-    { artifactName: definition.command, context: {} },
-    async (session) => {
-      browserHarPath = session.harPath
-      result = await definition.run(session.page, runtimeOptions)
+  return withObservabilityContext(
+    {
+      command: definition.command,
     },
-    { closeOnComplete: !shouldKeepFlowOpen(runtimeOptions) },
+    () =>
+      traceCliOperation(
+        'flow.single_file',
+        {
+          command: definition.command,
+        },
+        async () => {
+          let result!: TResult
+          let browserHarPath: string | undefined
+          const startedAt = new Date().toISOString()
+          setObservabilityRuntimeState({
+            command: definition.command,
+            status: 'running',
+            message: 'Flow started',
+            startedAt,
+          })
+          await runWithSession(
+            { artifactName: definition.command, context: {} },
+            async (session) => {
+              browserHarPath = session.harPath
+              result = await definition.run(session.page, runtimeOptions)
+            },
+            { closeOnComplete: !shouldKeepFlowOpen(runtimeOptions) },
+          )
+          result = attachFlowArtifactPaths(result, {
+            harPath: browserHarPath,
+          })
+          printFlowCompletionSummary(definition.command, result)
+          if (shouldKeepFlowOpen(runtimeOptions)) {
+            writeCliStderrLine(
+              'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
+            )
+          }
+          setObservabilityRuntimeState({
+            command: definition.command,
+            status: 'passed',
+            message: 'Flow completed',
+            startedAt,
+            completedAt: new Date().toISOString(),
+          })
+          return result
+        },
+      ),
   )
-  result = attachFlowArtifactPaths(result, {
-    harPath: browserHarPath,
-  })
-  printFlowCompletionSummary(definition.command, result)
-  if (shouldKeepFlowOpen(runtimeOptions)) {
-    writeCliStderrLine(
-      'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
-    )
-  }
-  return result
 }
 
 export function runSingleFileFlowFromCli<

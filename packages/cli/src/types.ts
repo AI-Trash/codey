@@ -18,6 +18,7 @@ export type SelectorTarget = string | SelectorObject
 export type SelectorList = SelectorTarget[]
 
 export interface Session {
+  sessionId?: string
   browser: import('patchright').Browser | null
   context: import('patchright').BrowserContext
   page: Page

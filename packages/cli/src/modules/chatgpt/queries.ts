@@ -22,6 +22,10 @@ import {
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
   LOGIN_ENTRY_SELECTORS,
+  MIN_ONBOARDING_CLICKS,
+  ONBOARDING_IDLE_POLL_MS,
+  ONBOARDING_IDLE_WAIT_AFTER_MIN_CLICKS_MS,
+  ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS,
   ONBOARDING_SIGNAL_SELECTORS,
   PASSWORD_INPUT_SELECTORS,
   PASSWORD_TIMEOUT_ERROR_SELECTORS,
@@ -450,28 +454,33 @@ export async function waitUntilChatGPTHomeReady(
   clickOnboardingAction: (page: Page) => Promise<string | null>,
   rounds = 20,
 ): Promise<boolean> {
-  let sawOnboarding = false
   let onboardingClicks = 0
-  let authenticatedIdleRounds = 0
-  for (let round = 0; round < rounds; round += 1) {
+  let authenticatedIdleStartedAt: number | null = null
+  const longIdleRounds = Math.ceil(
+    ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS / ONBOARDING_IDLE_POLL_MS,
+  )
+  const maxRounds = Math.max(
+    rounds,
+    longIdleRounds + MIN_ONBOARDING_CLICKS + 2,
+  )
+
+  for (let round = 0; round < maxRounds; round += 1) {
     const onboardingVisible = await isAnySelectorVisible(
       page,
       ONBOARDING_SIGNAL_SELECTORS,
     )
-    if (onboardingVisible) sawOnboarding = true
 
     const action = await clickOnboardingAction(page)
     if (action) {
-      sawOnboarding = true
       onboardingClicks += 1
-      authenticatedIdleRounds = 0
-      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
+      authenticatedIdleStartedAt = null
+      await sleep(ONBOARDING_IDLE_POLL_MS)
       continue
     }
 
     if (onboardingVisible) {
-      authenticatedIdleRounds = 0
-      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
+      authenticatedIdleStartedAt = null
+      await sleep(ONBOARDING_IDLE_POLL_MS)
       continue
     }
 
@@ -480,20 +489,24 @@ export async function waitUntilChatGPTHomeReady(
       ? await getPendingOnboardingAnnouncementKeys(page)
       : []
     if (pendingOnboardingAnnouncementKeys.length > 0) {
-      sawOnboarding = true
-      authenticatedIdleRounds = 0
-      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
+      authenticatedIdleStartedAt = null
+      await sleep(ONBOARDING_IDLE_POLL_MS)
       continue
     }
 
-    if (authenticated && (!sawOnboarding || onboardingClicks > 0)) {
-      authenticatedIdleRounds += 1
-      if (authenticatedIdleRounds >= 2) return true
-      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
+    if (authenticated) {
+      const requiredIdleMs =
+        onboardingClicks >= MIN_ONBOARDING_CLICKS
+          ? ONBOARDING_IDLE_WAIT_AFTER_MIN_CLICKS_MS
+          : ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS
+      authenticatedIdleStartedAt ??= Date.now()
+      const idleElapsedMs = Date.now() - authenticatedIdleStartedAt
+      if (idleElapsedMs >= requiredIdleMs) return true
+      await sleep(Math.min(ONBOARDING_IDLE_POLL_MS, requiredIdleMs - idleElapsedMs))
       continue
     }
 
-    authenticatedIdleRounds = 0
+    authenticatedIdleStartedAt = null
     await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
   }
 
