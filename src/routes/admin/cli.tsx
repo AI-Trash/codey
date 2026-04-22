@@ -880,9 +880,10 @@ function DispatchOptionField(props: {
 }) {
   const inputId = `dispatch-option-${props.option.key}`
 
-  if (isCodexOAuthEmailOption(props.flowId, props.option)) {
+  if (isEmailBatchDispatchOption(props.flowId, props.option)) {
     return (
-      <CodexOAuthEmailDispatchField
+      <EmailBatchDispatchField
+        flowId={props.flowId}
         inputId={inputId}
         option={props.option}
         value={props.value}
@@ -972,7 +973,8 @@ function DispatchOptionField(props: {
   )
 }
 
-function CodexOAuthEmailDispatchField(props: {
+function EmailBatchDispatchField(props: {
+  flowId: CliFlowCommandId
   inputId: string
   option: CliFlowConfigFieldDefinition
   value: string
@@ -1068,7 +1070,7 @@ function CodexOAuthEmailDispatchField(props: {
         }}
       />
       <FieldDescription>
-        {formatOptionDescription(props.option, 'codex-oauth')}
+        {formatOptionDescription(props.option, props.flowId)}
       </FieldDescription>
       {importFeedback ? (
         <p className="text-xs text-muted-foreground">{importFeedback}</p>
@@ -1154,11 +1156,17 @@ function supportsRepeatedDispatch(
   return flowId === 'chatgpt-register'
 }
 
-function isCodexOAuthEmailOption(
+function supportsEmailListDispatch(
+  flowId: CliFlowCommandId | '',
+): flowId is 'chatgpt-login-invite' | 'codex-oauth' {
+  return flowId === 'chatgpt-login-invite' || flowId === 'codex-oauth'
+}
+
+function isEmailBatchDispatchOption(
   flowId: CliFlowCommandId,
   option: CliFlowConfigFieldDefinition,
 ) {
-  return flowId === 'codex-oauth' && option.key === 'email'
+  return supportsEmailListDispatch(flowId) && option.key === 'email'
 }
 
 function extractDispatchEmailAddresses(input: string): string[] {
@@ -1219,7 +1227,7 @@ function resolveDispatchBatchState(
     }
   }
 
-  if (flowId === 'codex-oauth') {
+  if (supportsEmailListDispatch(flowId)) {
     const emails = extractDispatchEmailAddresses(draftValues.email || '')
     if (emails.length > 1) {
       return {
@@ -1328,8 +1336,10 @@ function buildDispatchSubmission<TFlowId extends CliFlowCommandId>(
       )
     }
 
-    const { email: _discardedEmail, ...sharedConfig } = config as
-      CliFlowConfigById['codex-oauth']
+    const sharedConfig = {
+      ...(config as Record<string, unknown>),
+    }
+    delete sharedConfig.email
     const configs = batchState.emails.map((email) => ({
       ...sharedConfig,
       email,
@@ -1402,7 +1412,7 @@ function buildDispatchConfig<TFlowId extends CliFlowCommandId>(
       continue
     }
 
-    if (isCodexOAuthEmailOption(flowId, definition)) {
+    if (isEmailBatchDispatchOption(flowId, definition)) {
       const emails = extractDispatchEmailAddresses(rawValue)
       if (!emails.length) {
         throw new Error(m.admin_cli_dispatch_email_batch_invalid())
@@ -1523,7 +1533,7 @@ function formatOptionDescription(
     : ''
   const parts = [
     detail,
-    flowId && isCodexOAuthEmailOption(flowId, option)
+    flowId && isEmailBatchDispatchOption(flowId, option)
       ? m.admin_cli_dispatch_email_batch_help()
       : '',
     option.type === 'stringList' ? m.admin_cli_dispatch_string_list_hint() : '',

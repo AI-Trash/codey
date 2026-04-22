@@ -122,19 +122,25 @@ function normalizeEmailKey(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+function supportsEmailBatchDispatch(
+  flowId: CliFlowCommandId,
+): flowId is "chatgpt-login-invite" | "codex-oauth" {
+  return flowId === "chatgpt-login-invite" || flowId === "codex-oauth";
+}
+
 function validateBatchedCliFlowConfigs<TFlowId extends CliFlowCommandId>(input: {
   flowId: TFlowId;
   configs: ReturnType<typeof normalizeCliFlowConfig<TFlowId>>[];
   requestedCount?: number | null;
 }) {
-  if (input.flowId !== "codex-oauth") {
+  if (!supportsEmailBatchDispatch(input.flowId)) {
     return;
   }
 
   if (input.configs.length <= 1) {
     if ((input.requestedCount || 1) > 1) {
       throw new Error(
-        "Codex OAuth batch dispatch requires one unique email address per task.",
+        "Email batch dispatch requires one unique email address per task.",
       );
     }
     return;
@@ -144,20 +150,20 @@ function validateBatchedCliFlowConfigs<TFlowId extends CliFlowCommandId>(input: 
   for (const config of input.configs) {
     if (typeof config.identityId === "string" && config.identityId.trim()) {
       throw new Error(
-        "Codex OAuth email batches cannot include identityId overrides.",
+        "Email batch dispatch cannot include identityId overrides.",
       );
     }
 
     const email = normalizeEmailKey(config.email);
     if (!email) {
       throw new Error(
-        "Each Codex OAuth batch item must include an email address.",
+        "Each email batch item must include an email address.",
       );
     }
 
     if (seenEmails.has(email)) {
       throw new Error(
-        `Duplicate Codex OAuth batch email detected: ${email}.`,
+        `Duplicate email batch address detected: ${email}.`,
       );
     }
 

@@ -111,10 +111,18 @@ export function AdminPaginatedTable<TData>(props: {
   toolbar?: ReactNode
   resetPageKey?: string
   fillHeight?: boolean
+  pageSizeOptions?: readonly number[]
 }) {
+  const pageSizeOptions =
+    props.pageSizeOptions?.length &&
+    props.pageSizeOptions.every(
+      (option) => Number.isInteger(option) && option > 0,
+    )
+      ? props.pageSizeOptions
+      : ADMIN_TABLE_PAGE_SIZE_OPTIONS
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<number>(
-    ADMIN_TABLE_PAGE_SIZE_OPTIONS[1],
+    pageSizeOptions.includes(25) ? 25 : pageSizeOptions[0],
   )
   const selection = useAdminTableSelection({
     rows: props.rows,
@@ -164,7 +172,7 @@ export function AdminPaginatedTable<TData>(props: {
       className="w-[110px]"
       aria-label={m.admin_table_page_size_label()}
     >
-      {ADMIN_TABLE_PAGE_SIZE_OPTIONS.map((option) => (
+      {pageSizeOptions.map((option) => (
         <NativeSelectOption key={option} value={String(option)}>
           {m.admin_table_rows_option({ count: String(option) })}
         </NativeSelectOption>
@@ -276,6 +284,7 @@ export function ClientFilterableAdminTable<
   renderTable: (context: AdminTableRenderContext<TData>) => ReactNode
   renderActions?: (context: AdminTableActionContext<TData>) => ReactNode
   fillHeight?: boolean
+  pageSizeOptions?: readonly number[]
 }) {
   const table = useAdminDataTableFilters({
     strategy: 'client',
@@ -298,6 +307,7 @@ export function ClientFilterableAdminTable<
       renderTable={props.renderTable}
       resetPageKey={JSON.stringify(table.filters)}
       fillHeight={props.fillHeight}
+      pageSizeOptions={props.pageSizeOptions}
     />
   )
 }

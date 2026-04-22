@@ -6,6 +6,7 @@ import { parseFlowCliArgs } from '../src/modules/flow-cli/parse-argv'
 import {
   extractInviteEmailsFromCsv,
   extractInviteEmailsFromJson,
+  planWorkspaceMemberRemovals,
   resolveInviteEmails,
   selectInviteCapableAccount,
 } from '../src/modules/chatgpt/workspace-invites'
@@ -143,5 +144,48 @@ describe('workspace invite helpers', () => {
         'personal-1',
       ),
     ).toBe('workspace-2')
+  })
+
+  it('plans removals by prioritizing deactivated non-owners first', () => {
+    expect(
+      planWorkspaceMemberRemovals({
+        inviteCount: 2,
+        memberLimit: 4,
+        members: [
+          {
+            id: 'owner-1',
+            email: 'owner@example.com',
+            role: 'account-owner',
+            created_time: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'member-new',
+            email: 'member-new@example.com',
+            role: 'standard-user',
+            created_time: '2026-03-01T00:00:00.000Z',
+          },
+          {
+            id: 'member-old',
+            email: 'member-old@example.com',
+            role: 'standard-user',
+            created_time: '2026-02-01T00:00:00.000Z',
+          },
+          {
+            id: 'deactivated-new',
+            email: 'deactivated-new@example.com',
+            role: 'standard-user',
+            created_time: '2026-04-01T00:00:00.000Z',
+            deactivated_time: '2026-04-10T00:00:00.000Z',
+          },
+          {
+            id: 'deactivated-old',
+            email: 'deactivated-old@example.com',
+            role: 'standard-user',
+            created_time: '2026-01-15T00:00:00.000Z',
+            deactivated_time: '2026-04-09T00:00:00.000Z',
+          },
+        ],
+      }).map((member) => member.id),
+    ).toEqual(['deactivated-old', 'deactivated-new', 'member-old'])
   })
 })

@@ -1,60 +1,21 @@
 import fs from 'fs'
 import path from 'path'
 import type { Page, Request } from 'patchright'
-import type { SelectorTarget } from '../../types'
 import type { FlowOptions } from '../flow-cli/helpers'
 import { sleep } from '../../utils/wait'
-import { firstVisible, toLocator } from '../../utils/selectors'
 import { CHATGPT_HOME_URL } from './common'
 
 const ACCOUNTS_CHECK_VERSION = 'v4-2023-04-27'
 const CHATGPT_ADMIN_URL = new URL('/admin', CHATGPT_HOME_URL).toString()
 const CHATGPT_BACKEND_ORIGIN = new URL(CHATGPT_HOME_URL).origin
 const INVITE_ROUTE_TEMPLATE = '/backend-api/accounts/:accountId/invites'
+const WORKSPACE_USERS_ROUTE_TEMPLATE = '/backend-api/accounts/:accountId/users'
+const WORKSPACE_USER_ROUTE_TEMPLATE =
+  '/backend-api/accounts/:accountId/users/:userId'
 const ACCOUNTS_CHECK_ROUTE_TEMPLATE = '/backend-api/accounts/check/:version'
+const MAX_WORKSPACE_MEMBER_COUNT = 10
+const WORKSPACE_USERS_PAGE_LIMIT = 25
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
-
-const ADMIN_PAGE_SIGNAL_SELECTORS: SelectorTarget[] = [
-  { text: /成员|members/i },
-  { text: /管理\s*[|｜]\s*成员|admin\s*[|｜]\s*members/i },
-  {
-    role: 'button',
-    options: { name: /邀请成员|invite members|邀请团队成员/i },
-  },
-  { text: /邀请成员加入|invite members to/i },
-]
-
-const INVITE_BUTTON_SELECTORS: SelectorTarget[] = [
-  {
-    role: 'button',
-    options: { name: /邀请成员|invite members|邀请团队成员/i },
-  },
-  { role: 'button', options: { name: /^邀请$|^invite$/i } },
-  { text: /邀请成员|invite members|邀请团队成员/i },
-  { text: /^邀请$|^invite$/i },
-]
-
-const INVITE_DIALOG_TITLE_SELECTORS: SelectorTarget[] = [
-  { text: /邀请成员加入|invite members to/i },
-  { text: /邀请成员|invite members/i },
-]
-
-const INVITE_EMAIL_INPUT_SELECTORS: SelectorTarget[] = [
-  { label: /邮箱|电子邮件|email/i },
-  { placeholder: /邮箱|电子邮件|email|comma|换行|newline/i },
-  'textarea',
-  'input[type="email"]',
-  'input[name*="email"]',
-  'input[id*="email"]',
-]
-
-const INVITE_SUBMIT_SELECTORS: SelectorTarget[] = [
-  { role: 'button', options: { name: /发送邀请|邀请成员|invite members/i } },
-  { role: 'button', options: { name: /^邀请$|^invite$/i } },
-  { text: /发送邀请|邀请成员|invite members/i },
-  { text: /^邀请$|^invite$/i },
-  'button[type="submit"]',
-]
 
 const FORWARDABLE_API_HEADERS: Array<[source: string, target: string]> = [
   ['authorization', 'Authorization'],
@@ -90,6 +51,27 @@ export interface ChatGPTWorkspaceInvitesListResponse {
   account_invites?: ChatGPTInviteRecord[]
 }
 
+export interface ChatGPTWorkspaceUserRecord {
+  id?: string
+  account_user_id?: string
+  email?: string
+  verified_email?: string | null
+  role?: string | null
+  seat_type?: string | null
+  credit_limits?: unknown
+  name?: string | null
+  created_time?: string | null
+  is_scim_managed?: boolean
+  deactivated_time?: string | null
+}
+
+export interface ChatGPTWorkspaceUsersListResponse {
+  items?: ChatGPTWorkspaceUserRecord[]
+  total?: number
+  limit?: number
+  offset?: number
+}
+
 export interface ChatGPTAccountsCheckResponse {
   accounts?: Record<
     string,
@@ -107,7 +89,7 @@ export interface ChatGPTAccountsCheckResponse {
 }
 
 export interface ChatGPTWorkspaceInviteResult {
-  strategy: 'api' | 'ui'
+  strategy: 'api'
   accountId?: string
   requestedEmails: string[]
   invitedEmails: string[]
@@ -115,7 +97,6 @@ export interface ChatGPTWorkspaceInviteResult {
   erroredEmails: string[]
   apiStatus?: number
   apiError?: string
-  uiError?: string
 }
 
 interface BrowserApiResponse<T> {
@@ -139,14 +120,6 @@ interface ApiInviteAttempt {
   skippedEmails: string[]
   erroredEmails: string[]
   status?: number
-  error?: string
-}
-
-interface UiInviteAttempt {
-  ok: boolean
-  invitedEmails: string[]
-  skippedEmails: string[]
-  erroredEmails: string[]
   error?: string
 }
 
@@ -338,25 +311,10 @@ export async function inviteWorkspaceMembers(
     }
   }
 
-  const uiAttempt = await inviteMembersViaUi(page, emails, { accountId })
-  if (uiAttempt.ok) {
-    return {
-      strategy: 'ui',
-      accountId,
-      requestedEmails: emails,
-      invitedEmails: uiAttempt.invitedEmails,
-      skippedEmails: uiAttempt.skippedEmails,
-      erroredEmails: uiAttempt.erroredEmails,
-      apiStatus: capturedApiAttempt.status || initialApiAttempt.status,
-      apiError: capturedApiAttempt.error || initialApiAttempt.error,
-    }
-  }
-
   throw new Error(
     [
-      'Failed to invite workspace members via API and UI fallback.',
+      'Failed to invite workspace members via API.',
       capturedApiAttempt.error || initialApiAttempt.error,
-      uiAttempt.error,
     ]
       .filter(Boolean)
       .join(' '),
@@ -384,10 +342,45 @@ async function inviteMembersViaApi(
     }
   }
 
+  const workspaceMembers = await listWorkspaceMembers(
+    page,
+    accountId,
+    options.requestHeaders,
+  )
+  if (!workspaceMembers.ok) {
+    return {
+      ok: false,
+      accountId,
+      invitedEmails: [],
+      skippedEmails: [],
+      erroredEmails: [],
+      status: workspaceMembers.status,
+      error: buildApiErrorMessage('list workspace members', workspaceMembers),
+    }
+  }
+
   const pendingInvites = await listPendingInvites(
     page,
     accountId,
     options.requestHeaders,
+  )
+  if (!pendingInvites.ok) {
+    return {
+      ok: false,
+      accountId,
+      invitedEmails: [],
+      skippedEmails: [],
+      erroredEmails: [],
+      status: pendingInvites.status,
+      error: buildApiErrorMessage('list pending invites', pendingInvites),
+    }
+  }
+
+  const existingMembers = workspaceMembers.data?.items || []
+  const existingMemberEmails = new Set(
+    normalizeInviteEmails(
+      existingMembers.map((member) => member.email || ''),
+    ),
   )
   const alreadyPending = new Set(
     normalizeInviteEmails(
@@ -396,12 +389,73 @@ async function inviteMembersViaApi(
       ) || [],
     ),
   )
-  const skippedEmails = requestedEmails.filter((email) =>
-    alreadyPending.has(email),
+  const skippedEmails = requestedEmails.filter(
+    (email) => alreadyPending.has(email) || existingMemberEmails.has(email),
   )
-  const pendingInviteEmails = requestedEmails.filter(
-    (email) => !alreadyPending.has(email),
+  const pendingInviteEmails = requestedEmails.filter((email) => {
+    return !alreadyPending.has(email) && !existingMemberEmails.has(email)
+  })
+
+  const removalPlan = planWorkspaceMemberRemovals({
+    members: existingMembers,
+    inviteCount: pendingInviteEmails.length,
+  })
+  const requiredSeatCount = Math.max(
+    0,
+    existingMembers.length +
+      pendingInviteEmails.length -
+      MAX_WORKSPACE_MEMBER_COUNT,
   )
+
+  if (requiredSeatCount > removalPlan.length) {
+    return {
+      ok: false,
+      accountId,
+      invitedEmails: [],
+      skippedEmails,
+      erroredEmails: [],
+      error: buildWorkspaceCapacityError({
+        currentMemberCount: existingMembers.length,
+        inviteCount: pendingInviteEmails.length,
+        removableCount: removalPlan.length,
+      }),
+    }
+  }
+
+  for (const member of removalPlan) {
+    const userId = typeof member.id === 'string' ? member.id.trim() : ''
+    if (!userId) {
+      return {
+        ok: false,
+        accountId,
+        invitedEmails: [],
+        skippedEmails,
+        erroredEmails: [],
+        error: 'A removable workspace member did not include a user id.',
+      }
+    }
+
+    const removal = await removeWorkspaceMember(
+      page,
+      accountId,
+      userId,
+      options.requestHeaders,
+    )
+    if (!removal.ok || removal.data?.success === false) {
+      return {
+        ok: false,
+        accountId,
+        invitedEmails: [],
+        skippedEmails,
+        erroredEmails: [],
+        status: removal.status,
+        error: buildApiErrorMessage(
+          `remove workspace member ${member.email || userId}`,
+          removal,
+        ),
+      }
+    }
+  }
 
   if (!pendingInviteEmails.length) {
     return {
@@ -466,92 +520,6 @@ async function inviteMembersViaApi(
     skippedEmails,
     erroredEmails,
     status: response.status,
-  }
-}
-
-async function inviteMembersViaUi(
-  page: Page,
-  requestedEmails: string[],
-  options: {
-    accountId?: string
-  } = {},
-): Promise<UiInviteAttempt> {
-  try {
-    await ensureWorkspaceAccountCookie(page, options.accountId)
-    await page.goto(CHATGPT_ADMIN_URL, { waitUntil: 'domcontentloaded' })
-    await waitForPageSignal(page, ADMIN_PAGE_SIGNAL_SELECTORS, 15000)
-
-    await clickFirstVisible(page, INVITE_BUTTON_SELECTORS)
-    const dialog = await waitForInviteDialog(page)
-    const dialogRoot = dialog || page
-
-    const input = await findEditableLocator(
-      dialogRoot,
-      INVITE_EMAIL_INPUT_SELECTORS,
-    )
-    if (!input) {
-      throw new Error(
-        'Invite dialog opened but no editable email input was found.',
-      )
-    }
-
-    await input.click().catch(() => undefined)
-    await input.fill(requestedEmails.join('\n'))
-
-    const submitButton = await findVisibleLocator(
-      dialogRoot,
-      INVITE_SUBMIT_SELECTORS,
-    )
-    if (!submitButton) {
-      throw new Error('Invite dialog opened but no submit button was found.')
-    }
-
-    await submitButton.click()
-
-    if (dialog) {
-      const dialogClosed = await dialog
-        .waitFor({ state: 'hidden', timeout: 10000 })
-        .then(() => true)
-        .catch(() => false)
-      if (dialogClosed) {
-        return {
-          ok: true,
-          invitedEmails: requestedEmails,
-          skippedEmails: [],
-          erroredEmails: [],
-        }
-      }
-    }
-
-    const inviteSignals = [
-      ...requestedEmails.map(
-        (email) => ({ text: email }) satisfies SelectorTarget,
-      ),
-      {
-        text: /\(邀请已发送\)|invite sent|pending invite/i,
-      } satisfies SelectorTarget,
-    ]
-    const successDetected = await waitForPageSignal(page, inviteSignals, 10000)
-    if (!successDetected) {
-      throw new Error(
-        'Invite dialog submit did not produce a visible success signal.',
-      )
-    }
-
-    return {
-      ok: true,
-      invitedEmails: requestedEmails,
-      skippedEmails: [],
-      erroredEmails: [],
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      invitedEmails: [],
-      skippedEmails: [],
-      erroredEmails: [],
-      error: error instanceof Error ? error.message : String(error),
-    }
   }
 }
 
@@ -641,6 +609,76 @@ async function listPendingInvites(
       }),
     },
   )
+}
+
+async function listWorkspaceMembers(
+  page: Page,
+  accountId: string,
+  requestHeaders?: Record<string, string>,
+): Promise<BrowserApiResponse<ChatGPTWorkspaceUsersListResponse>> {
+  const requestPath =
+    `/backend-api/accounts/${accountId}/users` +
+    `?offset=0&limit=${WORKSPACE_USERS_PAGE_LIMIT}&query=`
+
+  return fetchChatGPTJsonApi<ChatGPTWorkspaceUsersListResponse>(
+    page,
+    `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
+    {
+      headers: buildChatGPTApiHeaders({
+        accountId,
+        requestHeaders,
+        path: requestPath,
+        route: WORKSPACE_USERS_ROUTE_TEMPLATE,
+      }),
+    },
+  )
+}
+
+async function removeWorkspaceMember(
+  page: Page,
+  accountId: string,
+  userId: string,
+  requestHeaders?: Record<string, string>,
+): Promise<BrowserApiResponse<{ success?: boolean }>> {
+  const requestPath = `/backend-api/accounts/${accountId}/users/${userId}`
+  return fetchChatGPTJsonApi<{ success?: boolean }>(
+    page,
+    `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
+    {
+      method: 'DELETE',
+      headers: buildChatGPTApiHeaders({
+        accountId,
+        requestHeaders,
+        path: requestPath,
+        route: WORKSPACE_USER_ROUTE_TEMPLATE,
+      }),
+    },
+  )
+}
+
+export function planWorkspaceMemberRemovals(input: {
+  members: ChatGPTWorkspaceUserRecord[]
+  inviteCount: number
+  memberLimit?: number
+}): ChatGPTWorkspaceUserRecord[] {
+  const inviteCount = Math.max(0, Math.trunc(input.inviteCount))
+  const memberLimit =
+    typeof input.memberLimit === 'number' && input.memberLimit > 0
+      ? Math.trunc(input.memberLimit)
+      : MAX_WORKSPACE_MEMBER_COUNT
+  const seatsToFree = Math.max(
+    0,
+    input.members.length + inviteCount - memberLimit,
+  )
+
+  if (!seatsToFree) {
+    return []
+  }
+
+  return [...input.members]
+    .filter(isRemovableWorkspaceMember)
+    .sort(compareWorkspaceRemovalCandidates)
+    .slice(0, seatsToFree)
 }
 
 async function fetchChatGPTJsonApi<T>(
@@ -774,157 +812,6 @@ async function readCurrentAccountCookie(
   return cookie?.value || undefined
 }
 
-async function ensureWorkspaceAccountCookie(
-  page: Page,
-  accountId?: string,
-): Promise<void> {
-  if (!accountId) return
-
-  const currentCookie = (await page.context().cookies(CHATGPT_HOME_URL)).find(
-    (entry) => entry.name === '_account',
-  )
-  if (currentCookie?.value === accountId) return
-
-  await page.context().addCookies([
-    {
-      name: '_account',
-      value: accountId,
-      domain: currentCookie?.domain || 'chatgpt.com',
-      path: currentCookie?.path || '/',
-      expires: currentCookie?.expires || -1,
-      httpOnly: currentCookie?.httpOnly || false,
-      secure: currentCookie?.secure ?? true,
-      sameSite: currentCookie?.sameSite || 'Lax',
-    },
-  ])
-}
-
-async function waitForInviteDialog(page: Page) {
-  const titleReady = await waitForPageSignal(
-    page,
-    INVITE_DIALOG_TITLE_SELECTORS,
-    10000,
-  )
-  if (!titleReady) return null
-
-  const candidateDialogs = page.locator('[role="dialog"]')
-  const dialogCount = await candidateDialogs.count().catch(() => 0)
-  for (let index = dialogCount - 1; index >= 0; index -= 1) {
-    const dialog = candidateDialogs.nth(index)
-    if (await dialog.isVisible().catch(() => false)) {
-      return dialog
-    }
-  }
-
-  return null
-}
-
-async function waitForPageSignal(
-  page: Page,
-  selectors: SelectorTarget[],
-  timeoutMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    for (const selector of selectors) {
-      const locator = toLocator(page, selector).first()
-      if (await locator.isVisible().catch(() => false)) {
-        return true
-      }
-    }
-
-    await sleep(250)
-  }
-
-  return false
-}
-
-async function clickFirstVisible(
-  page: Page,
-  selectors: SelectorTarget[],
-): Promise<void> {
-  const locator = await firstVisible(page, selectors)
-  await locator.click()
-}
-
-async function findVisibleLocator(
-  root: ScopedLocatorRoot,
-  selectors: SelectorTarget[],
-) {
-  for (const selector of selectors) {
-    const locator = toScopedLocator(root, selector)
-    if (await locator.isVisible().catch(() => false)) {
-      return locator
-    }
-  }
-
-  for (const selector of selectors) {
-    const locator = toScopedLocator(root, selector)
-    try {
-      await locator.waitFor({ state: 'visible', timeout: 3000 })
-      return locator
-    } catch {}
-  }
-
-  return null
-}
-
-async function findEditableLocator(
-  root: ScopedLocatorRoot,
-  selectors: SelectorTarget[],
-) {
-  for (const selector of selectors) {
-    const locator = toScopedLocator(root, selector)
-    const visible = await locator.isVisible().catch(() => false)
-    if (!visible) continue
-
-    const editable = await locator
-      .evaluate((element) => {
-        const candidate = element as HTMLInputElement | HTMLTextAreaElement
-        const htmlElement = element as HTMLElement & { disabled?: boolean }
-        return (
-          !candidate.readOnly &&
-          !htmlElement.disabled &&
-          htmlElement.getAttribute('aria-disabled') !== 'true'
-        )
-      })
-      .catch(async () => locator.isEditable().catch(() => false))
-
-    if (editable) return locator
-  }
-
-  return null
-}
-
-type ScopedLocatorRoot = Page | ReturnType<Page['locator']>
-
-function toScopedLocator(root: ScopedLocatorRoot, selector: SelectorTarget) {
-  if (
-    'locator' in root &&
-    typeof root.locator === 'function' &&
-    !('goto' in root)
-  ) {
-    if (typeof selector === 'string') {
-      return root.locator(selector).first()
-    }
-    if ('css' in selector) return root.locator(selector.css).first()
-    if ('role' in selector)
-      return root.getByRole(selector.role, selector.options || {}).first()
-    if ('text' in selector)
-      return root.getByText(selector.text, selector.options || {}).first()
-    if ('label' in selector)
-      return root.getByLabel(selector.label, selector.options || {}).first()
-    if ('placeholder' in selector) {
-      return root
-        .getByPlaceholder(selector.placeholder, selector.options || {})
-        .first()
-    }
-    if ('testId' in selector) return root.getByTestId(selector.testId).first()
-  }
-
-  return toLocator(root as Page, selector).first()
-}
-
 function isInviteCapableAccount(
   entry?: NonNullable<ChatGPTAccountsCheckResponse['accounts']>[string],
 ): boolean {
@@ -933,6 +820,79 @@ function isInviteCapableAccount(
   if (account.is_deactivated) return false
   if (account.structure !== 'workspace') return false
   return entry?.can_access_with_session !== false
+}
+
+function isRemovableWorkspaceMember(member: ChatGPTWorkspaceUserRecord): boolean {
+  const userId = typeof member.id === 'string' ? member.id.trim() : ''
+  if (!userId) {
+    return false
+  }
+
+  const role = member.role?.trim().toLowerCase() || ''
+  return !role.includes('owner')
+}
+
+function compareWorkspaceRemovalCandidates(
+  left: ChatGPTWorkspaceUserRecord,
+  right: ChatGPTWorkspaceUserRecord,
+): number {
+  const deactivatedDelta =
+    Number(Boolean(right.deactivated_time)) -
+    Number(Boolean(left.deactivated_time))
+  if (deactivatedDelta !== 0) {
+    return deactivatedDelta
+  }
+
+  const roleDelta = readWorkspaceRemovalRolePriority(left.role) -
+    readWorkspaceRemovalRolePriority(right.role)
+  if (roleDelta !== 0) {
+    return roleDelta
+  }
+
+  const createdDelta =
+    readSortableTimestamp(left.created_time) -
+    readSortableTimestamp(right.created_time)
+  if (Number.isFinite(createdDelta) && createdDelta !== 0) {
+    return createdDelta
+  }
+
+  return (left.email || left.id || '').localeCompare(right.email || right.id || '')
+}
+
+function readWorkspaceRemovalRolePriority(role: string | null | undefined): number {
+  const normalized = role?.trim().toLowerCase() || ''
+  if (!normalized) {
+    return 10
+  }
+  if (normalized.includes('standard') || normalized.includes('member')) {
+    return 0
+  }
+  if (normalized.includes('admin')) {
+    return 20
+  }
+  return 10
+}
+
+function readSortableTimestamp(value: string | null | undefined): number {
+  if (!value) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY
+}
+
+function buildWorkspaceCapacityError(input: {
+  currentMemberCount: number
+  inviteCount: number
+  removableCount: number
+}): string {
+  return [
+    `Workspace member limit is ${MAX_WORKSPACE_MEMBER_COUNT}.`,
+    `Current members: ${input.currentMemberCount}.`,
+    `Pending new invites: ${input.inviteCount}.`,
+    `Removable members available: ${input.removableCount}.`,
+  ].join(' ')
 }
 
 function parseCsvRows(content: string): string[][] {

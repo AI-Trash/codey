@@ -241,6 +241,8 @@ const defaultManagedIdentityFilters: FiltersState = [
   },
 ]
 
+const IDENTITY_TABLE_PAGE_SIZE_OPTIONS = [9, 10, 25, 50] as const
+
 function normalizeManagedIdentityStatus(
   status?: string | null,
 ): ManagedIdentityStatus {
@@ -501,6 +503,7 @@ function AdminIdentitiesPage() {
             data={identitySummaries}
             columnsConfig={identityColumns}
             defaultFilters={defaultManagedIdentityFilters}
+            pageSizeOptions={IDENTITY_TABLE_PAGE_SIZE_OPTIONS}
             getRowId={(summary) => summary.id}
             fillHeight
             emptyState={
