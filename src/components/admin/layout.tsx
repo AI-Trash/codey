@@ -108,6 +108,12 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
       icon: FingerprintIcon,
       matches: (pathname: string) => pathname === '/admin/identities',
     })
+    navigation.push({
+      label: m.admin_nav_workspaces(),
+      to: '/admin/workspaces',
+      icon: AppWindowIcon,
+      matches: (pathname: string) => pathname === '/admin/workspaces',
+    })
   }
 
   if (hasAdminPermission(currentUser, 'CLI_OPERATIONS')) {
@@ -179,6 +185,7 @@ export function AdminShell(props: {
     pathname === '/admin' ||
     pathname === '/admin/emails' ||
     pathname === '/admin/identities' ||
+    pathname === '/admin/workspaces' ||
     pathname === '/admin/sessions' ||
     pathname === '/admin/users' ||
     pathname === '/admin/cli' ||
@@ -601,6 +608,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/identities') {
     return m.admin_nav_identities()
+  }
+
+  if (pathname === '/admin/workspaces') {
+    return m.admin_nav_workspaces()
   }
 
   if (pathname === '/admin/sessions') {

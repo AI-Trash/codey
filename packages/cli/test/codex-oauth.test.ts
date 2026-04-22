@@ -23,6 +23,7 @@ const exchangeCodexAuthorizationCode = vi.fn()
 const shareCodexOAuthSessionWithCodeyApp = vi.fn()
 const syncCodexOAuthSessionToSub2Api = vi.fn()
 const resolveStoredChatGPTIdentity = vi.fn()
+const resolveAssociatedManagedWorkspaceFromCodeyApp = vi.fn()
 
 vi.mock('../src/config', () => ({
   getRuntimeConfig,
@@ -49,6 +50,10 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
 
 vi.mock('../src/modules/credentials', () => ({
   resolveStoredChatGPTIdentity,
+}))
+
+vi.mock('../src/modules/app-auth/workspaces', () => ({
+  resolveAssociatedManagedWorkspaceFromCodeyApp,
 }))
 
 vi.mock('../src/modules/authorization/codex-authorization', () => ({
@@ -125,6 +130,7 @@ describe('runCodexOAuthFlow', () => {
       sessionStorePath: 'codey-app://managed-sessions/managed-session-1',
     })
     syncCodexOAuthSessionToSub2Api.mockResolvedValue(null)
+    resolveAssociatedManagedWorkspaceFromCodeyApp.mockResolvedValue(null)
     resolveStoredChatGPTIdentity.mockReturnValue({
       identity: {
         email: 'person@example.com',
@@ -188,9 +194,8 @@ describe('runCodexOAuthFlow', () => {
   })
 
   it('does not reuse a stored identity when the selected task email changes', async () => {
-    const { shouldReuseCodexOAuthStoredIdentity } = await import(
-      '../src/flows/codex-oauth'
-    )
+    const { shouldReuseCodexOAuthStoredIdentity } =
+      await import('../src/flows/codex-oauth')
 
     expect(
       shouldReuseCodexOAuthStoredIdentity(
@@ -682,6 +687,66 @@ describe('runCodexOAuthFlow', () => {
     })
   })
 
+  it('passes the associated workspace id into the authorize url when available', async () => {
+    resolveAssociatedManagedWorkspaceFromCodeyApp.mockResolvedValue({
+      id: 'workspace-record-1',
+      workspaceId: 'ws-associated',
+      label: 'Associated Workspace',
+      createdAt: '2026-04-17T00:00:00.000Z',
+      updatedAt: '2026-04-17T00:00:00.000Z',
+      memberCount: 1,
+    })
+
+    const page = {
+      goto: vi.fn(),
+      url: vi.fn(() => 'about:blank'),
+      title: vi.fn(async () => 'about:blank'),
+    }
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    await runCodexOAuthFlow(page as never, {
+      authorizeUrlOnly: true,
+      email: 'person@example.com',
+    })
+
+    expect(startCodexAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codexCliSimplifiedFlow: true,
+        allowedWorkspaceId: 'ws-associated',
+      }),
+    )
+  })
+
+  it('does not pass allowed_workspace_id when selecting by workspace index', async () => {
+    resolveAssociatedManagedWorkspaceFromCodeyApp.mockResolvedValue({
+      id: 'workspace-record-1',
+      workspaceId: 'ws-associated',
+      label: 'Associated Workspace',
+      createdAt: '2026-04-17T00:00:00.000Z',
+      updatedAt: '2026-04-17T00:00:00.000Z',
+      memberCount: 1,
+    })
+
+    const page = {
+      goto: vi.fn(),
+      url: vi.fn(() => 'about:blank'),
+      title: vi.fn(async () => 'about:blank'),
+    }
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    await runCodexOAuthFlow(page as never, {
+      authorizeUrlOnly: true,
+      workspaceIndex: 2,
+    })
+
+    expect(startCodexAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codexCliSimplifiedFlow: true,
+        allowedWorkspaceId: undefined,
+      }),
+    )
+  })
+
   it('selects the requested Codex workspace before waiting for the callback', async () => {
     let currentUrl =
       'https://auth.openai.com/sign-in-with-chatgpt/codex/consent'
@@ -745,7 +810,11 @@ describe('runCodexOAuthFlow', () => {
       workspaceIndex: 2,
     })
 
-    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(page, 2)
+    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(
+      page,
+      2,
+      undefined,
+    )
     expect(
       result.machine.history.some(
         (entry) =>
@@ -823,7 +892,95 @@ describe('runCodexOAuthFlow', () => {
     const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
     await runCodexOAuthFlow(page, {})
 
-    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(page, 1)
+    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(
+      page,
+      1,
+      undefined,
+    )
+  })
+
+  it('prefers the associated workspace id when no explicit workspace index is provided', async () => {
+    let currentUrl =
+      'https://auth.openai.com/sign-in-with-chatgpt/codex/consent'
+    let resolveCallback!: (value: {
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }) => void
+
+    const callbackResult = new Promise<{
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }>((resolve) => {
+      resolveCallback = resolve
+    })
+
+    createAuthorizationCallbackCapture.mockResolvedValue({
+      result: callbackResult,
+      abort: vi.fn().mockResolvedValue(undefined),
+    })
+
+    waitForCodexOAuthSurfaceCandidates.mockResolvedValue(['workspace'])
+    resolveAssociatedManagedWorkspaceFromCodeyApp.mockResolvedValue({
+      id: 'workspace-record-1',
+      workspaceId: 'ws-associated',
+      memberCount: 1,
+      members: [],
+      createdAt: '2026-04-17T00:00:00.000Z',
+      updatedAt: '2026-04-17T00:00:00.000Z',
+    })
+    continueCodexWorkspaceSelection.mockImplementation(async () => {
+      currentUrl =
+        'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
+      resolveCallback({
+        code: 'oauth-code',
+        state: 'oauth-state',
+        callbackUrl: currentUrl,
+        rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
+      })
+
+      return {
+        availableWorkspaces: 2,
+        selectedWorkspaceIndex: 1,
+        selectedWorkspaceId: 'ws-associated',
+        selectionStrategy: 'workspace_id',
+      }
+    })
+
+    exchangeCodexAuthorizationCode.mockResolvedValue({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      expiresIn: 3600,
+      scope: 'openid profile email offline_access',
+      tokenType: 'Bearer',
+      createdAt: '2026-04-17T00:00:00.000Z',
+    })
+
+    const page = {
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url
+      }),
+      url: vi.fn(() => currentUrl),
+      title: vi.fn(async () => 'Authorization received'),
+    } as never
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    await runCodexOAuthFlow(page, {
+      email: 'person@example.com',
+    })
+
+    expect(resolveAssociatedManagedWorkspaceFromCodeyApp).toHaveBeenCalledWith({
+      identityId: 'identity-123',
+      email: 'person@example.com',
+    })
+    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(
+      page,
+      1,
+      'ws-associated',
+    )
   })
 
   it('waits for the localhost callback once navigation starts instead of re-entering login branches', async () => {
@@ -984,7 +1141,11 @@ describe('runCodexOAuthFlow', () => {
     const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
     const result = await runCodexOAuthFlow(page, {})
 
-    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(page, 1)
+    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(
+      page,
+      1,
+      undefined,
+    )
     expect(continueCodexOAuthConsent).toHaveBeenCalledWith(page)
     expect(
       result.machine.history.some(
@@ -1072,7 +1233,11 @@ describe('runCodexOAuthFlow', () => {
     const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
     const result = await runCodexOAuthFlow(page, {})
 
-    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(page, 1)
+    expect(continueCodexWorkspaceSelection).toHaveBeenCalledWith(
+      page,
+      1,
+      undefined,
+    )
     expect(continueCodexOrganizationSelection).toHaveBeenCalledWith(page, 1, 1)
     expect(
       result.machine.history.some(

@@ -449,6 +449,70 @@ export const managedIdentitySessions = pgTable(
   ],
 )
 
+export const managedWorkspaces = pgTable(
+  'managed_workspaces',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id').notNull(),
+    label: text('label'),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('managed_workspaces_workspace_id_unique').on(table.workspaceId),
+    index('managed_workspaces_updated_at_idx').on(table.updatedAt),
+  ],
+)
+
+export const managedWorkspaceMembers = pgTable(
+  'managed_workspace_members',
+  {
+    id: text('id').primaryKey(),
+    managedWorkspaceId: text('managed_workspace_id')
+      .notNull()
+      .references(() => managedWorkspaces.id, {
+        onDelete: 'cascade',
+      }),
+    identityId: text('identity_id').references(
+      () => managedIdentities.identityId,
+      {
+        onDelete: 'set null',
+      },
+    ),
+    email: text('email').notNull(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('managed_workspace_members_workspace_email_unique').on(
+      table.managedWorkspaceId,
+      table.email,
+    ),
+    index('managed_workspace_members_identity_id_idx').on(table.identityId),
+    index('managed_workspace_members_email_idx').on(table.email),
+  ],
+)
+
 export const verificationDomains = pgTable(
   'verification_domains',
   {
@@ -790,6 +854,7 @@ export const managedIdentitiesRelations = relations(
   managedIdentities,
   ({ many }) => ({
     sessions: many(managedIdentitySessions),
+    workspaceMembers: many(managedWorkspaceMembers),
   }),
 )
 
@@ -798,6 +863,27 @@ export const managedIdentitySessionsRelations = relations(
   ({ one }) => ({
     identity: one(managedIdentities, {
       fields: [managedIdentitySessions.identityId],
+      references: [managedIdentities.identityId],
+    }),
+  }),
+)
+
+export const managedWorkspacesRelations = relations(
+  managedWorkspaces,
+  ({ many }) => ({
+    members: many(managedWorkspaceMembers),
+  }),
+)
+
+export const managedWorkspaceMembersRelations = relations(
+  managedWorkspaceMembers,
+  ({ one }) => ({
+    workspace: one(managedWorkspaces, {
+      fields: [managedWorkspaceMembers.managedWorkspaceId],
+      references: [managedWorkspaces.id],
+    }),
+    identity: one(managedIdentities, {
+      fields: [managedWorkspaceMembers.identityId],
       references: [managedIdentities.identityId],
     }),
   }),
@@ -858,6 +944,9 @@ export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect
 export type ManagedIdentitySessionRow =
   typeof managedIdentitySessions.$inferSelect
+export type ManagedWorkspaceRow = typeof managedWorkspaces.$inferSelect
+export type ManagedWorkspaceMemberRow =
+  typeof managedWorkspaceMembers.$inferSelect
 export type VerificationDomainRow = typeof verificationDomains.$inferSelect
 export type OAuthClientRow = typeof oauthClients.$inferSelect
 export type ExternalServiceConfigRow =

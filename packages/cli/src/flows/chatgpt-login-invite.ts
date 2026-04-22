@@ -11,6 +11,7 @@ import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
+import { syncManagedWorkspaceToCodeyApp } from '../modules/app-auth/workspaces'
 
 export interface ChatGPTLoginInviteFlowResult {
   pageName: 'chatgpt-login-invite'
@@ -42,6 +43,29 @@ export async function loginChatGPTAndInviteMembers(
     message: 'Inviting workspace members',
   })
   const invites = await inviteWorkspaceMembers(page, inviteInputs.emails)
+  if (invites.accountId) {
+    const linkedEmails = inviteInputs.emails.filter(
+      (email) => !invites.erroredEmails.includes(email),
+    )
+
+    try {
+      const syncedWorkspace = await syncManagedWorkspaceToCodeyApp({
+        workspaceId: invites.accountId,
+        memberEmails: linkedEmails,
+      })
+      options.progressReporter?.({
+        message: syncedWorkspace
+          ? `Synced workspace ${syncedWorkspace.workspaceId} to Codey app`
+          : `Workspace ${invites.accountId} was not synced because Codey app access was unavailable`,
+      })
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unknown workspace sync error'
+      options.progressReporter?.({
+        message: `Workspace sync failed for ${invites.accountId}: ${detail}`,
+      })
+    }
+  }
   options.progressReporter?.({
     message: 'Workspace invitations completed',
   })

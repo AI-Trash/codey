@@ -29,6 +29,7 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
   - `/admin/cli`
   - `/device`
   - `/admin/external-services`
+  - `/admin/workspaces`
 - CLI commands:
   - `flow ...`
   - `exchange ...`
@@ -92,6 +93,8 @@ If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MA
 
 Managed ChatGPT identities and captured session snapshots are now stored directly in Postgres so they can be shared across Codey app users and CLI runs. ChatGPT passwords are encrypted at rest with `OAUTH_CLIENT_SECRET_ENCRYPTION_KEY`. `flow chatgpt-login` and `flow codex-oauth` now resolve the latest shared identity from the app when `--identityId` / `--email` is omitted.
 
+Invited OpenAI workspace memberships are also stored in Postgres. `flow chatgpt-login-invite` now syncs the invited workspace ID together with the invited email addresses into Codey, and `/admin/workspaces` lets you review or edit those associations.
+
 OIDC signing keys are now managed in Postgres. The app auto-generates an initial signing key on first boot, caches the published JWKS set in memory, and rotates keys automatically. Optional tuning:
 
 ```env
@@ -145,6 +148,7 @@ Then open:
 - `http://localhost:3000/admin/cli` to inspect which TUI terminals are currently connected and what flow each one is running
 - `http://localhost:3000/admin/domains` to register verification domains and choose defaults
 - `http://localhost:3000/admin/external-services` to manage app-backed Sub2API sync settings for dispatched CLI tasks
+- `http://localhost:3000/admin/workspaces` to manage stored OpenAI workspace-to-account associations
 
 ## CLI and TUI usage
 
@@ -213,6 +217,8 @@ This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flo
 When login is required, `flow codex-oauth` can target a specific shared ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `flow chatgpt-login`. If neither flag is provided, it falls back to the latest shared identity stored in the app.
 
 If OpenAI shows the Codex workspace picker, `flow codex-oauth` now auto-selects a workspace. If OpenAI follows that with the Codex API organization picker or the consent form, the flow also auto-selects the first organization/project pair and submits the next step automatically. Use `--workspaceIndex <n>` to choose a different 1-based workspace position; if omitted, it selects the first workspace.
+
+When the selected ChatGPT identity is linked to a stored workspace in Codey, `flow codex-oauth` now prefers that associated workspace ID automatically before falling back to `--workspaceIndex` / the first visible workspace.
 
 When you run `flow codex-oauth --har true`, the CLI now keeps the browser open by default so the normal browser HAR is flushed when you close the browser window. Pass `--record false` if you want the browser to close automatically after the flow finishes.
 

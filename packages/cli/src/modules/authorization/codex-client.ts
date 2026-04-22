@@ -79,17 +79,28 @@ export function startCodexAuthorization(input: {
   redirectPort?: number
   redirectPath?: string
   openBrowserWindow?: boolean
+  codexCliSimplifiedFlow?: boolean
+  allowedWorkspaceId?: string
 }): CodexAuthorizationStartResult {
   const redirectHost = input.redirectHost || 'localhost'
   const redirectPort = input.redirectPort || 1455
   const redirectPath = input.redirectPath || '/auth/callback'
   const redirectUri = `http://${redirectHost}:${redirectPort}${redirectPath}`
+  const allowedWorkspaceId = input.allowedWorkspaceId?.trim() || undefined
   const authorization = buildAuthorizationUrl({
     authorizeUrl: input.authorizeUrl,
     clientId: input.clientId,
     redirectUri,
     scope: input.scope,
     pkce: true,
+    extraParams: {
+      ...(input.codexCliSimplifiedFlow === false
+        ? {}
+        : { codex_cli_simplified_flow: true }),
+      ...(allowedWorkspaceId
+        ? { allowed_workspace_id: allowedWorkspaceId }
+        : {}),
+    },
   })
 
   if (input.openBrowserWindow !== false) {
@@ -162,6 +173,8 @@ export async function runCodexAuthorization(input: {
   redirectPath?: string
   openBrowserWindow?: boolean
   harRecorder?: NodeHarRecorder
+  codexCliSimplifiedFlow?: boolean
+  allowedWorkspaceId?: string
 }): Promise<CodexTokenResponse> {
   const started = startCodexAuthorization({
     authorizeUrl: input.authorizeUrl,
@@ -171,6 +184,8 @@ export async function runCodexAuthorization(input: {
     redirectPort: input.redirectPort,
     redirectPath: input.redirectPath,
     openBrowserWindow: input.openBrowserWindow,
+    codexCliSimplifiedFlow: input.codexCliSimplifiedFlow,
+    allowedWorkspaceId: input.allowedWorkspaceId,
   })
 
   const callback = await waitForAuthorizationCode({

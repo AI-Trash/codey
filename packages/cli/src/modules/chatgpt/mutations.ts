@@ -68,6 +68,8 @@ const AUTH_INPUT_TYPING_OPTIONS = {
 interface CodexWorkspaceSelectionResult {
   availableWorkspaces: number
   selectedWorkspaceIndex: number
+  selectedWorkspaceId?: string
+  selectionStrategy: 'index' | 'workspace_id'
 }
 
 interface CodexOrganizationSelectionResult {
@@ -804,6 +806,7 @@ export async function completePasswordOrVerificationLoginFallback(
 export async function continueCodexWorkspaceSelection(
   page: Page,
   workspaceIndex = 1,
+  preferredWorkspaceId?: string,
 ): Promise<CodexWorkspaceSelectionResult> {
   if (!Number.isInteger(workspaceIndex) || workspaceIndex < 1) {
     throw new Error(
@@ -816,21 +819,30 @@ export async function continueCodexWorkspaceSelection(
   }
 
   const selected = await page.evaluate(
-    ({ requestedIndex }) => {
+    ({ requestedIndex, preferredWorkspaceId: preferredId }) => {
+      const normalizedPreferredId =
+        typeof preferredId === 'string' ? preferredId.trim() : ''
+
       const radioInputs = Array.from(
         document.querySelectorAll('input[type="radio"][name="workspace_id"]'),
       ) as HTMLInputElement[]
 
       if (radioInputs.length > 0) {
-        if (requestedIndex > radioInputs.length) {
+        const matchedIndex = normalizedPreferredId
+          ? radioInputs.findIndex((radio) => radio.value === normalizedPreferredId) + 1
+          : 0
+        const selectedIndex = matchedIndex || requestedIndex
+
+        if (selectedIndex > radioInputs.length) {
           return {
             availableWorkspaces: radioInputs.length,
             selectedWorkspaceIndex: 0,
+            selectionStrategy: 'index' as const,
             status: 'out_of_range' as const,
           }
         }
 
-        const radio = radioInputs[requestedIndex - 1]
+        const radio = radioInputs[selectedIndex - 1]
         radio.checked = true
         radio.dispatchEvent(new Event('input', { bubbles: true }))
         radio.dispatchEvent(new Event('change', { bubbles: true }))
@@ -838,7 +850,9 @@ export async function continueCodexWorkspaceSelection(
 
         return {
           availableWorkspaces: radioInputs.length,
-          selectedWorkspaceIndex: requestedIndex,
+          selectedWorkspaceIndex: selectedIndex,
+          selectedWorkspaceId: radio.value || undefined,
+          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
           status: 'selected' as const,
         }
       }
@@ -848,21 +862,31 @@ export async function continueCodexWorkspaceSelection(
       ) as HTMLSelectElement | null
       if (select) {
         const availableWorkspaces = select.options.length
-        if (requestedIndex > availableWorkspaces) {
+        const matchedIndex = normalizedPreferredId
+          ? Array.from(select.options).findIndex(
+              (option) => option.value === normalizedPreferredId,
+            ) + 1
+          : 0
+        const selectedIndex = matchedIndex || requestedIndex
+
+        if (selectedIndex > availableWorkspaces) {
           return {
             availableWorkspaces,
             selectedWorkspaceIndex: 0,
+            selectionStrategy: 'index' as const,
             status: 'out_of_range' as const,
           }
         }
 
-        select.value = select.options[requestedIndex - 1]?.value || ''
+        select.value = select.options[selectedIndex - 1]?.value || ''
         select.dispatchEvent(new Event('input', { bubbles: true }))
         select.dispatchEvent(new Event('change', { bubbles: true }))
 
         return {
           availableWorkspaces,
-          selectedWorkspaceIndex: requestedIndex,
+          selectedWorkspaceIndex: selectedIndex,
+          selectedWorkspaceId: select.value || undefined,
+          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
           status: 'selected' as const,
         }
       }
@@ -871,11 +895,17 @@ export async function continueCodexWorkspaceSelection(
         'input[name="workspace_id"]',
       ) as HTMLInputElement | null
       if (hiddenInput?.value) {
+        const matchedIndex =
+          normalizedPreferredId && hiddenInput.value === normalizedPreferredId ? 1 : 0
+        const selectedIndex = matchedIndex || requestedIndex
+
         return {
           availableWorkspaces: 1,
-          selectedWorkspaceIndex: requestedIndex === 1 ? 1 : 0,
+          selectedWorkspaceIndex: selectedIndex === 1 ? 1 : 0,
+          selectedWorkspaceId: hiddenInput.value || undefined,
+          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
           status:
-            requestedIndex === 1
+            selectedIndex === 1
               ? ('selected' as const)
               : ('out_of_range' as const),
         }
@@ -884,10 +914,14 @@ export async function continueCodexWorkspaceSelection(
       return {
         availableWorkspaces: 0,
         selectedWorkspaceIndex: 0,
+        selectionStrategy: 'index' as const,
         status: 'missing' as const,
       }
     },
-    { requestedIndex: workspaceIndex },
+    {
+      requestedIndex: workspaceIndex,
+      preferredWorkspaceId,
+    },
   )
 
   if (selected.status === 'missing') {
@@ -916,6 +950,8 @@ export async function continueCodexWorkspaceSelection(
   return {
     availableWorkspaces: selected.availableWorkspaces,
     selectedWorkspaceIndex: selected.selectedWorkspaceIndex,
+    selectedWorkspaceId: selected.selectedWorkspaceId,
+    selectionStrategy: selected.selectionStrategy,
   }
 }
 

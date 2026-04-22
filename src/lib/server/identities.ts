@@ -5,6 +5,7 @@ import { getDb } from './db/client'
 import { decryptSecret, encryptSecret } from './encrypted-secrets'
 import { managedIdentities, verificationEmailReservations } from './db/schema'
 import { createId } from './security'
+import { linkWorkspaceMembersToManagedIdentity } from './workspaces'
 import { normalizeManagedIdentityTags } from '../managed-identity-tags'
 import { m } from '#/paraglide/messages'
 import type { ManagedIdentityPlan, ManagedIdentityStatus } from './db/schema'
@@ -290,8 +291,17 @@ export async function upsertManagedIdentity(params: {
     if (!existing) {
       throw new Error('Unable to persist managed identity')
     }
+    await linkWorkspaceMembersToManagedIdentity({
+      identityId: existing.identityId,
+      email: existing.email,
+    })
     return existing
   }
+
+  await linkWorkspaceMembersToManagedIdentity({
+    identityId: record.identityId,
+    email: record.email,
+  })
 
   return record
 }
@@ -429,6 +439,10 @@ export async function syncManagedIdentity(params: {
 
     if (record) {
       await attachReservation()
+      await linkWorkspaceMembersToManagedIdentity({
+        identityId: record.identityId,
+        email: record.email,
+      })
       return record
     }
   }
@@ -455,5 +469,9 @@ export async function syncManagedIdentity(params: {
   }
 
   await attachReservation()
+  await linkWorkspaceMembersToManagedIdentity({
+    identityId: created.identityId,
+    email: created.email,
+  })
   return created
 }

@@ -117,6 +117,32 @@ export interface AppManagedSessionSyncResponse {
   id: string
 }
 
+export interface AppManagedWorkspaceMemberRecord {
+  id: string
+  email: string
+  identityId: string | null
+  identityLabel: string | null
+}
+
+export interface AppManagedWorkspaceRecord {
+  id: string
+  workspaceId: string
+  label?: string | null
+  memberCount: number
+  members: AppManagedWorkspaceMemberRecord[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AppManagedWorkspaceLookupResponse {
+  workspace: AppManagedWorkspaceRecord | null
+}
+
+export interface AppManagedWorkspaceSyncResponse {
+  ok: boolean
+  workspace: AppManagedWorkspaceRecord
+}
+
 export interface AppManagedSub2ApiConfigResponse {
   config?: Sub2ApiConfig
 }
@@ -573,5 +599,50 @@ export class AppVerificationProviderClient {
       },
       [VERIFICATION_RESERVE_SCOPE],
     )
+  }
+
+  async getAssociatedManagedWorkspace(input: {
+    identityId?: string
+    email?: string
+  }): Promise<AppManagedWorkspaceRecord | null> {
+    const url = new URL(this.buildUrl('/api/managed-workspaces'))
+    if (input.identityId?.trim()) {
+      url.searchParams.set('identityId', input.identityId.trim())
+    }
+    if (input.email?.trim()) {
+      url.searchParams.set('email', input.email.trim().toLowerCase())
+    }
+
+    const response = await this.getJson<AppManagedWorkspaceLookupResponse>(
+      url,
+      {},
+      [VERIFICATION_RESERVE_SCOPE],
+    )
+
+    return response.workspace || null
+  }
+
+  async syncManagedWorkspace(input: {
+    workspaceId: string
+    label?: string
+    memberEmails?: string[]
+  }): Promise<AppManagedWorkspaceRecord> {
+    const response = await this.getJson<AppManagedWorkspaceSyncResponse>(
+      this.buildUrl('/api/managed-workspaces'),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workspaceId: input.workspaceId,
+          label: input.label,
+          memberEmails: input.memberEmails,
+        }),
+      },
+      [VERIFICATION_RESERVE_SCOPE],
+    )
+
+    return response.workspace
   }
 }
