@@ -270,6 +270,7 @@ export function ClientFilterableAdminTable<
 >(props: {
   data: TData[]
   columnsConfig: TColumns
+  defaultFilters?: FiltersState
   getRowId: (row: TData) => string
   emptyState: ReactNode
   renderTable: (context: AdminTableRenderContext<TData>) => ReactNode
@@ -280,6 +281,7 @@ export function ClientFilterableAdminTable<
     strategy: 'client',
     data: props.data,
     columnsConfig: props.columnsConfig,
+    defaultFilters: props.defaultFilters,
   })
 
   if (props.data.length === 0) {

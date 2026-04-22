@@ -33,6 +33,7 @@ import {
   AdminTableSelectionHead,
 } from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
+import type { FiltersState } from '#/components/data-table-filter/core/types'
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import {
   AlertDialog,
@@ -230,6 +231,15 @@ const managedIdentityBulkCopyFieldOptions = [
 
 type ManagedIdentityBulkCopyField =
   (typeof managedIdentityBulkCopyFieldOptions)[number]['value']
+
+const defaultManagedIdentityFilters: FiltersState = [
+  {
+    columnId: 'status',
+    type: 'option',
+    operator: 'is any of',
+    values: ['active', 'review'],
+  },
+]
 
 function normalizeManagedIdentityStatus(
   status?: string | null,
@@ -490,6 +500,7 @@ function AdminIdentitiesPage() {
           <ClientFilterableAdminTable
             data={identitySummaries}
             columnsConfig={identityColumns}
+            defaultFilters={defaultManagedIdentityFilters}
             getRowId={(summary) => summary.id}
             fillHeight
             emptyState={
