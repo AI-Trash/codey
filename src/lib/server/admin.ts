@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import { and, count, eq, isNull, or, desc, asc, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNull, or, desc, asc } from "drizzle-orm";
 import { getAppEnv } from "./env";
 import {
   adminNotifications,
@@ -219,20 +219,10 @@ export async function createFlowAppRequest(params: {
 export async function listCliNotifications(params: {
   target?: string;
   connectionId?: string;
-  after?:
-    | Date
-    | {
-        createdAt: Date;
-        id?: string;
-      };
+  after?: Date;
+  limit?: number;
+  offset?: number;
 }) {
-  const createdAtCursor =
-    params.after instanceof Date
-      ? {
-          createdAt: params.after,
-          id: undefined,
-        }
-      : params.after;
   const targetFilter = params.target
     ? or(
         isNull(adminNotifications.target),
@@ -249,24 +239,17 @@ export async function listCliNotifications(params: {
         eq(adminNotifications.cliConnectionId, params.connectionId),
       )
     : isNull(adminNotifications.cliConnectionId);
-  const createdAtMs = sql`date_trunc('milliseconds', ${adminNotifications.createdAt})`;
-  const afterFilter = createdAtCursor
-    ? createdAtCursor.id?.trim()
-      ? sql`(
-          ${createdAtMs} > ${createdAtCursor.createdAt}
-          or (
-            ${createdAtMs} = ${createdAtCursor.createdAt}
-            and ${adminNotifications.id} > ${createdAtCursor.id.trim()}
-          )
-        )`
-      : sql`${createdAtMs} > ${createdAtCursor.createdAt}`
-    : undefined;
 
   return getDb().query.adminNotifications.findMany({
-    where: afterFilter
-      ? and(targetFilter, connectionFilter, afterFilter)
+    where: params.after
+      ? and(
+          targetFilter,
+          connectionFilter,
+          gte(adminNotifications.createdAt, params.after),
+        )
       : and(targetFilter, connectionFilter),
-    orderBy: [asc(createdAtMs), asc(adminNotifications.id)],
-    limit: 50,
+    orderBy: [asc(adminNotifications.createdAt), asc(adminNotifications.id)],
+    limit: params.limit ?? 50,
+    offset: params.offset,
   });
 }

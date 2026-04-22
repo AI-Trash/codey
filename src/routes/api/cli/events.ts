@@ -1,6 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { listCliNotifications } from '../../../lib/server/admin'
 import { text } from '../../../lib/server/http'
+import {
+  isCliNotificationAfterCursor,
+  toCliNotificationCursor,
+  type CliNotificationCursor,
+} from '../../../lib/server/cli-notification-cursor'
 import { NOTIFICATIONS_READ_SCOPE } from '../../../lib/server/oauth-scopes'
 import { getBearerTokenContext } from '../../../lib/server/oauth-resource'
 import { getCliSessionUser } from '../../../lib/server/auth'
@@ -14,6 +19,7 @@ import { createSubscriptionSseResponse } from '../../../lib/server/sse'
 const CLI_EVENT_POLL_INTERVAL_MS = 2000
 const CLI_EVENT_TIMEOUT_MS = 10 * 60 * 1000
 const CLI_CONNECTION_TOUCH_INTERVAL_MS = 10_000
+const CLI_NOTIFICATION_BATCH_SIZE = 50
 
 function readOptionalHeader(
   request: Request,
@@ -64,11 +70,11 @@ export const Route = createFileRoute('/api/cli/events')({
           url.searchParams.get('cliName') ||
           readOptionalHeader(request, 'x-codey-cli-name') ||
           'codey'
-        let cursor = {
+        let cursor: CliNotificationCursor = {
           createdAt: url.searchParams.get('after')
             ? new Date(url.searchParams.get('after') as string)
             : new Date(),
-          id: undefined as string | undefined,
+          id: undefined,
         }
 
         return createSubscriptionSseResponse({
@@ -132,21 +138,38 @@ export const Route = createFileRoute('/api/cli/events')({
               try {
                 await touchConnection()
 
-                const notifications = await listCliNotifications({
-                  target,
-                  connectionId: connection.id,
-                  after: cursor,
-                })
+                let offset = 0
+                let next:
+                  | Awaited<ReturnType<typeof listCliNotifications>>[number]
+                  | undefined
 
-                if (!notifications.length) {
+                while (!next) {
+                  const notifications = await listCliNotifications({
+                    target,
+                    connectionId: connection.id,
+                    after: cursor.createdAt,
+                    limit: CLI_NOTIFICATION_BATCH_SIZE,
+                    offset,
+                  })
+
+                  next = notifications.find((notification) =>
+                    isCliNotificationAfterCursor(notification, cursor),
+                  )
+                  if (
+                    next ||
+                    notifications.length < CLI_NOTIFICATION_BATCH_SIZE
+                  ) {
+                    break
+                  }
+
+                  offset += notifications.length
+                }
+
+                if (!next) {
                   return
                 }
 
-                const next = notifications[0]
-                cursor = {
-                  createdAt: next.createdAt,
-                  id: next.id,
-                }
+                cursor = toCliNotificationCursor(next)
                 await touchConnection(true)
                 send({
                   id: next.id,
