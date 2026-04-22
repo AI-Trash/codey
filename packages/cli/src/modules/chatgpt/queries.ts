@@ -61,6 +61,13 @@ export type ChatGPTRegistrationEntrySurface =
 
 export type ChatGPTAgeGateFieldMode = 'age' | 'birthday'
 
+const CHATGPT_NEW_USER_ONBOARDING_ANNOUNCEMENT_KEYS = [
+  'oai/apps/hasSeenOnboardingFlow',
+  'oai/apps/hasSeenOnboarding',
+  'oai/apps/hasSeenStaticOnboarding',
+  'oai/apps/hasSeenPromptOnboarding',
+] as const
+
 export function isChatGPTHomeUrl(url: string): boolean {
   return (
     /^https:\/\/chatgpt\.com\/?(#.*)?$/i.test(url) ||
@@ -397,6 +404,47 @@ export async function waitForPasswordSubmissionOutcome(
   return 'unknown'
 }
 
+export async function getPendingOnboardingAnnouncementKeys(
+  page: Page,
+): Promise<string[]> {
+  try {
+    const pendingKeys = await page.evaluate(
+      async (onboardingKeys) => {
+        const response = await fetch('/backend-api/settings/user', {
+          method: 'GET',
+          credentials: 'include',
+          cache: 'no-store',
+          headers: {
+            accept: 'application/json',
+          },
+        })
+
+        if (!response.ok) {
+          return []
+        }
+
+        const payload = (await response.json()) as {
+          eligible_announcements?: unknown
+        }
+        const eligible = Array.isArray(payload.eligible_announcements)
+          ? payload.eligible_announcements.filter(
+              (value): value is string => typeof value === 'string',
+            )
+          : []
+
+        return eligible.filter((value) => onboardingKeys.includes(value))
+      },
+      [...CHATGPT_NEW_USER_ONBOARDING_ANNOUNCEMENT_KEYS],
+    )
+
+    return Array.isArray(pendingKeys)
+      ? pendingKeys.filter((value): value is string => typeof value === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
 export async function waitUntilChatGPTHomeReady(
   page: Page,
   clickOnboardingAction: (page: Page) => Promise<string | null>,
@@ -428,6 +476,16 @@ export async function waitUntilChatGPTHomeReady(
     }
 
     const authenticated = await waitForAuthenticatedSession(page, 250)
+    const pendingOnboardingAnnouncementKeys = authenticated
+      ? await getPendingOnboardingAnnouncementKeys(page)
+      : []
+    if (pendingOnboardingAnnouncementKeys.length > 0) {
+      sawOnboarding = true
+      authenticatedIdleRounds = 0
+      await waitForHomeInteractionSignal(page, DEFAULT_EVENT_TIMEOUT_MS)
+      continue
+    }
+
     if (authenticated && (!sawOnboarding || onboardingClicks > 0)) {
       authenticatedIdleRounds += 1
       if (authenticatedIdleRounds >= 2) return true

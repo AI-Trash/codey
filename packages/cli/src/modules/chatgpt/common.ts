@@ -372,16 +372,16 @@ export const ONBOARDING_ACTION_CANDIDATES: Array<{
     ],
   },
   {
-    text: 'skip',
+    text: 'done',
     selectors: [
       {
         role: 'button',
         options: {
-          name: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
+          name: /^完成$|^done$/i,
         },
       },
       {
-        text: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
+        text: /^完成$|^done$/i,
       },
     ],
   },
@@ -413,6 +413,11 @@ export const ONBOARDING_SIGNAL_SELECTORS: SelectorTarget[] = [
   },
   {
     role: 'button',
+    options: { name: /^完成$|^done$/i },
+  },
+  { text: /^完成$|^done$/i },
+  {
+    role: 'button',
     options: {
       name: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
     },
@@ -420,6 +425,27 @@ export const ONBOARDING_SIGNAL_SELECTORS: SelectorTarget[] = [
   {
     text: /^跳过$|^跳过导览$|^skip$|^skip tour$|^not now$|^以后再说$|^稍后$|^稍后再说$|^暂时跳过$/i,
   },
+  {
+    role: 'dialog',
+    options: { name: /^新手引导$|^onboarding$/i },
+  },
+  {
+    text: /你想使用 ChatGPT 做什么？|what do you want to use chatgpt for\?/i,
+  },
+  { text: /想要聊些什么？|what do you want to chat about\?/i },
+  {
+    text: /是什么促使你使用 ChatGPT？|what brings you to chatgpt\?/i,
+  },
+  {
+    text: /你想使用 ChatGPT 做些什么？|what do you want to do with chatgpt\?/i,
+  },
+  { text: /以下是快速导览|here'?s a quick tour/i },
+  { text: /你已准备就绪|you'?re all set!?/i },
+  {
+    text: /还有什么要告诉我的吗|anything else (?:you'?d|you would) like me to know\??/i,
+  },
+  { text: /看看 ChatGPT 能做些什么|see what chatgpt can do/i },
+  { text: /立即试用|try now/i },
 ]
 
 export function logStep(step: string, details?: Record<string, unknown>): void {

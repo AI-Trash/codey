@@ -40,6 +40,7 @@ class FakePage {
   constructor(
     private readonly phases: Array<Record<string, boolean>>,
     private readonly currentUrl = 'https://chatgpt.com/',
+    private readonly pendingOnboardingAnnouncementKeys: string[][] = [],
   ) {}
 
   url(): string {
@@ -78,7 +79,16 @@ class FakePage {
     return new FakeLocator(this, '__hidden__')
   }
 
-  async evaluate(): Promise<boolean> {
+  async evaluate(fn?: unknown, arg?: unknown): Promise<boolean | string[]> {
+    const source = typeof fn === 'function' ? String(fn) : ''
+    if (source.includes('/backend-api/settings/user')) {
+      const keys = this.pendingOnboardingAnnouncementKeys[this.phase] ?? []
+      const allowedKeys = Array.isArray(arg)
+        ? arg.filter((value): value is string => typeof value === 'string')
+        : []
+      return keys.filter((value) => allowedKeys.includes(value))
+    }
+
     return this.isVisible('[data-testid="accounts-profile-button"]')
   }
 
@@ -139,6 +149,50 @@ describe('waitUntilChatGPTHomeReady', () => {
         '[data-testid="composer-root"]': true,
       },
     ])
+
+    let clicks = 0
+    const clickOnboardingAction = async () => {
+      if (clicks > 0) return null
+      clicks += 1
+      page.nextPhase()
+      return 'getting-started'
+    }
+
+    await expect(
+      waitUntilChatGPTHomeReady(page as never, clickOnboardingAction, 4),
+    ).resolves.toBe(true)
+    expect(clicks).toBe(1)
+  })
+
+  it('does not treat the authenticated home as ready while onboarding announcements are still pending', async () => {
+    const page = new FakePage(
+      [
+        {
+          '[data-testid="composer-root"]': true,
+        },
+      ],
+      'https://chatgpt.com/',
+      [['oai/apps/hasSeenOnboardingFlow']],
+    )
+
+    await expect(
+      waitUntilChatGPTHomeReady(page as never, async () => null, 3),
+    ).resolves.toBe(false)
+  })
+
+  it('waits for onboarding announcements to clear after dismissal before reporting the home as ready', async () => {
+    const page = new FakePage(
+      [
+        {
+          '[data-testid="getting-started-button"]': true,
+        },
+        {
+          '[data-testid="composer-root"]': true,
+        },
+      ],
+      'https://chatgpt.com/',
+      [['oai/apps/hasSeenOnboardingFlow'], []],
+    )
 
     let clicks = 0
     const clickOnboardingAction = async () => {
