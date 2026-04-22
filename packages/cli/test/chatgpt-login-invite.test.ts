@@ -73,6 +73,7 @@ describe('loginChatGPTAndInviteMembers', () => {
 
     expect(syncManagedWorkspaceToCodeyApp).toHaveBeenCalledWith({
       workspaceId: 'workspace-123',
+      ownerIdentityId: 'identity-123',
       memberEmails: ['a@example.com'],
     })
     expect(result.invites.accountId).toBe('workspace-123')

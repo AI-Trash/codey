@@ -11,10 +11,12 @@ import { readJsonBody } from '../../lib/server/request'
 interface ManagedWorkspaceSyncBody {
   workspaceId?: string
   label?: string
+  ownerIdentityId?: string | null
+  memberIdentityIds?: string[]
   memberEmails?: string[]
 }
 
-function readMemberEmails(value: unknown): string[] | null | undefined {
+function readStringArray(value: unknown): string[] | null | undefined {
   if (value === undefined || value === null) {
     return undefined
   }
@@ -24,6 +26,23 @@ function readMemberEmails(value: unknown): string[] | null | undefined {
   }
 
   return null
+}
+
+function readOptionalIdentityId(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (value === null) {
+    return null
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized ? normalized : null
 }
 
 export const Route = createFileRoute('/api/managed-workspaces')({
@@ -70,10 +89,15 @@ export const Route = createFileRoute('/api/managed-workspaces')({
 
         const body = await readJsonBody<ManagedWorkspaceSyncBody>(request)
         const workspaceId = String(body.workspaceId || '').trim()
-        const memberEmails = readMemberEmails(body.memberEmails)
+        const ownerIdentityId = readOptionalIdentityId(body.ownerIdentityId)
+        const memberIdentityIds = readStringArray(body.memberIdentityIds)
+        const memberEmails = readStringArray(body.memberEmails)
 
         if (!workspaceId) {
           return text('workspaceId is required', 400)
+        }
+        if (memberIdentityIds === null) {
+          return text('memberIdentityIds must be a string array', 400)
         }
         if (memberEmails === null) {
           return text('memberEmails must be a string array', 400)
@@ -82,6 +106,8 @@ export const Route = createFileRoute('/api/managed-workspaces')({
         const workspace = await syncManagedWorkspaceInvite({
           workspaceId,
           label: String(body.label || '').trim() || undefined,
+          ownerIdentityId,
+          memberIdentityIds,
           memberEmails: memberEmails ?? [],
         })
 

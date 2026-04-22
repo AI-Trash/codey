@@ -16,6 +16,7 @@ import {
 import { sleep } from '../../utils/wait'
 import {
   DEFAULT_CLI_FLOW_TASK_PARALLELISM,
+  MAX_CLI_FLOW_TASK_PARALLELISM,
   normalizeCliFlowTaskPayload,
   type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
@@ -30,6 +31,11 @@ import {
 import type { FlowCommandExecution } from '../flow-cli/result-file'
 import { fetchManagedSub2ApiConfigFromCodeyApp } from '../app-auth/external-services'
 import {
+  claimCliFlowTask,
+  CliFlowTaskLeaseReporter,
+} from '../app-auth/flow-tasks'
+import { deriveCliTargetFromAuthState } from '../app-auth/target'
+import {
   exchangeDeviceChallenge,
   resolveCliNotificationsAuthState,
   startDeviceLogin,
@@ -37,6 +43,7 @@ import {
   type CliNotificationsAuthState,
 } from '../app-auth/device-login'
 import { CliConnectionRuntimeReporter } from '../app-auth/cli-connection'
+import { resolveCliWorkerId } from '../app-auth/worker-id'
 import type { CliConnectionEvent } from '../app-auth/types'
 import {
   applyAuthStateToDashboard,
@@ -65,6 +72,7 @@ import {
   FlowTaskScheduler,
   FlowTaskSchedulerCancelledError,
 } from '../flow-cli/task-scheduler'
+import { assertFlowTaskExecutionSucceeded } from '../flow-cli/task-completion'
 import { applyDashboardAppUpdate } from './dashboard-render'
 
 const REQUIRED_TUI_SCOPE = 'notifications:read'
@@ -228,7 +236,10 @@ function formatRuntimeStatusLabel(state: DashboardState): string {
 function formatRuntimeMessage(state: DashboardState): string {
   const outstandingCount = state.activeFlowCount + state.queuedFlowCount
   if (outstandingCount > 1) {
-    const latest = toDisplayValue(state.currentFlow?.message, 'Task queue active.')
+    const latest = toDisplayValue(
+      state.currentFlow?.message,
+      'Task queue active.',
+    )
     return `${state.activeFlowCount} running, ${state.queuedFlowCount} queued. Latest: ${latest}`
   }
 
@@ -628,16 +639,22 @@ export async function runTuiDashboard(input: {
   })
   let initialAuthState: CliNotificationsAuthState | undefined =
     startup.authState
+  let currentClaimAuthState: CliNotificationsAuthState | undefined =
+    startup.authState
   let stopRequested = false
   let forceStopRequested = false
   let reconnectRequested = false
   let streamAbortController: AbortController | null = null
   const activeFlowAbortControllers = new Map<string, AbortController>()
+  const taskLeaseReporters = new Map<string, CliFlowTaskLeaseReporter>()
   const taskScheduler = new FlowTaskScheduler<{
     interrupted: boolean
   }>()
   let runtimeReporter: CliConnectionRuntimeReporter | null = null
   let outstandingStartedAt: string | undefined
+  let claimConnectionId: string | undefined
+  let claimInFlight = false
+  let claimInterval: ReturnType<typeof setInterval> | undefined
   let localPromptInFlight = false
   let appStarted = false
   let appSuspended = false
@@ -725,8 +742,7 @@ export async function runTuiDashboard(input: {
         runtimeFlowStatus: dashboardState.currentFlow?.status || null,
         runtimeFlowMessage: dashboardState.currentFlow?.message || null,
         runtimeFlowStartedAt: dashboardState.currentFlow?.startedAt || null,
-        runtimeFlowCompletedAt:
-          dashboardState.currentFlow?.completedAt || null,
+        runtimeFlowCompletedAt: dashboardState.currentFlow?.completedAt || null,
       })
       return
     }
@@ -754,6 +770,20 @@ export async function runTuiDashboard(input: {
   }
 
   const hasActiveTasks = () => taskScheduler.getSnapshot().activeCount > 0
+
+  const getClaimedTaskCount = () => {
+    const snapshot = taskScheduler.getSnapshot()
+    return snapshot.activeCount + snapshot.pendingCount
+  }
+
+  const logTaskLeaseError = (taskId: string, error: Error) => {
+    updateState((state) =>
+      appendDashboardEvent(
+        state,
+        `Task lease update failed for ${taskId}: ${error.message}`,
+      ),
+    )
+  }
 
   const requestReconnect = () => {
     if (stopRequested) {
@@ -793,7 +823,7 @@ export async function runTuiDashboard(input: {
             : 'Exit requested. Waiting for running tasks to finish.'
           : cleared
             ? `Exit requested. Cleared ${cleared} queued tasks.`
-          : 'Exit requested.',
+            : 'Exit requested.',
       ),
     )
     syncDashboardTaskState()
@@ -918,6 +948,7 @@ export async function runTuiDashboard(input: {
     message: string
     batch?: CliFlowTaskBatchMetadata
     externalServices?: CliFlowTaskExternalServices
+    leaseReporter?: CliFlowTaskLeaseReporter
   }) => {
     const scheduled = taskScheduler.enqueue({
       taskId: task.notificationId,
@@ -937,7 +968,10 @@ export async function runTuiDashboard(input: {
             const startedAt = new Date().toISOString()
             const flowAbortController = new AbortController()
             let flowSettled = false
-            activeFlowAbortControllers.set(task.notificationId, flowAbortController)
+            activeFlowAbortControllers.set(
+              task.notificationId,
+              flowAbortController,
+            )
             if (
               !outstandingStartedAt ||
               Date.parse(startedAt) < Date.parse(outstandingStartedAt)
@@ -963,6 +997,7 @@ export async function runTuiDashboard(input: {
               runtimeFlowCompletedAt: null,
             })
             syncRuntimeReporterState()
+            task.leaseReporter?.markRunning()
 
             const progressReporter: FlowProgressReporter = (update) => {
               if (flowSettled) {
@@ -1008,7 +1043,9 @@ export async function runTuiDashboard(input: {
                   },
                 ),
               )
-              const completedAt = execution.completedAt || new Date().toISOString()
+              assertFlowTaskExecutionSucceeded(task.flowId, execution)
+              const completedAt =
+                execution.completedAt || new Date().toISOString()
               const summary =
                 formatFlowCompletionSummary(execution.command, execution.result)
                   .split('\n')
@@ -1029,6 +1066,20 @@ export async function runTuiDashboard(input: {
                 runtimeFlowStartedAt: startedAt,
                 runtimeFlowCompletedAt: completedAt,
               })
+              if (task.leaseReporter) {
+                try {
+                  await task.leaseReporter.complete({
+                    status: 'SUCCEEDED',
+                  })
+                } catch (error) {
+                  logTaskLeaseError(
+                    task.notificationId,
+                    sanitizeErrorForOutput(error),
+                  )
+                } finally {
+                  taskLeaseReporters.delete(task.notificationId)
+                }
+              }
               return {
                 interrupted: false,
               }
@@ -1053,6 +1104,21 @@ export async function runTuiDashboard(input: {
                 runtimeFlowStartedAt: startedAt,
                 runtimeFlowCompletedAt: completedAt,
               })
+              if (task.leaseReporter) {
+                try {
+                  await task.leaseReporter.complete({
+                    status: interrupted ? 'CANCELED' : 'FAILED',
+                    error: interrupted ? undefined : sanitized.message,
+                  })
+                } catch (leaseError) {
+                  logTaskLeaseError(
+                    task.notificationId,
+                    sanitizeErrorForOutput(leaseError),
+                  )
+                } finally {
+                  taskLeaseReporters.delete(task.notificationId)
+                }
+              }
               return {
                 interrupted,
               }
@@ -1071,11 +1137,102 @@ export async function runTuiDashboard(input: {
     return scheduled.finally(() => {
       syncDashboardTaskState()
       syncRuntimeReporterState()
+      void tryClaimTasks()
 
-      if ((stopRequested || reconnectRequested || forceStopRequested) && !hasOutstandingTasks()) {
+      if (
+        (stopRequested || reconnectRequested || forceStopRequested) &&
+        !hasOutstandingTasks()
+      ) {
         streamAbortController?.abort()
       }
     })
+  }
+
+  const tryClaimTasks = async () => {
+    const authState = currentClaimAuthState
+    if (!claimConnectionId || !authState || claimInFlight) {
+      return
+    }
+
+    claimInFlight = true
+    try {
+      while (
+        claimConnectionId &&
+        getClaimedTaskCount() < MAX_CLI_FLOW_TASK_PARALLELISM
+      ) {
+        const claimedTask = await claimCliFlowTask({
+          connectionId: claimConnectionId,
+          authState,
+        })
+        if (!claimedTask) {
+          break
+        }
+
+        const leaseReporter = new CliFlowTaskLeaseReporter({
+          connectionId: claimConnectionId,
+          taskId: claimedTask.id,
+          authState,
+          onError: (error) => {
+            logTaskLeaseError(claimedTask.id, error)
+          },
+        })
+        leaseReporter.start()
+        taskLeaseReporters.set(claimedTask.id, leaseReporter)
+
+        const taskPayload = normalizeCliFlowTaskPayload(claimedTask.payload)
+        if (!taskPayload) {
+          try {
+            await leaseReporter.complete({
+              status: 'FAILED',
+              error: 'Received malformed flow task payload.',
+            })
+          } catch (error) {
+            logTaskLeaseError(claimedTask.id, sanitizeErrorForOutput(error))
+          } finally {
+            taskLeaseReporters.delete(claimedTask.id)
+          }
+          continue
+        }
+
+        void queueDashboardFlowTask({
+          flowId: taskPayload.flowId,
+          config: taskPayload.config as FlowOptions,
+          notificationId: claimedTask.id,
+          message: claimedTask.title || 'Task started',
+          batch: taskPayload.batch,
+          externalServices: taskPayload.externalServices,
+          leaseReporter,
+        }).catch((error) => {
+          if (error instanceof FlowTaskSchedulerCancelledError) {
+            void leaseReporter
+              .complete({
+                status: 'CANCELED',
+              })
+              .catch((leaseError) => {
+                logTaskLeaseError(
+                  claimedTask.id,
+                  sanitizeErrorForOutput(leaseError),
+                )
+              })
+              .finally(() => {
+                taskLeaseReporters.delete(claimedTask.id)
+              })
+            return
+          }
+
+          logTaskLeaseError(claimedTask.id, sanitizeErrorForOutput(error))
+        })
+      }
+    } catch (error) {
+      updateState((state) =>
+        appendDashboardEvent(
+          state,
+          `Task claim failed: ${sanitizeErrorForOutput(error).message}`,
+        ),
+      )
+    } finally {
+      claimInFlight = false
+    }
   }
 
   const runLocalFlowBatch = async (task: {
@@ -1308,6 +1465,12 @@ export async function runTuiDashboard(input: {
             authState,
           ),
         )
+        currentClaimAuthState = authState
+        const target = input.target || deriveCliTargetFromAuthState(authState)
+        const workerId = resolveCliWorkerId({
+          cliName: input.cliName,
+          target,
+        })
 
         const connectionRuntimeReporter = new CliConnectionRuntimeReporter({
           authState,
@@ -1338,13 +1501,22 @@ export async function runTuiDashboard(input: {
           for await (const notification of streamCliNotifications(
             {
               cliName: input.cliName,
-              target: input.target,
+              target,
+              workerId,
             },
             authState,
             {
               onConnection: (event: CliConnectionEvent) => {
                 connectionOpened = true
+                claimConnectionId = event.connectionId
                 connectionRuntimeReporter.setConnectionId(event.connectionId)
+                if (claimInterval) {
+                  clearInterval(claimInterval)
+                }
+                claimInterval = setInterval(() => {
+                  void tryClaimTasks()
+                }, 2000)
+                void tryClaimTasks()
                 updateState((state) => applyCliConnectionEvent(state, event))
               },
             },
@@ -1356,38 +1528,6 @@ export async function runTuiDashboard(input: {
             updateState((state) =>
               handleDashboardNotification(state, notification),
             )
-
-            const taskPayload = normalizeCliFlowTaskPayload(notification.payload)
-            if (!taskPayload) {
-              if (stopRequested) {
-                break
-              }
-              continue
-            }
-
-            if (stopRequested || reconnectRequested || forceStopRequested) {
-              continue
-            }
-
-            void queueDashboardFlowTask({
-              flowId: taskPayload.flowId,
-              config: taskPayload.config as FlowOptions,
-              notificationId: notification.id,
-              message: notification.title || 'Task started',
-              batch: taskPayload.batch,
-              externalServices: taskPayload.externalServices,
-            }).catch((error) => {
-              if (error instanceof FlowTaskSchedulerCancelledError) {
-                return
-              }
-
-              updateState((state) =>
-                appendDashboardEvent(
-                  state,
-                  `Queued task failed before start: ${sanitizeErrorForOutput(error).message}`,
-                ),
-              )
-            })
           }
 
           if (!stopRequested && !reconnectRequested && connectionOpened) {
@@ -1411,6 +1551,11 @@ export async function runTuiDashboard(input: {
           }
         } finally {
           streamAbortController = null
+          claimConnectionId = undefined
+          if (claimInterval) {
+            clearInterval(claimInterval)
+            claimInterval = undefined
+          }
         }
 
         if (hasOutstandingTasks()) {

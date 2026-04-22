@@ -21,7 +21,13 @@ import {
   streamCliNotifications,
 } from './modules/app-auth/device-login'
 import { CliConnectionRuntimeReporter } from './modules/app-auth/cli-connection'
+import {
+  claimCliFlowTask,
+  CliFlowTaskLeaseReporter,
+} from './modules/app-auth/flow-tasks'
+import { deriveCliTargetFromAuthState } from './modules/app-auth/target'
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
+import { resolveCliWorkerId } from './modules/app-auth/worker-id'
 import { getDefaultCliName } from './utils/cli-name'
 import {
   applyFlowOptionDefaults,
@@ -45,6 +51,7 @@ import {
 } from './modules/flow-cli/helpers'
 import {
   DEFAULT_CLI_FLOW_TASK_PARALLELISM,
+  MAX_CLI_FLOW_TASK_PARALLELISM,
   normalizeCliFlowTaskPayload,
   type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
@@ -58,6 +65,7 @@ import {
   writeFlowCommandExecutionResult,
   type FlowCommandExecution,
 } from './modules/flow-cli/result-file'
+import { assertFlowTaskExecutionSucceeded } from './modules/flow-cli/task-completion'
 import { sleep } from './utils/wait'
 import {
   initializeCliFileLogging,
@@ -209,7 +217,11 @@ async function executeFlowSubcommand(
           })
 
           try {
-            const result = await runFlowCommand(subcommand, resolvedOptions, runtime)
+            const result = await runFlowCommand(
+              subcommand,
+              resolvedOptions,
+              runtime,
+            )
             const completedAt = new Date().toISOString()
             setObservabilityRuntimeState({
               flowId: subcommand,
@@ -447,6 +459,11 @@ async function runDaemonCommand(
   while (true) {
     setRuntimeConfig(config)
     const authState = await resolveCliNotificationsAuthState()
+    const target = options.target || deriveCliTargetFromAuthState(authState)
+    const workerId = resolveCliWorkerId({
+      cliName,
+      target,
+    })
     const runtimeReporter = new CliConnectionRuntimeReporter({
       authState,
       onError: (error) => {
@@ -463,7 +480,11 @@ async function runDaemonCommand(
       },
     })
     const taskScheduler = new FlowTaskScheduler<void>()
+    const taskLeaseReporters = new Map<string, CliFlowTaskLeaseReporter>()
     let outstandingStartedAt: string | undefined
+    let connectionId: string | undefined
+    let claimInFlight = false
+    let claimInterval: ReturnType<typeof setInterval> | undefined
     let lastRuntimeState:
       | {
           flowId?: string
@@ -489,7 +510,7 @@ async function runDaemonCommand(
         })
         setObservabilityRuntimeState({
           cliName,
-          target: options.target || null,
+          target: target || null,
           phase: 'listening',
           activeTaskCount: snapshot.activeCount,
           pendingTaskCount: snapshot.pendingCount,
@@ -521,7 +542,7 @@ async function runDaemonCommand(
       })
       setObservabilityRuntimeState({
         cliName,
-        target: options.target || null,
+        target: target || null,
         phase: 'running',
         activeTaskCount: snapshot.activeCount,
         pendingTaskCount: snapshot.pendingCount,
@@ -541,12 +562,32 @@ async function runDaemonCommand(
       })
     }
 
+    const getClaimedTaskCount = () => {
+      const snapshot = taskScheduler.getSnapshot()
+      return snapshot.activeCount + snapshot.pendingCount
+    }
+
+    const logTaskLeaseError = (taskId: string, error: Error) => {
+      writeCliStderrLine(
+        JSON.stringify(
+          {
+            command: 'daemon:task:lease:error',
+            taskId,
+            error: error.message,
+          },
+          null,
+          2,
+        ),
+      )
+    }
+
     const scheduleDaemonFlowTask = (task: {
       flowId: CliFlowCommandId
       config: FlowOptions
       notificationId: string
       message: string
       batch?: CliFlowTaskBatchMetadata
+      leaseReporter?: CliFlowTaskLeaseReporter
     }) => {
       const scheduled = taskScheduler.enqueue({
         taskId: task.notificationId,
@@ -590,6 +631,7 @@ async function runDaemonCommand(
                 startedAt,
               }
               syncRuntimeReporterState()
+              task.leaseReporter?.markRunning()
 
               const consoleProgressReporter = createConsoleFlowProgressReporter(
                 `flow:${task.flowId}`,
@@ -616,6 +658,7 @@ async function runDaemonCommand(
                     syncRuntimeReporterState()
                   },
                 })
+                assertFlowTaskExecutionSucceeded(task.flowId, execution)
 
                 lastRuntimeState = {
                   flowId: task.flowId,
@@ -623,7 +666,8 @@ async function runDaemonCommand(
                   status: execution.status,
                   message: 'Flow completed',
                   startedAt,
-                  completedAt: execution.completedAt || new Date().toISOString(),
+                  completedAt:
+                    execution.completedAt || new Date().toISOString(),
                 }
                 syncRuntimeReporterState()
                 writeCliStdoutLine(
@@ -641,6 +685,20 @@ async function runDaemonCommand(
                     2,
                   ),
                 )
+                if (task.leaseReporter) {
+                  try {
+                    await task.leaseReporter.complete({
+                      status: 'SUCCEEDED',
+                    })
+                  } catch (error) {
+                    logTaskLeaseError(
+                      task.notificationId,
+                      sanitizeErrorForOutput(error),
+                    )
+                  } finally {
+                    taskLeaseReporters.delete(task.notificationId)
+                  }
+                }
               } catch (error) {
                 const sanitized = sanitizeErrorForOutput(error)
                 lastRuntimeState = {
@@ -664,6 +722,21 @@ async function runDaemonCommand(
                     2,
                   ),
                 )
+                if (task.leaseReporter) {
+                  try {
+                    await task.leaseReporter.complete({
+                      status: 'FAILED',
+                      error: sanitized.message,
+                    })
+                  } catch (leaseError) {
+                    logTaskLeaseError(
+                      task.notificationId,
+                      sanitizeErrorForOutput(leaseError),
+                    )
+                  } finally {
+                    taskLeaseReporters.delete(task.notificationId)
+                  }
+                }
               } finally {
                 await runtimeReporter.flush()
                 setRuntimeConfig(config)
@@ -675,7 +748,78 @@ async function runDaemonCommand(
       syncRuntimeReporterState()
       return scheduled.finally(() => {
         syncRuntimeReporterState()
+        void tryClaimTasks()
       })
+    }
+
+    const tryClaimTasks = async () => {
+      if (!connectionId || claimInFlight) {
+        return
+      }
+
+      claimInFlight = true
+      try {
+        while (
+          connectionId &&
+          getClaimedTaskCount() < MAX_CLI_FLOW_TASK_PARALLELISM
+        ) {
+          const claimedTask = await claimCliFlowTask({
+            connectionId,
+            authState,
+          })
+          if (!claimedTask) {
+            break
+          }
+
+          const leaseReporter = new CliFlowTaskLeaseReporter({
+            connectionId,
+            taskId: claimedTask.id,
+            authState,
+            onError: (error) => {
+              logTaskLeaseError(claimedTask.id, error)
+            },
+          })
+          leaseReporter.start()
+          taskLeaseReporters.set(claimedTask.id, leaseReporter)
+
+          const taskPayload = normalizeCliFlowTaskPayload(claimedTask.payload)
+          if (!taskPayload) {
+            try {
+              await leaseReporter.complete({
+                status: 'FAILED',
+                error: 'Received malformed flow task payload.',
+              })
+            } catch (error) {
+              logTaskLeaseError(claimedTask.id, sanitizeErrorForOutput(error))
+            } finally {
+              taskLeaseReporters.delete(claimedTask.id)
+            }
+            continue
+          }
+
+          void scheduleDaemonFlowTask({
+            flowId: taskPayload.flowId,
+            config: taskPayload.config as FlowOptions,
+            notificationId: claimedTask.id,
+            message: claimedTask.title || 'Task started',
+            batch: taskPayload.batch,
+            leaseReporter,
+          })
+        }
+      } catch (error) {
+        writeCliStderrLine(
+          JSON.stringify(
+            {
+              command: 'daemon:task:claim:error',
+              error: sanitizeErrorForOutput(error).message,
+            },
+            null,
+            2,
+          ),
+        )
+      } finally {
+        claimInFlight = false
+      }
     }
 
     writeCliStdoutLine(
@@ -687,7 +831,7 @@ async function runDaemonCommand(
           auth: redactForOutput({
             mode: authState.mode,
             clientId: authState.clientId,
-            target: authState.session?.target,
+            target,
             subject: authState.session?.subject,
             expiresAt: authState.session?.tokenSet.expiresAt,
           }),
@@ -707,12 +851,21 @@ async function runDaemonCommand(
       for await (const notification of streamCliNotifications(
         {
           cliName,
-          target: options.target,
+          target,
+          workerId,
         },
         authState,
         {
           onConnection: (connection) => {
+            connectionId = connection.connectionId
             runtimeReporter.setConnectionId(connection.connectionId)
+            if (claimInterval) {
+              clearInterval(claimInterval)
+            }
+            claimInterval = setInterval(() => {
+              void tryClaimTasks()
+            }, 2000)
+            void tryClaimTasks()
             writeCliStdoutLine(
               JSON.stringify(
                 {
@@ -736,25 +889,6 @@ async function runDaemonCommand(
             2,
           ),
         )
-
-        const taskPayload = normalizeCliFlowTaskPayload(notification.payload)
-        if (!taskPayload) {
-
-
-
-
-          continue
-        }
-
-        const flowId = taskPayload.flowId
-        const taskConfig = taskPayload.config as FlowOptions
-        void scheduleDaemonFlowTask({
-          flowId,
-          config: taskConfig,
-          notificationId: notification.id,
-          message: notification.title || 'Task started',
-          batch: taskPayload.batch,
-        })
       }
     } catch (error) {
       writeCliStderrLine(
@@ -767,6 +901,12 @@ async function runDaemonCommand(
           2,
         ),
       )
+    }
+
+    connectionId = undefined
+    if (claimInterval) {
+      clearInterval(claimInterval)
+      claimInterval = undefined
     }
 
     await taskScheduler.waitForIdle()

@@ -55,6 +55,7 @@ export interface AdminNotificationEvent {
 
 export interface CliConnectionEvent {
   connectionId: string
+  workerId?: string
   cliName?: string
   target?: string
   connectedAt: string

@@ -51,6 +51,7 @@ export async function loginChatGPTAndInviteMembers(
     try {
       const syncedWorkspace = await syncManagedWorkspaceToCodeyApp({
         workspaceId: invites.accountId,
+        ownerIdentityId: login.storedIdentity?.id,
         memberEmails: linkedEmails,
       })
       options.progressReporter?.({

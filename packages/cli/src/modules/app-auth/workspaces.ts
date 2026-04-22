@@ -83,6 +83,7 @@ function hasReusableCodeyAppAccess(
 export async function syncManagedWorkspaceToCodeyApp(input: {
   workspaceId: string
   label?: string
+  ownerIdentityId?: string
   memberEmails?: string[]
 }): Promise<AppManagedWorkspaceRecord | null> {
   const config = resolveCodeyAppConfig()
@@ -94,6 +95,7 @@ export async function syncManagedWorkspaceToCodeyApp(input: {
   return client.syncManagedWorkspace({
     workspaceId: input.workspaceId.trim(),
     label: input.label?.trim() || undefined,
+    ownerIdentityId: input.ownerIdentityId?.trim() || undefined,
     memberEmails: input.memberEmails || [],
   })
 }

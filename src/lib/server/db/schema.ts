@@ -31,6 +31,14 @@ export const flowAppRequestStatusEnum = pgEnum('flow_app_request_status', [
   'FULFILLED',
   'REJECTED',
 ])
+export const flowTaskStatusEnum = pgEnum('flow_task_status', [
+  'QUEUED',
+  'LEASED',
+  'RUNNING',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELED',
+])
 export const managedIdentityStatusEnum = pgEnum('managed_identity_status', [
   'ACTIVE',
   'REVIEW',
@@ -305,6 +313,69 @@ export const adminNotifications = pgTable('admin_notifications', {
     .notNull(),
 })
 
+export const flowTasks = pgTable(
+  'flow_tasks',
+  {
+    id: text('id').primaryKey(),
+    workerId: text('worker_id').notNull(),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    flowType: text('flow_type').notNull(),
+    target: text('target'),
+    cliConnectionId: text('cli_connection_id').references(() => cliConnections.id, {
+      onDelete: 'set null',
+    }),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    status: flowTaskStatusEnum('status').default('QUEUED').notNull(),
+    attemptCount: integer('attempt_count').default(0).notNull(),
+    leaseClaimedAt: timestamp('lease_claimed_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    leaseExpiresAt: timestamp('lease_expires_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    startedAt: timestamp('started_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    completedAt: timestamp('completed_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('flow_tasks_worker_status_created_at_idx').on(
+      table.workerId,
+      table.status,
+      table.createdAt,
+    ),
+    index('flow_tasks_worker_lease_expires_at_idx').on(
+      table.workerId,
+      table.leaseExpiresAt,
+    ),
+    index('flow_tasks_connection_status_idx').on(
+      table.cliConnectionId,
+      table.status,
+    ),
+    index('flow_tasks_status_updated_at_idx').on(table.status, table.updatedAt),
+  ],
+)
+
 export const flowAppRequests = pgTable(
   'flow_app_requests',
   {
@@ -455,6 +526,12 @@ export const managedWorkspaces = pgTable(
     id: text('id').primaryKey(),
     workspaceId: text('workspace_id').notNull(),
     label: text('label'),
+    ownerIdentityId: text('owner_identity_id').references(
+      () => managedIdentities.identityId,
+      {
+        onDelete: 'set null',
+      },
+    ),
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'date',
@@ -470,6 +547,9 @@ export const managedWorkspaces = pgTable(
   },
   (table) => [
     uniqueIndex('managed_workspaces_workspace_id_unique').on(table.workspaceId),
+    uniqueIndex('managed_workspaces_owner_identity_id_unique').on(
+      table.ownerIdentityId,
+    ),
     index('managed_workspaces_updated_at_idx').on(table.updatedAt),
   ],
 )
@@ -654,6 +734,7 @@ export const cliConnections = pgTable(
   'cli_connections',
   {
     id: text('id').primaryKey(),
+    workerId: text('worker_id'),
     sessionRef: text('session_ref'),
     userId: text('user_id').references(() => users.id, {
       onDelete: 'set null',
@@ -702,6 +783,7 @@ export const cliConnections = pgTable(
     }),
   },
   (table) => [
+    index('cli_connections_worker_id_idx').on(table.workerId),
     index('cli_connections_last_seen_at_idx').on(table.lastSeenAt),
     index('cli_connections_user_id_idx').on(table.userId),
     index('cli_connections_session_ref_idx').on(table.sessionRef),
@@ -854,6 +936,7 @@ export const managedIdentitiesRelations = relations(
   managedIdentities,
   ({ many }) => ({
     sessions: many(managedIdentitySessions),
+    ownedWorkspaces: many(managedWorkspaces),
     workspaceMembers: many(managedWorkspaceMembers),
   }),
 )
@@ -870,7 +953,11 @@ export const managedIdentitySessionsRelations = relations(
 
 export const managedWorkspacesRelations = relations(
   managedWorkspaces,
-  ({ many }) => ({
+  ({ many, one }) => ({
+    ownerIdentity: one(managedIdentities, {
+      fields: [managedWorkspaces.ownerIdentityId],
+      references: [managedIdentities.identityId],
+    }),
     members: many(managedWorkspaceMembers),
   }),
 )
@@ -918,6 +1005,7 @@ export type VerificationCodeSource =
   (typeof verificationCodeSourceEnum.enumValues)[number]
 export type FlowAppRequestStatus =
   (typeof flowAppRequestStatusEnum.enumValues)[number]
+export type FlowTaskStatus = (typeof flowTaskStatusEnum.enumValues)[number]
 export type ManagedIdentityStatus =
   (typeof managedIdentityStatusEnum.enumValues)[number]
 export type ManagedIdentityPlan =
@@ -940,6 +1028,7 @@ export type VerificationCodeRow = typeof verificationCodes.$inferSelect
 export type EmailIngestRecordRow = typeof emailIngestRecords.$inferSelect
 export type DeviceChallengeRow = typeof deviceChallenges.$inferSelect
 export type AdminNotificationRow = typeof adminNotifications.$inferSelect
+export type FlowTaskRow = typeof flowTasks.$inferSelect
 export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect
 export type ManagedIdentitySessionRow =

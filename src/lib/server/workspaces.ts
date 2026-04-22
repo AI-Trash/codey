@@ -1,15 +1,6 @@
 import '@tanstack/react-start/server-only'
 
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  notInArray,
-  or,
-} from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, notInArray, or } from 'drizzle-orm'
 import { getDb } from './db/client'
 import {
   managedIdentities,
@@ -17,6 +8,14 @@ import {
   managedWorkspaces,
 } from './db/schema'
 import { createId } from './security'
+
+const MAX_MANAGED_WORKSPACE_MEMBER_COUNT = 9
+
+export interface AdminManagedWorkspaceIdentitySummary {
+  identityId: string
+  email: string
+  identityLabel: string
+}
 
 export interface AdminManagedWorkspaceMemberSummary {
   id: string
@@ -29,21 +28,25 @@ export interface AdminManagedWorkspaceSummary {
   id: string
   workspaceId: string
   label: string | null
+  owner: AdminManagedWorkspaceIdentitySummary | null
   memberCount: number
   members: AdminManagedWorkspaceMemberSummary[]
   createdAt: string
   updatedAt: string
 }
 
-export interface ResolvedManagedWorkspaceAssociation {
-  id: string
-  workspaceId: string
+export type ResolvedManagedWorkspaceAssociation =
+  AdminManagedWorkspaceSummary
+
+interface ManagedIdentityLookupRow {
+  identityId: string
+  email: string
   label: string | null
-  memberEmail: string
+}
+
+interface WorkspaceMemberInput {
   identityId: string | null
-  identityLabel: string | null
-  createdAt: string
-  updatedAt: string
+  email: string
 }
 
 function normalizeWorkspaceId(value: string): string {
@@ -51,6 +54,13 @@ function normalizeWorkspaceId(value: string): string {
 }
 
 function normalizeOptionalLabel(value?: string | null): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
+}
+
+function normalizeOptionalIdentityId(
+  value?: string | null,
+): string | null {
   const normalized = value?.trim()
   return normalized ? normalized : null
 }
@@ -74,21 +84,47 @@ function normalizeWorkspaceMemberEmails(values: Iterable<string>): string[] {
   return [...deduped.values()]
 }
 
+function normalizeIdentityIds(values: Iterable<string>): string[] {
+  const deduped = new Map<string, string>()
+
+  for (const value of values) {
+    const identityId = value.trim()
+    if (!identityId) {
+      continue
+    }
+
+    deduped.set(identityId, identityId)
+  }
+
+  return [...deduped.values()]
+}
+
+function buildManagedWorkspaceIdentitySummary(
+  identity?: ManagedIdentityLookupRow | null,
+): AdminManagedWorkspaceIdentitySummary | null {
+  if (!identity) {
+    return null
+  }
+
+  return {
+    identityId: identity.identityId,
+    email: identity.email,
+    identityLabel: identity.label || identity.email,
+  }
+}
+
 function buildAdminManagedWorkspaceSummary(row: {
   id: string
   workspaceId: string
   label: string | null
+  ownerIdentity?: ManagedIdentityLookupRow | null
   createdAt: Date
   updatedAt: Date
   members: Array<{
     id: string
     email: string
     identityId: string | null
-    identity?: {
-      identityId: string
-      email: string
-      label: string | null
-    } | null
+    identity?: ManagedIdentityLookupRow | null
   }>
 }): AdminManagedWorkspaceSummary {
   const members = row.members.map((member) => ({
@@ -103,6 +139,7 @@ function buildAdminManagedWorkspaceSummary(row: {
     id: row.id,
     workspaceId: row.workspaceId,
     label: row.label,
+    owner: buildManagedWorkspaceIdentitySummary(row.ownerIdentity),
     memberCount: members.length,
     members,
     createdAt: row.createdAt.toISOString(),
@@ -110,36 +147,50 @@ function buildAdminManagedWorkspaceSummary(row: {
   }
 }
 
-function buildResolvedManagedWorkspaceAssociation(row: {
-  email: string
-  identityId: string | null
-  updatedAt: Date
-  workspace: {
-    id: string
-    workspaceId: string
-    label: string | null
-    createdAt: Date
-    updatedAt: Date
-  } | null
-  identity?: {
-    label: string | null
-    email: string
-  } | null
-}): ResolvedManagedWorkspaceAssociation | null {
-  if (!row.workspace) {
-    return null
+function normalizeWorkspaceMemberInputs(
+  values: Iterable<WorkspaceMemberInput>,
+): WorkspaceMemberInput[] {
+  const deduped = new Map<string, WorkspaceMemberInput>()
+
+  for (const value of values) {
+    const email = normalizeEmail(value.email)
+    const identityId = normalizeOptionalIdentityId(value.identityId)
+
+    if (!email) {
+      continue
+    }
+
+    if (identityId) {
+      deduped.delete(`email:${email}`)
+      deduped.set(`identity:${identityId}`, {
+        identityId,
+        email,
+      })
+      continue
+    }
+
+    if (!deduped.has(`email:${email}`)) {
+      deduped.set(`email:${email}`, {
+        identityId: null,
+        email,
+      })
+    }
   }
 
-  return {
-    id: row.workspace.id,
-    workspaceId: row.workspace.workspaceId,
-    label: row.workspace.label,
-    memberEmail: row.email,
-    identityId: row.identityId,
-    identityLabel: row.identity?.label || row.identity?.email || row.email,
-    createdAt: row.workspace.createdAt.toISOString(),
-    updatedAt: row.workspace.updatedAt.toISOString(),
+  const normalized = [...deduped.values()].sort((left, right) =>
+    left.email.localeCompare(right.email),
+  )
+  const seenEmails = new Set<string>()
+
+  for (const member of normalized) {
+    if (seenEmails.has(member.email)) {
+      throw new Error(`Duplicate workspace member email: ${member.email}`)
+    }
+
+    seenEmails.add(member.email)
   }
+
+  return normalized
 }
 
 async function resolveIdentityIdsByEmail(
@@ -160,108 +211,198 @@ async function resolveIdentityIdsByEmail(
   return new Map(rows.map((row) => [row.email, row.identityId]))
 }
 
-async function replaceWorkspaceMembers(
-  managedWorkspaceId: string,
-  memberEmails: string[],
-): Promise<void> {
-  const db = getDb()
-  const normalizedEmails = normalizeWorkspaceMemberEmails(memberEmails)
-  const seenAt = new Date()
-  const identityIdsByEmail = await resolveIdentityIdsByEmail(normalizedEmails)
-  const existingMembers = await db.query.managedWorkspaceMembers.findMany({
-    where: eq(managedWorkspaceMembers.managedWorkspaceId, managedWorkspaceId),
+async function resolveManagedIdentityRowsByIds(
+  identityIds: string[],
+): Promise<Map<string, ManagedIdentityLookupRow>> {
+  if (!identityIds.length) {
+    return new Map()
+  }
+
+  const rows = await getDb().query.managedIdentities.findMany({
+    where: inArray(managedIdentities.identityId, identityIds),
+    columns: {
+      identityId: true,
+      email: true,
+      label: true,
+    },
   })
-  const existingByEmail = new Map(
-    existingMembers.map((member) => [member.email, member]),
-  )
 
-  for (const email of normalizedEmails) {
-    const existing = existingByEmail.get(email)
-    const identityId = identityIdsByEmail.get(email) || existing?.identityId || null
+  return new Map(rows.map((row) => [row.identityId, row]))
+}
 
-    if (existing) {
-      await db
-        .update(managedWorkspaceMembers)
-        .set({
-          identityId,
-          updatedAt: seenAt,
-        })
-        .where(eq(managedWorkspaceMembers.id, existing.id))
+async function resolveManagedWorkspaceOwner(
+  ownerIdentityId: string | null,
+): Promise<ManagedIdentityLookupRow | null> {
+  if (!ownerIdentityId) {
+    return null
+  }
+
+  const owner = await getDb().query.managedIdentities.findFirst({
+    where: eq(managedIdentities.identityId, ownerIdentityId),
+    columns: {
+      identityId: true,
+      email: true,
+      label: true,
+    },
+  })
+
+  if (!owner) {
+    throw new Error('Owner identity was not found')
+  }
+
+  return owner
+}
+
+async function resolveWorkspaceMemberInputs(input: {
+  memberIdentityIds?: string[]
+  memberEmails?: string[]
+}): Promise<WorkspaceMemberInput[]> {
+  const normalizedIdentityIds = normalizeIdentityIds(input.memberIdentityIds || [])
+  const normalizedEmails = normalizeWorkspaceMemberEmails(input.memberEmails || [])
+  const identitiesById = await resolveManagedIdentityRowsByIds(normalizedIdentityIds)
+  const memberInputs: WorkspaceMemberInput[] = []
+  const identityEmails = new Set<string>()
+
+  if (identitiesById.size !== normalizedIdentityIds.length) {
+    const missingIdentityIds = normalizedIdentityIds.filter(
+      (identityId) => !identitiesById.has(identityId),
+    )
+
+    throw new Error(
+      `Some selected member identities were not found: ${missingIdentityIds.join(', ')}`,
+    )
+  }
+
+  for (const identityId of normalizedIdentityIds) {
+    const identity = identitiesById.get(identityId)
+    if (!identity) {
       continue
     }
 
-    await db.insert(managedWorkspaceMembers).values({
-      id: createId(),
-      managedWorkspaceId,
-      identityId,
-      email,
-      createdAt: seenAt,
-      updatedAt: seenAt,
+    memberInputs.push({
+      identityId: identity.identityId,
+      email: identity.email,
     })
+    identityEmails.add(normalizeEmail(identity.email))
   }
 
-  if (!normalizedEmails.length) {
-    await db
-      .delete(managedWorkspaceMembers)
-      .where(eq(managedWorkspaceMembers.managedWorkspaceId, managedWorkspaceId))
+  if (normalizedEmails.length) {
+    const identityIdsByEmail = await resolveIdentityIdsByEmail(normalizedEmails)
+
+    for (const email of normalizedEmails) {
+      if (identityEmails.has(email)) {
+        continue
+      }
+
+      memberInputs.push({
+        identityId: identityIdsByEmail.get(email) || null,
+        email,
+      })
+    }
+  }
+
+  return normalizeWorkspaceMemberInputs(memberInputs)
+}
+
+function validateManagedWorkspaceMembership(input: {
+  ownerIdentity?: ManagedIdentityLookupRow | null
+  members: WorkspaceMemberInput[]
+}) {
+  if (input.members.length > MAX_MANAGED_WORKSPACE_MEMBER_COUNT) {
+    throw new Error(
+      `A workspace can include at most ${MAX_MANAGED_WORKSPACE_MEMBER_COUNT} member identities.`,
+    )
+  }
+
+  if (!input.ownerIdentity) {
     return
   }
+
+  const ownerEmail = normalizeEmail(input.ownerIdentity.email)
+  if (
+    input.members.some(
+      (member) =>
+        member.identityId === input.ownerIdentity?.identityId ||
+        member.email === ownerEmail,
+    )
+  ) {
+    throw new Error('Workspace owner cannot also be listed as a member')
+  }
+}
+
+async function listWorkspaceMemberInputs(
+  managedWorkspaceId: string,
+): Promise<WorkspaceMemberInput[]> {
+  const rows = await getDb().query.managedWorkspaceMembers.findMany({
+    where: eq(managedWorkspaceMembers.managedWorkspaceId, managedWorkspaceId),
+    columns: {
+      identityId: true,
+      email: true,
+    },
+  })
+
+  return normalizeWorkspaceMemberInputs(
+    rows.map((row) => ({
+      identityId: row.identityId,
+      email: row.email,
+    })),
+  )
+}
+
+async function replaceWorkspaceMembers(
+  managedWorkspaceId: string,
+  memberInputs: WorkspaceMemberInput[],
+): Promise<void> {
+  const normalizedMembers = normalizeWorkspaceMemberInputs(memberInputs)
+  const db = getDb()
 
   await db
     .delete(managedWorkspaceMembers)
-    .where(
-      and(
-        eq(managedWorkspaceMembers.managedWorkspaceId, managedWorkspaceId),
-        notInArray(managedWorkspaceMembers.email, normalizedEmails),
-      ),
-    )
-}
+    .where(eq(managedWorkspaceMembers.managedWorkspaceId, managedWorkspaceId))
 
-async function mergeWorkspaceMembers(
-  managedWorkspaceId: string,
-  memberEmails: string[],
-): Promise<void> {
-  const db = getDb()
-  const normalizedEmails = normalizeWorkspaceMemberEmails(memberEmails)
-  if (!normalizedEmails.length) {
+  if (!normalizedMembers.length) {
     return
   }
 
   const seenAt = new Date()
-  const identityIdsByEmail = await resolveIdentityIdsByEmail(normalizedEmails)
-  const existingMembers = await db.query.managedWorkspaceMembers.findMany({
-    where: and(
-      eq(managedWorkspaceMembers.managedWorkspaceId, managedWorkspaceId),
-      inArray(managedWorkspaceMembers.email, normalizedEmails),
-    ),
-  })
-  const existingByEmail = new Map(
-    existingMembers.map((member) => [member.email, member]),
-  )
-
-  for (const email of normalizedEmails) {
-    const existing = existingByEmail.get(email)
-    const identityId = identityIdsByEmail.get(email) || existing?.identityId || null
-
-    if (existing) {
-      await db
-        .update(managedWorkspaceMembers)
-        .set({
-          identityId,
-          updatedAt: seenAt,
-        })
-        .where(eq(managedWorkspaceMembers.id, existing.id))
-      continue
-    }
-
-    await db.insert(managedWorkspaceMembers).values({
+  await db.insert(managedWorkspaceMembers).values(
+    normalizedMembers.map((member) => ({
       id: createId(),
       managedWorkspaceId,
-      identityId,
-      email,
+      identityId: member.identityId,
+      email: member.email,
       createdAt: seenAt,
       updatedAt: seenAt,
-    })
+    })),
+  )
+}
+
+async function assertWorkspaceOwnerAvailability(
+  ownerIdentityId: string | null,
+  currentWorkspaceId?: string,
+) {
+  if (!ownerIdentityId) {
+    return
+  }
+
+  const duplicate = await getDb().query.managedWorkspaces.findFirst({
+    where: currentWorkspaceId
+      ? and(
+          eq(managedWorkspaces.ownerIdentityId, ownerIdentityId),
+          notInArray(managedWorkspaces.id, [currentWorkspaceId]),
+        )
+      : eq(managedWorkspaces.ownerIdentityId, ownerIdentityId),
+    columns: {
+      id: true,
+      workspaceId: true,
+      label: true,
+    },
+  })
+
+  if (duplicate) {
+    throw new Error(
+      `This identity already owns workspace ${duplicate.label || duplicate.workspaceId}.`,
+    )
   }
 }
 
@@ -270,6 +411,13 @@ export async function listAdminManagedWorkspaceSummaries(): Promise<
 > {
   const rows = await getDb().query.managedWorkspaces.findMany({
     with: {
+      ownerIdentity: {
+        columns: {
+          identityId: true,
+          email: true,
+          label: true,
+        },
+      },
       members: {
         with: {
           identity: {
@@ -289,10 +437,19 @@ export async function listAdminManagedWorkspaceSummaries(): Promise<
   return rows.map((row) => buildAdminManagedWorkspaceSummary(row))
 }
 
-export async function findAdminManagedWorkspaceSummary(id: string): Promise<AdminManagedWorkspaceSummary | null> {
+export async function findAdminManagedWorkspaceSummary(
+  id: string,
+): Promise<AdminManagedWorkspaceSummary | null> {
   const row = await getDb().query.managedWorkspaces.findFirst({
     where: eq(managedWorkspaces.id, id),
     with: {
+      ownerIdentity: {
+        columns: {
+          identityId: true,
+          email: true,
+          label: true,
+        },
+      },
       members: {
         with: {
           identity: {
@@ -314,6 +471,8 @@ export async function findAdminManagedWorkspaceSummary(id: string): Promise<Admi
 export async function createManagedWorkspace(input: {
   workspaceId: string
   label?: string | null
+  ownerIdentityId?: string | null
+  memberIdentityIds?: string[]
   memberEmails?: string[]
 }): Promise<AdminManagedWorkspaceSummary> {
   const workspaceId = normalizeWorkspaceId(input.workspaceId)
@@ -331,6 +490,19 @@ export async function createManagedWorkspace(input: {
     throw new Error('Workspace ID already exists')
   }
 
+  const ownerIdentityId = normalizeOptionalIdentityId(input.ownerIdentityId)
+  const ownerIdentity = await resolveManagedWorkspaceOwner(ownerIdentityId)
+  const memberInputs = await resolveWorkspaceMemberInputs({
+    memberIdentityIds: input.memberIdentityIds,
+    memberEmails: input.memberEmails,
+  })
+
+  await assertWorkspaceOwnerAvailability(ownerIdentityId)
+  validateManagedWorkspaceMembership({
+    ownerIdentity,
+    members: memberInputs,
+  })
+
   const seenAt = new Date()
   const [record] = await getDb()
     .insert(managedWorkspaces)
@@ -338,6 +510,7 @@ export async function createManagedWorkspace(input: {
       id: createId(),
       workspaceId,
       label: normalizeOptionalLabel(input.label),
+      ownerIdentityId,
       createdAt: seenAt,
       updatedAt: seenAt,
     })
@@ -347,7 +520,7 @@ export async function createManagedWorkspace(input: {
     throw new Error('Unable to create workspace')
   }
 
-  await replaceWorkspaceMembers(record.id, input.memberEmails || [])
+  await replaceWorkspaceMembers(record.id, memberInputs)
 
   const summary = await findAdminManagedWorkspaceSummary(record.id)
   if (!summary) {
@@ -362,6 +535,8 @@ export async function updateManagedWorkspace(
   input: {
     workspaceId: string
     label?: string | null
+    ownerIdentityId?: string | null
+    memberIdentityIds?: string[]
     memberEmails?: string[]
   },
 ): Promise<AdminManagedWorkspaceSummary | null> {
@@ -372,6 +547,10 @@ export async function updateManagedWorkspace(
 
   const existing = await getDb().query.managedWorkspaces.findFirst({
     where: eq(managedWorkspaces.id, id),
+    columns: {
+      id: true,
+      ownerIdentityId: true,
+    },
   })
   if (!existing) {
     return null
@@ -390,11 +569,31 @@ export async function updateManagedWorkspace(
     throw new Error('Workspace ID already exists')
   }
 
+  const ownerIdentityId =
+    input.ownerIdentityId === undefined
+      ? existing.ownerIdentityId
+      : normalizeOptionalIdentityId(input.ownerIdentityId)
+  const ownerIdentity = await resolveManagedWorkspaceOwner(ownerIdentityId)
+  const nextMemberInputs =
+    input.memberIdentityIds !== undefined || input.memberEmails !== undefined
+      ? await resolveWorkspaceMemberInputs({
+          memberIdentityIds: input.memberIdentityIds,
+          memberEmails: input.memberEmails,
+        })
+      : await listWorkspaceMemberInputs(existing.id)
+
+  await assertWorkspaceOwnerAvailability(ownerIdentityId, id)
+  validateManagedWorkspaceMembership({
+    ownerIdentity,
+    members: nextMemberInputs,
+  })
+
   const [record] = await getDb()
     .update(managedWorkspaces)
     .set({
       workspaceId,
       label: normalizeOptionalLabel(input.label),
+      ownerIdentityId,
       updatedAt: new Date(),
     })
     .where(eq(managedWorkspaces.id, id))
@@ -404,8 +603,8 @@ export async function updateManagedWorkspace(
     return null
   }
 
-  if (input.memberEmails !== undefined) {
-    await replaceWorkspaceMembers(record.id, input.memberEmails)
+  if (input.memberIdentityIds !== undefined || input.memberEmails !== undefined) {
+    await replaceWorkspaceMembers(record.id, nextMemberInputs)
   }
 
   return findAdminManagedWorkspaceSummary(record.id)
@@ -423,6 +622,8 @@ export async function deleteManagedWorkspace(id: string) {
 export async function syncManagedWorkspaceInvite(input: {
   workspaceId: string
   label?: string | null
+  ownerIdentityId?: string | null
+  memberIdentityIds?: string[]
   memberEmails?: string[]
 }): Promise<AdminManagedWorkspaceSummary> {
   const workspaceId = normalizeWorkspaceId(input.workspaceId)
@@ -436,7 +637,31 @@ export async function syncManagedWorkspaceInvite(input: {
     columns: {
       id: true,
       label: true,
+      ownerIdentityId: true,
     },
+  })
+
+  const ownerIdentityId =
+    input.ownerIdentityId === undefined
+      ? existing?.ownerIdentityId || null
+      : normalizeOptionalIdentityId(input.ownerIdentityId)
+  const ownerIdentity = await resolveManagedWorkspaceOwner(ownerIdentityId)
+  const incomingMemberInputs = await resolveWorkspaceMemberInputs({
+    memberIdentityIds: input.memberIdentityIds,
+    memberEmails: input.memberEmails,
+  })
+  const currentMemberInputs = existing
+    ? await listWorkspaceMemberInputs(existing.id)
+    : []
+  const mergedMemberInputs = normalizeWorkspaceMemberInputs([
+    ...currentMemberInputs,
+    ...incomingMemberInputs,
+  ])
+
+  await assertWorkspaceOwnerAvailability(ownerIdentityId, existing?.id)
+  validateManagedWorkspaceMembership({
+    ownerIdentity,
+    members: mergedMemberInputs,
   })
 
   const managedWorkspaceId = existing?.id || createId()
@@ -448,6 +673,7 @@ export async function syncManagedWorkspaceInvite(input: {
         label:
           normalizeOptionalLabel(input.label) ??
           normalizeOptionalLabel(existing.label),
+        ownerIdentityId,
         updatedAt: seenAt,
       })
       .where(eq(managedWorkspaces.id, existing.id))
@@ -456,12 +682,13 @@ export async function syncManagedWorkspaceInvite(input: {
       id: managedWorkspaceId,
       workspaceId,
       label: normalizeOptionalLabel(input.label),
+      ownerIdentityId,
       createdAt: seenAt,
       updatedAt: seenAt,
     })
   }
 
-  await mergeWorkspaceMembers(managedWorkspaceId, input.memberEmails || [])
+  await replaceWorkspaceMembers(managedWorkspaceId, mergedMemberInputs)
 
   const summary = await findAdminManagedWorkspaceSummary(managedWorkspaceId)
   if (!summary) {
@@ -475,8 +702,18 @@ export async function resolveAssociatedManagedWorkspace(params: {
   identityId?: string
   email?: string
 }): Promise<ResolvedManagedWorkspaceAssociation | null> {
-  const identityId = params.identityId?.trim() || undefined
+  let identityId = normalizeOptionalIdentityId(params.identityId)
   let email = params.email ? normalizeEmail(params.email) : undefined
+
+  if (!identityId && email) {
+    const identity = await getDb().query.managedIdentities.findFirst({
+      where: eq(managedIdentities.email, email),
+      columns: {
+        identityId: true,
+      },
+    })
+    identityId = identity?.identityId || null
+  }
 
   if (!email && identityId) {
     const identity = await getDb().query.managedIdentities.findFirst({
@@ -488,43 +725,75 @@ export async function resolveAssociatedManagedWorkspace(params: {
     email = identity?.email || undefined
   }
 
-  const conditions = []
+  const candidates = new Map<string, Date>()
+
   if (identityId) {
-    conditions.push(eq(managedWorkspaceMembers.identityId, identityId))
+    const ownerRows = await getDb().query.managedWorkspaces.findMany({
+      where: eq(managedWorkspaces.ownerIdentityId, identityId),
+      columns: {
+        id: true,
+        updatedAt: true,
+      },
+      orderBy: [desc(managedWorkspaces.updatedAt)],
+      limit: 10,
+    })
+
+    for (const row of ownerRows) {
+      candidates.set(row.id, row.updatedAt)
+    }
+  }
+
+  const memberConditions = []
+  if (identityId) {
+    memberConditions.push(eq(managedWorkspaceMembers.identityId, identityId))
   }
   if (email) {
-    conditions.push(eq(managedWorkspaceMembers.email, email))
+    memberConditions.push(eq(managedWorkspaceMembers.email, email))
   }
 
-  if (!conditions.length) {
-    return null
-  }
-
-  const rows = await getDb().query.managedWorkspaceMembers.findMany({
-    where: conditions.length === 1 ? conditions[0] : or(...conditions),
-    with: {
-      workspace: true,
-      identity: {
-        columns: {
-          email: true,
-          label: true,
+  if (memberConditions.length) {
+    const memberRows = await getDb().query.managedWorkspaceMembers.findMany({
+      where:
+        memberConditions.length === 1
+          ? memberConditions[0]
+          : or(...memberConditions),
+      with: {
+        workspace: {
+          columns: {
+            id: true,
+            updatedAt: true,
+          },
         },
       },
-    },
-    orderBy: [
-      desc(managedWorkspaceMembers.updatedAt),
-      desc(managedWorkspaceMembers.createdAt),
-    ],
-  })
+      orderBy: [
+        desc(managedWorkspaceMembers.updatedAt),
+        desc(managedWorkspaceMembers.createdAt),
+      ],
+      limit: 20,
+    })
 
-  const matchedRow =
-    (identityId
-      ? rows.find((row) => row.identityId === identityId && row.workspace)
-      : undefined) ||
-    (email ? rows.find((row) => row.email === email && row.workspace) : undefined) ||
-    rows.find((row) => row.workspace)
+    for (const row of memberRows) {
+      if (!row.workspace) {
+        continue
+      }
 
-  return matchedRow ? buildResolvedManagedWorkspaceAssociation(matchedRow) : null
+      const previousUpdatedAt = candidates.get(row.workspace.id)
+      if (
+        !previousUpdatedAt ||
+        row.workspace.updatedAt.getTime() > previousUpdatedAt.getTime()
+      ) {
+        candidates.set(row.workspace.id, row.workspace.updatedAt)
+      }
+    }
+  }
+
+  const matchedWorkspaceId = [...candidates.entries()]
+    .sort((left, right) => right[1].getTime() - left[1].getTime())
+    .at(0)?.[0]
+
+  return matchedWorkspaceId
+    ? findAdminManagedWorkspaceSummary(matchedWorkspaceId)
+    : null
 }
 
 export async function linkWorkspaceMembersToManagedIdentity(params: {
@@ -570,3 +839,4 @@ export async function linkWorkspaceMembersToManagedIdentity(params: {
 
   return updatedCount
 }
+

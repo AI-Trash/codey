@@ -159,11 +159,9 @@ export const Route = createFileRoute(
           return json(
             {
               ok: true,
-              notificationId: result.notifications[0]?.id || null,
-              notificationIds: result.notifications.map(
-                (notification) => notification.id,
-              ),
-              queuedCount: result.notifications.length,
+              taskId: result.tasks[0]?.id || null,
+              taskIds: result.tasks.map((task) => task.id),
+              queuedCount: result.tasks.length,
               parallelism: result.parallelism,
               batchId: result.batchId || null,
               connectionId: result.connection.id,

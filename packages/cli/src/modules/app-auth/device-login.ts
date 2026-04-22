@@ -24,6 +24,7 @@ import {
 } from './token-store'
 import { streamSse } from './sse'
 import { listCliFlowCommandIds } from '../flow-cli/flow-registry'
+import { deriveCliTargetFromAuthState } from './target'
 
 const NOTIFICATIONS_READ_SCOPE = 'notifications:read'
 
@@ -301,6 +302,7 @@ export async function* streamCliNotifications(
   input: {
     target?: string
     cliName?: string
+    workerId?: string
   } = {},
   authState?: CliNotificationsAuthState,
   handlers?: {
@@ -313,13 +315,7 @@ export async function* streamCliNotifications(
   const config = getCodeyAppConfig()
   const resolvedAuthState =
     authState || (await resolveCliNotificationsAuthState())
-  const target =
-    input.target ||
-    resolvedAuthState.session?.target ||
-    resolvedAuthState.session?.subject ||
-    resolvedAuthState.session?.user?.githubLogin ||
-    resolvedAuthState.session?.user?.email ||
-    undefined
+  const target = input.target || deriveCliTargetFromAuthState(resolvedAuthState)
   const eventsUrl = new URL(
     resolveAppUrl(config.cliEventsPath || '/api/cli/events'),
   )
@@ -333,6 +329,7 @@ export async function* streamCliNotifications(
       Accept: 'text/event-stream',
       Authorization: `Bearer ${resolvedAuthState.accessToken}`,
       ...(input.cliName ? { 'X-Codey-CLI-Name': input.cliName } : {}),
+      ...(input.workerId ? { 'X-Codey-Worker-Id': input.workerId } : {}),
       'X-Codey-Registered-Flows': listCliFlowCommandIds().join(','),
     },
   })

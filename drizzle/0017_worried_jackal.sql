@@ -1,0 +1,3 @@
+ALTER TABLE "managed_workspaces" ADD COLUMN "owner_identity_id" text;--> statement-breakpoint
+ALTER TABLE "managed_workspaces" ADD CONSTRAINT "managed_workspaces_owner_identity_id_managed_identities_identity_id_fk" FOREIGN KEY ("owner_identity_id") REFERENCES "public"."managed_identities"("identity_id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "managed_workspaces_owner_identity_id_unique" ON "managed_workspaces" USING btree ("owner_identity_id");

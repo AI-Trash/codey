@@ -17,8 +17,9 @@ import {
   isSharedCliConnection,
 } from "./cli-connections";
 import { getDb } from "./db/client";
-import { adminNotifications } from "./db/schema";
+import { flowTasks } from "./db/schema";
 import { hasEnabledSub2ApiServiceConfig } from "./external-service-configs";
+import { getCliConnectionTaskWorkerId } from "./flow-tasks";
 import { createId } from "./security";
 
 export {
@@ -295,12 +296,13 @@ export async function dispatchCliFlowTasks(input: {
     flowDefinition.id,
   );
   const batchId = count > 1 ? createId() : undefined;
+  const workerId = getCliConnectionTaskWorkerId(connection);
   const queuedConfigs =
     taskConfigs.length > 1
       ? taskConfigs
       : Array.from({ length: count }, () => taskConfigs[0] || {});
-  const notifications = await getDb()
-    .insert(adminNotifications)
+  const tasks = await getDb()
+    .insert(flowTasks)
     .values(
       queuedConfigs.map((config, index) => {
         const sequence = index + 1;
@@ -308,6 +310,7 @@ export async function dispatchCliFlowTasks(input: {
           typeof config.email === "string" ? config.email.trim() : undefined;
         return {
           id: createId(),
+          workerId,
           title: buildTaskTitle({
             flowId: flowDefinition.id,
             sequence,
@@ -323,10 +326,8 @@ export async function dispatchCliFlowTasks(input: {
             parallelism,
             email,
           }),
-          kind: "flow_task" as const,
           flowType: flowDefinition.id,
           target: connection.target,
-          cliConnectionId: connection.id,
           payload: createCliFlowTaskPayload(flowDefinition.id, config, {
             ...(batchId ? { batchId } : {}),
             ...(count > 1 ? { sequence, total: count } : {}),
@@ -338,7 +339,7 @@ export async function dispatchCliFlowTasks(input: {
     .returning();
 
   return {
-    notifications,
+    tasks,
     connection,
     config: queuedConfigs[0] || {},
     configs: queuedConfigs,
@@ -358,14 +359,14 @@ export async function dispatchCliFlowTask(input: {
     ...input,
     count: 1,
   });
-  const [notification] = result.notifications;
+  const [task] = result.tasks;
 
-  if (!notification) {
+  if (!task) {
     throw new Error("Unable to dispatch flow task.");
   }
 
   return {
-    notification,
+    task,
     connection: result.connection,
     config: result.config,
   };

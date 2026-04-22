@@ -124,10 +124,17 @@ export interface AppManagedWorkspaceMemberRecord {
   identityLabel: string | null
 }
 
+export interface AppManagedWorkspaceIdentityRecord {
+  identityId: string
+  email: string
+  identityLabel: string
+}
+
 export interface AppManagedWorkspaceRecord {
   id: string
   workspaceId: string
   label?: string | null
+  owner?: AppManagedWorkspaceIdentityRecord | null
   memberCount: number
   members: AppManagedWorkspaceMemberRecord[]
   createdAt: string
@@ -625,6 +632,7 @@ export class AppVerificationProviderClient {
   async syncManagedWorkspace(input: {
     workspaceId: string
     label?: string
+    ownerIdentityId?: string
     memberEmails?: string[]
   }): Promise<AppManagedWorkspaceRecord> {
     const response = await this.getJson<AppManagedWorkspaceSyncResponse>(
@@ -637,6 +645,7 @@ export class AppVerificationProviderClient {
         body: JSON.stringify({
           workspaceId: input.workspaceId,
           label: input.label,
+          ownerIdentityId: input.ownerIdentityId,
           memberEmails: input.memberEmails,
         }),
       },

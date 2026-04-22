@@ -13,10 +13,12 @@ interface AdminWorkspaceMutationBody {
   id?: string
   workspaceId?: string
   label?: string
+  ownerIdentityId?: string | null
+  memberIdentityIds?: string[] | string
   memberEmails?: string[] | string
 }
 
-function readMemberEmails(value: unknown): string[] | null | undefined {
+function readStringList(value: unknown): string[] | null | undefined {
   if (value === undefined || value === null) {
     return undefined
   }
@@ -33,6 +35,23 @@ function readMemberEmails(value: unknown): string[] | null | undefined {
   }
 
   return null
+}
+
+function readOptionalIdentityId(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (value === null) {
+    return null
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized ? normalized : null
 }
 
 export const Route = createFileRoute('/api/admin/workspaces')({
@@ -70,10 +89,21 @@ export const Route = createFileRoute('/api/admin/workspaces')({
           }
 
           const workspaceId = String(body.workspaceId || '').trim()
-          const memberEmails = readMemberEmails(body.memberEmails)
+          const ownerIdentityId = readOptionalIdentityId(body.ownerIdentityId)
+          const memberIdentityIds = readStringList(body.memberIdentityIds)
+          const memberEmails = readStringList(body.memberEmails)
 
           if (!workspaceId) {
             return text('workspaceId is required', 400)
+          }
+          if (!ownerIdentityId) {
+            return text('ownerIdentityId is required', 400)
+          }
+          if (memberIdentityIds === null) {
+            return text(
+              'memberIdentityIds must be a string array or comma-separated string',
+              400,
+            )
           }
           if (memberEmails === null) {
             return text(
@@ -86,11 +116,15 @@ export const Route = createFileRoute('/api/admin/workspaces')({
             ? await updateManagedWorkspace(String(body.id).trim(), {
                 workspaceId,
                 label: String(body.label || ''),
+                ownerIdentityId,
+                memberIdentityIds: memberIdentityIds ?? [],
                 memberEmails: memberEmails ?? [],
               })
             : await createManagedWorkspace({
                 workspaceId,
                 label: String(body.label || ''),
+                ownerIdentityId,
+                memberIdentityIds: memberIdentityIds ?? [],
                 memberEmails: memberEmails ?? [],
               })
 

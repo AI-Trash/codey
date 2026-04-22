@@ -3,6 +3,7 @@ import type {
   AdminNotificationEvent,
   CliConnectionEvent,
 } from '../app-auth/types'
+import { deriveCliTargetFromAuthState } from '../app-auth/target'
 import type { FlowProgressUpdate } from '../flow-cli/helpers'
 import { formatFlowProgressMessage } from '../flow-cli/helpers'
 
@@ -112,12 +113,7 @@ export function setDashboardPhase(
 export function deriveTargetFromAuthState(
   authState: CliNotificationsAuthState,
 ): string | undefined {
-  return (
-    normalizeOptionalText(authState.session?.target) ||
-    normalizeOptionalText(authState.session?.user?.githubLogin) ||
-    normalizeOptionalText(authState.session?.user?.email) ||
-    normalizeOptionalText(authState.session?.subject)
-  )
+  return deriveCliTargetFromAuthState(authState)
 }
 
 export function applyAuthStateToDashboard(

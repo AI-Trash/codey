@@ -139,6 +139,7 @@ export const Route = createFileRoute('/admin/cli')({
 
 type CliConnectionSummary = {
   id: string
+  workerId: string | null
   sessionRef: string | null
   userId: string | null
   authClientId: string | null

@@ -10,6 +10,7 @@ const ACTIVE_CONNECTION_LIMIT = 50
 
 export interface AdminCliConnectionSummary {
   id: string
+  workerId: string | null
   sessionRef: string | null
   userId: string | null
   authClientId: string | null
@@ -141,6 +142,7 @@ function mapSummary(
 ): AdminCliConnectionSummary {
   return {
     id: row.id,
+    workerId: row.workerId,
     sessionRef: row.sessionRef,
     userId: row.userId,
     authClientId: row.authClientId,
@@ -179,6 +181,7 @@ async function listRecentCliConnectionRows(limit = 100) {
 }
 
 export async function registerCliConnection(input: {
+  workerId?: string | null
   sessionRef?: string | null
   userId?: string | null
   authClientId?: string | null
@@ -192,6 +195,7 @@ export async function registerCliConnection(input: {
     .insert(cliConnections)
     .values({
       id: createId(),
+      workerId: toOptionalString(input.workerId),
       sessionRef: toOptionalString(input.sessionRef),
       userId: toOptionalString(input.userId),
       authClientId: toOptionalString(input.authClientId),

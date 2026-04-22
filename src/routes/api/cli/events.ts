@@ -70,6 +70,7 @@ export const Route = createFileRoute('/api/cli/events')({
           url.searchParams.get('cliName') ||
           readOptionalHeader(request, 'x-codey-cli-name') ||
           'codey'
+        const workerId = readOptionalHeader(request, 'x-codey-worker-id')
         let cursor: CliNotificationCursor = {
           createdAt: url.searchParams.get('after')
             ? new Date(url.searchParams.get('after') as string)
@@ -92,6 +93,7 @@ export const Route = createFileRoute('/api/cli/events')({
                 (sessionUser?.session.id.startsWith('oidc:')
                   ? sessionUser.session.id.slice('oidc:'.length)
                   : null),
+              workerId,
               cliName,
               target,
               userAgent: readOptionalHeader(request, 'user-agent'),
@@ -104,11 +106,12 @@ export const Route = createFileRoute('/api/cli/events')({
 
             send({
               event: 'cli_connection',
-              data: {
-                connectionId: connection.id,
-                cliName,
-                target,
-                connectedAt: connection.connectedAt.toISOString(),
+                data: {
+                  connectionId: connection.id,
+                  workerId: connection.workerId || undefined,
+                  cliName,
+                  target,
+                  connectedAt: connection.connectedAt.toISOString(),
               },
             })
 
