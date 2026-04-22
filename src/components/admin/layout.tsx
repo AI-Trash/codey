@@ -25,9 +25,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '#/components/ui/breadcrumb'
-import {
-  Card,
-} from '#/components/ui/card'
+import { Card } from '#/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -94,15 +92,13 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
   const navigation = []
 
   if (hasAdminPermission(currentUser, 'MAIL_INBOX')) {
-    navigation.push(
-      {
+    navigation.push({
       label: m.admin_nav_mail_inbox(),
       to: '/admin/emails',
       icon: MailIcon,
       matches: (pathname: string) =>
         pathname === '/admin' || pathname === '/admin/emails',
-    },
-    )
+    })
   }
 
   if (hasAdminPermission(currentUser, 'MANAGED_IDENTITIES')) {
@@ -115,25 +111,21 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
   }
 
   if (hasAdminPermission(currentUser, 'CLI_OPERATIONS')) {
-    navigation.push(
-      {
+    navigation.push({
       label: m.admin_nav_cli_connections(),
       to: '/admin/cli',
       icon: BotIcon,
       matches: (pathname: string) => pathname === '/admin/cli',
-    },
-    )
+    })
   }
 
   if (hasAdminPermission(currentUser, 'MANAGED_SESSIONS')) {
-    navigation.push(
-      {
+    navigation.push({
       label: m.admin_nav_sessions(),
       to: '/admin/sessions',
       icon: KeyRoundIcon,
       matches: (pathname: string) => pathname === '/admin/sessions',
-    },
-    )
+    })
   }
 
   if (hasAdminPermission(currentUser, 'OAUTH_CLIENTS')) {
@@ -198,11 +190,7 @@ export function AdminShell(props: {
         <SidebarHeader className="gap-3 p-3">
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                size="lg"
-                tooltip={m.meta_app_title()}
-              >
+              <SidebarMenuButton asChild size="lg" tooltip={m.meta_app_title()}>
                 <Link to="/">
                   <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                     <ShieldCheckIcon className="size-4" />
@@ -250,7 +238,9 @@ export function AdminShell(props: {
 
         <SidebarFooter className="p-2">
           <AdminSidebarPreferences />
-          {props.currentUser ? <AdminUserMenu user={props.currentUser} /> : null}
+          {props.currentUser ? (
+            <AdminUserMenu user={props.currentUser} />
+          ) : null}
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
@@ -264,7 +254,10 @@ export function AdminShell(props: {
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur md:px-6">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 h-4" />
-          <AdminBreadcrumb currentUser={props.currentUser} pathname={pathname} />
+          <AdminBreadcrumb
+            currentUser={props.currentUser}
+            pathname={pathname}
+          />
         </header>
 
         <main
@@ -396,7 +389,9 @@ function AdminSidebarPreferences() {
                 <DropdownMenuItem
                   key={locale}
                   onSelect={() => setLocale(locale)}
-                  className={locale === currentLocale ? 'font-semibold' : undefined}
+                  className={
+                    locale === currentLocale ? 'font-semibold' : undefined
+                  }
                 >
                   {getLocaleDisplayName(locale)}
                 </DropdownMenuItem>
@@ -561,6 +556,8 @@ export function getStatusTone(status?: string | null): StatusTone {
   const normalized = status?.toLowerCase() || ''
 
   if (
+    normalized.includes('banned') ||
+    normalized.includes('deactivated') ||
     normalized.includes('error') ||
     normalized.includes('denied') ||
     normalized.includes('failed') ||

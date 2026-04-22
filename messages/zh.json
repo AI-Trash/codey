@@ -13,6 +13,7 @@
   "theme_toggle_label": "当前主题：{current_mode}。下一个：{next_mode}。",
 
   "status_active": "活跃",
+  "status_banned": "已封禁",
   "status_approved": "已批准",
   "status_archived": "已归档",
   "status_bootstrap": "引导中",

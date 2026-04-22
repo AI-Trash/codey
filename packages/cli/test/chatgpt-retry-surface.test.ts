@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { CHATGPT_LOGIN_URL } from '../src/modules/chatgpt/common'
+import { ChatGPTAccountDeactivatedError } from '../src/modules/chatgpt/errors'
 import { recoverLoginEmailSubmissionSurface } from '../src/modules/chatgpt/mutations'
-import { waitForLoginEmailSubmissionOutcome } from '../src/modules/chatgpt/queries'
+import {
+  waitForLoginEmailSubmissionOutcome,
+  waitForPasswordSubmissionOutcome,
+} from '../src/modules/chatgpt/queries'
 
 interface FakeLocatorState {
   visible?: boolean
@@ -188,6 +192,36 @@ describe('chatgpt retry surfaces', () => {
     await expect(
       waitForLoginEmailSubmissionOutcome(page as never, 2500),
     ).resolves.toBe('next')
+  })
+
+  it('treats account_deactivated as a terminal login failure', async () => {
+    const page = new FakePage()
+    page.currentTitle = '糟糕，出错了！ - OpenAI'
+    page.textLocators.push({
+      text: '验证过程中出错 (account_deactivated)。请重试。',
+      locator: new FakeLocator({
+        visible: true,
+      }),
+    })
+
+    await expect(
+      waitForLoginEmailSubmissionOutcome(page as never, 250),
+    ).rejects.toBeInstanceOf(ChatGPTAccountDeactivatedError)
+  })
+
+  it('treats account_deactivated as a terminal password failure', async () => {
+    const page = new FakePage()
+    page.currentTitle = '糟糕，出错了！ - OpenAI'
+    page.textLocators.push({
+      text: '验证过程中出错 (account_deactivated)。请重试。',
+      locator: new FakeLocator({
+        visible: true,
+      }),
+    })
+
+    await expect(
+      waitForPasswordSubmissionOutcome(page as never, 250),
+    ).rejects.toBeInstanceOf(ChatGPTAccountDeactivatedError)
   })
 
   it('waits for and clicks a delayed 再次提交 button before restoring the email form', async () => {

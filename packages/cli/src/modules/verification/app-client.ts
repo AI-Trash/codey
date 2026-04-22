@@ -1,7 +1,4 @@
-import type {
-  AppVerificationProviderConfig,
-  Sub2ApiConfig,
-} from '../../config'
+import type { AppVerificationProviderConfig, Sub2ApiConfig } from '../../config'
 import { sleep } from '../../utils/wait'
 import { ensureJson } from '../app-auth/http'
 import {
@@ -83,6 +80,11 @@ export interface AppManagedIdentityMetadata {
 }
 
 export type AppManagedIdentityPlan = 'free' | 'plus' | 'team'
+export type AppManagedIdentityStatus =
+  | 'ACTIVE'
+  | 'REVIEW'
+  | 'ARCHIVED'
+  | 'BANNED'
 
 export interface AppManagedIdentitySummaryRecord {
   id: string
@@ -474,6 +476,7 @@ export class AppVerificationProviderClient {
     label?: string
     tags?: string[]
     plan?: AppManagedIdentityPlan
+    status?: AppManagedIdentityStatus
     password?: string
     metadata?: AppManagedIdentityMetadata
     credentialCount?: number
@@ -492,6 +495,7 @@ export class AppVerificationProviderClient {
           label: input.label,
           tags: input.tags,
           plan: input.plan,
+          status: input.status,
           password: input.password,
           metadata: input.metadata,
           credentialCount: input.credentialCount,

@@ -13,6 +13,7 @@
   "theme_toggle_label": "Theme: {current_mode}. Next: {next_mode}.",
 
   "status_active": "Active",
+  "status_banned": "Banned",
   "status_approved": "Approved",
   "status_archived": "Archived",
   "status_bootstrap": "Bootstrap",

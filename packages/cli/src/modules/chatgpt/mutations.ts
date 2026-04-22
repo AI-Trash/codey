@@ -47,6 +47,7 @@ import {
   isCodexOrganizationPickerReady,
   isCodexWorkspacePickerReady,
   isLocatorEnabled,
+  throwIfChatGPTAccountDeactivated,
   waitForAnySelectorState,
   waitForEnabledSelector,
   waitForEditableSelector,
@@ -227,6 +228,7 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
         750,
       )
       if (!verificationReady) {
+        await throwIfChatGPTAccountDeactivated(page)
         return currentCode
       }
 
@@ -269,6 +271,7 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
 
       const inputReady = await waitForVerificationCodeInputReady(page, 5000)
       if (!inputReady) {
+        await throwIfChatGPTAccountDeactivated(page)
         return currentCode
       }
 
@@ -288,6 +291,8 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
       'Verification step is still waiting for a new code after the latest submission.',
     )
   }
+
+  await throwIfChatGPTAccountDeactivated(page)
 
   return currentCode
 }
@@ -720,6 +725,7 @@ export async function completePasswordOrVerificationLoginFallback(
       10000,
     )
     if (!verificationReady) {
+      await throwIfChatGPTAccountDeactivated(page)
       throw new Error('ChatGPT verification code input did not become ready.')
     }
 
@@ -1001,7 +1007,11 @@ async function waitForNamedCodexSelection(
   const deadline = Date.now() + timeoutMs
 
   while (Date.now() < deadline) {
-    const selection = await setNamedCodexSelection(page, fieldName, requestedIndex)
+    const selection = await setNamedCodexSelection(
+      page,
+      fieldName,
+      requestedIndex,
+    )
     if (selection.status !== 'missing') {
       return selection
     }
@@ -1098,9 +1108,7 @@ export async function continueCodexOrganizationSelection(
   }
 
   if (!submitReady) {
-    throw new Error(
-      'Codex organization submit button did not become enabled.',
-    )
+    throw new Error('Codex organization submit button did not become enabled.')
   }
 
   await clickAny(page, CODEX_ORGANIZATION_SUBMIT_SELECTORS)

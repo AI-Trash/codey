@@ -4,6 +4,7 @@ import type { SelectorTarget } from '../../types'
 import { sleep } from '../../utils/wait'
 import type { VerificationProvider } from '../verification'
 import {
+  ACCOUNT_DEACTIVATED_ERROR_SELECTORS,
   AGE_GATE_AGE_SELECTORS,
   AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
   AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
@@ -29,6 +30,7 @@ import {
   SIGNUP_ENTRY_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
 } from './common'
+import { ChatGPTAccountDeactivatedError } from './errors'
 
 export type ChatGPTPostEmailLoginStep =
   | 'authenticated'
@@ -37,10 +39,7 @@ export type ChatGPTPostEmailLoginStep =
   | 'retry'
   | 'unknown'
 
-export type ChatGPTLoginSurface =
-  | 'authenticated'
-  | 'email'
-  | 'unknown'
+export type ChatGPTLoginSurface = 'authenticated' | 'email' | 'unknown'
 
 export type ChatGPTLoginEntrySurface =
   | 'authenticated'
@@ -386,6 +385,7 @@ export async function waitForPasswordSubmissionOutcome(
 ): Promise<'verification' | 'timeout' | 'unknown'> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
+    await throwIfChatGPTAccountDeactivated(page)
     if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS))
       return 'verification'
     if (await hasPasswordTimeoutErrorState(page)) {
@@ -393,6 +393,7 @@ export async function waitForPasswordSubmissionOutcome(
     }
     await sleep(500)
   }
+  await throwIfChatGPTAccountDeactivated(page)
   return 'unknown'
 }
 
@@ -449,6 +450,7 @@ export async function waitForLoginEmailSubmissionOutcome(
   let emailSurfaceLeft = false
   let emailSurfaceReturnedAt: number | null = null
   while (Date.now() < deadline) {
+    await throwIfChatGPTAccountDeactivated(page)
     const step = await detectPostEmailLoginStep(page)
     if (step === 'retry') {
       const retryState = await getExplicitLoginEmailRetryState(page)
@@ -475,6 +477,7 @@ export async function waitForLoginEmailSubmissionOutcome(
     await sleep(500)
   }
 
+  await throwIfChatGPTAccountDeactivated(page)
   const retryState = await getExplicitLoginEmailRetryState(page)
   if (retryState !== 'none') {
     return retryState
@@ -492,6 +495,33 @@ export async function hasPasswordTimeoutErrorState(
 
   const title = await page.title().catch(() => '')
   return PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN.test(title)
+}
+
+export async function hasChatGPTAccountDeactivatedErrorState(
+  page: Page,
+): Promise<boolean> {
+  if (await isAnySelectorVisible(page, ACCOUNT_DEACTIVATED_ERROR_SELECTORS)) {
+    return true
+  }
+
+  const title =
+    typeof (page as Page & { title?: () => Promise<string> }).title ===
+    'function'
+      ? await page.title().catch(() => '')
+      : ''
+  if (!PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN.test(title)) {
+    return false
+  }
+
+  return isAnySelectorVisible(page, ACCOUNT_DEACTIVATED_ERROR_SELECTORS)
+}
+
+export async function throwIfChatGPTAccountDeactivated(
+  page: Page,
+): Promise<void> {
+  if (await hasChatGPTAccountDeactivatedErrorState(page)) {
+    throw new ChatGPTAccountDeactivatedError()
+  }
 }
 
 async function isLoginEmailSurfaceReady(page: Page): Promise<boolean> {
@@ -529,6 +559,7 @@ function pushUniqueCandidate<T extends string>(list: T[], candidate: T): void {
 export async function getPostEmailLoginStepCandidates(
   page: Page,
 ): Promise<Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]> {
+  await throwIfChatGPTAccountDeactivated(page)
   const candidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[] = []
 
   if (await waitForAuthenticatedSession(page, 250)) {
@@ -588,6 +619,7 @@ export async function waitForAuthenticatedSession(
   page: Page,
   timeoutMs = 30000,
 ): Promise<boolean> {
+  await throwIfChatGPTAccountDeactivated(page)
   const ready = await waitForAnySelectorState(
     page,
     CHATGPT_AUTHENTICATED_SELECTORS,
@@ -595,6 +627,7 @@ export async function waitForAuthenticatedSession(
     timeoutMs,
   )
   if (ready) return true
+  await throwIfChatGPTAccountDeactivated(page)
   return isProfileReady(page)
 }
 

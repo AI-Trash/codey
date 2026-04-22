@@ -176,6 +176,11 @@ const managedIdentityStatusOptions = [
     intent: 'archive',
     label: () => m.status_archived(),
   },
+  {
+    value: 'banned',
+    intent: 'ban',
+    label: () => m.status_banned(),
+  },
 ] as const
 
 type ManagedIdentityStatus =
@@ -229,7 +234,7 @@ type ManagedIdentityBulkCopyField =
 function normalizeManagedIdentityStatus(
   status?: string | null,
 ): ManagedIdentityStatus {
-  if (status === 'review' || status === 'archived') {
+  if (status === 'review' || status === 'archived' || status === 'banned') {
     return status
   }
 
@@ -290,7 +295,9 @@ function removeIdentitySummaries(
 function isManagedIdentityBulkCopyField(
   value: string,
 ): value is ManagedIdentityBulkCopyField {
-  return managedIdentityBulkCopyFieldOptions.some((option) => option.value === value)
+  return managedIdentityBulkCopyFieldOptions.some(
+    (option) => option.value === value,
+  )
 }
 
 function getCopyableIdentityValues(
@@ -516,7 +523,10 @@ function AdminIdentitiesPage() {
               <Table className="min-w-[1460px]">
                 <TableHeader>
                   <TableRow>
-                    <AdminTableSelectionHead rows={rows} selection={selection} />
+                    <AdminTableSelectionHead
+                      rows={rows}
+                      selection={selection}
+                    />
                     <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_account()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_provider()}</TableHead>
@@ -596,7 +606,9 @@ function AdminIdentitiesPage() {
                           summary={summary}
                           onSaved={(updatedIdentity) => {
                             setIdentitySummaries((current) =>
-                              mergeIdentitySummaries(current, [updatedIdentity]),
+                              mergeIdentitySummaries(current, [
+                                updatedIdentity,
+                              ]),
                             )
                           }}
                         />
@@ -777,7 +789,8 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
               description={m.admin_identity_bulk_copy_preview_description({
                 count: String(activeField?.values.length || 0),
                 field:
-                  activeField?.label() || m.admin_identity_bulk_copy_field_email(),
+                  activeField?.label() ||
+                  m.admin_identity_bulk_copy_field_email(),
               })}
             >
               <Textarea
@@ -985,7 +998,10 @@ function IdentityRowActions(props: {
   return (
     <TooltipProvider>
       <div className="flex items-start gap-2">
-        <IdentityTagEditAction summary={props.summary} onSaved={props.onSaved} />
+        <IdentityTagEditAction
+          summary={props.summary}
+          onSaved={props.onSaved}
+        />
         <IdentityDeleteAction summary={props.summary} />
       </div>
     </TooltipProvider>
@@ -1148,7 +1164,9 @@ function IdentityTagEditAction(props: {
               }}
               disabled={submitting}
             >
-              {submitting ? m.oauth_saving() : m.admin_identity_save_tags_button()}
+              {submitting
+                ? m.oauth_saving()
+                : m.admin_identity_save_tags_button()}
             </Button>
           </DialogFooter>
         </DialogContent>

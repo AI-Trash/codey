@@ -29,12 +29,13 @@ function readManagedIdentityPlan(
 
 function readManagedIdentityStatus(
   value: FormDataEntryValue | null,
-): 'ACTIVE' | 'REVIEW' | 'ARCHIVED' {
+): 'ACTIVE' | 'REVIEW' | 'ARCHIVED' | 'BANNED' {
   const normalized = String(value || 'ACTIVE').toUpperCase()
   if (
     normalized === 'ACTIVE' ||
     normalized === 'REVIEW' ||
-    normalized === 'ARCHIVED'
+    normalized === 'ARCHIVED' ||
+    normalized === 'BANNED'
   ) {
     return normalized
   }
@@ -247,18 +248,23 @@ export const Route = createFileRoute('/api/admin/identities')({
                           identityId,
                           status: 'ARCHIVED',
                         })
-                      : !email
-                        ? null
-                        : await upsertManagedIdentity({
+                      : intent === 'ban'
+                        ? await updateManagedIdentity({
                             identityId,
-                            email,
-                            label: String(form.get('label') || ''),
-                            tags: readManagedIdentityTags(form.get('tags')),
-                            plan: readManagedIdentityPlan(form.get('plan')),
-                            status: readManagedIdentityStatus(
-                              form.get('status'),
-                            ),
+                            status: 'BANNED',
                           })
+                        : !email
+                          ? null
+                          : await upsertManagedIdentity({
+                              identityId,
+                              email,
+                              label: String(form.get('label') || ''),
+                              tags: readManagedIdentityTags(form.get('tags')),
+                              plan: readManagedIdentityPlan(form.get('plan')),
+                              status: readManagedIdentityStatus(
+                                form.get('status'),
+                              ),
+                            })
 
         if (!record) {
           return text('Unable to update managed identity', 400)

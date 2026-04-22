@@ -1,13 +1,13 @@
 import '@tanstack/react-start/server-only'
 
-import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, ne } from 'drizzle-orm'
 import { getDb } from './db/client'
 import { decryptSecret, encryptSecret } from './encrypted-secrets'
 import { managedIdentities, verificationEmailReservations } from './db/schema'
 import { createId } from './security'
 import { normalizeManagedIdentityTags } from '../managed-identity-tags'
 import { m } from '#/paraglide/messages'
-import type { ManagedIdentityPlan } from './db/schema'
+import type { ManagedIdentityPlan, ManagedIdentityStatus } from './db/schema'
 
 export interface AdminIdentitySummary {
   id: string
@@ -47,6 +47,10 @@ export interface ManagedIdentityCredentialRecord extends ManagedIdentityCredenti
 }
 
 function mapManagedStatus(status?: string | null) {
+  if (status === 'BANNED') {
+    return 'banned'
+  }
+
   if (status === 'ARCHIVED') {
     return 'archived'
   }
@@ -229,7 +233,10 @@ export async function resolveManagedIdentityCredential(params: {
           orderBy: [desc(managedIdentities.updatedAt)],
         })
       : await getDb().query.managedIdentities.findFirst({
-          where: isNotNull(managedIdentities.passwordCiphertext),
+          where: and(
+            isNotNull(managedIdentities.passwordCiphertext),
+            ne(managedIdentities.status, 'BANNED'),
+          ),
           orderBy: [desc(managedIdentities.updatedAt)],
         })
 
@@ -241,7 +248,7 @@ export async function upsertManagedIdentity(params: {
   email: string
   label?: string
   tags?: string[]
-  status?: 'ACTIVE' | 'REVIEW' | 'ARCHIVED'
+  status?: ManagedIdentityStatus
   plan?: ManagedIdentityPlan
 }) {
   const label = params.label?.trim() || undefined
@@ -293,7 +300,7 @@ export async function updateManagedIdentity(params: {
   identityId: string
   label?: string | null
   tags?: string[]
-  status?: 'ACTIVE' | 'REVIEW' | 'ARCHIVED'
+  status?: ManagedIdentityStatus
   plan?: ManagedIdentityPlan
 }) {
   const existing = await getDb().query.managedIdentities.findFirst({
@@ -356,6 +363,7 @@ export async function syncManagedIdentity(params: {
   credentialCount?: number
   label?: string
   tags?: string[]
+  status?: ManagedIdentityStatus
   plan?: ManagedIdentityPlan
   password?: string
   metadata?: Record<string, unknown>
@@ -370,6 +378,7 @@ export async function syncManagedIdentity(params: {
     params.tags === undefined
       ? undefined
       : normalizeManagedIdentityTags(params.tags)
+  const status = params.status
   const plan = params.plan
   const password = normalizePassword(params.password)
   const passwordCiphertext = password
@@ -410,6 +419,7 @@ export async function syncManagedIdentity(params: {
           ? { ...metadata }
           : existing.credentialMetadata,
         credentialCount: credentialCount ?? existing.credentialCount,
+        status: status ?? existing.status,
         plan: plan ?? existing.plan,
         lastSeenAt: seenAt,
         updatedAt: seenAt,
@@ -434,7 +444,7 @@ export async function syncManagedIdentity(params: {
       passwordCiphertext,
       credentialMetadata: metadata ? { ...metadata } : null,
       credentialCount: credentialCount ?? 0,
-      status: 'ACTIVE',
+      status: status ?? 'ACTIVE',
       plan: plan ?? 'free',
       lastSeenAt: seenAt,
     })

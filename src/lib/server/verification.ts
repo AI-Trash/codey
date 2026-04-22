@@ -197,13 +197,17 @@ function buildAdminInboxDeliveryFilter(
     db
       .select({ id: verificationCodes.id })
       .from(verificationCodes)
-      .where(eq(verificationCodes.reservationId, emailIngestRecords.reservationId)),
+      .where(
+        eq(verificationCodes.reservationId, emailIngestRecords.reservationId),
+      ),
   )
   const reservationHasNoCode = notExists(
     db
       .select({ id: verificationCodes.id })
       .from(verificationCodes)
-      .where(eq(verificationCodes.reservationId, emailIngestRecords.reservationId)),
+      .where(
+        eq(verificationCodes.reservationId, emailIngestRecords.reservationId),
+      ),
   )
   const positiveOperator =
     filter.operator === 'is' || filter.operator === 'is any of'
@@ -297,9 +301,7 @@ function buildAdminInboxFilters(
             filter as FilterModel<'option'>,
           )
         case 'receivedAt':
-          return buildAdminInboxReceivedAtFilter(
-            filter as FilterModel<'date'>,
-          )
+          return buildAdminInboxReceivedAtFilter(filter as FilterModel<'date'>)
         default:
           return undefined
       }
@@ -367,6 +369,10 @@ async function getLatestCodeByReservationId(
 }
 
 function mapManagedIdentityStatus(status?: string | null) {
+  if (status === 'BANNED') {
+    return 'banned'
+  }
+
   if (status === 'ARCHIVED') {
     return 'archived'
   }
@@ -464,7 +470,10 @@ function getReservationAliasPrefix(): string {
   return 'codey'
 }
 
-function buildReservationEmail(id: string, domain: string): {
+function buildReservationEmail(
+  id: string,
+  domain: string,
+): {
   email: string
   prefix?: string
   mailbox?: string
@@ -501,8 +510,7 @@ function isLikelyRawEmailSource(value: string | null | undefined) {
   }
 
   const headerBlock = value.split(/\r?\n\r?\n/, 1)[0]
-  const headerCount =
-    headerBlock.match(/^[A-Za-z0-9-]+:\s.*$/gm)?.length ?? 0
+  const headerCount = headerBlock.match(/^[A-Za-z0-9-]+:\s.*$/gm)?.length ?? 0
 
   return headerCount >= 2
 }

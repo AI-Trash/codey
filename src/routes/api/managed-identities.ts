@@ -19,6 +19,7 @@ interface ManagedIdentitySyncBody {
   label?: string
   tags?: string[] | string
   plan?: string
+  status?: string
   password?: string
   metadata?: Record<string, unknown>
   credentialCount?: number
@@ -42,6 +43,30 @@ function readManagedIdentityPlan(
   }
 
   if (normalized === 'free' || normalized === 'plus' || normalized === 'team') {
+    return normalized
+  }
+
+  return null
+}
+
+function readManagedIdentityStatus(
+  value: unknown,
+): 'ACTIVE' | 'REVIEW' | 'ARCHIVED' | 'BANNED' | undefined | null {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+
+  const normalized = String(value).trim().toUpperCase()
+  if (!normalized) {
+    return undefined
+  }
+
+  if (
+    normalized === 'ACTIVE' ||
+    normalized === 'REVIEW' ||
+    normalized === 'ARCHIVED' ||
+    normalized === 'BANNED'
+  ) {
     return normalized
   }
 
@@ -135,10 +160,17 @@ export const Route = createFileRoute('/api/managed-identities')({
           return text('metadata must be an object', 400)
         }
         const plan = readManagedIdentityPlan(body.plan)
+        const status = readManagedIdentityStatus(body.status)
         const tags = readManagedIdentityTags(body.tags)
 
         if (body.plan !== undefined && plan === null) {
           return text('plan must be one of free, plus, or team', 400)
+        }
+        if (body.status !== undefined && status === null) {
+          return text(
+            'status must be one of ACTIVE, REVIEW, ARCHIVED, or BANNED',
+            400,
+          )
         }
         if (body.tags !== undefined && tags === null) {
           return text(
@@ -153,6 +185,7 @@ export const Route = createFileRoute('/api/managed-identities')({
           label: String(body.label || '').trim() || undefined,
           tags: tags ?? undefined,
           plan: plan ?? undefined,
+          status: status ?? undefined,
           password: String(body.password || '').trim() || undefined,
           metadata: body.metadata,
           credentialCount,

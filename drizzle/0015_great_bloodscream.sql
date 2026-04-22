@@ -1,0 +1,1 @@
+ALTER TYPE "public"."managed_identity_status" ADD VALUE 'BANNED';

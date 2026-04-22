@@ -35,6 +35,7 @@ export const managedIdentityStatusEnum = pgEnum('managed_identity_status', [
   'ACTIVE',
   'REVIEW',
   'ARCHIVED',
+  'BANNED',
 ])
 export const managedIdentityPlanEnum = pgEnum('managed_identity_plan', [
   'free',
@@ -52,10 +53,10 @@ export const oauthClientAuthMethodEnum = pgEnum('oauth_client_auth_method', [
 export const externalServiceKindEnum = pgEnum('external_service_kind', [
   'sub2api',
 ])
-export const externalServiceAuthModeEnum = pgEnum('external_service_auth_mode', [
-  'bearer_token',
-  'password',
-])
+export const externalServiceAuthModeEnum = pgEnum(
+  'external_service_auth_mode',
+  ['bearer_token', 'password'],
+)
 
 export const users = pgTable(
   'users',
@@ -859,7 +860,8 @@ export type ManagedIdentitySessionRow =
   typeof managedIdentitySessions.$inferSelect
 export type VerificationDomainRow = typeof verificationDomains.$inferSelect
 export type OAuthClientRow = typeof oauthClients.$inferSelect
-export type ExternalServiceConfigRow = typeof externalServiceConfigs.$inferSelect
+export type ExternalServiceConfigRow =
+  typeof externalServiceConfigs.$inferSelect
 export type CliConnectionRow = typeof cliConnections.$inferSelect
 export type OidcArtifactRow = typeof oidcArtifacts.$inferSelect
 export type OidcSigningKeyRow = typeof oidcSigningKeys.$inferSelect

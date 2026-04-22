@@ -348,8 +348,8 @@ describe('AppVerificationProviderClient', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            issuer: 'http://localhost:4315/oidc',
-            token_endpoint: 'http://localhost:4315/oidc/token',
+            issuer: 'http://localhost:4318/oidc',
+            token_endpoint: 'http://localhost:4318/oidc/token',
           }),
           {
             status: 200,
@@ -387,7 +387,7 @@ describe('AppVerificationProviderClient', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const client = new AppVerificationProviderClient({
-      baseUrl: 'http://localhost:4315',
+      baseUrl: 'http://localhost:4318',
       clientId: 'codey_client',
       clientSecret: 'codey_secret',
     })
@@ -406,7 +406,7 @@ describe('AppVerificationProviderClient', () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      'http://localhost:4315/api/managed-identities',
+      'http://localhost:4318/api/managed-identities',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
@@ -516,6 +516,82 @@ describe('AppVerificationProviderClient', () => {
               access_token: 'jwt-access',
             },
           },
+        }),
+      }),
+    )
+  })
+
+  it('includes a managed identity status when provided', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4315/oidc',
+            token_endpoint: 'http://localhost:4315/oidc/token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'token-123',
+            token_type: 'Bearer',
+            scope: 'verification:read verification:reserve',
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            id: 'managed-identity-456',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new AppVerificationProviderClient({
+      baseUrl: 'http://localhost:4315',
+      clientId: 'codey_client',
+      clientSecret: 'codey_secret',
+    })
+
+    await expect(
+      client.upsertManagedIdentity({
+        identityId: 'identity-456',
+        email: 'banned@example.com',
+        status: 'BANNED',
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: 'managed-identity-456',
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:4315/api/managed-identities',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          identityId: 'identity-456',
+          email: 'banned@example.com',
+          label: undefined,
+          status: 'BANNED',
         }),
       }),
     )

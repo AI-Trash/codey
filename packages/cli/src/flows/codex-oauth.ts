@@ -31,6 +31,7 @@ import {
   shareCodexOAuthSessionWithCodeyApp,
   syncCodexOAuthSessionToSub2Api,
 } from '../modules/app-auth/codex-oauth-sharing'
+import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
 import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
@@ -65,6 +66,7 @@ import {
   createVerificationProvider,
   type VerificationProvider,
 } from '../modules/verification'
+import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
 
@@ -1048,7 +1050,7 @@ function wrapRecoverableCodexOAuthBranchError<Branch extends string>(
     error instanceof Error ? error.message : String(error),
     {
       cause: error,
-      recoverable: true,
+      recoverable: !isChatGPTAccountDeactivatedError(error),
     },
   )
 }
@@ -1609,7 +1611,8 @@ export async function runCodexOAuthFlow(
       authorizationUrl: sanitizeUrl(started.authorizationUrl),
       url: sanitizeUrl(page.url()),
       redirectUri: started.redirectUri,
-      email: typeof options.email === 'string' ? options.email.trim() : undefined,
+      email:
+        typeof options.email === 'string' ? options.email.trim() : undefined,
       lastMessage:
         'Waiting for Codex OAuth callback, login, or workspace surface',
     })
@@ -1810,6 +1813,29 @@ export async function runCodexOAuthFlow(
     result.machine = snapshot
     return result
   } catch (error) {
+    if (isChatGPTAccountDeactivatedError(error)) {
+      const storedIdentity = machine.getSnapshot().context.storedIdentity
+      if (storedIdentity) {
+        try {
+          const reported = await syncManagedIdentityToCodeyApp({
+            identityId: storedIdentity.id,
+            email: storedIdentity.email,
+            credentialCount: storedIdentity.credentialCount,
+            status: 'BANNED',
+          })
+          options.progressReporter?.({
+            message: reported
+              ? `OpenAI returned account_deactivated; marked ${storedIdentity.email} as banned in Codey app`
+              : `OpenAI returned account_deactivated for ${storedIdentity.email}, but Codey app access was unavailable to report the banned status`,
+          })
+        } catch (reportError) {
+          options.progressReporter?.({
+            message: `OpenAI returned account_deactivated for ${storedIdentity.email}, but reporting the banned status to Codey app failed: ${sanitizeErrorForOutput(reportError).message}`,
+          })
+        }
+      }
+    }
+
     machine.fail(error, 'failed', {
       event: 'codex.oauth.failed',
       patch: {

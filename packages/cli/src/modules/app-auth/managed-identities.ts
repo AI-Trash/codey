@@ -8,6 +8,11 @@ import {
 } from './token-store'
 
 const MANAGED_IDENTITY_SYNC_SCOPE = 'verification:reserve'
+export type ManagedIdentitySyncStatus =
+  | 'ACTIVE'
+  | 'REVIEW'
+  | 'ARCHIVED'
+  | 'BANNED'
 
 function parseScopeList(value: string | undefined): string[] {
   if (!value) {
@@ -83,6 +88,7 @@ export async function syncManagedIdentityToCodeyApp(input: {
   label?: string
   credentialCount?: number
   reservationId?: string
+  status?: ManagedIdentitySyncStatus
 }): Promise<{ ok: boolean; id: string } | null> {
   const config = resolveCodeyAppConfig()
   if (!hasReusableCodeyAppAccess(config)) {
@@ -96,5 +102,6 @@ export async function syncManagedIdentityToCodeyApp(input: {
     label: input.label?.trim() || undefined,
     credentialCount: input.credentialCount,
     reservationId: input.reservationId?.trim() || undefined,
+    status: input.status,
   })
 }

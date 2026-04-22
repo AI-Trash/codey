@@ -56,6 +56,8 @@ import {
   attachStateMachineProgressReporter,
   sanitizeErrorForOutput,
 } from '../modules/flow-cli/helpers'
+import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
+import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
 
 export type ChatGPTLoginFlowKind = 'chatgpt-login'
 
@@ -858,13 +860,35 @@ export async function loginChatGPT(
     result.machine = snapshot
     return result
   } catch (error) {
+    if (isChatGPTAccountDeactivatedError(error)) {
+      try {
+        const reported = await syncManagedIdentityToCodeyApp({
+          identityId: stored.summary.id,
+          email: stored.summary.email,
+          credentialCount: stored.summary.credentialCount,
+          status: 'BANNED',
+        })
+        options.progressReporter?.({
+          message: reported
+            ? `OpenAI returned account_deactivated; marked ${stored.summary.email} as banned in Codey app`
+            : `OpenAI returned account_deactivated for ${stored.summary.email}, but Codey app access was unavailable to report the banned status`,
+        })
+      } catch (reportError) {
+        options.progressReporter?.({
+          message: `OpenAI returned account_deactivated for ${stored.summary.email}, but reporting the banned status to Codey app failed: ${sanitizeErrorForOutput(reportError).message}`,
+        })
+      }
+    }
+
     machine.fail(error, 'failed', {
       event: 'chatgpt.failed',
       patch: {
         email: stored.identity.email,
         storedIdentity: stored.summary,
         url: page.url(),
-        lastMessage: 'ChatGPT login failed',
+        lastMessage: isChatGPTAccountDeactivatedError(error)
+          ? 'ChatGPT identity was deactivated by OpenAI'
+          : 'ChatGPT login failed',
       },
     })
     throw error

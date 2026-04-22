@@ -47,6 +47,7 @@ const statusLabelMap = {
   active: () => m.status_active(),
   approved: () => m.status_approved(),
   archived: () => m.status_archived(),
+  banned: () => m.status_banned(),
   bootstrap: () => m.status_bootstrap(),
   complete: () => m.status_complete(),
   configured: () => m.status_configured(),

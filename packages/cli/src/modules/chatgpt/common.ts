@@ -147,6 +147,10 @@ export const PASSWORD_TIMEOUT_ERROR_SELECTORS: SelectorTarget[] = [
 ]
 export const PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN =
   /糟糕，出错了！|oops[,，]?\s*an error occurred!?/i
+export const ACCOUNT_DEACTIVATED_ERROR_SELECTORS: SelectorTarget[] = [
+  { text: /account_deactivated/i },
+  'div:has-text("account_deactivated")',
+]
 export const PASSWORD_TIMEOUT_RETRY_SELECTORS: SelectorTarget[] = [
   {
     role: 'button',
