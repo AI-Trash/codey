@@ -826,8 +826,6 @@ function OAuthClientForm({
   const parsedScopes = parseScopes(form.allowedScopes)
   const hasGrantEnabled =
     form.clientCredentialsEnabled || form.deviceFlowEnabled
-  const hasVerificationDomain = Boolean(form.verificationDomainId)
-  const hasVerificationDomainOptions = verificationDomains.length > 0
   const usesScopeTagSelector = allowedScopesInputMode === 'tags'
 
   return (
@@ -854,36 +852,6 @@ function OAuthClientForm({
           placeholder={m.oauth_field_description_placeholder()}
           className="min-h-28"
         />
-      </Field>
-
-      <Field
-        label={m.oauth_field_verification_domain()}
-        description={m.oauth_field_verification_domain_description()}
-      >
-        <NativeSelect
-          value={form.verificationDomainId}
-          onChange={(event) => {
-            const nextValue = event.target.value
-            onChange((current) => ({
-              ...current,
-              verificationDomainId: nextValue,
-            }))
-          }}
-          className="w-full"
-          required
-          disabled={!hasVerificationDomainOptions}
-        >
-          <NativeSelectOption value="">
-            {hasVerificationDomainOptions
-              ? m.oauth_field_verification_domain_placeholder()
-              : m.oauth_domains_none_available()}
-          </NativeSelectOption>
-          {verificationDomains.map((domain) => (
-            <NativeSelectOption key={domain.id} value={domain.id}>
-              {formatVerificationDomainOption(domain)}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
       </Field>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
@@ -988,7 +956,7 @@ function OAuthClientForm({
         </Alert>
       ) : null}
 
-      {!hasVerificationDomainOptions ? (
+      {!verificationDomains.length ? (
         <Alert variant="destructive">
           <AlertTitle>{m.oauth_domains_required_title()}</AlertTitle>
           <AlertDescription>
@@ -1022,15 +990,7 @@ function OAuthClientForm({
       ) : null}
 
       {children || (
-        <Button
-          type="submit"
-          disabled={
-            submitting ||
-            !hasGrantEnabled ||
-            !hasVerificationDomain ||
-            !hasVerificationDomainOptions
-          }
-        >
+        <Button type="submit" disabled={submitting || !hasGrantEnabled}>
           {submitting ? m.oauth_saving() : submitLabel}
         </Button>
       )}
@@ -1220,7 +1180,7 @@ function InfoBlock(props: { title: string; detail: string }) {
 
 function createNewOAuthClientFormValues(
   supportedScopes: string[],
-  verificationDomains: ManagedVerificationDomainOption[],
+  _verificationDomains: ManagedVerificationDomainOption[],
 ) {
   return createFormValues({
     clientName: '',
@@ -1228,7 +1188,7 @@ function createNewOAuthClientFormValues(
     enabled: true,
     tokenEndpointAuthMethod: 'client_secret_basic',
     allowedScopes: supportedScopes,
-    verificationDomainId: verificationDomains[0]?.id || '',
+    verificationDomainId: '',
     clientCredentialsEnabled: true,
     deviceFlowEnabled: false,
   })
@@ -1265,7 +1225,6 @@ function toPayload(form: OAuthClientFormValues): OAuthClientPayload {
     enabled: form.enabled,
     tokenEndpointAuthMethod: form.tokenEndpointAuthMethod,
     allowedScopes: parseScopes(form.allowedScopes),
-    verificationDomainId: form.verificationDomainId || undefined,
     clientCredentialsEnabled: form.clientCredentialsEnabled,
     deviceFlowEnabled: form.deviceFlowEnabled,
   }

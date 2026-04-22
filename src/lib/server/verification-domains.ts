@@ -1,12 +1,9 @@
 import "@tanstack/react-start/server-only";
 
+import crypto from "node:crypto";
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "./db/client";
-import {
-  oauthClients,
-  verificationDomains,
-  type VerificationDomainRow,
-} from "./db/schema";
+import { verificationDomains, type VerificationDomainRow } from "./db/schema";
 import { getAppEnv } from "./env";
 import { createId } from "./security";
 
@@ -153,24 +150,7 @@ function toSummary(
 }
 
 async function getAppCountsByDomainId(): Promise<Map<string, number>> {
-  const rows = await getDb().query.oauthClients.findMany({
-    columns: {
-      verificationDomainId: true,
-    },
-  });
-
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    if (!row.verificationDomainId) {
-      continue;
-    }
-    counts.set(
-      row.verificationDomainId,
-      (counts.get(row.verificationDomainId) || 0) + 1,
-    );
-  }
-
-  return counts;
+  return new Map<string, number>();
 }
 
 async function listVerificationDomainRows(): Promise<VerificationDomainRow[]> {
@@ -292,36 +272,18 @@ export async function resolveOAuthClientVerificationDomainId(
 export async function resolveReservationVerificationDomain(options?: {
   clientId?: string | null;
 }): Promise<VerificationDomainRow> {
-  const clientId = options?.clientId?.trim();
-  if (clientId) {
-    const client = await getDb().query.oauthClients.findFirst({
-      where: eq(oauthClients.clientId, clientId),
-      with: {
-        verificationDomain: true,
-      },
-    });
+  void options;
 
-    if (client?.verificationDomainId) {
-      if (!client.verificationDomain) {
-        throw new Error("Assigned verification domain could not be found");
-      }
-
-      if (!client.verificationDomain.enabled) {
-        throw new Error("Assigned verification domain is disabled");
-      }
-
-      return client.verificationDomain;
-    }
-  }
-
-  const fallback = await getFallbackVerificationDomain();
-  if (!fallback) {
+  const enabledDomains = (await listVerificationDomainRows()).filter(
+    (domain) => domain.enabled,
+  );
+  if (!enabledDomains.length) {
     throw new Error(
       "No verification domains are configured. Add one from the admin domains page.",
     );
   }
 
-  return fallback;
+  return enabledDomains[crypto.randomInt(0, enabledDomains.length)];
 }
 
 export async function createVerificationDomain(

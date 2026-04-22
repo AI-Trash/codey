@@ -1,4 +1,5 @@
 import '@tanstack/react-start/server-only'
+import crypto from 'node:crypto'
 import { endOfDay, startOfDay } from 'date-fns'
 import { extract as extractLetterMail } from 'letterparser'
 import type {
@@ -37,7 +38,7 @@ import {
 import { publishVerificationCodeEvent } from './verification-events'
 import { resolveReservationVerificationDomain } from './verification-domains'
 import { getDb } from './db/client'
-import { createId, randomCode } from './security'
+import { createId } from './security'
 import { extractVerificationCodeFromText } from '../shared/verification-code'
 
 export interface VerificationEmailPayload {
@@ -119,6 +120,58 @@ type AdminInboxManagedIdentitySummary = {
 
 const DEFAULT_ADMIN_INBOX_PAGE_SIZE = 25
 const MAX_ADMIN_INBOX_PAGE_SIZE = 100
+const RESERVATION_MAILBOX_ADJECTIVES = [
+  'amber',
+  'brisk',
+  'calm',
+  'cedar',
+  'clear',
+  'cozy',
+  'dawn',
+  'ember',
+  'fern',
+  'golden',
+  'harbor',
+  'jade',
+  'lucky',
+  'maple',
+  'mellow',
+  'misty',
+  'nova',
+  'olive',
+  'pearl',
+  'quiet',
+  'river',
+  'silver',
+  'solar',
+  'velvet',
+] as const
+const RESERVATION_MAILBOX_NOUNS = [
+  'anchor',
+  'brook',
+  'cloud',
+  'cove',
+  'falcon',
+  'forest',
+  'garden',
+  'glade',
+  'harbor',
+  'heron',
+  'lantern',
+  'meadow',
+  'moon',
+  'otter',
+  'panda',
+  'pine',
+  'ridge',
+  'robin',
+  'shore',
+  'spruce',
+  'star',
+  'stone',
+  'willow',
+  'wind',
+] as const
 
 function normalizeAdminInboxPageParams(params?: {
   page?: number
@@ -449,29 +502,40 @@ function serializeAdminInboxEmail(
   }
 }
 
-function getReservationAliasPrefix(): string {
+function sanitizeReservationLocalPartSegment(
+  value: string | null | undefined,
+): string | null {
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+
+  return normalized || null
+}
+
+function getReservationAliasPrefix(): string | null {
   const env = getAppEnv()
-  const configuredPrefix = env.verificationEmailPrefix?.trim()
-  if (configuredPrefix) {
-    return configuredPrefix
-  }
+  return sanitizeReservationLocalPartSegment(env.verificationEmailPrefix)
+}
 
-  const mailbox = env.verificationMailbox?.trim()
-  if (mailbox) {
-    const atIndex = mailbox.lastIndexOf('@')
-    if (atIndex > 0) {
-      const localPart = mailbox.slice(0, atIndex).trim()
-      if (localPart) {
-        return localPart
-      }
-    }
-  }
+function createMemorableReservationMailboxName(): string {
+  const adjective =
+    RESERVATION_MAILBOX_ADJECTIVES[
+      crypto.randomInt(0, RESERVATION_MAILBOX_ADJECTIVES.length)
+    ]
+  const noun =
+    RESERVATION_MAILBOX_NOUNS[
+      crypto.randomInt(0, RESERVATION_MAILBOX_NOUNS.length)
+    ]
+  const suffix = crypto.randomInt(10, 100)
 
-  return 'codey'
+  return `${adjective}-${noun}-${suffix}`
 }
 
 function buildReservationEmail(
-  id: string,
+  mailboxName: string,
   domain: string,
 ): {
   email: string
@@ -479,10 +543,11 @@ function buildReservationEmail(
   mailbox?: string
 } {
   const prefix = getReservationAliasPrefix()
+  const localPart = prefix ? `${prefix}-${mailboxName}` : mailboxName
   return {
-    email: `${prefix}+${id}@${domain}`,
-    prefix,
-    mailbox: `${prefix}@${domain}`,
+    email: `${localPart}@${domain}`,
+    prefix: prefix || undefined,
+    mailbox: `${localPart}@${domain}`,
   }
 }
 
@@ -617,30 +682,40 @@ export async function reserveVerificationEmailTarget(options?: {
   const expiresAt = new Date(
     Date.now() + env.verificationReservationTtlMinutes * 60 * 1000,
   )
-  const tempId = randomCode(12)
-  const verificationDomain = await resolveReservationVerificationDomain({
-    clientId: options?.clientId,
-  })
-  const target = buildReservationEmail(tempId, verificationDomain.domain)
+  const verificationDomain = await resolveReservationVerificationDomain(options)
 
-  const [reservation] = await getDb()
-    .insert(verificationEmailReservations)
-    .values({
-      id: createId(),
-      email: target.email,
-      prefix: target.prefix,
-      mailbox: target.mailbox,
-      expiresAt,
-    })
-    .returning()
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const target = buildReservationEmail(
+      createMemorableReservationMailboxName(),
+      verificationDomain.domain,
+    )
 
-  return {
-    reservationId: reservation.id,
-    email: reservation.email,
-    prefix: reservation.prefix || undefined,
-    mailbox: reservation.mailbox || undefined,
-    expiresAt: reservation.expiresAt.toISOString(),
+    const [reservation] = await getDb()
+      .insert(verificationEmailReservations)
+      .values({
+        id: createId(),
+        email: target.email,
+        prefix: target.prefix,
+        mailbox: target.mailbox,
+        expiresAt,
+      })
+      .onConflictDoNothing({ target: verificationEmailReservations.email })
+      .returning()
+
+    if (!reservation) {
+      continue
+    }
+
+    return {
+      reservationId: reservation.id,
+      email: reservation.email,
+      prefix: reservation.prefix || undefined,
+      mailbox: reservation.mailbox || undefined,
+      expiresAt: reservation.expiresAt.toISOString(),
+    }
   }
+
+  throw new Error('Unable to create a unique verification reservation')
 }
 
 export async function findVerificationCode(params: {

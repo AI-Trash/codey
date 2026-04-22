@@ -323,9 +323,11 @@ function VerificationDomainCard({
               {domain.description || m.domain_no_description()}
             </CardDescription>
           </div>
-          <Badge variant="outline">
-            {m.domain_badge_app_count({ count: String(domain.appCount) })}
-          </Badge>
+          {domain.appCount > 0 ? (
+            <Badge variant="outline">
+              {m.domain_badge_app_count({ count: String(domain.appCount) })}
+            </Badge>
+          ) : null}
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">

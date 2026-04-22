@@ -13,9 +13,7 @@ export const Route = createFileRoute("/api/verification/email-reservations")({
         ]);
         if (authResult instanceof Response) return authResult;
 
-        const reservation = await reserveVerificationEmailTarget({
-          clientId: authResult.bearerToken?.clientId,
-        });
+        const reservation = await reserveVerificationEmailTarget();
         return json(reservation, 201);
       },
     },

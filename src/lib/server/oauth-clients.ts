@@ -16,10 +16,6 @@ import {
 import { getAppEnv } from "./env";
 import { DEFAULT_OAUTH_SUPPORTED_SCOPES } from "./oauth-scopes";
 import { createId, randomToken } from "./security";
-import {
-  resolveOAuthClientVerificationDomainId,
-  resolveVerificationDomainById,
-} from "./verification-domains";
 
 const DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -188,8 +184,8 @@ function toSummary(
     deviceFlowEnabled: row.deviceFlowEnabled,
     tokenEndpointAuthMethod: row.tokenEndpointAuthMethod,
     allowedScopes: parseScopes(row.allowedScopes),
-    verificationDomainId: row.verificationDomainId,
-    verificationDomain: row.verificationDomain?.domain || null,
+    verificationDomainId: null,
+    verificationDomain: null,
     clientSecretPreview: row.clientSecretPreview,
     createdByUserId: row.createdByUserId,
     updatedByUserId: row.updatedByUserId,
@@ -283,12 +279,6 @@ export async function createOAuthClient(input: CreateOAuthClientInput): Promise<
     input.allowedScopes || getDefaultAllowedScopes(),
   );
   const enabled = input.enabled ?? true;
-  const verificationDomainId = await resolveOAuthClientVerificationDomainId(
-    input.verificationDomainId,
-  );
-  const verificationDomain = await resolveVerificationDomainById(
-    verificationDomainId,
-  );
   const clientCredentialsEnabled = input.clientCredentialsEnabled ?? false;
   const deviceFlowEnabled = input.deviceFlowEnabled ?? false;
 
@@ -311,7 +301,7 @@ export async function createOAuthClient(input: CreateOAuthClientInput): Promise<
       clientSecretCiphertext: encryptClientSecret(generated.clientSecret),
       clientSecretPreview: generated.preview,
       allowedScopes,
-      verificationDomainId,
+      verificationDomainId: null,
       createdByUserId: input.createdByUserId || null,
       updatedByUserId: input.createdByUserId || null,
       clientSecretUpdatedAt: now,
@@ -328,7 +318,7 @@ export async function createOAuthClient(input: CreateOAuthClientInput): Promise<
     client: {
       ...toSummary({
         ...row,
-        verificationDomain,
+        verificationDomain: null,
       }),
       oidc: buildManagedClientMetadata(row, generated.clientSecret),
     },
@@ -362,10 +352,6 @@ export async function updateOAuthClient(
       ? existing.description
       : input.description?.trim() || null;
   const enabled = input.enabled ?? existing.enabled;
-  const verificationDomainId =
-    input.verificationDomainId === undefined
-      ? existing.verificationDomainId
-      : await resolveOAuthClientVerificationDomainId(input.verificationDomainId);
   const clientCredentialsEnabled =
     input.clientCredentialsEnabled ?? existing.clientCredentialsEnabled;
   const deviceFlowEnabled = input.deviceFlowEnabled ?? existing.deviceFlowEnabled;
@@ -400,7 +386,7 @@ export async function updateOAuthClient(
         input.allowedScopes === undefined
           ? existing.allowedScopes
           : serializeScopes(input.allowedScopes),
-      verificationDomainId,
+      verificationDomainId: null,
       clientSecretCiphertext,
       clientSecretPreview,
       clientSecretUpdatedAt,
@@ -415,18 +401,12 @@ export async function updateOAuthClient(
   }
 
   const effectiveSecret = rotatedSecret || decryptClientSecret(row.clientSecretCiphertext);
-  const verificationDomain =
-    verificationDomainId && existing.verificationDomain?.id === verificationDomainId
-      ? existing.verificationDomain
-      : verificationDomainId
-        ? await resolveVerificationDomainById(verificationDomainId)
-        : null;
 
   return {
     client: {
       ...toSummary({
         ...row,
-        verificationDomain,
+        verificationDomain: null,
       }),
       oidc: buildManagedClientMetadata(row, effectiveSecret),
     },
