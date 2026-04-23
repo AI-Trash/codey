@@ -18,7 +18,6 @@ import {
 } from "./cli-connections";
 import { getDb } from "./db/client";
 import { flowTaskEvents, flowTasks } from "./db/schema";
-import { hasEnabledSub2ApiServiceConfig } from "./external-service-configs";
 import { getCliConnectionTaskWorkerId } from "./flow-tasks";
 import { createId } from "./security";
 
@@ -252,20 +251,8 @@ async function resolveDispatchableCliFlow(input: {
   };
 }
 
-async function resolveCliFlowTaskExternalServices(flowId: string) {
-  if (flowId !== "codex-oauth") {
-    return undefined;
-  }
-
-  if (!(await hasEnabledSub2ApiServiceConfig())) {
-    return undefined;
-  }
-
-  return {
-    sub2api: {
-      source: "app" as const,
-    },
-  };
+function resolveCliFlowTaskExternalServices(_flowId?: string) {
+  return undefined;
 }
 
 export async function dispatchCliFlowTasks(input: {

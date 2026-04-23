@@ -112,6 +112,11 @@ export interface AppManagedIdentityLookupResponse {
 export interface AppManagedSessionSyncResponse {
   ok: boolean
   id: string
+  sub2api?: {
+    accountId: number
+    action: 'created' | 'updated'
+    email: string
+  }
 }
 
 export interface AppManagedWorkspaceMemberRecord {

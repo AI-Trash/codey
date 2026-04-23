@@ -21,7 +21,6 @@ const createAuthorizationCallbackCapture = vi.fn()
 const startCodexAuthorization = vi.fn()
 const exchangeCodexAuthorizationCode = vi.fn()
 const shareCodexOAuthSessionWithCodeyApp = vi.fn()
-const syncCodexOAuthSessionToSub2Api = vi.fn()
 const resolveStoredChatGPTIdentity = vi.fn()
 const resolveAssociatedManagedWorkspaceFromCodeyApp = vi.fn()
 
@@ -67,7 +66,6 @@ vi.mock('../src/modules/authorization/codex-client', () => ({
 
 vi.mock('../src/modules/app-auth/codex-oauth-sharing', () => ({
   shareCodexOAuthSessionWithCodeyApp,
-  syncCodexOAuthSessionToSub2Api,
 }))
 
 function createStoredIdentitySummary(
@@ -129,7 +127,6 @@ describe('runCodexOAuthFlow', () => {
       sessionRecordId: 'managed-session-1',
       sessionStorePath: 'codey-app://managed-sessions/managed-session-1',
     })
-    syncCodexOAuthSessionToSub2Api.mockResolvedValue(null)
     resolveAssociatedManagedWorkspaceFromCodeyApp.mockResolvedValue(null)
     resolveStoredChatGPTIdentity.mockReturnValue({
       identity: {
@@ -1409,11 +1406,11 @@ describe('runCodexOAuthFlow', () => {
       identityRecordId: 'managed-identity-1',
       sessionRecordId: 'managed-session-1',
       sessionStorePath: 'codey-app://managed-sessions/managed-session-1',
-    })
-    syncCodexOAuthSessionToSub2Api.mockResolvedValue({
-      accountId: 42,
-      action: 'created',
-      email: 'person@example.com',
+      sub2api: {
+        accountId: 42,
+        action: 'created',
+        email: 'person@example.com',
+      },
     })
 
     const page = {
@@ -1428,6 +1425,7 @@ describe('runCodexOAuthFlow', () => {
     const result = await runCodexOAuthFlow(page, {
       identityId: 'identity-123',
       email: 'person@example.com',
+      workspaceId: 'ws-explicit',
     })
 
     expect(shareCodexOAuthSessionWithCodeyApp).toHaveBeenCalledWith(
@@ -1436,14 +1434,7 @@ describe('runCodexOAuthFlow', () => {
           id: 'identity-123',
           email: 'person@example.com',
         }),
-      }),
-    )
-    expect(syncCodexOAuthSessionToSub2Api).toHaveBeenCalledWith(
-      expect.objectContaining({
-        identity: expect.objectContaining({
-          id: 'identity-123',
-          email: 'person@example.com',
-        }),
+        workspaceId: 'ws-explicit',
       }),
     )
     expect(result).toMatchObject({

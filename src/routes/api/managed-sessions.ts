@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { syncManagedSession } from "../../lib/server/managed-sessions";
+import { syncManagedCodexOAuthSessionToSub2Api } from "../../lib/server/sub2api-codex-oauth";
 import { json, text } from "../../lib/server/http";
 import { requireBearerToken } from "../../lib/server/oauth-resource";
 import { VERIFICATION_RESERVE_SCOPE } from "../../lib/server/oauth-scopes";
@@ -77,7 +78,22 @@ export const Route = createFileRoute("/api/managed-sessions")({
           sessionData: body.sessionData,
         });
 
-        return json({ ok: true, id: record.id });
+        const sub2api =
+          flowType === "codex-oauth"
+            ? await syncManagedCodexOAuthSessionToSub2Api({
+                email,
+                clientId,
+                workspaceId:
+                  String(body.workspaceId || "").trim() || undefined,
+                sessionData: body.sessionData,
+              })
+            : null;
+
+        return json({
+          ok: true,
+          id: record.id,
+          ...(sub2api ? { sub2api } : {}),
+        });
       },
     },
   },

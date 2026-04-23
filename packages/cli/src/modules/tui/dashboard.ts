@@ -25,7 +25,6 @@ import {
   type FlowProgressReporter,
 } from '../flow-cli/helpers'
 import type { FlowCommandExecution } from '../flow-cli/result-file'
-import { fetchManagedSub2ApiConfigFromCodeyApp } from '../app-auth/external-services'
 import {
   claimCliFlowTask,
   CliFlowTaskLeaseReporter,
@@ -231,18 +230,8 @@ function formatRecentEventLines(state: DashboardState): string[] {
 
 async function resolveTaskFlowOptions(input: {
   config: FlowOptions
-  externalServices?: CliFlowTaskExternalServices
 }): Promise<FlowOptions> {
-  if (input.externalServices?.sub2api?.source !== 'app') {
-    return input.config
-  }
-
-  return {
-    ...input.config,
-    runtimeConfigOverrides: {
-      sub2api: await fetchManagedSub2ApiConfigFromCodeyApp(),
-    },
-  }
+  return input.config
 }
 
 async function promptForStartupAuth(input: {
@@ -258,9 +247,7 @@ async function promptForStartupAuth(input: {
             initial: true,
           })
           if (!shouldLogin) {
-            throw new PromptCanceledError(
-              'Operator CLI startup canceled.',
-            )
+            throw new PromptCanceledError('Operator CLI startup canceled.')
           }
 
           let target = normalizePromptTarget(input.target)
@@ -722,9 +709,7 @@ export async function runPromptDashboard(input: {
               )
 
               if (message) {
-                shell.print(
-                  `[progress:${task.flowId}] ${message}`,
-                )
+                shell.print(`[progress:${task.flowId}] ${message}`)
                 runtimeReporter?.update({
                   runtimeFlowId: task.flowId,
                   runtimeTaskId: task.notificationId,
@@ -742,7 +727,6 @@ export async function runPromptDashboard(input: {
             try {
               const taskFlowOptions = await resolveTaskFlowOptions({
                 config: task.config,
-                externalServices: task.externalServices,
               })
               const execution = await withCliOutput(dashboardCliOutput, () =>
                 input.executeFlow(

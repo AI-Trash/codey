@@ -27,10 +27,7 @@ import {
   sanitizeErrorForOutput,
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
-import {
-  shareCodexOAuthSessionWithCodeyApp,
-  syncCodexOAuthSessionToSub2Api,
-} from '../modules/app-auth/codex-oauth-sharing'
+import { shareCodexOAuthSessionWithCodeyApp } from '../modules/app-auth/codex-oauth-sharing'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
 import { resolveAssociatedManagedWorkspaceFromCodeyApp } from '../modules/app-auth/workspaces'
 import {
@@ -1816,9 +1813,6 @@ export async function runCodexOAuthFlow(
     let codeyApp:
       | Awaited<ReturnType<typeof shareCodexOAuthSessionWithCodeyApp>>
       | undefined
-    let sub2api:
-      | Awaited<ReturnType<typeof syncCodexOAuthSessionToSub2Api>>
-      | undefined
     let tokenStorePath: string | undefined
 
     await sendCodexOAuthMachine(
@@ -1852,12 +1846,7 @@ export async function runCodexOAuthFlow(
       throw new Error('Codey app did not return a session storage location.')
     }
 
-    sub2api =
-      (await syncCodexOAuthSessionToSub2Api({
-        identity: storedIdentity,
-        token,
-        clientId: codexConfig.clientId,
-      })) || undefined
+    const sub2api = codeyApp.sub2api
 
     await sendCodexOAuthMachine(
       machine,

@@ -10,6 +10,7 @@ export interface SharedCodexOAuthSessionResult {
   identityRecordId: string
   sessionRecordId: string
   sessionStorePath: string
+  sub2api?: SyncedSub2ApiAccountResult
 }
 
 export interface SyncedSub2ApiAccountResult {
@@ -51,6 +52,7 @@ interface Sub2ApiTokenInfo {
 interface Sub2ApiAccountRecord {
   id: number
   name?: string
+  notes?: string | null
   credentials?: Record<string, unknown>
 }
 
@@ -121,6 +123,10 @@ function asNonEmptyString(value: unknown): string | undefined {
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase()
+}
+
+function normalizeWorkspaceId(value: unknown): string | undefined {
+  return asNonEmptyString(value)
 }
 
 function requireSub2ApiConfig(): Sub2ApiConfig | null {
@@ -395,6 +401,45 @@ function buildSub2ApiAccountExtra(
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
+function buildSub2ApiAccountNotes(input: {
+  workspaceId?: string
+  email: string
+}): string {
+  return JSON.stringify({
+    workspaceId: normalizeWorkspaceId(input.workspaceId) ?? null,
+    email: normalizeEmail(input.email),
+  })
+}
+
+function parseSub2ApiAccountNotes(
+  value: unknown,
+): { workspaceId?: string; email?: string } | undefined {
+  const notes = asNonEmptyString(value)
+  if (!notes) {
+    return undefined
+  }
+
+  try {
+    const parsed = asRecord(JSON.parse(notes))
+    if (!parsed) {
+      return undefined
+    }
+
+    const email = asNonEmptyString(parsed.email)
+    const workspaceId = normalizeWorkspaceId(parsed.workspaceId)
+    if (!email && !workspaceId) {
+      return undefined
+    }
+
+    return {
+      email: email ? normalizeEmail(email) : undefined,
+      workspaceId,
+    }
+  } catch {
+    return undefined
+  }
+}
+
 function buildSub2ApiAccountModelMapping(
   config: Sub2ApiConfig,
 ): Record<string, string> | undefined {
@@ -407,25 +452,39 @@ function buildSub2ApiAccountModelMapping(
 
 function findMatchingSub2ApiAccount(
   accounts: Sub2ApiAccountRecord[],
-  email: string,
+  input: {
+    email: string
+    workspaceId?: string
+  },
 ): Sub2ApiAccountRecord | undefined {
-  const normalizedEmail = normalizeEmail(email)
+  const normalizedEmail = normalizeEmail(input.email)
+  const normalizedWorkspaceId = normalizeWorkspaceId(input.workspaceId)
 
-  return (
-    accounts.find((account) => {
-      const credentials = asRecord(account.credentials)
-      const credentialEmail = asNonEmptyString(credentials?.email)
-      return credentialEmail
-        ? normalizeEmail(credentialEmail) === normalizedEmail
-        : false
-    }) ||
-    accounts.find((account) => {
-      const accountName = asNonEmptyString(account.name)
-      return accountName
-        ? normalizeEmail(accountName) === normalizedEmail
-        : false
-    })
-  )
+  const metadataMatch = accounts.find((account) => {
+    const metadata = parseSub2ApiAccountNotes(account.notes)
+    return metadata
+      ? metadata.email === normalizedEmail &&
+          normalizeWorkspaceId(metadata.workspaceId) === normalizedWorkspaceId
+      : false
+  })
+
+  if (metadataMatch) {
+    return metadataMatch
+  }
+
+  const legacyEmailMatches = accounts.filter((account) => {
+    if (parseSub2ApiAccountNotes(account.notes)) {
+      return false
+    }
+
+    const credentials = asRecord(account.credentials)
+    const credentialEmail = asNonEmptyString(credentials?.email)
+    return credentialEmail
+      ? normalizeEmail(credentialEmail) === normalizedEmail
+      : false
+  })
+
+  return legacyEmailMatches.length === 1 ? legacyEmailMatches[0] : undefined
 }
 
 export async function shareCodexOAuthSessionWithCodeyApp(input: {
@@ -479,6 +538,7 @@ export async function shareCodexOAuthSessionWithCodeyApp(input: {
     identityRecordId: identity.id,
     sessionRecordId: session.id,
     sessionStorePath: `${APP_SESSION_STORE_ROOT}/${session.id}`,
+    sub2api: session.sub2api,
   }
 }
 
@@ -486,6 +546,7 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
   identity: StoredChatGPTIdentitySummary
   token: CodexTokenResponse
   clientId: string
+  workspaceId?: string
 }): Promise<SyncedSub2ApiAccountResult | null> {
   const config = requireSub2ApiConfig()
   if (!config) {
@@ -533,6 +594,10 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
     fallbackEmail: accountEmail,
     fallbackExpiresAt: resolveCodexTokenExpiresAt(input.token),
   })
+  const notes = buildSub2ApiAccountNotes({
+    workspaceId: input.workspaceId,
+    email: accountEmail,
+  })
 
   const searchParams = new URLSearchParams({
     page: '1',
@@ -550,7 +615,10 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
   })
   const existing = findMatchingSub2ApiAccount(
     Array.isArray(existingAccounts.items) ? existingAccounts.items : [],
-    accountEmail,
+    {
+      email: accountEmail,
+      workspaceId: input.workspaceId,
+    },
   )
 
   if (existing) {
@@ -562,6 +630,7 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
         pathname: `${accountsPath.replace(/\/+$/, '')}/${existing.id}`,
         body: {
           name: accountEmail,
+          notes,
           credentials,
         },
       },
@@ -582,6 +651,7 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
       pathname: accountsPath,
       body: {
         name: accountEmail,
+        notes,
         platform: 'openai',
         type: 'oauth',
         credentials: (() => {

@@ -60,6 +60,13 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
+import type { RandomWorkspaceMemberConflict } from '#/lib/admin/workspace-editor-random'
+import {
+  getOtherWorkspaceMemberWorkspaces,
+  getOtherWorkspaceOwnerWorkspace,
+  getRandomWorkspaceMemberSelection,
+  getRandomWorkspaceOwnerIdentity,
+} from '#/lib/admin/workspace-editor-random'
 import { translateStatusLabel } from '#/lib/i18n'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
@@ -194,6 +201,11 @@ type RandomOwnerConfirmationState = {
   memberWorkspaces: WorkspaceSummary[]
 }
 
+type RandomMemberConfirmationState = {
+  identityIds: string[]
+  conflicts: RandomWorkspaceMemberConflict[]
+}
+
 type WorkspaceEditorState = {
   id?: string
   workspaceId: string
@@ -297,123 +309,7 @@ function isWorkspaceSelectableIdentity(identity: IdentitySummary) {
   return status !== 'archived' && status !== 'banned'
 }
 
-function shuffleItems<T>(items: T[]): T[] {
-  const next = [...items]
-
-  for (let index = next.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1))
-    ;[next[index], next[swapIndex]] = [next[swapIndex], next[index]]
-  }
-
-  return next
-}
-
-function getOtherWorkspaceOwnerWorkspace(
-  identityId: string,
-  ownerWorkspaceByIdentityId: Map<string, WorkspaceSummary>,
-  currentWorkspaceId?: string,
-) {
-  const ownerWorkspace = ownerWorkspaceByIdentityId.get(identityId)
-
-  if (!ownerWorkspace || ownerWorkspace.id === currentWorkspaceId) {
-    return null
-  }
-
-  return ownerWorkspace
-}
-
-function getOtherWorkspaceMemberWorkspaces(
-  identityId: string,
-  memberWorkspacesByIdentityId: Map<string, WorkspaceSummary[]>,
-  currentWorkspaceId?: string,
-) {
-  return (memberWorkspacesByIdentityId.get(identityId) || []).filter(
-    (workspace) => workspace.id !== currentWorkspaceId,
-  )
-}
-
-function getRandomWorkspaceOwnerIdentity(input: {
-  identities: IdentitySummary[]
-  ownerWorkspaceByIdentityId: Map<string, WorkspaceSummary>
-  memberWorkspacesByIdentityId: Map<string, WorkspaceSummary[]>
-  currentWorkspaceId?: string
-}) {
-  const eligibleIdentities = input.identities.filter(
-    (identity) =>
-      !getOtherWorkspaceOwnerWorkspace(
-        identity.id,
-        input.ownerWorkspaceByIdentityId,
-        input.currentWorkspaceId,
-      ),
-  )
-  const [preferredIdentities, fallbackIdentities] = eligibleIdentities.reduce<
-    [IdentitySummary[], IdentitySummary[]]
-  >(
-    (groups, identity) => {
-      if (
-        getOtherWorkspaceMemberWorkspaces(
-          identity.id,
-          input.memberWorkspacesByIdentityId,
-          input.currentWorkspaceId,
-        ).length
-      ) {
-        groups[1].push(identity)
-      } else {
-        groups[0].push(identity)
-      }
-
-      return groups
-    },
-    [[], []],
-  )
-
-  return [
-    ...shuffleItems(preferredIdentities),
-    ...shuffleItems(fallbackIdentities),
-  ][0]
-}
-
-function getRandomWorkspaceMemberIdentityIds(input: {
-  identities: IdentitySummary[]
-  ownerIdentityId: string
-  ownerWorkspaceByIdentityId: Map<string, WorkspaceSummary>
-  currentWorkspaceId?: string
-  count?: number
-}) {
-  if (!input.ownerIdentityId) {
-    return []
-  }
-
-  const eligibleIdentities = input.identities.filter(
-    (identity) => identity.id !== input.ownerIdentityId,
-  )
-  const [preferredIdentities, fallbackIdentities] = eligibleIdentities.reduce<
-    [IdentitySummary[], IdentitySummary[]]
-  >(
-    (groups, identity) => {
-      if (
-        getOtherWorkspaceOwnerWorkspace(
-          identity.id,
-          input.ownerWorkspaceByIdentityId,
-          input.currentWorkspaceId,
-        )
-      ) {
-        groups[1].push(identity)
-      } else {
-        groups[0].push(identity)
-      }
-
-      return groups
-    },
-    [[], []],
-  )
-
-  return [...shuffleItems(preferredIdentities), ...shuffleItems(fallbackIdentities)]
-    .slice(0, input.count ?? MAX_WORKSPACE_MEMBER_COUNT)
-    .map((identity) => identity.id)
-}
-
-function getWorkspaceDisplayLabel(workspace?: WorkspaceSummary | null) {
+function getWorkspaceDisplayLabel(workspace?: { label?: string | null } | null) {
   return workspace?.label || m.admin_workspace_unnamed_label()
 }
 
@@ -738,6 +634,8 @@ function WorkspaceEditorDialog(props: {
   const [memberQuery, setMemberQuery] = useState('')
   const [pendingRandomOwner, setPendingRandomOwner] =
     useState<RandomOwnerConfirmationState | null>(null)
+  const [pendingRandomMembers, setPendingRandomMembers] =
+    useState<RandomMemberConfirmationState | null>(null)
 
   useEffect(() => {
     if (!props.open) {
@@ -747,6 +645,7 @@ function WorkspaceEditorDialog(props: {
     setOwnerQuery('')
     setMemberQuery('')
     setPendingRandomOwner(null)
+    setPendingRandomMembers(null)
   }, [props.editor.id, props.open])
 
   const identityById = useMemo(
@@ -902,15 +801,23 @@ function WorkspaceEditorDialog(props: {
       return
     }
 
+    const selection = getRandomWorkspaceMemberSelection({
+      identities: memberPickerIdentities,
+      ownerIdentityId: props.editor.ownerIdentityId,
+      ownerWorkspaceByIdentityId,
+      memberWorkspacesByIdentityId,
+      currentWorkspaceId: props.editor.id,
+      count: MAX_WORKSPACE_MEMBER_COUNT,
+    })
+
+    if (selection.conflicts.length) {
+      setPendingRandomMembers(selection)
+      return
+    }
+
     setEditor((current) => ({
       ...current,
-      memberIdentityIds: getRandomWorkspaceMemberIdentityIds({
-        identities: memberPickerIdentities,
-        ownerIdentityId: current.ownerIdentityId,
-        ownerWorkspaceByIdentityId,
-        currentWorkspaceId: current.id,
-        count: MAX_WORKSPACE_MEMBER_COUNT,
-      }),
+      memberIdentityIds: selection.identityIds,
     }))
   }
 
@@ -1334,6 +1241,85 @@ function WorkspaceEditorDialog(props: {
               }}
             >
               {m.admin_workspace_owner_random_confirm_button()}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(pendingRandomMembers)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingRandomMembers(null)
+          }
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {m.admin_workspace_member_random_confirm_title()}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingRandomMembers
+                ? m.admin_workspace_member_random_confirm_description({
+                    count: String(pendingRandomMembers.conflicts.length),
+                  })
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingRandomMembers ? (
+            <ScrollArea className="max-h-80">
+              <div className="space-y-3 pr-4">
+                {pendingRandomMembers.conflicts.map((entry) => (
+                  <div
+                    key={entry.identity.id}
+                    className="space-y-2 rounded-lg border p-3"
+                  >
+                    <Badge variant="secondary" className="max-w-full">
+                      <span className="truncate">
+                        {entry.identity.label}
+                        {entry.identity.account
+                          ? ` · ${entry.identity.account}`
+                          : ''}
+                      </span>
+                    </Badge>
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {m.admin_workspace_member_random_confirm_memberships_label()}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {entry.workspaces.map((workspace) => (
+                          <Badge
+                            key={`${entry.identity.id}:${workspace.id}`}
+                            variant="outline"
+                          >
+                            {getWorkspaceDisplayLabel(workspace)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{m.ui_close()}</AlertDialogCancel>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!pendingRandomMembers) {
+                  return
+                }
+
+                setEditor((current) => ({
+                  ...current,
+                  memberIdentityIds: pendingRandomMembers.identityIds,
+                }))
+                setPendingRandomMembers(null)
+              }}
+            >
+              {m.admin_workspace_member_random_confirm_button()}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
