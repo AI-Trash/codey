@@ -11,6 +11,7 @@ interface ManagedSessionSyncBody {
   clientId?: string;
   authMode?: string;
   flowType?: string;
+  workspaceId?: string;
   accountId?: string;
   sessionId?: string;
   expiresAt?: string;
@@ -67,6 +68,7 @@ export const Route = createFileRoute("/api/managed-sessions")({
           clientId,
           authMode,
           flowType,
+          workspaceId: String(body.workspaceId || "").trim() || undefined,
           accountId: String(body.accountId || "").trim() || undefined,
           sessionId: String(body.sessionId || "").trim() || undefined,
           expiresAt: String(body.expiresAt || "").trim() || undefined,

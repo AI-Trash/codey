@@ -5,14 +5,19 @@ import {
 } from './codex-authorization'
 import { fetchWithHarCapture, type NodeHarRecorder } from './har-recorder'
 
-interface CodexTokenPayload {
+interface CodexJsonErrorPayload {
+  error?: unknown
+  error_description?: unknown
+  detail?: unknown
+  message?: unknown
+}
+
+interface CodexTokenPayload extends CodexJsonErrorPayload {
   access_token?: string
   refresh_token?: string
   expires_in?: number
   scope?: string
   token_type?: string
-  error?: string
-  error_description?: string
 }
 
 export interface CodexTokenResponse {
@@ -32,6 +37,94 @@ export interface CodexAuthorizationStartResult {
   redirectPath: string
   state: string
   codeVerifier?: string
+}
+
+function normalizeCodexErrorValue(
+  value: unknown,
+  seen: WeakSet<object> = new WeakSet(),
+): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed || undefined
+  }
+
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value)
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => normalizeCodexErrorValue(entry, seen))
+      .filter((entry): entry is string => Boolean(entry))
+    return parts.length > 0 ? parts.join('; ') : undefined
+  }
+
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  if (seen.has(value)) {
+    return undefined
+  }
+  seen.add(value)
+
+  const record = value as Record<string, unknown>
+  const primary =
+    normalizeCodexErrorValue(record.error_description, seen) ||
+    normalizeCodexErrorValue(record.detail, seen) ||
+    normalizeCodexErrorValue(record.message, seen) ||
+    normalizeCodexErrorValue(record.error, seen) ||
+    normalizeCodexErrorValue(record.reason, seen) ||
+    normalizeCodexErrorValue(record.description, seen)
+  const extras = [
+    normalizeCodexErrorValue(record.code, seen),
+    normalizeCodexErrorValue(record.type, seen),
+  ].filter((entry): entry is string => Boolean(entry))
+
+  if (primary && extras.length > 0) {
+    const suffix = extras
+      .filter((entry) => !primary.includes(entry))
+      .join(', ')
+    return suffix ? `${primary} (${suffix})` : primary
+  }
+
+  return primary || extras[0]
+}
+
+function readCodexErrorMessage(
+  payload: CodexJsonErrorPayload,
+  fallbackMessage: string,
+): string {
+  return (
+    normalizeCodexErrorValue(payload.error_description) ||
+    normalizeCodexErrorValue(payload.detail) ||
+    normalizeCodexErrorValue(payload.message) ||
+    normalizeCodexErrorValue(payload.error) ||
+    fallbackMessage
+  )
+}
+
+async function parseCodexTokenPayload(
+  response: Response,
+): Promise<CodexTokenPayload> {
+  const body = await response.text()
+  if (!body) {
+    return {}
+  }
+
+  try {
+    return JSON.parse(body) as CodexTokenPayload
+  } catch {
+    if (!response.ok) {
+      throw new Error(body.trim() || `Codex token exchange failed (${response.status}).`)
+    }
+
+    throw new Error('Expected a JSON response from the Codex OAuth provider.')
+  }
 }
 
 function openBrowser(url: string): void {
@@ -54,11 +147,7 @@ function mapCodexTokenResponse(
   tokenPayload: CodexTokenPayload,
 ): CodexTokenResponse {
   if (!tokenPayload.access_token) {
-    throw new Error(
-      tokenPayload.error_description ||
-        tokenPayload.error ||
-        'Codex token exchange failed.',
-    )
+    throw new Error(readCodexErrorMessage(tokenPayload, 'Codex token exchange failed.'))
   }
 
   return {
@@ -150,12 +239,13 @@ export async function exchangeCodexAuthorizationCode(input: {
     },
   )
 
-  const tokenPayload = (await response.json()) as CodexTokenPayload
+  const tokenPayload = await parseCodexTokenPayload(response)
   if (!response.ok) {
     throw new Error(
-      tokenPayload.error_description ||
-        tokenPayload.error ||
-        'Codex token exchange failed.',
+      readCodexErrorMessage(
+        tokenPayload,
+        `Codex token exchange failed (${response.status}).`,
+      ),
     )
   }
 

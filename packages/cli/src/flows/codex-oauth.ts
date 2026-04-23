@@ -833,7 +833,7 @@ async function completeCodexOAuthWorkspaceSelection(
   options: FlowOptions,
   redirectUri: string,
   preferredWorkspaceId?: string,
-): Promise<void> {
+): Promise<string | undefined> {
   const workspaceIndex = resolveCodexWorkspaceIndex(options)
 
   await sendCodexOAuthMachine(machine, 'workspace-step', 'context.updated', {
@@ -869,6 +869,8 @@ async function completeCodexOAuthWorkspaceSelection(
       lastMessage: selectionMessage,
     },
   )
+
+  return selection.selectedWorkspaceId
 }
 
 async function completeCodexOAuthOrganizationSelection(
@@ -1191,6 +1193,7 @@ async function resolveCodexOAuthNextStep(
   waitForCallback: Promise<CodexOAuthCallbackPayload>,
   getResolvedCallback: () => CodexOAuthCallbackPayload | undefined,
   preferredWorkspaceId?: string,
+  onSelectedWorkspaceId?: (workspaceId: string | undefined) => void,
 ): Promise<CodexOAuthCallbackPayload> {
   let currentStep = nextStep
 
@@ -1249,13 +1252,15 @@ async function resolveCodexOAuthNextStep(
                 redirectUri,
               )
               try {
-                await completeCodexOAuthWorkspaceSelection(
+                const selectedWorkspaceId =
+                  await completeCodexOAuthWorkspaceSelection(
                   page,
                   machine,
                   options,
                   redirectUri,
                   preferredWorkspaceId,
                 )
+                onSelectedWorkspaceId?.(selectedWorkspaceId)
               } catch (error) {
                 const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
                   page,
@@ -1626,6 +1631,7 @@ export async function runCodexOAuthFlow(
       machine,
       options,
     )
+    let selectedCodexWorkspaceId = preferredWorkspaceId
 
     await sendCodexOAuthMachine(
       machine,
@@ -1726,6 +1732,11 @@ export async function runCodexOAuthFlow(
       waitForCallback,
       () => resolvedCallback,
       preferredWorkspaceId,
+      (workspaceId) => {
+        if (workspaceId) {
+          selectedCodexWorkspaceId = workspaceId
+        }
+      },
     )
     if (!callback.code) {
       throw new Error(
@@ -1819,6 +1830,7 @@ export async function runCodexOAuthFlow(
         token,
         clientId: codexConfig.clientId,
         redirectUri: started.redirectUri,
+        workspaceId: selectedCodexWorkspaceId,
       })) || undefined
 
     if (!codeyApp) {

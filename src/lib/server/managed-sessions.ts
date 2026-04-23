@@ -1,5 +1,5 @@
 import "@tanstack/react-start/server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { type ManagedSessionJsonObject } from "../managed-session-export";
 import { getDb } from "./db/client";
 import {
@@ -134,6 +134,7 @@ export async function syncManagedSession(params: {
   clientId?: string | null;
   authMode: string;
   flowType: string;
+  workspaceId?: string | null;
   accountId?: string | null;
   sessionId?: string | null;
   lastRefreshAt?: string | null;
@@ -152,6 +153,7 @@ export async function syncManagedSession(params: {
     "unknown";
   const authMode = params.authMode.trim() || "chatgpt";
   const flowType = params.flowType.trim();
+  const workspaceId = params.workspaceId?.trim() || null;
   const accountId = params.accountId?.trim() || null;
   const sessionId = params.sessionId?.trim() || null;
   const lastRefreshAt = parseOptionalDate(params.lastRefreshAt);
@@ -161,6 +163,9 @@ export async function syncManagedSession(params: {
     where: and(
       eq(managedIdentitySessions.identityId, identityId),
       eq(managedIdentitySessions.clientId, clientId),
+      workspaceId
+        ? eq(managedIdentitySessions.workspaceId, workspaceId)
+        : isNull(managedIdentitySessions.workspaceId),
     ),
   });
 
@@ -172,6 +177,7 @@ export async function syncManagedSession(params: {
         clientId,
         authMode,
         flowType,
+        workspaceId,
         accountId,
         sessionId,
         sessionData: params.sessionData,
@@ -185,6 +191,9 @@ export async function syncManagedSession(params: {
         and(
           eq(managedIdentitySessions.identityId, identityId),
           eq(managedIdentitySessions.clientId, clientId),
+          workspaceId
+            ? eq(managedIdentitySessions.workspaceId, workspaceId)
+            : isNull(managedIdentitySessions.workspaceId),
         ),
       )
       .returning();
@@ -203,6 +212,7 @@ export async function syncManagedSession(params: {
       clientId,
       authMode,
       flowType,
+      workspaceId,
       accountId,
       sessionId,
       sessionData: params.sessionData,

@@ -571,6 +571,7 @@ export class AppVerificationProviderClient {
     flowType: string
     clientId: string
     authMode: string
+    workspaceId?: string
     accountId?: string
     sessionId?: string
     expiresAt?: string
@@ -590,6 +591,7 @@ export class AppVerificationProviderClient {
           flowType: input.flowType,
           clientId: input.clientId,
           authMode: input.authMode,
+          workspaceId: input.workspaceId,
           accountId: input.accountId,
           sessionId: input.sessionId,
           expiresAt: input.expiresAt,

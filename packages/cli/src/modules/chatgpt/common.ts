@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import type { SelectorTarget } from '../../types'
-import { writeCliStdoutLine } from '../../utils/cli-output'
+import { logCliEvent } from '../../utils/observability'
 
 export const CHATGPT_HOME_URL = 'https://chatgpt.com/'
 export const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login'
@@ -452,9 +452,11 @@ export const ONBOARDING_SIGNAL_SELECTORS: SelectorTarget[] = [
 ]
 
 export function logStep(step: string, details?: Record<string, unknown>): void {
-  writeCliStdoutLine(
-    JSON.stringify({ scope: 'chatgpt-register', step, ...details }),
-  )
+  logCliEvent('debug', 'chatgpt.step', {
+    scope: 'chatgpt-login',
+    step,
+    ...details,
+  })
 }
 
 function randomString(length = 8): string {

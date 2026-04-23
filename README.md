@@ -7,7 +7,7 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
 - Cloudflare Email Routing -> Email Worker -> TanStack Start ingest
 - GitHub OAuth browser login for admins
 - device-code style CLI authentication
-- SSE delivery of verification codes and admin notifications to connected TUI clients
+- SSE delivery of verification codes and admin notifications to connected CLI clients
 
 ## What is implemented
 
@@ -34,7 +34,8 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
   - `flow ...`
   - `exchange ...`
   - `auth login|status|logout`
-  - `tui start`
+  - `prompt start`
+  - `tui start` (legacy alias)
   - `daemon start` (legacy stream alias)
 - a Cloudflare Email Worker package exists at `packages/cloudflare-email-worker`
 
@@ -146,12 +147,12 @@ Then open:
 
 - `http://localhost:3000/admin/login` to sign in with GitHub
 - `http://localhost:3000/admin` to inspect device challenges, notifications, reservations, and verification codes
-- `http://localhost:3000/admin/cli` to inspect which TUI terminals are currently connected and what flow each one is running
+- `http://localhost:3000/admin/cli` to inspect which CLI terminals are currently connected and what flow each one is running
 - `http://localhost:3000/admin/domains` to register verification domains and choose defaults
 - `http://localhost:3000/admin/external-services` to manage app-backed Sub2API sync settings for dispatched CLI tasks
 - `http://localhost:3000/admin/workspaces` to manage stored OpenAI workspace-to-account associations
 
-## CLI and TUI usage
+## CLI usage
 
 ### Flow commands
 
@@ -163,6 +164,20 @@ pnpm flow codex-oauth --workspaceIndex 2
 ```
 
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
+
+### CLI logs
+
+Every CLI run now writes two log files under `.codey/logs`:
+
+- `*.log` - human-readable operational logs for quick inspection
+- `*.ndjson` - structured JSON logs for deeper debugging or ingestion
+
+By default the human log keeps `info` and above while the structured trace keeps `debug` and above. You can override them with:
+
+```env
+CODEY_LOG_LEVEL=debug
+CODEY_HUMAN_LOG_LEVEL=info
+```
 
 ### Exchange commands
 
@@ -182,20 +197,22 @@ pnpm codey auth status
 pnpm codey auth logout
 ```
 
-### TUI mode
+### Prompt CLI mode
 
 ```bash
 pnpm codey
+pnpm codey prompt start --target octocat
 pnpm codey tui start --target octocat
 ```
 
-The default `pnpm codey` entry now opens a terminal UI that connects to the Codey web app at `http://localhost:3000` unless `CODEY_APP_BASE_URL` is configured.
-The TUI keeps an SSE connection to `/api/cli/events`, waits for tasks dispatched from `/admin/cli`, and reports its current flow back to the web app so the admin page can show what is running.
-The dashboard can also start flows locally from inside the terminal UI: press `s`, choose a flow, optionally fill in overrides, and the TUI will launch it directly without waiting for `/admin/cli`.
-When `CODEY_APP_CLIENT_SECRET` is configured, the TUI authenticates with `client_credentials`.
+The default `pnpm codey` entry now opens a prompt-driven CLI that connects to the Codey web app at `http://localhost:3000` unless `CODEY_APP_BASE_URL` is configured.
+`prompt start` is the preferred explicit command name, while `tui start` remains available as a backward-compatible alias.
+The CLI keeps an SSE connection to `/api/cli/events`, waits for tasks dispatched from `/admin/cli`, and reports its current flow back to the web app so the admin page can show what is running.
+The operator shell can also start flows locally from inside the terminal: run `start`, answer the prompts, and Codey will launch the flow without waiting for `/admin/cli`.
+When `CODEY_APP_CLIENT_SECRET` is configured, the CLI authenticates with `client_credentials`.
 Otherwise it reuses the stored session from `pnpm codey auth login`.
-If no reusable app session is available, the TUI now offers an in-terminal device-login prompt before opening the dashboard.
-The dashboard exposes a few built-in shortcuts: `s` starts a local flow, `x` stops the active flow, `q` exits after the active flow finishes, `Ctrl+C` exits immediately, `r` reconnects to the app stream, and `c` clears the recent event list.
+If no reusable app session is available, the CLI now offers an in-terminal device-login prompt before opening the operator shell.
+Inside the shell, run `help` to see the available commands. The main commands are `start`, `status`, `events`, `stop`, `reconnect`, `clear`, and `quit`. `Ctrl+C` still exits immediately.
 
 ### Legacy stream mode
 
@@ -203,7 +220,7 @@ The dashboard exposes a few built-in shortcuts: `s` starts a local flow, `x` sto
 pnpm codey daemon start --target octocat
 ```
 
-`daemon start` still works for non-interactive terminals and keeps the same SSE worker loop, but the TUI is now the preferred operator-facing mode.
+`daemon start` still works for non-interactive terminals and keeps the same SSE worker loop, but the prompt CLI is now the preferred operator-facing mode.
 
 ### Codex OAuth session sharing flow
 
@@ -240,7 +257,7 @@ If `SUB2API_BASE_URL` is configured together with `SUB2API_API_KEY`, `SUB2API_BE
 
 When Codey creates a new Sub2API account, you can also pass default scheduler fields such as proxy, concurrency, priority, group IDs, mixed-channel confirmation, and an optional "auto-fill related models" whitelist that mirrors Sub2API's OpenAI model presets.
 
-For web-dispatched `codex-oauth` runs, you can now manage the same Sub2API settings centrally from `/admin/external-services`. When that app-managed integration is enabled, tasks dispatched from `/admin/cli` fetch the Sub2API config from the Codey app at runtime, so the connected TUI no longer needs a separate local Sub2API env setup. The environment variables below remain available as an optional fallback for direct/local CLI runs.
+For web-dispatched `codex-oauth` runs, you can now manage the same Sub2API settings centrally from `/admin/external-services`. When that app-managed integration is enabled, tasks dispatched from `/admin/cli` fetch the Sub2API config from the Codey app at runtime, so the connected CLI no longer needs a separate local Sub2API env setup. The environment variables below remain available as an optional fallback for direct/local CLI runs.
 
 Optional environment variables:
 

@@ -1,18 +1,17 @@
-import Enquirer from 'enquirer'
-
 import type { FlowOptions } from '../flow-cli/helpers'
 import {
   cliFlowDefinitions,
   DEFAULT_CLI_FLOW_TASK_PARALLELISM,
-  listCliFlowConfigFieldDefinitions,
   MAX_CLI_FLOW_TASK_BATCH_SIZE,
   MAX_CLI_FLOW_TASK_PARALLELISM,
+  listCliFlowConfigFieldDefinitions,
   normalizeCliFlowConfig,
   normalizeCliFlowTaskParallelism,
   type CliFlowCommandId,
   type CliFlowConfigFieldDefinition,
   type CliFlowDefinition,
 } from '../flow-cli/flow-registry'
+import type { PromptChoice, PromptSession } from './prompt-io'
 
 export interface ManualFlowTaskInput {
   flowId: CliFlowCommandId
@@ -21,7 +20,7 @@ export interface ManualFlowTaskInput {
   parallelism: number
 }
 
-type EnquirerChoice = {
+export interface ManualFlowChoice {
   name: string
   message: string
   hint?: string
@@ -86,6 +85,24 @@ function humanizeKey(value: string): string {
     .trim()
 }
 
+function toPromptChoices<TValue extends string>(
+  choices: readonly ManualFlowChoice[],
+): PromptChoice<TValue>[] {
+  return choices.map((choice) => ({
+    value: choice.name as TValue,
+    label: choice.message,
+    hint: choice.hint,
+  }))
+}
+
+function toPromptChoice(definition: ManualFlowChoice): PromptChoice {
+  return {
+    value: definition.name,
+    label: definition.message,
+    hint: definition.hint,
+  }
+}
+
 export function describeManualFlow(flowId: CliFlowCommandId): string {
   return flowDescriptionById[flowId] || humanizeKey(flowId)
 }
@@ -100,7 +117,7 @@ export function supportsManualFlowBatching(
   return flowId === 'chatgpt-register'
 }
 
-function formatManualFlowChoice(definition: CliFlowDefinition): EnquirerChoice {
+function formatManualFlowChoice(definition: CliFlowDefinition): ManualFlowChoice {
   return {
     name: definition.id,
     message: definition.id,
@@ -110,7 +127,7 @@ function formatManualFlowChoice(definition: CliFlowDefinition): EnquirerChoice {
 
 function formatManualFlowOptionChoice(
   definition: CliFlowConfigFieldDefinition,
-): EnquirerChoice {
+): ManualFlowChoice {
   const label =
     flowOptionLabelByKey[definition.key] || humanizeKey(definition.key)
   const scope = definition.common ? 'Common' : 'Flow'
@@ -122,13 +139,13 @@ function formatManualFlowOptionChoice(
   }
 }
 
-export function buildManualFlowChoices(): EnquirerChoice[] {
+export function buildManualFlowChoices(): ManualFlowChoice[] {
   return cliFlowDefinitions.map(formatManualFlowChoice)
 }
 
 export function buildManualFlowOptionChoices(
   flowId: CliFlowCommandId,
-): EnquirerChoice[] {
+): ManualFlowChoice[] {
   return listCliFlowConfigFieldDefinitions(flowId).map(
     formatManualFlowOptionChoice,
   )
@@ -139,7 +156,7 @@ function normalizeManualFlowPromptValue(
   value: unknown,
 ): unknown {
   if (definition.type === 'boolean') {
-    return value === 'true'
+    return value === 'true' || value === true
   }
 
   if (definition.type === 'stringList') {
@@ -191,43 +208,32 @@ export function normalizeManualFlowParallelism(
   })
 }
 
-async function runEnquirerPrompt<T>(
-  config: Record<string, unknown>,
-): Promise<T> {
-  const prompt = new Enquirer<T>()
-  return (await prompt.prompt(config as never)) as T
-}
-
-async function promptForFlowId(): Promise<CliFlowCommandId> {
-  const answer = await runEnquirerPrompt<{ flowId: CliFlowCommandId }>({
-    type: 'select',
-    name: 'flowId',
-    message: 'Select a local flow to start',
-    choices: buildManualFlowChoices(),
+async function promptForFlowId(
+  prompts: PromptSession,
+): Promise<CliFlowCommandId> {
+  return prompts.select<CliFlowCommandId>({
+    message: 'Select a local flow to start.',
+    choices: toPromptChoices<CliFlowCommandId>(buildManualFlowChoices()),
   })
-
-  return answer.flowId
 }
 
 async function promptForRepeatCount(
+  prompts: PromptSession,
   flowId: CliFlowCommandId,
 ): Promise<number> {
   if (!supportsManualFlowBatching(flowId)) {
     return 1
   }
 
-  const answer = await runEnquirerPrompt<{ repeatCount: string }>({
-    type: 'input',
-    name: 'repeatCount',
+  const answer = await prompts.input({
     message: 'How many local registration tasks should Codey queue?',
     initial: '1',
-    validate: (current: string) => {
-      const normalized = current.trim()
-      if (!normalized) {
+    validate: (current) => {
+      if (!current) {
         return true
       }
 
-      const parsed = Number.parseInt(normalized, 10)
+      const parsed = Number.parseInt(current, 10)
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return 'Enter a whole number greater than 0.'
       }
@@ -240,26 +246,26 @@ async function promptForRepeatCount(
     },
   })
 
-  return normalizeManualFlowRepeatCount(answer.repeatCount)
+  return normalizeManualFlowRepeatCount(answer)
 }
 
-async function promptForParallelism(repeatCount: number): Promise<number> {
+async function promptForParallelism(
+  prompts: PromptSession,
+  repeatCount: number,
+): Promise<number> {
   if (repeatCount <= 1) {
     return DEFAULT_CLI_FLOW_TASK_PARALLELISM
   }
 
-  const answer = await runEnquirerPrompt<{ parallelism: string }>({
-    type: 'input',
-    name: 'parallelism',
+  const answer = await prompts.input({
     message: 'How many registration tasks should run in parallel?',
     initial: String(DEFAULT_CLI_FLOW_TASK_PARALLELISM),
-    validate: (current: string) => {
-      const normalized = current.trim()
-      if (!normalized) {
+    validate: (current) => {
+      if (!current) {
         return true
       }
 
-      const parsed = Number.parseInt(normalized, 10)
+      const parsed = Number.parseInt(current, 10)
       if (!Number.isInteger(parsed) || parsed <= 0) {
         return 'Enter a whole number greater than 0.'
       }
@@ -276,10 +282,11 @@ async function promptForParallelism(repeatCount: number): Promise<number> {
     },
   })
 
-  return normalizeManualFlowParallelism(answer.parallelism, repeatCount)
+  return normalizeManualFlowParallelism(answer, repeatCount)
 }
 
 async function promptForSelectedOptionKeys(
+  prompts: PromptSession,
   flowId: CliFlowCommandId,
 ): Promise<string[]> {
   const choices = buildManualFlowOptionChoices(flowId)
@@ -287,42 +294,39 @@ async function promptForSelectedOptionKeys(
     return []
   }
 
-  const answer = await runEnquirerPrompt<{ optionKeys: string[] }>({
-    type: 'multiselect',
-    name: 'optionKeys',
-    message: 'Select config fields to override',
-    choices,
-    initial: [],
+  return prompts.multiSelect({
+    message:
+      'Select config fields to override. Press Enter without input to keep defaults.',
+    choices: choices.map(toPromptChoice),
+    allowEmpty: true,
   })
-
-  return Array.isArray(answer.optionKeys) ? answer.optionKeys : []
 }
 
 async function promptForOptionValue(
+  prompts: PromptSession,
   definition: CliFlowConfigFieldDefinition,
 ): Promise<unknown> {
   const description = describeManualFlowOption(definition.key)
+  const message = `${definition.cliFlag}\n${description}`
 
   if (definition.type === 'boolean') {
-    const answer = await runEnquirerPrompt<{ value: string }>({
-      type: 'select',
-      name: 'value',
-      message: `${definition.cliFlag}\n${description}`,
+    const answer = await prompts.select<'true' | 'false'>({
+      message,
       choices: [
         {
-          name: 'true',
-          message: 'true',
+          value: 'true',
+          label: 'true',
           hint: 'Enable this option.',
         },
         {
-          name: 'false',
-          message: 'false',
+          value: 'false',
+          label: 'false',
           hint: 'Disable this option explicitly.',
         },
       ],
     })
 
-    return normalizeManualFlowPromptValue(definition, answer.value)
+    return normalizeManualFlowPromptValue(definition, answer)
   }
 
   const inputSuffix =
@@ -332,19 +336,16 @@ async function promptForOptionValue(
         ? ' (comma or newline separated)'
         : ''
 
-  const answer = await runEnquirerPrompt<{ value: string }>({
-    type: 'input',
-    name: 'value',
-    message: `${definition.cliFlag}${inputSuffix}\n${description}`,
-    validate: (current: string) => {
-      const normalized = current.trim()
-      if (!normalized) {
+  const answer = await prompts.input({
+    message: `${message}${inputSuffix}`,
+    validate: (current) => {
+      if (!current) {
         return 'A value is required.'
       }
 
       if (
         definition.type === 'number' &&
-        !Number.isFinite(Number(normalized))
+        !Number.isFinite(Number(current))
       ) {
         return 'Enter a valid number.'
       }
@@ -353,14 +354,16 @@ async function promptForOptionValue(
     },
   })
 
-  return normalizeManualFlowPromptValue(definition, answer.value)
+  return normalizeManualFlowPromptValue(definition, answer)
 }
 
-export async function promptForManualFlowTask(): Promise<ManualFlowTaskInput> {
-  const flowId = await promptForFlowId()
-  const repeatCount = await promptForRepeatCount(flowId)
-  const parallelism = await promptForParallelism(repeatCount)
-  const optionKeys = await promptForSelectedOptionKeys(flowId)
+export async function promptForManualFlowTask(
+  prompts: PromptSession,
+): Promise<ManualFlowTaskInput> {
+  const flowId = await promptForFlowId(prompts)
+  const repeatCount = await promptForRepeatCount(prompts, flowId)
+  const parallelism = await promptForParallelism(prompts, repeatCount)
+  const optionKeys = await promptForSelectedOptionKeys(prompts, flowId)
   const optionDefinitions = listCliFlowConfigFieldDefinitions(flowId)
   const rawOptions: Record<string, unknown> = {}
 
@@ -372,7 +375,7 @@ export async function promptForManualFlowTask(): Promise<ManualFlowTaskInput> {
       continue
     }
 
-    rawOptions[optionKey] = await promptForOptionValue(definition)
+    rawOptions[optionKey] = await promptForOptionValue(prompts, definition)
   }
 
   return {

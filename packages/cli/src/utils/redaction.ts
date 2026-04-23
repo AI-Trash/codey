@@ -8,7 +8,7 @@ export function sanitizeText(value: string): string {
       `$1=${REDACTED}`,
     )
     .replace(
-      /\b(code|state|access_token|refresh_token|id_token|token|password|secret|client_secret|api_key)\b\s*[:=]\s*([^\s,;"'}]+)/gi,
+      /\b(code|state|access_token|refresh_token|id_token|token|password|secret|client_secret|api_key)\b\s*[:=]\s*([^\s,;"'}&]+)/gi,
       (_match, key) => `${key}=***redacted***`,
     )
     .replace(

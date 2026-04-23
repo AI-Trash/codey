@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { startCodexAuthorization } from '../src/modules/authorization/codex-client'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  exchangeCodexAuthorizationCode,
+  startCodexAuthorization,
+} from '../src/modules/authorization/codex-client'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('startCodexAuthorization', () => {
   it('includes the simplified Codex CLI flow param by default', () => {
@@ -41,5 +48,58 @@ describe('startCodexAuthorization', () => {
     expect(authorizationUrl.searchParams.get('allowed_workspace_id')).toBe(
       'ws-associated',
     )
+  })
+})
+
+describe('exchangeCodexAuthorizationCode', () => {
+  it('surfaces nested OAuth error objects as readable messages', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: {
+            message: 'Authorization code already redeemed.',
+            code: 'invalid_grant',
+          },
+        }),
+        {
+          status: 400,
+          statusText: 'Bad Request',
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+          },
+        },
+      ),
+    )
+
+    await expect(
+      exchangeCodexAuthorizationCode({
+        tokenUrl: 'https://auth.openai.com/oauth/token',
+        clientId: 'codex-client-id',
+        code: 'oauth-code',
+        redirectUri: 'http://localhost:1455/auth/callback',
+        codeVerifier: 'verifier',
+      }),
+    ).rejects.toThrow('Authorization code already redeemed. (invalid_grant)')
+  })
+
+  it('surfaces non-JSON token exchange failures verbatim', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('authorization code expired', {
+        status: 400,
+        statusText: 'Bad Request',
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+        },
+      }),
+    )
+
+    await expect(
+      exchangeCodexAuthorizationCode({
+        tokenUrl: 'https://auth.openai.com/oauth/token',
+        clientId: 'codex-client-id',
+        code: 'oauth-code',
+        redirectUri: 'http://localhost:1455/auth/callback',
+      }),
+    ).rejects.toThrow('authorization code expired')
   })
 })

@@ -506,6 +506,7 @@ export const managedIdentitySessions = pgTable(
     flowType: text('flow_type').notNull(),
     accountId: text('account_id'),
     sessionId: text('session_id'),
+    workspaceId: text('workspace_id'),
     sessionData: jsonb('session_data')
       .$type<Record<string, unknown>>()
       .notNull(),
@@ -540,12 +541,18 @@ export const managedIdentitySessions = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex('managed_identity_sessions_identity_client_unique').on(
+    uniqueIndex('managed_identity_sessions_identity_client_workspace_unique').on(
       table.identityId,
       table.clientId,
+      table.workspaceId,
     ),
     index('managed_identity_sessions_status_last_seen_at_idx').on(
       table.status,
+      table.lastSeenAt,
+    ),
+    index('managed_identity_sessions_identity_workspace_last_seen_idx').on(
+      table.identityId,
+      table.workspaceId,
       table.lastSeenAt,
     ),
     index('managed_identity_sessions_email_idx').on(table.email),

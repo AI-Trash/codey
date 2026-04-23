@@ -57,7 +57,7 @@ import {
   type CliFlowCommandId,
 } from './modules/flow-cli/flow-registry'
 import { normalizeFlowCliArgsForCommand } from './modules/flow-cli/parse-argv'
-import { runTuiDashboard } from './modules/tui/dashboard'
+import { runPromptDashboard } from './modules/tui/dashboard'
 import { runWithSession } from './modules/flow-cli/run-with-session'
 import {
   buildFailedFlowCommandExecution,
@@ -351,7 +351,7 @@ async function runAuthCommand(
   if (subcommand === 'login') {
     const cliName = options.cliName || getDefaultCliName()
     const challenge = await startDeviceLogin({
-      flowType: options.flowType || 'flow-tui',
+      flowType: options.flowType || 'flow-cli',
       cliName,
       scope: options.scope,
     })
@@ -933,7 +933,7 @@ async function runDaemonCommand(
   }
 }
 
-async function runTuiCommand(
+async function runInteractiveCommand(
   subcommand: string,
   options: AuthOptions,
   config: ReturnType<typeof prepareRuntimeConfig>,
@@ -944,7 +944,7 @@ async function runTuiCommand(
 
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     throw new Error(
-      'The TUI requires an interactive terminal. Use `codey daemon start` for non-interactive streaming mode.',
+      'The prompt-driven CLI requires an interactive terminal. Use `codey daemon start` for non-interactive streaming mode.',
     )
   }
 
@@ -954,7 +954,7 @@ async function runTuiCommand(
     target: options.target || null,
     phase: 'starting',
   })
-  await runTuiDashboard({
+  await runPromptDashboard({
     cliName,
     target: options.target,
     config,
@@ -1165,7 +1165,7 @@ withCommonOptions(
   authCli
     .command(
       'login',
-      'Authenticate this TUI client with the Codey app via device flow',
+      'Authenticate this CLI client with the Codey app via device flow',
     )
     .option('--flowType <name>', 'Logical flow type for the device challenge')
     .option('--cliName <name>', 'CLI instance label')
@@ -1210,20 +1210,20 @@ withCommonOptions(
   tuiCli
     .command(
       'start',
-      'Run the Codey TUI for local starts and web-dispatched flow tasks',
+      'Run the Codey prompt-driven operator CLI for local starts and web-dispatched flow tasks',
     )
-    .option('--cliName <name>', 'TUI instance label')
+    .option('--cliName <name>', 'CLI instance label')
     .option(
       '--target <target>',
       'Notification target label, such as a GitHub login',
     )
-    .example('codey tui start --target octocat')
+    .example('codey prompt start --target octocat')
     .example('codey'),
 ).action((options: AuthOptions) => {
   execute(
     (async () => {
       const config = prepareRuntimeConfig('tui:start', options)
-      await runTuiCommand('start', options, config)
+      await runInteractiveCommand('start', options, config)
     })(),
   )
 })
@@ -1232,7 +1232,7 @@ withCommonOptions(
   daemonCli
     .command(
       'start',
-      'Run the legacy stream client (alias for the TUI worker loop)',
+      'Run the legacy stream client (non-interactive alias for the CLI worker loop)',
     )
     .option('--cliName <name>', 'CLI instance label')
     .option(
@@ -1329,8 +1329,19 @@ cli
 
 cli
   .command(
+    'prompt',
+    'Run the Codey prompt-driven operator CLI for local starts and web-dispatched tasks',
+  )
+  .example('codey')
+  .example('codey prompt start --target octocat')
+  .action(() => {
+    tuiCli.outputHelp()
+  })
+
+cli
+  .command(
     'tui',
-    'Run the Codey terminal UI for local starts and web-dispatched tasks',
+    'Run the Codey prompt-driven operator CLI (legacy command name)',
   )
   .example('codey')
   .example('codey tui start --target octocat')
@@ -1366,6 +1377,8 @@ if (argv.length === 0) {
   exchangeCli.parse(['codey', 'exchange', ...argv.slice(1)])
 } else if (argv[0] === 'auth') {
   authCli.parse(['codey', 'auth', ...argv.slice(1)])
+} else if (argv[0] === 'prompt') {
+  tuiCli.parse(['codey', 'tui', ...argv.slice(1)])
 } else if (argv[0] === 'tui') {
   tuiCli.parse(['codey', 'tui', ...argv.slice(1)])
 } else if (argv[0] === 'daemon') {

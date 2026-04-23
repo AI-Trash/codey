@@ -1,8 +1,9 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import crypto from 'crypto'
-import fs from 'fs'
+import { createRequire } from 'module'
 import path from 'path'
 import { inspect } from 'util'
+import type { Logger, LoggerOptions } from 'pino'
 
 import { ensureDir, writeFileAtomic } from './fs'
 import {
@@ -35,19 +36,18 @@ interface CliObservabilityState {
   argv: string[]
   pid: number
   structuredLogPath: string
-  humanLogPath?: string
+  humanLogPath: string
   baseContext: CliObservabilityContext
   runtimeState: Record<string, unknown>
-}
-
-interface CliObservabilityRecord {
-  timestamp: string
-  level: CliObservabilityLevel
-  event: string
-  runId: string
-  pid: number
-  context?: CliObservabilityContext
-  data?: unknown
+  structuredLogger: Logger
+  humanLogger: Logger
+  structuredDestination: {
+    flushSync?: () => void
+    end: () => void
+  }
+  humanDestination: {
+    end: () => void
+  }
 }
 
 export interface CliDiagnosticArtifacts {
@@ -56,6 +56,16 @@ export interface CliDiagnosticArtifacts {
 }
 
 const contextStorage = new AsyncLocalStorage<CliObservabilityContext>()
+const require = createRequire(import.meta.url)
+const VALID_LOG_LEVELS = new Set<CliObservabilityLevel>([
+  'debug',
+  'info',
+  'warn',
+  'error',
+  'fatal',
+])
+const DEFAULT_STRUCTURED_LOG_LEVEL: CliObservabilityLevel = 'debug'
+const DEFAULT_HUMAN_LOG_LEVEL: CliObservabilityLevel = 'info'
 
 let observabilityState: CliObservabilityState | undefined
 let exitListenerInstalled = false
@@ -67,18 +77,138 @@ const shouldInstallFatalProcessListeners = !(
   process.env.VITEST || process.env.VITEST_WORKER_ID
 )
 
+let pinoModule:
+  | (typeof import('pino')['default'] & {
+      stdTimeFunctions: typeof import('pino')['stdTimeFunctions']
+      destination: typeof import('pino')['destination']
+    })
+  | undefined
+let pinoPrettyModule:
+  | (typeof import('pino-pretty')['default'])
+  | undefined
+
+function getPino(): NonNullable<typeof pinoModule> {
+  if (!pinoModule) {
+    const loaded = require('pino') as
+      | typeof import('pino')
+      | typeof import('pino')['default']
+    pinoModule = ('default' in loaded ? loaded.default : loaded) as typeof pinoModule
+  }
+
+  return pinoModule as NonNullable<typeof pinoModule>
+}
+
+function getPinoPretty(): NonNullable<typeof pinoPrettyModule> {
+  if (!pinoPrettyModule) {
+    const loaded = require('pino-pretty') as
+      | typeof import('pino-pretty')
+      | typeof import('pino-pretty')['default']
+    pinoPrettyModule = ('default' in loaded ? loaded.default : loaded) as typeof pinoPrettyModule
+  }
+
+  return pinoPrettyModule as NonNullable<typeof pinoPrettyModule>
+}
+
+function resolveConfiguredLogLevel(
+  envName: string,
+  fallback: CliObservabilityLevel,
+): CliObservabilityLevel {
+  const configured = process.env[envName]?.trim().toLowerCase()
+  if (!configured) {
+    return fallback
+  }
+
+  return VALID_LOG_LEVELS.has(configured as CliObservabilityLevel)
+    ? (configured as CliObservabilityLevel)
+    : fallback
+}
+
+function resolveStructuredLogLevel(): CliObservabilityLevel {
+  return resolveConfiguredLogLevel(
+    'CODEY_LOG_LEVEL',
+    DEFAULT_STRUCTURED_LOG_LEVEL,
+  )
+}
+
+function resolveHumanLogLevel(): CliObservabilityLevel {
+  return resolveConfiguredLogLevel(
+    'CODEY_HUMAN_LOG_LEVEL',
+    resolveConfiguredLogLevel('CODEY_LOG_LEVEL', DEFAULT_HUMAN_LOG_LEVEL),
+  )
+}
+
+function createLoggerOptions(
+  runId: string,
+  level: CliObservabilityLevel,
+): LoggerOptions {
+  const pino = getPino()
+
+  return {
+    level,
+    messageKey: 'message',
+    errorKey: 'error',
+    timestamp: pino.stdTimeFunctions.isoTime,
+    formatters: {
+      bindings: (bindings) => ({
+        pid: bindings.pid,
+        runId,
+      }),
+    },
+  }
+}
+
+function createStructuredLogger(
+  runId: string,
+  structuredLogPath: string,
+): {
+  logger: Logger
+  destination: CliObservabilityState['structuredDestination']
+} {
+  const pino = getPino()
+  const destination = pino.destination({
+    dest: structuredLogPath,
+    mkdir: true,
+    sync: true,
+  })
+
+  return {
+    logger: pino(createLoggerOptions(runId, resolveStructuredLogLevel()), destination),
+    destination,
+  }
+}
+
+function createHumanLogger(
+  runId: string,
+  humanLogPath: string,
+): {
+  logger: Logger
+  destination: CliObservabilityState['humanDestination']
+} {
+  const pino = getPino()
+  const pretty = getPinoPretty()
+  const destination = pretty({
+    colorize: false,
+    destination: humanLogPath,
+    mkdir: true,
+    singleLine: false,
+    sync: true,
+    translateTime: 'SYS:standard',
+  })
+
+  return {
+    logger: pino(createLoggerOptions(runId, resolveHumanLogLevel()), destination),
+    destination,
+  }
+}
+
 const handleProcessExit = (code: number) => {
   if (!observabilityState) {
     return
   }
 
-  appendRecord({
-    timestamp: new Date().toISOString(),
+  writeRecord({
     level: 'info',
     event: 'process.exit',
-    runId: observabilityState.runId,
-    pid: observabilityState.pid,
-    context: getCurrentContext(),
     data: { code },
   })
 }
@@ -109,6 +239,9 @@ const handleUncaughtException = (error: Error) => {
       `[codey:fatal] Uncaught exception: ${sanitizeErrorForOutput(error).message}`,
       artifacts.snapshotPath ? `snapshot: ${artifacts.snapshotPath}` : undefined,
       artifacts.reportPath ? `report: ${artifacts.reportPath}` : undefined,
+      observabilityState?.humanLogPath
+        ? `log: ${observabilityState.humanLogPath}`
+        : undefined,
       observabilityState?.structuredLogPath
         ? `trace: ${observabilityState.structuredLogPath}`
         : undefined,
@@ -139,6 +272,9 @@ const handleUnhandledRejection = (reason: unknown) => {
       `[codey:fatal] Unhandled rejection: ${sanitizeErrorForOutput(reason).message}`,
       artifacts.snapshotPath ? `snapshot: ${artifacts.snapshotPath}` : undefined,
       artifacts.reportPath ? `report: ${artifacts.reportPath}` : undefined,
+      observabilityState?.humanLogPath
+        ? `log: ${observabilityState.humanLogPath}`
+        : undefined,
       observabilityState?.structuredLogPath
         ? `trace: ${observabilityState.structuredLogPath}`
         : undefined,
@@ -222,22 +358,14 @@ function formatTimestampForPath(date: Date): string {
   return date.toISOString().replace(/:/g, '-')
 }
 
+function buildLogFilePrefix(argv: string[], runId: string): string {
+  return `${formatTimestampForPath(new Date())}-${resolveLogLabel(argv)}-${process.pid}-${runId}`
+}
+
 function getCurrentContext(): CliObservabilityContext {
   const base = observabilityState?.baseContext || {}
   const active = contextStorage.getStore()
   return active ? mergeContext(base, active) : base
-}
-
-function appendRecord(record: CliObservabilityRecord): void {
-  if (!observabilityState) {
-    return
-  }
-
-  fs.appendFileSync(
-    observabilityState.structuredLogPath,
-    `${JSON.stringify(record)}\n`,
-    'utf8',
-  )
 }
 
 function serializeError(error: unknown): Record<string, unknown> {
@@ -320,17 +448,41 @@ function installProcessListeners(): void {
   }
 }
 
+function writeRecord(input: {
+  level: CliObservabilityLevel
+  event: string
+  data?: unknown
+  message?: string
+}): void {
+  if (!observabilityState) {
+    return
+  }
+
+  const context = getCurrentContext()
+  const record = {
+    event: input.event,
+    ...(Object.keys(context).length ? { context } : {}),
+    ...(input.data === undefined ? {} : { data: redactForOutput(input.data) }),
+  }
+  const message = input.message || input.event
+
+  observabilityState.structuredLogger[input.level](record, message)
+  observabilityState.humanLogger[input.level](record, message)
+}
+
 export function initializeCliObservability(input: {
   rootDir: string
   argv?: string[]
 }): {
   runId: string
   structuredLogPath: string
+  humanLogPath: string
 } {
   if (observabilityState) {
     return {
       runId: observabilityState.runId,
       structuredLogPath: observabilityState.structuredLogPath,
+      humanLogPath: observabilityState.humanLogPath,
     }
   }
 
@@ -339,10 +491,11 @@ export function initializeCliObservability(input: {
   ensureDir(logsDir)
 
   const runId = crypto.randomUUID()
-  const structuredLogPath = path.join(
-    logsDir,
-    `${formatTimestampForPath(new Date())}-${resolveLogLabel(argv)}-${process.pid}-${runId}.ndjson`,
-  )
+  const logFilePrefix = buildLogFilePrefix(argv, runId)
+  const structuredLogPath = path.join(logsDir, `${logFilePrefix}.ndjson`)
+  const humanLogPath = path.join(logsDir, `${logFilePrefix}.log`)
+  const structured = createStructuredLogger(runId, structuredLogPath)
+  const human = createHumanLogger(runId, humanLogPath)
 
   observabilityState = {
     rootDir: input.rootDir,
@@ -351,21 +504,33 @@ export function initializeCliObservability(input: {
     argv: [...argv],
     pid: process.pid,
     structuredLogPath,
+    humanLogPath,
     baseContext: {
       runId,
     },
     runtimeState: {},
+    structuredLogger: structured.logger,
+    humanLogger: human.logger,
+    structuredDestination: structured.destination,
+    humanDestination: human.destination,
   }
 
   installProcessListeners()
-  logCliEvent('info', 'process.start', {
-    argv,
-    cwd: process.cwd(),
+  writeRecord({
+    level: 'info',
+    event: 'process.start',
+    data: {
+      argv,
+      cwd: process.cwd(),
+      humanLogPath,
+      structuredLogPath,
+    },
   })
 
   return {
     runId,
     structuredLogPath,
+    humanLogPath,
   }
 }
 
@@ -378,7 +543,7 @@ export function getCliObservabilityRunId(): string | undefined {
 }
 
 export function setCliHumanLogPath(filePath: string | undefined): void {
-  if (!observabilityState) {
+  if (!observabilityState || !filePath) {
     return
   }
 
@@ -415,19 +580,10 @@ export function logCliEvent(
   event: string,
   data?: unknown,
 ): void {
-  if (!observabilityState) {
-    return
-  }
-
-  const context = getCurrentContext()
-  appendRecord({
-    timestamp: new Date().toISOString(),
+  writeRecord({
     level,
     event,
-    runId: observabilityState.runId,
-    pid: observabilityState.pid,
-    ...(Object.keys(context).length ? { context } : {}),
-    ...(data === undefined ? {} : { data: redactForOutput(data) }),
+    data,
   })
 }
 
@@ -465,9 +621,14 @@ export function recordCliOutput(
     return
   }
 
-  logCliEvent('debug', 'cli.output', {
-    stream,
-    line: normalized,
+  writeRecord({
+    level: 'info',
+    event: 'cli.output',
+    data: {
+      stream,
+      line: normalized,
+    },
+    message: `[${stream}] ${normalized}`,
   })
 }
 
@@ -540,7 +701,27 @@ export function captureCliDiagnostics(input: {
   }
 }
 
+function closeLoggerStreams(): void {
+  if (!observabilityState) {
+    return
+  }
+
+  try {
+    observabilityState.structuredDestination.flushSync()
+  } catch {}
+
+  try {
+    observabilityState.structuredDestination.end()
+  } catch {}
+
+  try {
+    observabilityState.humanDestination.end()
+  } catch {}
+}
+
 export function resetCliObservabilityForTests(): void {
+  closeLoggerStreams()
+
   if (exitListenerInstalled) {
     process.off('exit', handleProcessExit)
     exitListenerInstalled = false

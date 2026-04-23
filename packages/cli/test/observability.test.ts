@@ -95,6 +95,57 @@ describe('cli observability', () => {
     })
   })
 
+  it('preserves non-sensitive OAuth query params after redacting state in cli output', async () => {
+    const rootDir = createTempRoot()
+
+    initializeCliFileLogging({
+      rootDir,
+      argv: ['flow', 'codex-oauth'],
+    })
+    setBaseObservabilityContext({
+      command: 'flow:codex-oauth',
+    })
+
+    await withCliOutput(silentCliOutput, async () => {
+      writeCliStdoutLine(
+        'oauth url: https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_test&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&state=oauth-state&scope=openid+profile+email+offline_access&code_challenge=test-challenge&code_challenge_method=S256&codex_cli_simplified_flow=true&allowedWorkspaceId=ws_test',
+      )
+    })
+
+    const structuredLogPath = getCliObservabilityLogPath()
+    expect(structuredLogPath).toBeTruthy()
+
+    const records = readStructuredLog(structuredLogPath!)
+    const outputRecord = records.find(
+      (entry) =>
+        entry.event === 'cli.output' &&
+        typeof entry.data === 'object' &&
+        entry.data !== null &&
+        (entry.data as Record<string, unknown>).stream === 'stdout',
+    )
+
+    expect(outputRecord?.data).toMatchObject({
+      stream: 'stdout',
+    })
+    expect(outputRecord).toBeTruthy()
+    const outputData = outputRecord!.data as Record<string, unknown>
+    expect(outputData.line).toContain(
+      'state=***redacted***',
+    )
+    expect(outputData.line).toContain(
+      'scope=openid+profile+email+offline_access',
+    )
+    expect(outputData.line).toContain(
+      'code_challenge=test-challenge',
+    )
+    expect(outputData.line).toContain(
+      'codex_cli_simplified_flow=true',
+    )
+    expect(outputData.line).toContain(
+      'allowedWorkspaceId=ws_test',
+    )
+  })
+
   it('writes a fatal snapshot with sanitized error details and runtime state', () => {
     const rootDir = createTempRoot()
 

@@ -41,7 +41,7 @@ describe('cli output file logging', () => {
     expect(getCliLogFilePath()).toBe(logFilePath)
 
     const content = fs.readFileSync(logFilePath, 'utf8')
-    expect(content).toContain('[session] argv: ["flow","chatgpt-login"]')
+    expect(content).toContain('process.start')
     expect(content).toContain('[stdout] flow completed')
     expect(content).toContain('[stderr] har: C:/tmp/run.har')
   })
