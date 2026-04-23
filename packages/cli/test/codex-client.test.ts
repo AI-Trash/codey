@@ -52,7 +52,20 @@ describe('startCodexAuthorization', () => {
 })
 
 describe('exchangeCodexAuthorizationCode', () => {
-  it('prefers a Patchright API request context over node fetch', async () => {
+  it('requires a Patchright API request context', async () => {
+    await expect(
+      exchangeCodexAuthorizationCode({
+        tokenUrl: 'https://auth.openai.com/oauth/token',
+        clientId: 'codex-client-id',
+        code: 'oauth-code',
+        redirectUri: 'http://localhost:1455/auth/callback',
+      }),
+    ).rejects.toThrow(
+      'Codex OAuth token exchange requires a Patchright APIRequestContext.',
+    )
+  })
+
+  it('uses the Patchright API request context for token exchange', async () => {
     const requestContext = {
       fetch: vi.fn(async () => ({
         ok: () => true,
@@ -68,8 +81,6 @@ describe('exchangeCodexAuthorizationCode', () => {
           }),
       })),
     }
-
-    const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
     await expect(
       exchangeCodexAuthorizationCode({
@@ -95,27 +106,23 @@ describe('exchangeCodexAuthorizationCode', () => {
         failOnStatusCode: false,
       }),
     )
-    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('surfaces nested OAuth error objects as readable messages', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          error: {
-            message: 'Authorization code already redeemed.',
-            code: 'invalid_grant',
-          },
-        }),
-        {
-          status: 400,
-          statusText: 'Bad Request',
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8',
-          },
-        },
-      ),
-    )
+    const requestContext = {
+      fetch: vi.fn(async () => ({
+        ok: () => false,
+        status: () => 400,
+        statusText: () => 'Bad Request',
+        text: async () =>
+          JSON.stringify({
+            error: {
+              message: 'Authorization code already redeemed.',
+              code: 'invalid_grant',
+            },
+          }),
+      })),
+    }
 
     await expect(
       exchangeCodexAuthorizationCode({
@@ -124,20 +131,20 @@ describe('exchangeCodexAuthorizationCode', () => {
         code: 'oauth-code',
         redirectUri: 'http://localhost:1455/auth/callback',
         codeVerifier: 'verifier',
+        requestContext: requestContext as never,
       }),
     ).rejects.toThrow('Authorization code already redeemed. (invalid_grant)')
   })
 
   it('surfaces non-JSON token exchange failures verbatim', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('authorization code expired', {
-        status: 400,
-        statusText: 'Bad Request',
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-        },
-      }),
-    )
+    const requestContext = {
+      fetch: vi.fn(async () => ({
+        ok: () => false,
+        status: () => 400,
+        statusText: () => 'Bad Request',
+        text: async () => 'authorization code expired',
+      })),
+    }
 
     await expect(
       exchangeCodexAuthorizationCode({
@@ -145,6 +152,7 @@ describe('exchangeCodexAuthorizationCode', () => {
         clientId: 'codex-client-id',
         code: 'oauth-code',
         redirectUri: 'http://localhost:1455/auth/callback',
+        requestContext: requestContext as never,
       }),
     ).rejects.toThrow('authorization code expired')
   })

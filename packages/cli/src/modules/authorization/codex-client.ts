@@ -6,7 +6,6 @@ import {
 } from './codex-authorization'
 import {
   fetchWithApiRequestHarCapture,
-  fetchWithHarCapture,
   type NodeHarRecorder,
 } from './har-recorder'
 
@@ -112,7 +111,7 @@ function readCodexErrorMessage(
 }
 
 async function parseCodexTokenPayload(
-  response: Response | APIResponse,
+  response: APIResponse,
 ): Promise<CodexTokenPayload> {
   const body = await response.text()
   if (!body) {
@@ -122,10 +121,9 @@ async function parseCodexTokenPayload(
   try {
     return JSON.parse(body) as CodexTokenPayload
   } catch {
-    if (!isSuccessfulCodexResponse(response)) {
+    if (!response.ok()) {
       throw new Error(
-        body.trim() ||
-          `Codex token exchange failed (${getCodexResponseStatus(response)}).`,
+        body.trim() || `Codex token exchange failed (${response.status()}).`,
       )
     }
 
@@ -168,18 +166,16 @@ function mapCodexTokenResponse(
   }
 }
 
-function isApiResponse(
-  response: Response | APIResponse,
-): response is APIResponse {
-  return typeof (response as APIResponse).status === 'function'
-}
+function requireRequestContext(
+  requestContext: APIRequestContext | undefined,
+): APIRequestContext {
+  if (!requestContext) {
+    throw new Error(
+      'Codex OAuth token exchange requires a Patchright APIRequestContext.',
+    )
+  }
 
-function getCodexResponseStatus(response: Response | APIResponse): number {
-  return isApiResponse(response) ? response.status() : response.status
-}
-
-function isSuccessfulCodexResponse(response: Response | APIResponse): boolean {
-  return isApiResponse(response) ? response.ok() : response.ok
+  return requestContext
 }
 
 export function startCodexAuthorization(input: {
@@ -248,45 +244,29 @@ export async function exchangeCodexAuthorizationCode(input: {
     ...(input.codeVerifier ? { code_verifier: input.codeVerifier } : {}),
   } satisfies Record<string, string>
 
-  const response = input.requestContext
-    ? await fetchWithApiRequestHarCapture(
-        input.harRecorder,
-        input.requestContext,
-        input.tokenUrl,
-        {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          form,
-        },
-        {
-          comment: 'Codex OAuth token exchange',
-        },
-      )
-    : await fetchWithHarCapture(
-        input.harRecorder,
-        input.tokenUrl,
-        {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams(form),
-        },
-        {
-          comment: 'Codex OAuth token exchange',
-        },
-      )
+  const response = await fetchWithApiRequestHarCapture(
+    input.harRecorder,
+    requireRequestContext(input.requestContext),
+    input.tokenUrl,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      form,
+    },
+    {
+      comment: 'Codex OAuth token exchange',
+    },
+  )
 
   const tokenPayload = await parseCodexTokenPayload(response)
-  if (!isSuccessfulCodexResponse(response)) {
+  if (!response.ok()) {
     throw new Error(
       readCodexErrorMessage(
         tokenPayload,
-        `Codex token exchange failed (${getCodexResponseStatus(response)}).`,
+        `Codex token exchange failed (${response.status()}).`,
       ),
     )
   }
@@ -305,6 +285,7 @@ export async function runCodexAuthorization(input: {
   redirectPath?: string
   openBrowserWindow?: boolean
   harRecorder?: NodeHarRecorder
+  requestContext?: APIRequestContext
   codexCliSimplifiedFlow?: boolean
   allowedWorkspaceId?: string
 }): Promise<CodexTokenResponse> {
@@ -345,5 +326,6 @@ export async function runCodexAuthorization(input: {
     redirectUri: started.redirectUri,
     codeVerifier: started.codeVerifier,
     harRecorder: input.harRecorder,
+    requestContext: input.requestContext,
   })
 }

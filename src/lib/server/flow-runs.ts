@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only'
 
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, inArray, or } from 'drizzle-orm'
 
 import type {
   CliFlowTaskBatchMetadata,
@@ -77,6 +77,16 @@ export type AdminFlowRunSnapshot = {
   tasks: AdminFlowTaskSummary[]
   selectedTask: AdminFlowTaskDetail | null
 }
+
+export type ClearAdminFlowRunsResult = {
+  deletedCount: number
+  preservedCount: number
+  totalVisibleCount: number
+}
+
+export type ClearAdminFlowRunsMode = 'completed' | 'all'
+
+const CLEARABLE_FLOW_TASK_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'CANCELED'])
 
 type VisibleConnectionMaps = {
   connections: AdminCliConnectionSummary[]
@@ -286,5 +296,62 @@ export async function getAdminFlowRunSnapshotForActor(input: {
           visibleConnections,
         })
       : null,
+  }
+}
+
+export async function clearAdminFlowRunsForActor(input: {
+  actor: CliConnectionActorScope
+  mode?: ClearAdminFlowRunsMode
+}): Promise<ClearAdminFlowRunsResult> {
+  const mode = input.mode || 'completed'
+  const visibleConnections = await getVisibleConnections(input.actor)
+  const visibleConnectionIds = Array.from(visibleConnections.byId.keys())
+  const visibleWorkerIds = Array.from(visibleConnections.byWorkerId.keys())
+  const connectionFilter = visibleConnectionIds.length
+    ? inArray(flowTasks.cliConnectionId, visibleConnectionIds)
+    : null
+  const workerFilter = visibleWorkerIds.length
+    ? inArray(flowTasks.workerId, visibleWorkerIds)
+    : null
+  const where =
+    connectionFilter && workerFilter
+      ? or(connectionFilter, workerFilter)
+      : connectionFilter || workerFilter
+
+  if (!where) {
+    return {
+      deletedCount: 0,
+      preservedCount: 0,
+      totalVisibleCount: 0,
+    }
+  }
+
+  const visibleTasks = await getDb().query.flowTasks.findMany({
+    where,
+  })
+  const deletableTaskIds =
+    mode === 'all'
+      ? visibleTasks.map((task) => task.id)
+      : visibleTasks
+          .filter((task) => CLEARABLE_FLOW_TASK_STATUSES.has(task.status))
+          .map((task) => task.id)
+
+  if (!deletableTaskIds.length) {
+    return {
+      deletedCount: 0,
+      preservedCount: visibleTasks.length,
+      totalVisibleCount: visibleTasks.length,
+    }
+  }
+
+  const deletedTasks = await getDb()
+    .delete(flowTasks)
+    .where(inArray(flowTasks.id, deletableTaskIds))
+    .returning()
+
+  return {
+    deletedCount: deletedTasks.length,
+    preservedCount: Math.max(visibleTasks.length - deletedTasks.length, 0),
+    totalVisibleCount: visibleTasks.length,
   }
 }

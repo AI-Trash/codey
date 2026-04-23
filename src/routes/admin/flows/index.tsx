@@ -8,6 +8,7 @@ import {
   CalendarIcon,
   SearchIcon,
   ShieldIcon,
+  Trash2Icon,
   UserRoundIcon,
 } from 'lucide-react'
 
@@ -28,6 +29,16 @@ import {
   AdminTableSelectionHead,
 } from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '#/components/ui/alert-dialog'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
@@ -52,6 +63,20 @@ import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
 const FLOW_PAGE_POLL_INTERVAL_MS = 5_000
+
+type ClearFlowRunsMode = 'completed' | 'all'
+
+type ClearFlowRunsResponse = {
+  deletedCount: number
+  preservedCount: number
+  totalVisibleCount: number
+}
+
+type FlowPageFlash = {
+  kind: 'success' | 'error'
+  title: string
+  description: string
+}
 
 const loadAdminFlowRuns = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -107,6 +132,9 @@ function AdminFlowsPage() {
       },
   )
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
+  const [clearMode, setClearMode] = useState<ClearFlowRunsMode | null>(null)
+  const [flash, setFlash] = useState<FlowPageFlash | null>(null)
 
   useEffect(() => {
     if (!authorizedSnapshot) {
@@ -143,6 +171,106 @@ function AdminFlowsPage() {
       })
     } finally {
       setIsRefreshing(false)
+    }
+  }
+
+  async function clearFlowRuns(mode: ClearFlowRunsMode) {
+    setIsClearing(true)
+    setFlash(null)
+
+    try {
+      const response = await fetch(`/api/admin/flows?mode=${mode}`, {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const message = (await response.text()).trim()
+        throw new Error(
+          message ||
+            (mode === 'all'
+              ? m.admin_flow_force_clear_error()
+              : m.admin_flow_clear_error()),
+        )
+      }
+
+      const result = (await response.json()) as ClearFlowRunsResponse
+      startTransition(() => {
+        setSnapshot((current) => ({
+          ...current,
+          snapshotAt: new Date().toISOString(),
+          tasks:
+            mode === 'all'
+              ? []
+              : current.tasks.filter(
+                  (task) => !isClearableFlowTaskStatus(task.status),
+                ),
+        }))
+      })
+      setClearMode(null)
+
+      if (mode === 'all') {
+        setFlash({
+          kind: 'success',
+          title: m.status_success(),
+          description:
+            result.deletedCount > 0
+              ? m.admin_flow_force_clear_success({
+                  count: String(result.deletedCount),
+                })
+              : m.admin_flow_force_clear_empty(),
+        })
+        return
+      }
+
+      if (result.deletedCount > 0 && result.preservedCount > 0) {
+        setFlash({
+          kind: 'success',
+          title: m.status_success(),
+          description: m.admin_flow_clear_success_partial({
+            count: String(result.deletedCount),
+            preserved: String(result.preservedCount),
+          }),
+        })
+        return
+      }
+
+      if (result.deletedCount > 0) {
+        setFlash({
+          kind: 'success',
+          title: m.status_success(),
+          description: m.admin_flow_clear_success({
+            count: String(result.deletedCount),
+          }),
+        })
+        return
+      }
+
+      setFlash({
+        kind: 'success',
+        title: m.status_success(),
+        description:
+          result.preservedCount > 0
+            ? m.admin_flow_clear_pending_only({
+                count: String(result.preservedCount),
+              })
+            : m.admin_flow_clear_empty(),
+      })
+    } catch (error) {
+      setFlash({
+        kind: 'error',
+        title: m.status_failed(),
+        description:
+          error instanceof Error
+            ? error.message
+            : mode === 'all'
+              ? m.admin_flow_force_clear_error()
+              : m.admin_flow_clear_error(),
+      })
+    } finally {
+      setIsClearing(false)
     }
   }
 
@@ -252,6 +380,10 @@ function AdminFlowsPage() {
         .build(),
     ] as const
   }, [locale])
+  const hasTasks = snapshot.tasks.length > 0
+  const hasCompletedTasks = snapshot.tasks.some((task) =>
+    isClearableFlowTaskStatus(task.status),
+  )
 
   if (!data.authorized) {
     return <AdminAuthRequired />
@@ -282,15 +414,51 @@ function AdminFlowsPage() {
               type="button"
               variant="outline"
               onClick={() => {
+                setFlash(null)
                 void refreshSnapshot()
               }}
               disabled={isRefreshing}
             >
               {isRefreshing ? m.status_refreshing() : m.admin_flow_refresh()}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isClearing || !hasCompletedTasks}
+              onClick={() => {
+                setFlash(null)
+                setClearMode('completed')
+              }}
+            >
+              <Trash2Icon />
+              {isClearing
+                ? m.admin_flow_clear_pending()
+                : m.admin_flow_clear_button()}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isClearing || !hasTasks}
+              onClick={() => {
+                setFlash(null)
+                setClearMode('all')
+              }}
+            >
+              <Trash2Icon />
+              {isClearing
+                ? m.admin_flow_force_clear_pending()
+                : m.admin_flow_force_clear_button()}
+            </Button>
           </>
         }
       />
+
+      {flash ? (
+        <Alert variant={flash.kind === 'error' ? 'destructive' : undefined}>
+          <AlertTitle>{flash.title}</AlertTitle>
+          <AlertDescription>{flash.description}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CardHeader>
@@ -406,8 +574,61 @@ function AdminFlowsPage() {
           />
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={Boolean(clearMode)}
+        onOpenChange={(open) => {
+          if (!isClearing && !open) {
+            setClearMode(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {clearMode === 'all'
+                ? m.admin_flow_force_clear_confirm_title()
+                : m.admin_flow_clear_confirm_title()}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {clearMode === 'all'
+                ? m.admin_flow_force_clear_confirm_description()
+                : m.admin_flow_clear_confirm_description()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClearing}>
+              {m.ui_close()}
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isClearing || !clearMode}
+              onClick={() => {
+                if (!clearMode) {
+                  return
+                }
+
+                void clearFlowRuns(clearMode)
+              }}
+            >
+              {clearMode === 'all'
+                ? isClearing
+                  ? m.admin_flow_force_clear_pending()
+                  : m.admin_flow_force_clear_button()
+                : isClearing
+                  ? m.admin_flow_clear_pending()
+                  : m.admin_flow_clear_button()}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
+}
+
+function isClearableFlowTaskStatus(status: string) {
+  return status === 'SUCCEEDED' || status === 'FAILED' || status === 'CANCELED'
 }
 
 function normalizeDate(value?: string | null) {
