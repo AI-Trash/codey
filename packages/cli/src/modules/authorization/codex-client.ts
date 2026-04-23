@@ -1,9 +1,14 @@
 import { spawn } from 'child_process'
+import type { APIRequestContext, APIResponse } from 'patchright'
 import {
   buildAuthorizationUrl,
   waitForAuthorizationCode,
 } from './codex-authorization'
-import { fetchWithHarCapture, type NodeHarRecorder } from './har-recorder'
+import {
+  fetchWithApiRequestHarCapture,
+  fetchWithHarCapture,
+  type NodeHarRecorder,
+} from './har-recorder'
 
 interface CodexJsonErrorPayload {
   error?: unknown
@@ -86,9 +91,7 @@ function normalizeCodexErrorValue(
   ].filter((entry): entry is string => Boolean(entry))
 
   if (primary && extras.length > 0) {
-    const suffix = extras
-      .filter((entry) => !primary.includes(entry))
-      .join(', ')
+    const suffix = extras.filter((entry) => !primary.includes(entry)).join(', ')
     return suffix ? `${primary} (${suffix})` : primary
   }
 
@@ -109,7 +112,7 @@ function readCodexErrorMessage(
 }
 
 async function parseCodexTokenPayload(
-  response: Response,
+  response: Response | APIResponse,
 ): Promise<CodexTokenPayload> {
   const body = await response.text()
   if (!body) {
@@ -119,8 +122,11 @@ async function parseCodexTokenPayload(
   try {
     return JSON.parse(body) as CodexTokenPayload
   } catch {
-    if (!response.ok) {
-      throw new Error(body.trim() || `Codex token exchange failed (${response.status}).`)
+    if (!isSuccessfulCodexResponse(response)) {
+      throw new Error(
+        body.trim() ||
+          `Codex token exchange failed (${getCodexResponseStatus(response)}).`,
+      )
     }
 
     throw new Error('Expected a JSON response from the Codex OAuth provider.')
@@ -147,7 +153,9 @@ function mapCodexTokenResponse(
   tokenPayload: CodexTokenPayload,
 ): CodexTokenResponse {
   if (!tokenPayload.access_token) {
-    throw new Error(readCodexErrorMessage(tokenPayload, 'Codex token exchange failed.'))
+    throw new Error(
+      readCodexErrorMessage(tokenPayload, 'Codex token exchange failed.'),
+    )
   }
 
   return {
@@ -158,6 +166,20 @@ function mapCodexTokenResponse(
     tokenType: tokenPayload.token_type,
     createdAt: new Date().toISOString(),
   }
+}
+
+function isApiResponse(
+  response: Response | APIResponse,
+): response is APIResponse {
+  return typeof (response as APIResponse).status === 'function'
+}
+
+function getCodexResponseStatus(response: Response | APIResponse): number {
+  return isApiResponse(response) ? response.status() : response.status
+}
+
+function isSuccessfulCodexResponse(response: Response | APIResponse): boolean {
+  return isApiResponse(response) ? response.ok() : response.ok
 }
 
 export function startCodexAuthorization(input: {
@@ -215,36 +237,56 @@ export async function exchangeCodexAuthorizationCode(input: {
   redirectUri: string
   codeVerifier?: string
   harRecorder?: NodeHarRecorder
+  requestContext?: APIRequestContext
 }): Promise<CodexTokenResponse> {
-  const response = await fetchWithHarCapture(
-    input.harRecorder,
-    input.tokenUrl,
-    {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: input.code,
-        redirect_uri: input.redirectUri,
-        client_id: input.clientId,
-        ...(input.clientSecret ? { client_secret: input.clientSecret } : {}),
-        ...(input.codeVerifier ? { code_verifier: input.codeVerifier } : {}),
-      }),
-    },
-    {
-      comment: 'Codex OAuth token exchange',
-    },
-  )
+  const form = {
+    grant_type: 'authorization_code',
+    code: input.code,
+    redirect_uri: input.redirectUri,
+    client_id: input.clientId,
+    ...(input.clientSecret ? { client_secret: input.clientSecret } : {}),
+    ...(input.codeVerifier ? { code_verifier: input.codeVerifier } : {}),
+  } satisfies Record<string, string>
+
+  const response = input.requestContext
+    ? await fetchWithApiRequestHarCapture(
+        input.harRecorder,
+        input.requestContext,
+        input.tokenUrl,
+        {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          form,
+        },
+        {
+          comment: 'Codex OAuth token exchange',
+        },
+      )
+    : await fetchWithHarCapture(
+        input.harRecorder,
+        input.tokenUrl,
+        {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams(form),
+        },
+        {
+          comment: 'Codex OAuth token exchange',
+        },
+      )
 
   const tokenPayload = await parseCodexTokenPayload(response)
-  if (!response.ok) {
+  if (!isSuccessfulCodexResponse(response)) {
     throw new Error(
       readCodexErrorMessage(
         tokenPayload,
-        `Codex token exchange failed (${response.status}).`,
+        `Codex token exchange failed (${getCodexResponseStatus(response)}).`,
       ),
     )
   }

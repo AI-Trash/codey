@@ -1,4 +1,5 @@
 import path from 'path'
+import type { APIRequestContext, APIResponse } from 'patchright'
 import { getRuntimeConfig } from '../../config'
 import { writeFileAtomic } from '../../utils/fs'
 
@@ -301,6 +302,40 @@ async function buildHarResponse(response: Response): Promise<HarResponseEntry> {
   }
 }
 
+async function buildHarApiResponse(
+  response: APIResponse,
+): Promise<HarResponseEntry> {
+  const responseHeaders = response.headers()
+  const headers = serializeHeaders(responseHeaders)
+  const mimeType = responseHeaders['content-type'] || 'application/octet-stream'
+  const bodyBuffer = Buffer.from(await response.body())
+  const content: HarResponseContent = {
+    size: bodyBuffer.length,
+    mimeType,
+  }
+
+  if (bodyBuffer.length > 0) {
+    if (isTextMimeType(mimeType)) {
+      content.text = bodyBuffer.toString('utf8')
+    } else {
+      content.text = bodyBuffer.toString('base64')
+      content.encoding = 'base64'
+    }
+  }
+
+  return {
+    status: response.status(),
+    statusText: response.statusText(),
+    httpVersion: 'HTTP/1.1',
+    cookies: [],
+    headers,
+    content,
+    redirectURL: responseHeaders.location || '',
+    headersSize: -1,
+    bodySize: bodyBuffer.length,
+  }
+}
+
 export function createNodeHarRecorder(
   artifactName?: string,
 ): NodeHarRecorder | undefined {
@@ -361,6 +396,110 @@ export async function fetchWithHarCapture(
       time: Date.now() - startedAt,
       request,
       response: await buildHarResponse(response),
+      cache: {},
+      timings: {
+        blocked: 0,
+        dns: -1,
+        connect: -1,
+        send: 0,
+        wait: Date.now() - startedAt,
+        receive: 0,
+        ssl: -1,
+      },
+      comment: options.comment,
+    })
+    return response
+  } catch (error) {
+    recorder.record({
+      startedDateTime,
+      time: Date.now() - startedAt,
+      request,
+      response: createEmptyHarResponse(
+        error instanceof Error ? error.message : String(error),
+      ),
+      cache: {},
+      timings: {
+        blocked: 0,
+        dns: -1,
+        connect: -1,
+        send: 0,
+        wait: Date.now() - startedAt,
+        receive: 0,
+        ssl: -1,
+      },
+      comment: options.comment,
+    })
+    throw error
+  }
+}
+
+export async function fetchWithApiRequestHarCapture(
+  recorder: NodeHarRecorder | undefined,
+  requestContext: APIRequestContext,
+  input: string | URL,
+  init?: {
+    method?: string
+    headers?: Record<string, string>
+    form?: Record<string, string | number | boolean> | FormData
+    ignoreHTTPSErrors?: boolean
+    maxRedirects?: number
+    maxRetries?: number
+    timeout?: number
+  },
+  options: {
+    comment?: string
+  } = {},
+): Promise<APIResponse> {
+  const url = typeof input === 'string' ? input : input.toString()
+  const harBody =
+    init?.form instanceof FormData
+      ? init.form
+      : init?.form
+        ? new URLSearchParams(
+            Object.entries(init.form).map(([name, value]) => [
+              name,
+              String(value),
+            ]),
+          )
+        : undefined
+
+  if (!recorder) {
+    return requestContext.fetch(url, {
+      method: init?.method,
+      headers: init?.headers,
+      form: init?.form,
+      ignoreHTTPSErrors: init?.ignoreHTTPSErrors,
+      maxRedirects: init?.maxRedirects,
+      maxRetries: init?.maxRetries,
+      timeout: init?.timeout,
+      failOnStatusCode: false,
+    })
+  }
+
+  const startedDateTime = new Date().toISOString()
+  const request = await buildHarRequest(url, {
+    method: init?.method,
+    headers: init?.headers,
+    body: harBody,
+  })
+  const startedAt = Date.now()
+
+  try {
+    const response = await requestContext.fetch(url, {
+      method: init?.method,
+      headers: init?.headers,
+      form: init?.form,
+      ignoreHTTPSErrors: init?.ignoreHTTPSErrors,
+      maxRedirects: init?.maxRedirects,
+      maxRetries: init?.maxRetries,
+      timeout: init?.timeout,
+      failOnStatusCode: false,
+    })
+    recorder.record({
+      startedDateTime,
+      time: Date.now() - startedAt,
+      request,
+      response: await buildHarApiResponse(response),
       cache: {},
       timings: {
         blocked: 0,

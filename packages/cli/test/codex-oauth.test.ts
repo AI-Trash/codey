@@ -281,7 +281,11 @@ describe('runCodexOAuthFlow', () => {
       createdAt: '2026-04-17T00:00:00.000Z',
     })
 
+    const requestContext = { fetch: vi.fn() }
     const page = {
+      context: vi.fn(() => ({
+        request: requestContext,
+      })),
       goto: vi.fn(async (url: string) => {
         currentUrl = url
       }),
@@ -338,6 +342,7 @@ describe('runCodexOAuthFlow', () => {
         code: 'oauth-code',
         redirectUri: 'http://localhost:1455/auth/callback',
         codeVerifier: 'oauth-code-verifier',
+        requestContext,
       }),
     )
     expect(result).toMatchObject({

@@ -240,7 +240,7 @@ When the selected ChatGPT identity is linked to a stored workspace in Codey, `fl
 
 When you run `flow codex-oauth --har true`, the CLI now keeps the browser open by default so the normal browser HAR is flushed when you close the browser window. Pass `--record false` if you want the browser to close automatically after the flow finishes.
 
-When `--har true` is enabled, the browser HAR still captures the in-browser OAuth navigation, and `codex-oauth` also writes a separate `*-flow-codex-oauth-api.har` sidecar under `artifacts/` for the token exchange that runs outside the browser context.
+When `--har true` is enabled, the browser HAR still captures the in-browser OAuth navigation, and `codex-oauth` also writes a separate `*-flow-codex-oauth-api.har` sidecar under `artifacts/` for the token exchange request made through Patchright's browser-context API client.
 
 Built-in OpenAI defaults are used for Codex OAuth, so these overrides are optional:
 

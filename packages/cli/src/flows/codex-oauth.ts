@@ -1,4 +1,4 @@
-import type { Page } from 'patchright'
+import type { APIRequestContext, Page } from 'patchright'
 import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
 import {
@@ -124,6 +124,14 @@ function sanitizeUrl(value: string): string {
   } catch {
     return value
   }
+}
+
+function resolvePageRequestContext(page: Page): APIRequestContext | undefined {
+  if (typeof page.context !== 'function') {
+    return undefined
+  }
+
+  return page.context().request
 }
 
 export interface CodexOAuthFlowContext<Result = unknown> {
@@ -1254,12 +1262,12 @@ async function resolveCodexOAuthNextStep(
               try {
                 const selectedWorkspaceId =
                   await completeCodexOAuthWorkspaceSelection(
-                  page,
-                  machine,
-                  options,
-                  redirectUri,
-                  preferredWorkspaceId,
-                )
+                    page,
+                    machine,
+                    options,
+                    redirectUri,
+                    preferredWorkspaceId,
+                  )
                 onSelectedWorkspaceId?.(selectedWorkspaceId)
               } catch (error) {
                 const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
@@ -1766,6 +1774,7 @@ export async function runCodexOAuthFlow(
       redirectUri: started.redirectUri,
       codeVerifier: started.codeVerifier,
       harRecorder: apiHarRecorder,
+      requestContext: resolvePageRequestContext(page),
     })
 
     await sendCodexOAuthMachine(

@@ -52,6 +52,52 @@ describe('startCodexAuthorization', () => {
 })
 
 describe('exchangeCodexAuthorizationCode', () => {
+  it('prefers a Patchright API request context over node fetch', async () => {
+    const requestContext = {
+      fetch: vi.fn(async () => ({
+        ok: () => true,
+        status: () => 200,
+        statusText: () => 'OK',
+        text: async () =>
+          JSON.stringify({
+            access_token: 'access-token',
+            refresh_token: 'refresh-token',
+            expires_in: 3600,
+            scope: 'openid profile email offline_access',
+            token_type: 'Bearer',
+          }),
+      })),
+    }
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+
+    await expect(
+      exchangeCodexAuthorizationCode({
+        tokenUrl: 'https://auth.openai.com/oauth/token',
+        clientId: 'codex-client-id',
+        code: 'oauth-code',
+        redirectUri: 'http://localhost:1455/auth/callback',
+        codeVerifier: 'verifier',
+        requestContext: requestContext as never,
+      }),
+    ).resolves.toMatchObject({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresIn: 3600,
+      scope: 'openid profile email offline_access',
+      tokenType: 'Bearer',
+    })
+
+    expect(requestContext.fetch).toHaveBeenCalledWith(
+      'https://auth.openai.com/oauth/token',
+      expect.objectContaining({
+        method: 'POST',
+        failOnStatusCode: false,
+      }),
+    )
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('surfaces nested OAuth error objects as readable messages', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(

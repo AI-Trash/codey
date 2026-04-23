@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setRuntimeConfig, type CliRuntimeConfig } from '../src/config'
 import {
   createNodeHarRecorder,
+  fetchWithApiRequestHarCapture,
   fetchWithHarCapture,
 } from '../src/modules/authorization/har-recorder'
 
@@ -76,6 +77,89 @@ describe('authorization HAR capture', () => {
     )
 
     expect(response.status).toBe(200)
+    expect(fs.existsSync(recorder!.path)).toBe(true)
+
+    const har = JSON.parse(fs.readFileSync(recorder!.path, 'utf8')) as {
+      log: {
+        entries: Array<Record<string, unknown>>
+      }
+    }
+    expect(har.log.entries).toHaveLength(1)
+    expect(har.log.entries[0]).toMatchObject({
+      comment: 'Codex OAuth token exchange',
+      request: {
+        method: 'POST',
+        url: 'https://auth.openai.com/oauth/token?audience=codex',
+      },
+      response: {
+        status: 200,
+      },
+    })
+
+    const request = har.log.entries[0].request as {
+      postData?: {
+        text?: string
+      }
+    }
+    expect(request.postData?.text).toContain('code=oauth-code')
+  })
+
+  it('records Patchright API requests into the sidecar HAR file', async () => {
+    const rootDir = path.join(tempRoot, 'patchright')
+    setRuntimeConfig(createConfig(rootDir, true))
+
+    const recorder = createNodeHarRecorder('flow-codex-oauth-api')
+    expect(recorder).toBeDefined()
+
+    const requestContext = {
+      fetch: vi.fn(async () => ({
+        body: async () =>
+          Buffer.from(
+            JSON.stringify({
+              access_token: 'access-token',
+            }),
+          ),
+        headers: () => ({
+          'content-type': 'application/json; charset=utf-8',
+        }),
+        ok: () => true,
+        status: () => 200,
+        statusText: () => 'OK',
+        text: async () =>
+          JSON.stringify({
+            access_token: 'access-token',
+          }),
+        url: () => 'https://auth.openai.com/oauth/token',
+      })),
+    }
+
+    const response = await fetchWithApiRequestHarCapture(
+      recorder,
+      requestContext as never,
+      'https://auth.openai.com/oauth/token?audience=codex',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        form: {
+          code: 'oauth-code',
+          redirect_uri: 'http://localhost:1455/auth/callback',
+        },
+      },
+      {
+        comment: 'Codex OAuth token exchange',
+      },
+    )
+
+    expect(response.status()).toBe(200)
+    expect(requestContext.fetch).toHaveBeenCalledWith(
+      'https://auth.openai.com/oauth/token?audience=codex',
+      expect.objectContaining({
+        method: 'POST',
+        failOnStatusCode: false,
+      }),
+    )
     expect(fs.existsSync(recorder!.path)).toBe(true)
 
     const har = JSON.parse(fs.readFileSync(recorder!.path, 'utf8')) as {
