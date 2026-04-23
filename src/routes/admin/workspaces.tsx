@@ -4,6 +4,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
   CalendarIcon,
+  DownloadIcon,
   EyeIcon,
   PencilIcon,
   PlusIcon,
@@ -66,6 +67,7 @@ import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 
 const MAX_WORKSPACE_MEMBER_COUNT = 9
+const WORKSPACE_REFRESH_INTERVAL_MS = 10000
 
 const loadAdminWorkspaces = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -123,6 +125,7 @@ type WorkspaceIdentitySummary = {
   identityId: string
   email: string
   identityLabel: string
+  authorization: WorkspaceAuthorizationSummary
 }
 
 type WorkspaceMemberSummary = {
@@ -130,6 +133,19 @@ type WorkspaceMemberSummary = {
   email: string
   identityId?: string | null
   identityLabel?: string | null
+  authorization: WorkspaceAuthorizationSummary
+}
+
+type WorkspaceAuthorizationState =
+  | 'authorized'
+  | 'expired'
+  | 'revoked'
+  | 'missing'
+
+type WorkspaceAuthorizationSummary = {
+  state: WorkspaceAuthorizationState
+  expiresAt?: string | null
+  lastSeenAt?: string | null
 }
 
 type WorkspaceSummary = {
@@ -272,6 +288,136 @@ function filterIdentitySummaries(
 
 function getWorkspaceDisplayLabel(workspace?: WorkspaceSummary | null) {
   return workspace?.label || m.admin_workspace_unnamed_label()
+}
+
+function isWorkspaceAuthorized(
+  authorization?: WorkspaceAuthorizationSummary | null,
+) {
+  return authorization?.state === 'authorized'
+}
+
+function getWorkspaceAuthorizationLabel(
+  authorization?: WorkspaceAuthorizationSummary | null,
+) {
+  const state = authorization?.state || 'missing'
+
+  if (state === 'authorized') {
+    return m.admin_workspace_authorization_authorized()
+  }
+
+  if (state === 'expired') {
+    return m.admin_workspace_authorization_expired()
+  }
+
+  if (state === 'revoked') {
+    return m.admin_workspace_authorization_revoked()
+  }
+
+  return m.admin_workspace_authorization_missing()
+}
+
+function getWorkspaceAuthorizationBadgeClassName(
+  authorization?: WorkspaceAuthorizationSummary | null,
+) {
+  const state = authorization?.state || 'missing'
+
+  if (state === 'authorized') {
+    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+  }
+
+  if (state === 'expired') {
+    return 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+  }
+
+  if (state === 'revoked') {
+    return 'border-rose-500/30 bg-rose-500/10 text-rose-700'
+  }
+
+  return 'border-muted-foreground/20 bg-muted/40 text-muted-foreground'
+}
+
+function WorkspaceAuthorizationBadge(props: {
+  authorization?: WorkspaceAuthorizationSummary | null
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'border px-2.5 py-1 text-xs font-medium',
+        getWorkspaceAuthorizationBadgeClassName(props.authorization),
+      )}
+    >
+      {getWorkspaceAuthorizationLabel(props.authorization)}
+    </Badge>
+  )
+}
+
+function escapeCsvValue(value: string) {
+  const normalizedValue = value.replaceAll('"', '""')
+  return /[",\r\n]/.test(normalizedValue)
+    ? `"${normalizedValue}"`
+    : normalizedValue
+}
+
+function normalizeDownloadEmails(values: Iterable<string>): string[] {
+  const dedupedEmails = new Set<string>()
+  const emails: string[] = []
+
+  for (const value of values) {
+    const email = value.trim()
+    if (!email) {
+      continue
+    }
+
+    const dedupeKey = email.toLowerCase()
+    if (dedupedEmails.has(dedupeKey)) {
+      continue
+    }
+
+    dedupedEmails.add(dedupeKey)
+    emails.push(email)
+  }
+
+  return emails
+}
+
+function toDownloadSlug(value: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return normalized || 'workspace'
+}
+
+function downloadWorkspaceEmailsCsv(params: {
+  workspace: WorkspaceSummary
+  values: string[]
+  fileSuffix: 'owner-and-members' | 'members'
+}): number {
+  const emails = normalizeDownloadEmails(params.values)
+  const rows = ['email', ...emails.map((value) => escapeCsvValue(value))]
+  const blob = new Blob([`${rows.join('\n')}\n`], {
+    type: 'text/csv;charset=utf-8',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  const slug = toDownloadSlug(
+    params.workspace.label || params.workspace.workspaceId || 'workspace',
+  )
+
+  link.href = url
+  link.download = `${slug}-${params.fileSuffix}-emails.csv`
+  link.style.display = 'none'
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url)
+  }, 0)
+
+  return emails.length
 }
 
 async function readResponseError(response: Response): Promise<string> {
@@ -848,8 +994,24 @@ function WorkspaceDetailDialog(props: {
     setLocalFlash(null)
   }, [props.open, props.workspace?.id])
 
+  function publishFlash(flash: FlashMessage) {
+    setLocalFlash(flash)
+    props.onFlash(flash)
+  }
+
   async function handleInvite(memberIds?: string[]) {
     if (!props.workspace) {
+      return
+    }
+
+    const requestedMemberIds =
+      memberIds?.length
+        ? memberIds
+        : props.workspace.members
+            .filter((member) => !isWorkspaceAuthorized(member.authorization))
+            .map((member) => member.id)
+
+    if (!requestedMemberIds.length) {
       return
     }
 
@@ -858,7 +1020,10 @@ function WorkspaceDetailDialog(props: {
     setLocalFlash(null)
 
     try {
-      const result = await dispatchWorkspaceInvite(props.workspace.id, memberIds)
+      const result = await dispatchWorkspaceInvite(
+        props.workspace.id,
+        requestedMemberIds,
+      )
       const flash: FlashMessage =
         result.mode === 'dispatch'
           ? {
@@ -875,8 +1040,7 @@ function WorkspaceDetailDialog(props: {
               }),
             }
 
-      setLocalFlash(flash)
-      props.onFlash(flash)
+      publishFlash(flash)
     } catch (error) {
       const flash = {
         kind: 'error' as const,
@@ -886,17 +1050,66 @@ function WorkspaceDetailDialog(props: {
             : m.admin_workspace_invite_error_fallback(),
       }
 
-      setLocalFlash(flash)
-      props.onFlash(flash)
+      publishFlash(flash)
     } finally {
       setInviteActionKey(null)
     }
   }
 
+  function handleDownloadEmails(
+    mode: 'owner-and-members' | 'members',
+    values: string[],
+  ) {
+    if (!props.workspace) {
+      return
+    }
+
+    setLocalFlash(null)
+
+    try {
+      const count = downloadWorkspaceEmailsCsv({
+        workspace: props.workspace,
+        values,
+        fileSuffix: mode,
+      })
+
+      publishFlash({
+        kind: 'success',
+        message:
+          mode === 'owner-and-members'
+            ? m.admin_workspace_download_owner_and_members_success({
+                count: String(count),
+              })
+            : m.admin_workspace_download_members_success({
+                count: String(count),
+              }),
+      })
+    } catch {
+      publishFlash({
+        kind: 'error',
+        message:
+          mode === 'owner-and-members'
+            ? m.admin_workspace_download_owner_and_members_error()
+            : m.admin_workspace_download_members_error(),
+      })
+    }
+  }
+
+  const ownerAndMemberEmails = normalizeDownloadEmails([
+    props.workspace?.owner?.email || '',
+    ...(props.workspace?.members.map((member) => member.email) || []),
+  ])
+  const memberEmails = normalizeDownloadEmails(
+    props.workspace?.members.map((member) => member.email) || [],
+  )
+  const inviteableMembers =
+    props.workspace?.members.filter(
+      (member) => !isWorkspaceAuthorized(member.authorization),
+    ) || []
   const canInviteAll =
     props.canDispatchInvites &&
     Boolean(props.workspace?.owner?.identityId) &&
-    Boolean(props.workspace?.members.length)
+    Boolean(inviteableMembers.length)
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -974,8 +1187,13 @@ function WorkspaceDetailDialog(props: {
                 <CardContent>
                   {props.workspace.owner ? (
                     <div className="space-y-2">
-                      <div className="font-medium text-foreground">
-                        {props.workspace.owner.identityLabel}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="font-medium text-foreground">
+                          {props.workspace.owner.identityLabel}
+                        </div>
+                        <WorkspaceAuthorizationBadge
+                          authorization={props.workspace.owner.authorization}
+                        />
                       </div>
                       <CopyableValue
                         value={props.workspace.owner.email}
@@ -988,6 +1206,17 @@ function WorkspaceDetailDialog(props: {
                         className="max-w-full text-sm text-muted-foreground"
                         contentClassName="break-all"
                       />
+                      {props.workspace.owner.authorization.lastSeenAt ? (
+                        <div className="text-xs text-muted-foreground">
+                          {m.admin_workspace_authorization_last_seen({
+                            time:
+                              formatAdminDate(
+                                props.workspace.owner.authorization.lastSeenAt,
+                              ) ||
+                              props.workspace.owner.authorization.lastSeenAt,
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
@@ -1011,17 +1240,49 @@ function WorkspaceDetailDialog(props: {
                       })}
                     </CardTitle>
                   </div>
-                  <Button
-                    type="button"
-                    disabled={!canInviteAll || inviteActionKey !== null}
-                    onClick={() => {
-                      void handleInvite()
-                    }}
-                  >
-                    {inviteActionKey === 'all'
-                      ? m.admin_workspace_invite_running()
-                      : m.admin_workspace_invite_all_button()}
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!ownerAndMemberEmails.length}
+                      onClick={() => {
+                        handleDownloadEmails(
+                          'owner-and-members',
+                          ownerAndMemberEmails,
+                        )
+                      }}
+                    >
+                      <DownloadIcon />
+                      {m.admin_workspace_download_owner_and_members_button()}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!memberEmails.length}
+                      onClick={() => {
+                        handleDownloadEmails('members', memberEmails)
+                      }}
+                    >
+                      <DownloadIcon />
+                      {m.admin_workspace_download_members_button()}
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={!canInviteAll || inviteActionKey !== null}
+                      onClick={() => {
+                        void handleInvite()
+                      }}
+                    >
+                      {inviteActionKey === 'all'
+                        ? m.admin_workspace_invite_running()
+                        : inviteableMembers.length === 0
+                          ? m.admin_workspace_invite_all_authorized_button()
+                          : inviteableMembers.length ===
+                              (props.workspace?.members.length || 0)
+                            ? m.admin_workspace_invite_all_button()
+                            : m.admin_workspace_invite_remaining_button()}
+                    </Button>
+                  </div>
                 </div>
                 {!props.canDispatchInvites ? (
                   <p className="text-sm text-muted-foreground">
@@ -1034,6 +1295,10 @@ function WorkspaceDetailDialog(props: {
                 ) : !props.workspace.members.length ? (
                   <p className="text-sm text-muted-foreground">
                     {m.admin_workspace_invite_requires_members()}
+                  </p>
+                ) : !inviteableMembers.length ? (
+                  <p className="text-sm text-muted-foreground">
+                    {m.admin_workspace_invite_all_authorized_hint()}
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
@@ -1050,8 +1315,13 @@ function WorkspaceDetailDialog(props: {
                         className="flex flex-col gap-3 rounded-lg border p-4 lg:flex-row lg:items-center lg:justify-between"
                       >
                         <div className="min-w-0 space-y-1">
-                          <div className="font-medium text-foreground">
-                            {member.identityLabel || member.email}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="font-medium text-foreground">
+                              {member.identityLabel || member.email}
+                            </div>
+                            <WorkspaceAuthorizationBadge
+                              authorization={member.authorization}
+                            />
                           </div>
                           <div className="text-sm text-muted-foreground">
                             {member.email}
@@ -1064,19 +1334,34 @@ function WorkspaceDetailDialog(props: {
                               contentClassName="break-all"
                             />
                           ) : null}
+                          {member.authorization.lastSeenAt ? (
+                            <div className="text-xs text-muted-foreground">
+                              {m.admin_workspace_authorization_last_seen({
+                                time:
+                                  formatAdminDate(member.authorization.lastSeenAt) ||
+                                  member.authorization.lastSeenAt,
+                              })}
+                            </div>
+                          ) : null}
                         </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={!canInviteAll || inviteActionKey !== null}
-                          onClick={() => {
-                            void handleInvite([member.id])
-                          }}
-                        >
-                          {inviteActionKey === member.id
-                            ? m.admin_workspace_invite_running()
-                            : m.admin_workspace_invite_member_button()}
-                        </Button>
+                        {isWorkspaceAuthorized(member.authorization) ? (
+                          <Button type="button" variant="secondary" disabled>
+                            {m.admin_workspace_authorization_authorized_button()}
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={!canInviteAll || inviteActionKey !== null}
+                            onClick={() => {
+                              void handleInvite([member.id])
+                            }}
+                          >
+                            {inviteActionKey === member.id
+                              ? m.admin_workspace_invite_running()
+                              : m.admin_workspace_invite_member_button()}
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1139,6 +1424,50 @@ function AdminWorkspacesPage() {
       setWorkspaces(sortWorkspaceSummaries(data.workspaces as WorkspaceSummary[]))
     }
   }, [data])
+
+  useEffect(() => {
+    if (!data.authorized) {
+      return
+    }
+
+    let active = true
+
+    async function refreshWorkspaces() {
+      const next = await loadAdminWorkspaces()
+      if (!active || !next.authorized) {
+        return
+      }
+
+      setWorkspaces(sortWorkspaceSummaries(next.workspaces as WorkspaceSummary[]))
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshWorkspaces()
+    }, WORKSPACE_REFRESH_INTERVAL_MS)
+
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [data.authorized])
+
+  useEffect(() => {
+    if (!detailsTarget) {
+      return
+    }
+
+    const nextDetailsTarget =
+      workspaces.find((workspace) => workspace.id === detailsTarget.id) || null
+
+    if (!nextDetailsTarget) {
+      setDetailsTarget(null)
+      return
+    }
+
+    if (nextDetailsTarget !== detailsTarget) {
+      setDetailsTarget(nextDetailsTarget)
+    }
+  }, [detailsTarget, workspaces])
 
   const identitySummaries = 'identitySummaries' in data
     ? (data.identitySummaries as IdentitySummary[])
@@ -1252,6 +1581,9 @@ function AdminWorkspacesPage() {
                               <div className="text-sm text-muted-foreground">
                                 {workspace.owner.email}
                               </div>
+                              <WorkspaceAuthorizationBadge
+                                authorization={workspace.owner.authorization}
+                              />
                             </div>
                           ) : (
                             <span className="text-sm text-muted-foreground">

@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, notInArray, or } from 'drizzle-orm
 import { getDb } from './db/client'
 import {
   managedIdentities,
+  managedIdentitySessions,
   managedWorkspaceMembers,
   managedWorkspaces,
 } from './db/schema'
@@ -11,10 +12,23 @@ import { createId } from './security'
 
 const MAX_MANAGED_WORKSPACE_MEMBER_COUNT = 9
 
+export type ManagedWorkspaceAuthorizationState =
+  | 'authorized'
+  | 'expired'
+  | 'revoked'
+  | 'missing'
+
+export interface ManagedWorkspaceAuthorizationSummary {
+  state: ManagedWorkspaceAuthorizationState
+  expiresAt: string | null
+  lastSeenAt: string | null
+}
+
 export interface AdminManagedWorkspaceIdentitySummary {
   identityId: string
   email: string
   identityLabel: string
+  authorization: ManagedWorkspaceAuthorizationSummary
 }
 
 export interface AdminManagedWorkspaceMemberSummary {
@@ -22,6 +36,7 @@ export interface AdminManagedWorkspaceMemberSummary {
   email: string
   identityId: string | null
   identityLabel: string | null
+  authorization: ManagedWorkspaceAuthorizationSummary
 }
 
 export interface AdminManagedWorkspaceSummary {
@@ -47,6 +62,19 @@ interface ManagedIdentityLookupRow {
 interface WorkspaceMemberInput {
   identityId: string | null
   email: string
+}
+
+interface ManagedWorkspaceAuthorizationLookupRow {
+  identityId: string
+  status: 'ACTIVE' | 'REVOKED'
+  expiresAt: Date | null
+  lastSeenAt: Date
+}
+
+const DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY: ManagedWorkspaceAuthorizationSummary = {
+  state: 'missing',
+  expiresAt: null,
+  lastSeenAt: null,
 }
 
 function normalizeWorkspaceId(value: string): string {
@@ -101,6 +129,7 @@ function normalizeIdentityIds(values: Iterable<string>): string[] {
 
 function buildManagedWorkspaceIdentitySummary(
   identity?: ManagedIdentityLookupRow | null,
+  authorizationsByIdentityId: Map<string, ManagedWorkspaceAuthorizationSummary> = new Map(),
 ): AdminManagedWorkspaceIdentitySummary | null {
   if (!identity) {
     return null
@@ -110,7 +139,123 @@ function buildManagedWorkspaceIdentitySummary(
     identityId: identity.identityId,
     email: identity.email,
     identityLabel: identity.label || identity.email,
+    authorization:
+      authorizationsByIdentityId.get(identity.identityId) ||
+      DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY,
   }
+}
+
+function resolveManagedWorkspaceAuthorizationState(input: {
+  status: 'ACTIVE' | 'REVOKED'
+  expiresAt: Date | null
+}): ManagedWorkspaceAuthorizationState {
+  if (input.status === 'REVOKED') {
+    return 'revoked'
+  }
+
+  if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) {
+    return 'expired'
+  }
+
+  return 'authorized'
+}
+
+function getManagedWorkspaceAuthorizationPriority(
+  state: ManagedWorkspaceAuthorizationState,
+): number {
+  if (state === 'authorized') {
+    return 3
+  }
+
+  if (state === 'revoked') {
+    return 2
+  }
+
+  if (state === 'expired') {
+    return 1
+  }
+
+  return 0
+}
+
+function buildManagedWorkspaceAuthorizationSummary(
+  row: ManagedWorkspaceAuthorizationLookupRow,
+): ManagedWorkspaceAuthorizationSummary {
+  return {
+    state: resolveManagedWorkspaceAuthorizationState({
+      status: row.status,
+      expiresAt: row.expiresAt,
+    }),
+    expiresAt: row.expiresAt?.toISOString() || null,
+    lastSeenAt: row.lastSeenAt.toISOString(),
+  }
+}
+
+async function resolveManagedWorkspaceAuthorizations(
+  identityIds: Iterable<string>,
+): Promise<Map<string, ManagedWorkspaceAuthorizationSummary>> {
+  const normalizedIdentityIds = normalizeIdentityIds(identityIds)
+  if (!normalizedIdentityIds.length) {
+    return new Map()
+  }
+
+  const rows = await getDb().query.managedIdentitySessions.findMany({
+    where: and(
+      inArray(managedIdentitySessions.identityId, normalizedIdentityIds),
+      or(
+        eq(managedIdentitySessions.authMode, 'codex-oauth'),
+        eq(managedIdentitySessions.flowType, 'codex-oauth'),
+      ),
+    ),
+    columns: {
+      identityId: true,
+      status: true,
+      expiresAt: true,
+      lastSeenAt: true,
+    },
+    orderBy: [desc(managedIdentitySessions.lastSeenAt)],
+  })
+
+  const summaries = new Map<string, ManagedWorkspaceAuthorizationSummary>()
+
+  for (const row of rows) {
+    const nextSummary = buildManagedWorkspaceAuthorizationSummary(row)
+    const currentSummary = summaries.get(row.identityId)
+
+    if (!currentSummary) {
+      summaries.set(row.identityId, nextSummary)
+      continue
+    }
+
+    const currentPriority = getManagedWorkspaceAuthorizationPriority(
+      currentSummary.state,
+    )
+    const nextPriority = getManagedWorkspaceAuthorizationPriority(
+      nextSummary.state,
+    )
+
+    if (nextPriority > currentPriority) {
+      summaries.set(row.identityId, nextSummary)
+      continue
+    }
+
+    if (nextPriority < currentPriority) {
+      continue
+    }
+
+    const currentLastSeenAt = currentSummary.lastSeenAt
+      ? new Date(currentSummary.lastSeenAt).getTime()
+      : 0
+    const nextLastSeenAt = nextSummary.lastSeenAt
+      ? new Date(nextSummary.lastSeenAt).getTime()
+      : 0
+
+    if (nextLastSeenAt > currentLastSeenAt) {
+      summaries.set(row.identityId, nextSummary)
+    }
+  }
+
+  return summaries
 }
 
 function buildAdminManagedWorkspaceSummary(row: {
@@ -126,20 +271,29 @@ function buildAdminManagedWorkspaceSummary(row: {
     identityId: string | null
     identity?: ManagedIdentityLookupRow | null
   }>
-}): AdminManagedWorkspaceSummary {
+},
+authorizationsByIdentityId: Map<string, ManagedWorkspaceAuthorizationSummary>,
+): AdminManagedWorkspaceSummary {
   const members = row.members.map((member) => ({
     id: member.id,
     email: member.email,
     identityId: member.identityId,
     identityLabel:
       member.identity?.label || member.identity?.email || member.email,
+    authorization:
+      (member.identityId
+        ? authorizationsByIdentityId.get(member.identityId)
+        : null) || DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY,
   }))
 
   return {
     id: row.id,
     workspaceId: row.workspaceId,
     label: row.label,
-    owner: buildManagedWorkspaceIdentitySummary(row.ownerIdentity),
+    owner: buildManagedWorkspaceIdentitySummary(
+      row.ownerIdentity,
+      authorizationsByIdentityId,
+    ),
     memberCount: members.length,
     members,
     createdAt: row.createdAt.toISOString(),
@@ -434,7 +588,18 @@ export async function listAdminManagedWorkspaceSummaries(): Promise<
     orderBy: [desc(managedWorkspaces.updatedAt)],
   })
 
-  return rows.map((row) => buildAdminManagedWorkspaceSummary(row))
+  const authorizationsByIdentityId = await resolveManagedWorkspaceAuthorizations(
+    rows.flatMap((row) => [
+      ...(row.ownerIdentity?.identityId ? [row.ownerIdentity.identityId] : []),
+      ...row.members.flatMap((member) =>
+        member.identity?.identityId ? [member.identity.identityId] : [],
+      ),
+    ]),
+  )
+
+  return rows.map((row) =>
+    buildAdminManagedWorkspaceSummary(row, authorizationsByIdentityId),
+  )
 }
 
 export async function findAdminManagedWorkspaceSummary(
@@ -465,7 +630,18 @@ export async function findAdminManagedWorkspaceSummary(
     },
   })
 
-  return row ? buildAdminManagedWorkspaceSummary(row) : null
+  if (!row) {
+    return null
+  }
+
+  const authorizationsByIdentityId = await resolveManagedWorkspaceAuthorizations([
+    ...(row.ownerIdentity?.identityId ? [row.ownerIdentity.identityId] : []),
+    ...row.members.flatMap((member) =>
+      member.identity?.identityId ? [member.identity.identityId] : [],
+    ),
+  ])
+
+  return buildAdminManagedWorkspaceSummary(row, authorizationsByIdentityId)
 }
 
 export async function createManagedWorkspace(input: {
