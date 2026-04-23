@@ -34,6 +34,7 @@ export type ManagedSub2ApiService = {
   concurrency: number | null
   priority: number | null
   groupIds: number[]
+  autoFillRelatedModels: boolean
   confirmMixedChannelRisk: boolean
   updatedByUserId: string | null
   createdAt: string | Date | null
@@ -55,6 +56,7 @@ type Sub2ApiFormValues = {
   concurrency: string
   priority: string
   groupIds: string
+  autoFillRelatedModels: boolean
   confirmMixedChannelRisk: boolean
 }
 
@@ -101,6 +103,7 @@ export function ExternalServicesPageContent(props: {
           concurrency: parseOptionalIntegerInput(form.concurrency),
           priority: parseOptionalIntegerInput(form.priority),
           groupIds: parseGroupIds(form.groupIds),
+          autoFillRelatedModels: form.autoFillRelatedModels,
           confirmMixedChannelRisk: form.confirmMixedChannelRisk,
         }),
       })
@@ -318,7 +321,10 @@ export function ExternalServicesPageContent(props: {
               />
             </Field>
 
-            <Field label={m.external_services_field_concurrency()}>
+            <Field
+              label={m.external_services_field_default_concurrency()}
+              description={m.external_services_field_default_concurrency_description()}
+            >
               <Input
                 value={form.concurrency}
                 onChange={(event) => {
@@ -329,7 +335,10 @@ export function ExternalServicesPageContent(props: {
               />
             </Field>
 
-            <Field label={m.external_services_field_priority()}>
+            <Field
+              label={m.external_services_field_default_priority()}
+              description={m.external_services_field_default_priority_description()}
+            >
               <Input
                 value={form.priority}
                 onChange={(event) => {
@@ -356,6 +365,19 @@ export function ExternalServicesPageContent(props: {
           </div>
 
           <div className="grid gap-3 lg:grid-cols-2">
+            <CheckboxRow
+              checked={form.autoFillRelatedModels}
+              label={m.external_services_toggle_auto_fill_related_models_title()}
+              description={m.external_services_toggle_auto_fill_related_models_description()}
+              onCheckedChange={(checked) => {
+                setForm((current) => ({
+                  ...current,
+                  autoFillRelatedModels: checked,
+                }))
+              }}
+              disabled={saving}
+            />
+
             <CheckboxRow
               checked={form.enabled}
               label={m.external_services_toggle_enabled_title()}
@@ -464,6 +486,7 @@ function toSub2ApiFormValues(
     concurrency: service.concurrency == null ? '' : String(service.concurrency),
     priority: service.priority == null ? '' : String(service.priority),
     groupIds: service.groupIds.join(', '),
+    autoFillRelatedModels: service.autoFillRelatedModels,
     confirmMixedChannelRisk: service.confirmMixedChannelRisk,
   }
 }

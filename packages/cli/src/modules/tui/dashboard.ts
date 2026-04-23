@@ -997,7 +997,7 @@ export async function runTuiDashboard(input: {
               runtimeFlowCompletedAt: null,
             })
             syncRuntimeReporterState()
-            task.leaseReporter?.markRunning()
+            task.leaseReporter?.markRunning(task.message)
 
             const progressReporter: FlowProgressReporter = (update) => {
               if (flowSettled) {
@@ -1021,6 +1021,7 @@ export async function runTuiDashboard(input: {
                   runtimeFlowMessage: message,
                   runtimeFlowStartedAt: startedAt,
                 })
+                task.leaseReporter?.reportProgress(message)
               }
 
               syncRuntimeReporterState()
@@ -1070,6 +1071,7 @@ export async function runTuiDashboard(input: {
                 try {
                   await task.leaseReporter.complete({
                     status: 'SUCCEEDED',
+                    message: 'Flow completed',
                   })
                 } catch (error) {
                   logTaskLeaseError(
@@ -1109,6 +1111,7 @@ export async function runTuiDashboard(input: {
                   await task.leaseReporter.complete({
                     status: interrupted ? 'CANCELED' : 'FAILED',
                     error: interrupted ? undefined : sanitized.message,
+                    message: sanitized.message,
                   })
                 } catch (leaseError) {
                   logTaskLeaseError(
@@ -1185,6 +1188,7 @@ export async function runTuiDashboard(input: {
             await leaseReporter.complete({
               status: 'FAILED',
               error: 'Received malformed flow task payload.',
+              message: 'Received malformed flow task payload.',
             })
           } catch (error) {
             logTaskLeaseError(claimedTask.id, sanitizeErrorForOutput(error))
@@ -1207,6 +1211,7 @@ export async function runTuiDashboard(input: {
             void leaseReporter
               .complete({
                 status: 'CANCELED',
+                message: 'Flow canceled',
               })
               .catch((leaseError) => {
                 logTaskLeaseError(

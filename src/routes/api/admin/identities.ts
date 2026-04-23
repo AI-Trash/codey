@@ -9,23 +9,6 @@ import {
   updateManagedIdentity,
   upsertManagedIdentity,
 } from '../../../lib/server/identities'
-import {
-  applyManagedIdentityTagPatch,
-  parseManagedIdentityTagsInput,
-} from '../../../lib/managed-identity-tags'
-
-function readManagedIdentityPlan(
-  value: FormDataEntryValue | null,
-): 'free' | 'plus' | 'team' {
-  const normalized = String(value || 'free')
-    .trim()
-    .toLowerCase()
-  if (normalized === 'free' || normalized === 'plus' || normalized === 'team') {
-    return normalized
-  }
-
-  return 'free'
-}
 
 function readManagedIdentityStatus(
   value: FormDataEntryValue | null,
@@ -58,10 +41,6 @@ function readManagedIdentityIntent(value: FormDataEntryValue | null) {
     .toLowerCase()
 }
 
-function readManagedIdentityTags(value: FormDataEntryValue | null) {
-  return parseManagedIdentityTagsInput(String(value || ''))
-}
-
 function readManagedIdentityIds(form: FormData, key = 'identityIds') {
   return Array.from(
     new Set(
@@ -90,65 +69,6 @@ export const Route = createFileRoute('/api/admin/identities')({
         const intent = readManagedIdentityIntent(form.get('intent'))
         const accept = request.headers.get('accept') || ''
         const wantsJson = accept.includes('application/json')
-
-        if (intent === 'bulk-save-tags') {
-          const identityIds = readManagedIdentityIds(form)
-          const tagsToAdd = readManagedIdentityTags(form.get('tagsToAdd'))
-          const tagsToRemove = readManagedIdentityTags(form.get('tagsToRemove'))
-
-          if (!identityIds.length) {
-            return text('identityIds are required', 400)
-          }
-
-          const existingSummaries = await listAdminIdentitySummaries()
-          const summariesById = new Map(
-            existingSummaries.map((summary) => [summary.id, summary]),
-          )
-
-          for (const managedIdentityId of identityIds) {
-            const summary = summariesById.get(managedIdentityId)
-            if (!summary) {
-              return text(`Unknown identityId: ${managedIdentityId}`, 400)
-            }
-
-            const record = await updateManagedIdentity({
-              identityId: managedIdentityId,
-              tags: applyManagedIdentityTagPatch(summary.tags, {
-                addTags: tagsToAdd,
-                removeTags: tagsToRemove,
-              }),
-            })
-
-            if (!record) {
-              return text(
-                `Unable to update managed identity: ${managedIdentityId}`,
-                400,
-              )
-            }
-          }
-
-          const updatedSummaries = await listAdminIdentitySummaries()
-          const updatedById = new Map(
-            updatedSummaries.map((summary) => [summary.id, summary]),
-          )
-          const identities = identityIds
-            .map((managedIdentityId) => updatedById.get(managedIdentityId))
-            .filter((summary): summary is NonNullable<typeof summary> =>
-              Boolean(summary),
-            )
-
-          if (wantsJson) {
-            return json({
-              ok: true,
-              identityIds,
-              identities,
-            })
-          }
-
-          return redirect(
-            readRedirectTo(form.get('redirectTo')) || '/admin/identities',
-          )
-        }
 
         if (intent === 'bulk-delete') {
           const identityIds = readManagedIdentityIds(form)
@@ -222,49 +142,34 @@ export const Route = createFileRoute('/api/admin/identities')({
                 identityId,
                 label: String(form.get('label') || ''),
               })
-            : intent === 'save-details'
+            : intent === 'activate'
               ? await updateManagedIdentity({
                   identityId,
-                  label: String(form.get('label') || ''),
-                  tags: readManagedIdentityTags(form.get('tags')),
+                  status: 'ACTIVE',
                 })
-              : intent === 'save-plan'
+              : intent === 'review'
                 ? await updateManagedIdentity({
                     identityId,
-                    plan: readManagedIdentityPlan(form.get('plan')),
+                    status: 'REVIEW',
                   })
-                : intent === 'activate'
+                : intent === 'archive'
                   ? await updateManagedIdentity({
                       identityId,
-                      status: 'ACTIVE',
+                      status: 'ARCHIVED',
                     })
-                  : intent === 'review'
+                  : intent === 'ban'
                     ? await updateManagedIdentity({
                         identityId,
-                        status: 'REVIEW',
+                        status: 'BANNED',
                       })
-                    : intent === 'archive'
-                      ? await updateManagedIdentity({
+                    : !email
+                      ? null
+                      : await upsertManagedIdentity({
                           identityId,
-                          status: 'ARCHIVED',
+                          email,
+                          label: String(form.get('label') || ''),
+                          status: readManagedIdentityStatus(form.get('status')),
                         })
-                      : intent === 'ban'
-                        ? await updateManagedIdentity({
-                            identityId,
-                            status: 'BANNED',
-                          })
-                        : !email
-                          ? null
-                          : await upsertManagedIdentity({
-                              identityId,
-                              email,
-                              label: String(form.get('label') || ''),
-                              tags: readManagedIdentityTags(form.get('tags')),
-                              plan: readManagedIdentityPlan(form.get('plan')),
-                              status: readManagedIdentityStatus(
-                                form.get('status'),
-                              ),
-                            })
 
         if (!record) {
           return text('Unable to update managed identity', 400)

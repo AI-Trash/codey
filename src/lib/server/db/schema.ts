@@ -39,16 +39,20 @@ export const flowTaskStatusEnum = pgEnum('flow_task_status', [
   'FAILED',
   'CANCELED',
 ])
+export const flowTaskEventTypeEnum = pgEnum('flow_task_event_type', [
+  'QUEUED',
+  'LEASED',
+  'RUNNING',
+  'LOG',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELED',
+])
 export const managedIdentityStatusEnum = pgEnum('managed_identity_status', [
   'ACTIVE',
   'REVIEW',
   'ARCHIVED',
   'BANNED',
-])
-export const managedIdentityPlanEnum = pgEnum('managed_identity_plan', [
-  'free',
-  'plus',
-  'team',
 ])
 export const managedIdentitySessionStatusEnum = pgEnum(
   'managed_identity_session_status',
@@ -344,6 +348,7 @@ export const flowTasks = pgTable(
       withTimezone: true,
       mode: 'date',
     }),
+    lastMessage: text('last_message'),
     lastError: text('last_error'),
     createdAt: timestamp('created_at', {
       withTimezone: true,
@@ -373,6 +378,42 @@ export const flowTasks = pgTable(
       table.status,
     ),
     index('flow_tasks_status_updated_at_idx').on(table.status, table.updatedAt),
+  ],
+)
+
+export const flowTaskEvents = pgTable(
+  'flow_task_events',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => flowTasks.id, {
+        onDelete: 'cascade',
+      }),
+    cliConnectionId: text('cli_connection_id').references(() => cliConnections.id, {
+      onDelete: 'set null',
+    }),
+    type: flowTaskEventTypeEnum('type').notNull(),
+    status: flowTaskStatusEnum('status'),
+    message: text('message'),
+    payload: jsonb('payload').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('flow_task_events_task_created_at_idx').on(
+      table.taskId,
+      table.createdAt,
+    ),
+    index('flow_task_events_connection_created_at_idx').on(
+      table.cliConnectionId,
+      table.createdAt,
+    ),
+    index('flow_task_events_type_created_at_idx').on(table.type, table.createdAt),
   ],
 )
 
@@ -415,18 +456,12 @@ export const managedIdentities = pgTable(
     identityId: text('identity_id').notNull(),
     email: text('email').notNull(),
     label: text('label'),
-    tags: text('tags')
-      .array()
-      .$type<string[]>()
-      .default(sql`'{}'::text[]`)
-      .notNull(),
     passwordCiphertext: text('password_ciphertext'),
     credentialMetadata: jsonb('credential_metadata').$type<
       Record<string, unknown>
     >(),
     credentialCount: integer('credential_count').default(0).notNull(),
     status: managedIdentityStatusEnum('status').default('ACTIVE').notNull(),
-    plan: managedIdentityPlanEnum('plan').default('free').notNull(),
     lastSeenAt: timestamp('last_seen_at', {
       withTimezone: true,
       mode: 'date',
@@ -704,6 +739,7 @@ export const externalServiceConfigs = pgTable(
     concurrency: integer('concurrency'),
     priority: integer('priority'),
     groupIds: integer('group_ids').array().$type<number[]>(),
+    autoFillRelatedModels: boolean('auto_fill_related_models'),
     confirmMixedChannelRisk: boolean('confirm_mixed_channel_risk'),
     updatedByUserId: text('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',
@@ -1006,10 +1042,10 @@ export type VerificationCodeSource =
 export type FlowAppRequestStatus =
   (typeof flowAppRequestStatusEnum.enumValues)[number]
 export type FlowTaskStatus = (typeof flowTaskStatusEnum.enumValues)[number]
+export type FlowTaskEventType =
+  (typeof flowTaskEventTypeEnum.enumValues)[number]
 export type ManagedIdentityStatus =
   (typeof managedIdentityStatusEnum.enumValues)[number]
-export type ManagedIdentityPlan =
-  (typeof managedIdentityPlanEnum.enumValues)[number]
 export type ManagedIdentitySessionStatus =
   (typeof managedIdentitySessionStatusEnum.enumValues)[number]
 export type OAuthClientAuthMethod =
@@ -1029,6 +1065,7 @@ export type EmailIngestRecordRow = typeof emailIngestRecords.$inferSelect
 export type DeviceChallengeRow = typeof deviceChallenges.$inferSelect
 export type AdminNotificationRow = typeof adminNotifications.$inferSelect
 export type FlowTaskRow = typeof flowTasks.$inferSelect
+export type FlowTaskEventRow = typeof flowTaskEvents.$inferSelect
 export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect
 export type ManagedIdentitySessionRow =

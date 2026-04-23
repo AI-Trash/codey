@@ -91,6 +91,11 @@ export const Route = createFileRoute(
           return text('error must be a string or null', 400)
         }
 
+        const message = parseOptionalString(body?.message)
+        if ('message' in (body || {}) && message === undefined) {
+          return text('message must be a string or null', 400)
+        }
+
         try {
           const task =
             status === 'LEASED' || status === 'RUNNING'
@@ -98,12 +103,14 @@ export const Route = createFileRoute(
                   connectionId: params.connectionId,
                   taskId: params.taskId,
                   status,
+                  message,
                 })
               : await completeFlowTask({
                   connectionId: params.connectionId,
                   taskId: params.taskId,
                   status,
                   error,
+                  message,
                 })
 
           if (!task) {

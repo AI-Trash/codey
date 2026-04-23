@@ -12,7 +12,27 @@ import { readJsonBody } from '../../../../../lib/server/request'
 import { findAdminManagedWorkspaceSummary } from '../../../../../lib/server/workspaces'
 
 interface StartWorkspaceCodexOAuthBody {
+  memberIds?: string[] | string
   connectionId?: string
+}
+
+function readStringList(value: unknown): string[] | null | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(/[\r\n,]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  }
+
+  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+    return value
+  }
+
+  return null
 }
 
 function isConnectionBusy(connection: AdminCliConnectionSummary) {
@@ -56,13 +76,14 @@ function sortCodexOAuthCapableConnections(
 function buildWorkspaceCodexOAuthNotes(input: {
   workspaceId: string
   workspaceLabel?: string | null
-  ownerIdentityId: string
+  memberEmails: string[]
 }) {
   return [
     `Workspace: ${input.workspaceLabel || input.workspaceId}`,
     `Workspace ID: ${input.workspaceId}`,
-    `Owner identity: ${input.ownerIdentityId}`,
-    'Codey will pass this workspace ID into the Codex OAuth flow.',
+    'Authorize members with Codex OAuth:',
+    ...input.memberEmails.map((email) => `- ${email}`),
+    'Codey will pass this workspace ID into each Codex OAuth flow.',
   ].join('\n')
 }
 
@@ -87,15 +108,44 @@ export const Route = createFileRoute(
           return text('Workspace not found', 404)
         }
 
-        if (!workspace.owner?.identityId) {
+        const body = await readJsonBody<StartWorkspaceCodexOAuthBody>(request)
+        const memberIds = readStringList(body.memberIds)
+        if (memberIds === null) {
           return text(
-            'Workspace owner identity is required before starting Codex OAuth',
+            'memberIds must be a string array or comma-separated string',
             400,
           )
         }
 
-        const body = await readJsonBody<StartWorkspaceCodexOAuthBody>(request)
         const requestedConnectionId = String(body.connectionId || '').trim()
+        const selectedMembers = memberIds?.length
+          ? workspace.members.filter((member) => memberIds.includes(member.id))
+          : workspace.members.filter(
+              (member) => member.authorization.state !== 'authorized',
+            )
+
+        if (memberIds?.length && selectedMembers.length !== new Set(memberIds).size) {
+          return text('Some requested workspace members were not found', 404)
+        }
+
+        const pendingMembers = selectedMembers.filter(
+          (member) => member.authorization.state !== 'authorized',
+        )
+        if (!pendingMembers.length) {
+          return text('All requested workspace members are already authorized', 400)
+        }
+
+        const memberEmails = Array.from(
+          new Set(
+            pendingMembers
+              .map((member) => member.email.trim().toLowerCase())
+              .filter(Boolean),
+          ),
+        )
+        if (!memberEmails.length) {
+          return text('No workspace members are available to authorize', 400)
+        }
+
         const actor = {
           userId: admin.user.id,
           githubLogin: admin.user.githubLogin,
@@ -118,16 +168,17 @@ export const Route = createFileRoute(
               connectionId,
               flowId: 'codex-oauth',
               actor,
-              config: {
-                identityId: workspace.owner.identityId,
+              configs: memberEmails.map((email) => ({
+                email,
                 workspaceId: workspace.workspaceId,
-              },
+              })),
             })
 
             return json({
               ok: true,
               mode: 'dispatch' as const,
               queuedCount: result.tasks.length,
+              memberEmails,
               connectionId: result.connection.id,
               connectionLabel: getConnectionLabel(result.connection),
             })
@@ -138,11 +189,14 @@ export const Route = createFileRoute(
             flowType: 'codex-oauth',
             requestedBy:
               admin.user.githubLogin || admin.user.email || admin.user.name || undefined,
-            requestedIdentity: workspace.owner.identityId,
+            requestedIdentity:
+              pendingMembers.length === 1
+                ? pendingMembers[0]?.identityId || undefined
+                : undefined,
             notes: buildWorkspaceCodexOAuthNotes({
               workspaceId: workspace.workspaceId,
               workspaceLabel: workspace.label,
-              ownerIdentityId: workspace.owner.identityId,
+              memberEmails,
             }),
           })
 
@@ -151,6 +205,7 @@ export const Route = createFileRoute(
               ok: true,
               mode: 'request' as const,
               requestId: flowRequest.id,
+              memberEmails,
             },
             201,
           )

@@ -1016,3 +1016,99 @@ export async function linkWorkspaceMembersToManagedIdentity(params: {
   return updatedCount
 }
 
+export async function removeManagedIdentityFromAllWorkspaces(params: {
+  identityId: string
+  email?: string | null
+}): Promise<{
+  removedOwnerCount: number
+  removedMemberCount: number
+}> {
+  const identityId = params.identityId.trim()
+  const email = params.email ? normalizeEmail(params.email) : null
+
+  if (!identityId && !email) {
+    return {
+      removedOwnerCount: 0,
+      removedMemberCount: 0,
+    }
+  }
+
+  const db = getDb()
+  const seenAt = new Date()
+  const touchedWorkspaceIds = new Set<string>()
+
+  const ownerRows = identityId
+    ? await db.query.managedWorkspaces.findMany({
+        where: eq(managedWorkspaces.ownerIdentityId, identityId),
+        columns: {
+          id: true,
+        },
+      })
+    : []
+
+  if (ownerRows.length) {
+    for (const row of ownerRows) {
+      touchedWorkspaceIds.add(row.id)
+    }
+
+    await db
+      .update(managedWorkspaces)
+      .set({
+        ownerIdentityId: null,
+        updatedAt: seenAt,
+      })
+      .where(eq(managedWorkspaces.ownerIdentityId, identityId))
+  }
+
+  const memberConditions = []
+  if (identityId) {
+    memberConditions.push(eq(managedWorkspaceMembers.identityId, identityId))
+  }
+  if (email) {
+    memberConditions.push(eq(managedWorkspaceMembers.email, email))
+  }
+
+  const memberRows = memberConditions.length
+    ? await db.query.managedWorkspaceMembers.findMany({
+        where:
+          memberConditions.length === 1
+            ? memberConditions[0]
+            : or(...memberConditions),
+        columns: {
+          id: true,
+          managedWorkspaceId: true,
+        },
+      })
+    : []
+
+  if (memberRows.length) {
+    for (const row of memberRows) {
+      touchedWorkspaceIds.add(row.managedWorkspaceId)
+    }
+
+    await db
+      .delete(managedWorkspaceMembers)
+      .where(
+        inArray(
+          managedWorkspaceMembers.id,
+          memberRows.map((row) => row.id),
+        ),
+      )
+  }
+
+  const workspaceIdsToTouch = [...touchedWorkspaceIds]
+  if (workspaceIdsToTouch.length) {
+    await db
+      .update(managedWorkspaces)
+      .set({
+        updatedAt: seenAt,
+      })
+      .where(inArray(managedWorkspaces.id, workspaceIdsToTouch))
+  }
+
+  return {
+    removedOwnerCount: ownerRows.length,
+    removedMemberCount: memberRows.length,
+  }
+}
+

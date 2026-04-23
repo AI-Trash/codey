@@ -17,7 +17,7 @@ import {
   isSharedCliConnection,
 } from "./cli-connections";
 import { getDb } from "./db/client";
-import { flowTasks } from "./db/schema";
+import { flowTaskEvents, flowTasks } from "./db/schema";
 import { hasEnabledSub2ApiServiceConfig } from "./external-service-configs";
 import { getCliConnectionTaskWorkerId } from "./flow-tasks";
 import { createId } from "./security";
@@ -301,42 +301,65 @@ export async function dispatchCliFlowTasks(input: {
     taskConfigs.length > 1
       ? taskConfigs
       : Array.from({ length: count }, () => taskConfigs[0] || {});
-  const tasks = await getDb()
-    .insert(flowTasks)
-    .values(
-      queuedConfigs.map((config, index) => {
-        const sequence = index + 1;
-        const email =
-          typeof config.email === "string" ? config.email.trim() : undefined;
-        return {
-          id: createId(),
-          workerId,
-          title: buildTaskTitle({
-            flowId: flowDefinition.id,
-            sequence,
-            total: count,
-            email,
-          }),
-          body: buildTaskBody({
-            flowId: flowDefinition.id,
-            cliName: connection.cliName,
-            configCount: Object.keys(config).length,
-            sequence,
-            total: count,
-            parallelism,
-            email,
-          }),
-          flowType: flowDefinition.id,
-          target: connection.target,
-          payload: createCliFlowTaskPayload(flowDefinition.id, config, {
-            ...(batchId ? { batchId } : {}),
-            ...(count > 1 ? { sequence, total: count } : {}),
-            ...(parallelism > 1 ? { parallelism } : {}),
-          }, externalServices),
-        };
+  const queuedTaskRows = queuedConfigs.map((config, index) => {
+    const sequence = index + 1;
+    const email =
+      typeof config.email === "string" ? config.email.trim() : undefined;
+    const body = buildTaskBody({
+      flowId: flowDefinition.id,
+      cliName: connection.cliName,
+      configCount: Object.keys(config).length,
+      sequence,
+      total: count,
+      parallelism,
+      email,
+    });
+
+    return {
+      id: createId(),
+      workerId,
+      title: buildTaskTitle({
+        flowId: flowDefinition.id,
+        sequence,
+        total: count,
+        email,
       }),
-    )
-    .returning();
+      body,
+      flowType: flowDefinition.id,
+      target: connection.target,
+      lastMessage: body,
+      payload: createCliFlowTaskPayload(
+        flowDefinition.id,
+        config,
+        {
+          ...(batchId ? { batchId } : {}),
+          ...(count > 1 ? { sequence, total: count } : {}),
+          ...(parallelism > 1 ? { parallelism } : {}),
+        },
+        externalServices,
+      ),
+    };
+  });
+  const tasks = await getDb().transaction(async (tx) => {
+    const insertedTasks = await tx
+      .insert(flowTasks)
+      .values(queuedTaskRows)
+      .returning();
+
+    if (insertedTasks.length > 0) {
+      await tx.insert(flowTaskEvents).values(
+        insertedTasks.map((task) => ({
+          id: createId(),
+          taskId: task.id,
+          type: "QUEUED" as const,
+          status: "QUEUED" as const,
+          message: task.body,
+        })),
+      );
+    }
+
+    return insertedTasks;
+  });
 
   return {
     tasks,

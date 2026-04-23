@@ -1125,6 +1125,14 @@ function RuntimeFlowCell(props: { connection: CliConnectionSummary }) {
       <span className="truncate text-xs text-muted-foreground">
         {timestamp ? formatAdminDate(timestamp) || timestamp : m.oauth_none()}
       </span>
+      {connection.runtimeTaskId ? (
+        <a
+          href={`/admin/flows?taskId=${encodeURIComponent(connection.runtimeTaskId)}`}
+          className="text-xs font-medium text-foreground underline underline-offset-4"
+        >
+          {m.admin_cli_view_flow()}
+        </a>
+      ) : null}
     </div>
   )
 }

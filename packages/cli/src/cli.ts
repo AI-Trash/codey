@@ -631,7 +631,7 @@ async function runDaemonCommand(
                 startedAt,
               }
               syncRuntimeReporterState()
-              task.leaseReporter?.markRunning()
+              task.leaseReporter?.markRunning(task.message)
 
               const consoleProgressReporter = createConsoleFlowProgressReporter(
                 `flow:${task.flowId}`,
@@ -656,6 +656,7 @@ async function runDaemonCommand(
                       startedAt,
                     }
                     syncRuntimeReporterState()
+                    task.leaseReporter?.reportProgress(message)
                   },
                 })
                 assertFlowTaskExecutionSucceeded(task.flowId, execution)
@@ -689,6 +690,7 @@ async function runDaemonCommand(
                   try {
                     await task.leaseReporter.complete({
                       status: 'SUCCEEDED',
+                      message: 'Flow completed',
                     })
                   } catch (error) {
                     logTaskLeaseError(
@@ -727,6 +729,7 @@ async function runDaemonCommand(
                     await task.leaseReporter.complete({
                       status: 'FAILED',
                       error: sanitized.message,
+                      message: sanitized.message,
                     })
                   } catch (leaseError) {
                     logTaskLeaseError(
@@ -788,6 +791,7 @@ async function runDaemonCommand(
               await leaseReporter.complete({
                 status: 'FAILED',
                 error: 'Received malformed flow task payload.',
+                message: 'Received malformed flow task payload.',
               })
             } catch (error) {
               logTaskLeaseError(claimedTask.id, sanitizeErrorForOutput(error))

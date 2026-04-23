@@ -52,6 +52,7 @@ const statusLabelMap = {
   complete: () => m.status_complete(),
   configured: () => m.status_configured(),
   connecting: () => m.status_connecting(),
+  canceled: () => m.status_canceled(),
   consumed: () => m.status_consumed(),
   denied: () => m.status_denied(),
   disabled: () => m.status_disabled(),
@@ -64,6 +65,7 @@ const statusLabelMap = {
   good: () => m.status_good(),
   idle: () => m.status_idle(),
   inactive: () => m.status_inactive(),
+  leased: () => m.status_leased(),
   live: () => m.status_live(),
   locked: () => m.status_locked(),
   missing: () => m.status_missing(),
@@ -71,6 +73,7 @@ const statusLabelMap = {
   parsed: () => m.status_parsed(),
   passed: () => m.status_passed(),
   pending: () => m.status_pending(),
+  queued: () => m.status_queued(),
   ready: () => m.status_ready(),
   received: () => m.status_received(),
   reconnecting: () => m.status_reconnecting(),
@@ -79,20 +82,11 @@ const statusLabelMap = {
   revoked: () => m.status_revoked(),
   review: () => m.status_review(),
   running: () => m.status_running(),
+  succeeded: () => m.status_succeeded(),
+  success: () => m.status_success(),
   synced: () => m.status_synced(),
   unknown: () => m.status_unknown(),
   warning: () => m.status_warning(),
-} satisfies Record<string, () => string>
-
-const managedIdentityPlanLabelMap = {
-  free: () => m.admin_identity_plan_free(),
-  plus: () => m.admin_identity_plan_plus(),
-  team: () => m.admin_identity_plan_team(),
-} satisfies Record<string, () => string>
-
-const managedIdentityTagLabelMap = {
-  'sub-account': () => m.admin_identity_tag_sub_account(),
-  'parent-account': () => m.admin_identity_tag_parent_account(),
 } satisfies Record<string, () => string>
 
 export function translateStatusLabel(value?: string | null) {
@@ -102,36 +96,6 @@ export function translateStatusLabel(value?: string | null) {
 
   const normalized = value.replaceAll('_', ' ').trim().toLowerCase()
   const message = statusLabelMap[normalized]
-
-  if (message) {
-    return message()
-  }
-
-  return value
-}
-
-export function translateManagedIdentityPlanLabel(value?: string | null) {
-  if (!value) {
-    return m.admin_identity_plan_free()
-  }
-
-  const normalized = value.trim().toLowerCase()
-  const message = managedIdentityPlanLabelMap[normalized]
-
-  if (message) {
-    return message()
-  }
-
-  return value
-}
-
-export function translateManagedIdentityTagLabel(value?: string | null) {
-  if (!value) {
-    return ''
-  }
-
-  const normalized = value.trim().toLowerCase()
-  const message = managedIdentityTagLabelMap[normalized]
 
   if (message) {
     return message()

@@ -23,6 +23,7 @@ interface UpdateSub2ApiServiceBody {
   concurrency?: number | null;
   priority?: number | null;
   groupIds?: number[] | null;
+  autoFillRelatedModels?: boolean | null;
   confirmMixedChannelRisk?: boolean | null;
 }
 
@@ -163,6 +164,11 @@ export const Route = createFileRoute("/api/admin/external-services/sub2api")({
             concurrency: readOptionalInteger(body.concurrency),
             priority: readOptionalInteger(body.priority),
             groupIds: readOptionalIntegerArray(body.groupIds),
+            autoFillRelatedModels:
+              typeof body.autoFillRelatedModels === "boolean" ||
+              body.autoFillRelatedModels === null
+                ? body.autoFillRelatedModels
+                : undefined,
             confirmMixedChannelRisk:
               typeof body.confirmMixedChannelRisk === "boolean" ||
               body.confirmMixedChannelRisk === null

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import {
+  ActivityIcon,
   AppWindowIcon,
   BotIcon,
   ChevronsUpDownIcon,
@@ -123,6 +124,12 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
       icon: BotIcon,
       matches: (pathname: string) => pathname === '/admin/cli',
     })
+    navigation.push({
+      label: m.admin_nav_flows(),
+      to: '/admin/flows',
+      icon: ActivityIcon,
+      matches: (pathname: string) => pathname === '/admin/flows',
+    })
   }
 
   if (hasAdminPermission(currentUser, 'MANAGED_SESSIONS')) {
@@ -189,6 +196,7 @@ export function AdminShell(props: {
     pathname === '/admin/sessions' ||
     pathname === '/admin/users' ||
     pathname === '/admin/cli' ||
+    pathname === '/admin/flows' ||
     pathname === '/admin/apps'
 
   return (
@@ -577,8 +585,10 @@ export function getStatusTone(status?: string | null): StatusTone {
 
   if (
     normalized.includes('pending') ||
+    normalized.includes('leased') ||
     normalized.includes('waiting') ||
     normalized.includes('queued') ||
+    normalized.includes('canceled') ||
     normalized.includes('partial') ||
     normalized.includes('review') ||
     normalized.includes('empty')
@@ -620,6 +630,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/cli') {
     return m.admin_nav_cli_connections()
+  }
+
+  if (pathname === '/admin/flows') {
+    return m.admin_nav_flows()
   }
 
   if (pathname === '/admin/apps/new') {

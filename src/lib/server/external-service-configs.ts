@@ -32,6 +32,7 @@ export interface ManagedSub2ApiServiceSummary {
   concurrency: number | null;
   priority: number | null;
   groupIds: number[];
+  autoFillRelatedModels: boolean;
   confirmMixedChannelRisk: boolean;
   updatedByUserId: string | null;
   createdAt: Date | null;
@@ -53,6 +54,7 @@ export interface UpsertSub2ApiServiceInput {
   concurrency?: number | null;
   priority?: number | null;
   groupIds?: number[] | null;
+  autoFillRelatedModels?: boolean | null;
   confirmMixedChannelRisk?: boolean | null;
   updatedByUserId?: string;
 }
@@ -130,6 +132,21 @@ function resolveConfirmMixedChannelRisk(
   return existingValue ?? undefined;
 }
 
+function resolveOptionalBooleanUpdate(
+  nextValue: boolean | null | undefined,
+  existingValue: boolean | null | undefined,
+): boolean | undefined {
+  if (typeof nextValue === "boolean") {
+    return nextValue;
+  }
+
+  if (nextValue === null) {
+    return undefined;
+  }
+
+  return existingValue ?? undefined;
+}
+
 function resolveGroupIdsUpdate(
   nextValue: number[] | null | undefined,
   existingValue: number[] | null | undefined,
@@ -190,6 +207,7 @@ function toSummary(
     concurrency: row?.concurrency ?? null,
     priority: row?.priority ?? null,
     groupIds: normalizeGroupIds(row?.groupIds) ?? [],
+    autoFillRelatedModels: row?.autoFillRelatedModels ?? false,
     confirmMixedChannelRisk: row?.confirmMixedChannelRisk ?? false,
     updatedByUserId: row?.updatedByUserId ?? null,
     createdAt: row?.createdAt ?? null,
@@ -302,6 +320,11 @@ export async function upsertSub2ApiServiceConfig(
     priority:
       resolveOptionalInteger(input.priority, existing?.priority, "priority") ?? null,
     groupIds: resolveGroupIdsUpdate(input.groupIds, existing?.groupIds) ?? null,
+    autoFillRelatedModels:
+      resolveOptionalBooleanUpdate(
+        input.autoFillRelatedModels,
+        existing?.autoFillRelatedModels,
+      ) ?? null,
     confirmMixedChannelRisk:
       resolveConfirmMixedChannelRisk(
         input.confirmMixedChannelRisk,
@@ -362,6 +385,7 @@ export async function getCliSub2ApiConfig(): Promise<Sub2ApiConfig> {
       concurrency: row.concurrency ?? undefined,
       priority: row.priority ?? undefined,
       groupIds: normalizeGroupIds(row.groupIds),
+      autoFillRelatedModels: row.autoFillRelatedModels ?? undefined,
       confirmMixedChannelRisk: row.confirmMixedChannelRisk ?? undefined,
     };
   }
@@ -385,6 +409,7 @@ export async function getCliSub2ApiConfig(): Promise<Sub2ApiConfig> {
     concurrency: row.concurrency ?? undefined,
     priority: row.priority ?? undefined,
     groupIds: normalizeGroupIds(row.groupIds),
+    autoFillRelatedModels: row.autoFillRelatedModels ?? undefined,
     confirmMixedChannelRisk: row.confirmMixedChannelRisk ?? undefined,
   };
 }

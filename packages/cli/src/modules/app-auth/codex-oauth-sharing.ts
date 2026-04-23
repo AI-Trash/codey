@@ -3,6 +3,7 @@ import { getRuntimeConfig } from '../../config'
 import type { CodexTokenResponse } from '../authorization/codex-client'
 import type { StoredChatGPTIdentitySummary } from '../credentials'
 import { AppVerificationProviderClient } from '../verification/app-client'
+import { buildSub2ApiOpenAiRelatedModelMapping } from './sub2api-related-models'
 
 export interface SharedCodexOAuthSessionResult {
   identityId: string
@@ -370,6 +371,16 @@ function buildSub2ApiAccountExtra(
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
+function buildSub2ApiAccountModelMapping(
+  config: Sub2ApiConfig,
+): Record<string, string> | undefined {
+  if (!config.autoFillRelatedModels) {
+    return undefined
+  }
+
+  return buildSub2ApiOpenAiRelatedModelMapping()
+}
+
 function findMatchingSub2ApiAccount(
   accounts: Sub2ApiAccountRecord[],
   email: string,
@@ -546,7 +557,13 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
         name: accountEmail,
         platform: 'openai',
         type: 'oauth',
-        credentials,
+        credentials: (() => {
+          const modelMapping = buildSub2ApiAccountModelMapping(config)
+          return {
+            ...credentials,
+            ...(modelMapping ? { model_mapping: modelMapping } : {}),
+          }
+        })(),
         extra: buildSub2ApiAccountExtra(refreshedToken, accountEmail),
         proxy_id: config.proxyId,
         concurrency: config.concurrency ?? 0,

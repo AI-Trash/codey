@@ -60,10 +60,7 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
-import {
-  translateManagedIdentityPlanLabel,
-  translateStatusLabel,
-} from '#/lib/i18n'
+import { translateStatusLabel } from '#/lib/i18n'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 
@@ -119,7 +116,6 @@ type IdentitySummary = {
   label: string
   account?: string | null
   status?: string | null
-  plan?: 'free' | 'plus' | 'team' | null
 }
 
 type WorkspaceIdentitySummary = {
@@ -182,6 +178,7 @@ type DispatchWorkspaceInviteResponse = {
 type DispatchWorkspaceCodexOAuthResponse = {
   ok: boolean
   mode: 'dispatch' | 'request'
+  memberEmails: string[]
   queuedCount?: number
   connectionLabel?: string
   requestId?: string
@@ -279,13 +276,7 @@ function filterIdentitySummaries(
   }
 
   return identities.filter((identity) => {
-    const searchableValues = [
-      identity.id,
-      identity.label,
-      identity.account,
-      identity.status,
-      identity.plan,
-    ]
+    const searchableValues = [identity.id, identity.label, identity.account, identity.status]
 
     return searchableValues.some((value) =>
       String(value || '')
@@ -575,6 +566,7 @@ async function dispatchWorkspaceInvite(
 
 async function dispatchWorkspaceCodexOAuth(
   workspaceId: string,
+  memberIds?: string[],
 ): Promise<DispatchWorkspaceCodexOAuthResponse> {
   const response = await fetch(
     `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/codex-oauth`,
@@ -584,7 +576,9 @@ async function dispatchWorkspaceCodexOAuth(
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        memberIds,
+      }),
     },
   )
 
@@ -904,11 +898,6 @@ function WorkspaceEditorDialog(props: {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
-                            {identity.plan ? (
-                              <Badge variant="outline">
-                                {translateManagedIdentityPlanLabel(identity.plan)}
-                              </Badge>
-                            ) : null}
                             {selected ? (
                               <Badge>{m.admin_workspace_owner_selected_badge()}</Badge>
                             ) : null}
@@ -1040,11 +1029,6 @@ function WorkspaceEditorDialog(props: {
                               </div>
                             </div>
                             <div className="flex shrink-0 items-center gap-1.5">
-                              {identity.plan ? (
-                                <Badge variant="outline">
-                                  {translateManagedIdentityPlanLabel(identity.plan)}
-                                </Badge>
-                              ) : null}
                               {otherOwnerWorkspace ? (
                                 <Badge variant="outline">
                                   {m.admin_workspace_member_other_owner_badge()}
@@ -1139,7 +1123,7 @@ function WorkspaceDetailDialog(props: {
   onFlash: (flash: FlashMessage) => void
 }) {
   const [inviteActionKey, setInviteActionKey] = useState<string | null>(null)
-  const [codexOAuthPending, setCodexOAuthPending] = useState(false)
+  const [authorizationPending, setAuthorizationPending] = useState(false)
   const [localFlash, setLocalFlash] = useState<FlashMessage | null>(null)
 
   useEffect(() => {
@@ -1148,7 +1132,7 @@ function WorkspaceDetailDialog(props: {
     }
 
     setInviteActionKey(null)
-    setCodexOAuthPending(false)
+    setAuthorizationPending(false)
     setLocalFlash(null)
   }, [props.open, props.workspace?.id])
 
@@ -1214,27 +1198,44 @@ function WorkspaceDetailDialog(props: {
     }
   }
 
-  async function handleCodexOAuth() {
+  async function handleAuthorizeMembers(memberIds?: string[]) {
     if (!props.workspace) {
       return
     }
 
-    setCodexOAuthPending(true)
+    const requestedMemberIds =
+      memberIds?.length
+        ? memberIds
+        : props.workspace.members
+            .filter((member) => !isWorkspaceAuthorized(member.authorization))
+            .map((member) => member.id)
+
+    if (!requestedMemberIds.length) {
+      return
+    }
+
+    setAuthorizationPending(true)
     setLocalFlash(null)
 
     try {
-      const result = await dispatchWorkspaceCodexOAuth(props.workspace.id)
+      const result = await dispatchWorkspaceCodexOAuth(
+        props.workspace.id,
+        requestedMemberIds,
+      )
       const flash: FlashMessage =
         result.mode === 'dispatch'
           ? {
               kind: 'success',
-              message: m.admin_workspace_codex_oauth_success_dispatched({
+              message: m.admin_workspace_authorize_success_dispatched({
+                count: String(result.memberEmails.length),
                 cli: result.connectionLabel || 'CLI',
               }),
             }
           : {
               kind: 'success',
-              message: m.admin_workspace_codex_oauth_success_requested(),
+              message: m.admin_workspace_authorize_success_requested({
+                count: String(result.memberEmails.length),
+              }),
             }
 
       publishFlash(flash)
@@ -1244,10 +1245,10 @@ function WorkspaceDetailDialog(props: {
         message:
           error instanceof Error
             ? error.message
-            : m.admin_workspace_codex_oauth_error_fallback(),
+            : m.admin_workspace_authorize_error_fallback(),
       })
     } finally {
-      setCodexOAuthPending(false)
+      setAuthorizationPending(false)
     }
   }
 
@@ -1290,10 +1291,6 @@ function WorkspaceDetailDialog(props: {
     }
   }
 
-  const ownerAndMemberEmails = normalizeDownloadEmails([
-    props.workspace?.owner?.email || '',
-    ...(props.workspace?.members.map((member) => member.email) || []),
-  ])
   const memberEmails = normalizeDownloadEmails(
     props.workspace?.members.map((member) => member.email) || [],
   )
@@ -1301,9 +1298,9 @@ function WorkspaceDetailDialog(props: {
     props.workspace?.members.filter(
       (member) => !isWorkspaceAuthorized(member.authorization),
     ) || []
-  const isDispatching = inviteActionKey !== null || codexOAuthPending
-  const canDispatchCodexOAuth =
-    props.canDispatchFlows && Boolean(props.workspace?.owner?.identityId)
+  const isDispatching = inviteActionKey !== null || authorizationPending
+  const canAuthorizeMembers =
+    props.canDispatchFlows && Boolean(inviteableMembers.length)
   const canInviteAll =
     props.canDispatchFlows &&
     Boolean(props.workspace?.owner?.identityId) &&
@@ -1430,45 +1427,6 @@ function WorkspaceDetailDialog(props: {
                 <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <CardDescription>
-                      {m.admin_workspace_codex_oauth_kicker()}
-                    </CardDescription>
-                    <CardTitle>
-                      {m.admin_workspace_codex_oauth_title()}
-                    </CardTitle>
-                  </div>
-                  <Button
-                    type="button"
-                    disabled={!canDispatchCodexOAuth || isDispatching}
-                    onClick={() => {
-                      void handleCodexOAuth()
-                    }}
-                  >
-                    {codexOAuthPending
-                      ? m.admin_workspace_codex_oauth_running()
-                      : m.admin_workspace_codex_oauth_button()}
-                  </Button>
-                </div>
-                {!props.canDispatchFlows ? (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_codex_oauth_requires_cli_permission()}
-                  </p>
-                ) : !props.workspace.owner ? (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_codex_oauth_requires_owner()}
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_codex_oauth_dispatch_hint()}
-                  </p>
-                )}
-              </CardHeader>
-            </Card>
-
-            <Card>
-              <CardHeader className="gap-4">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <CardDescription>
                       {m.admin_workspace_members_kicker()}
                     </CardDescription>
                     <CardTitle>
@@ -1478,20 +1436,6 @@ function WorkspaceDetailDialog(props: {
                     </CardTitle>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!ownerAndMemberEmails.length}
-                      onClick={() => {
-                        handleDownloadEmails(
-                          'owner-and-members',
-                          ownerAndMemberEmails,
-                        )
-                      }}
-                    >
-                      <DownloadIcon />
-                      {m.admin_workspace_download_owner_and_members_button()}
-                    </Button>
                     <Button
                       type="button"
                       variant="outline"
@@ -1505,6 +1449,23 @@ function WorkspaceDetailDialog(props: {
                     </Button>
                     <Button
                       type="button"
+                      disabled={!canAuthorizeMembers || isDispatching}
+                      onClick={() => {
+                        void handleAuthorizeMembers()
+                      }}
+                    >
+                      {authorizationPending
+                        ? m.admin_workspace_authorize_running()
+                        : inviteableMembers.length === 0
+                          ? m.admin_workspace_authorize_all_authorized_button()
+                          : inviteableMembers.length ===
+                              (props.workspace?.members.length || 0)
+                            ? m.admin_workspace_authorize_all_button()
+                            : m.admin_workspace_authorize_remaining_button()}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
                       disabled={!canInviteAll || isDispatching}
                       onClick={() => {
                         void handleInvite()
@@ -1523,25 +1484,28 @@ function WorkspaceDetailDialog(props: {
                 </div>
                 {!props.canDispatchFlows ? (
                   <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_requires_cli_permission()}
-                  </p>
-                ) : !props.workspace.owner ? (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_requires_owner()}
+                    {m.admin_workspace_authorize_requires_cli_permission()}
                   </p>
                 ) : !props.workspace.members.length ? (
                   <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_requires_members()}
+                    {m.admin_workspace_authorize_requires_members()}
                   </p>
                 ) : !inviteableMembers.length ? (
                   <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_all_authorized_hint()}
+                    {m.admin_workspace_authorize_all_authorized_hint()}
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_dispatch_hint()}
+                    {m.admin_workspace_authorize_dispatch_hint()}
                   </p>
                 )}
+                {props.canDispatchFlows &&
+                props.workspace.members.length &&
+                !props.workspace.owner ? (
+                  <p className="text-sm text-muted-foreground">
+                    {m.admin_workspace_invite_requires_owner()}
+                  </p>
+                ) : null}
               </CardHeader>
               <CardContent>
                 {props.workspace.members.length ? (

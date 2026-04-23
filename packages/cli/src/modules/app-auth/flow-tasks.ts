@@ -20,6 +20,7 @@ const FLOW_TASK_HEARTBEAT_MS = 10_000
 interface FlowTaskStatusPayload {
   status: FlowTaskLeaseStatus | FinalFlowTaskStatus
   error?: string | null
+  message?: string | null
 }
 
 async function postJson<T>(input: {
@@ -61,6 +62,7 @@ export async function updateCliFlowTaskStatus(input: {
   authState: CliNotificationsAuthState
   status: FlowTaskLeaseStatus | FinalFlowTaskStatus
   error?: string | null
+  message?: string | null
 }): Promise<void> {
   await postJson<{ ok: boolean }>({
     authState: input.authState,
@@ -68,6 +70,7 @@ export async function updateCliFlowTaskStatus(input: {
     body: {
       status: input.status,
       ...(input.error !== undefined ? { error: input.error } : {}),
+      ...(input.message !== undefined ? { message: input.message } : {}),
     },
   })
 }
@@ -79,6 +82,7 @@ export class CliFlowTaskLeaseReporter {
   private readonly onError?: (error: Error) => void
   private heartbeat?: ReturnType<typeof setInterval>
   private currentStatus: FlowTaskLeaseStatus = 'LEASED'
+  private currentMessage?: string | null
   private completed = false
   private requestChain: Promise<void> = Promise.resolve()
 
@@ -105,18 +109,53 @@ export class CliFlowTaskLeaseReporter {
     }, FLOW_TASK_HEARTBEAT_MS)
   }
 
-  markRunning(): void {
+  markRunning(message?: string | null): void {
     if (this.completed) {
       return
     }
 
     this.currentStatus = 'RUNNING'
-    this.queueStatus({ status: 'RUNNING' }, true)
+    const normalizedMessage = normalizeTaskMessage(message)
+    if (normalizedMessage !== undefined) {
+      this.currentMessage = normalizedMessage
+    }
+
+    this.queueStatus(
+      {
+        status: 'RUNNING',
+        ...(normalizedMessage !== undefined ? { message: normalizedMessage } : {}),
+      },
+      true,
+    )
+  }
+
+  reportProgress(message?: string | null): void {
+    if (this.completed) {
+      return
+    }
+
+    const normalizedMessage = normalizeTaskMessage(message)
+    if (
+      normalizedMessage === undefined ||
+      normalizedMessage === this.currentMessage
+    ) {
+      return
+    }
+
+    this.currentMessage = normalizedMessage
+    this.queueStatus(
+      {
+        status: this.currentStatus,
+        message: normalizedMessage,
+      },
+      true,
+    )
   }
 
   async complete(input: {
     status: FinalFlowTaskStatus
     error?: string | null
+    message?: string | null
   }): Promise<void> {
     if (this.completed) {
       return
@@ -132,6 +171,11 @@ export class CliFlowTaskLeaseReporter {
       {
         status: input.status,
         ...(input.error !== undefined ? { error: input.error } : {}),
+        ...(input.message !== undefined
+          ? { message: normalizeTaskMessage(input.message) ?? null }
+          : this.currentMessage !== undefined
+            ? { message: this.currentMessage }
+            : {}),
       },
       false,
     )
@@ -151,6 +195,7 @@ export class CliFlowTaskLeaseReporter {
             authState: this.authState,
             status: payload.status,
             error: payload.error,
+            message: payload.message,
           })
         } catch (error) {
           const sanitized = sanitizeErrorForOutput(error)
@@ -163,4 +208,19 @@ export class CliFlowTaskLeaseReporter {
 
     return this.requestChain
   }
+}
+
+function normalizeTaskMessage(
+  value: string | null | undefined,
+): string | null | undefined {
+  if (value === null) {
+    return null
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized || null
 }

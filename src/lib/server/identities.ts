@@ -5,21 +5,18 @@ import { getDb } from './db/client'
 import { decryptSecret, encryptSecret } from './encrypted-secrets'
 import { managedIdentities, verificationEmailReservations } from './db/schema'
 import { createId } from './security'
-import { linkWorkspaceMembersToManagedIdentity } from './workspaces'
-import { normalizeManagedIdentityTags } from '../managed-identity-tags'
-import { m } from '#/paraglide/messages'
-import type { ManagedIdentityPlan, ManagedIdentityStatus } from './db/schema'
+import {
+  linkWorkspaceMembersToManagedIdentity,
+  removeManagedIdentityFromAllWorkspaces,
+} from './workspaces'
+import type { ManagedIdentityStatus } from './db/schema'
 
 export interface AdminIdentitySummary {
   id: string
   label: string
-  tags: string[]
-  provider: string
   account: string
-  flowCount: number
   lastSeenAt: string
   status: string
-  plan: ManagedIdentityPlan
 }
 
 export interface ManagedIdentityCredentialMetadata {
@@ -33,13 +30,11 @@ export interface ManagedIdentityCredentialSummary {
   id: string
   email: string
   label: string | null
-  tags: string[]
   credentialCount: number
   encrypted: boolean
   createdAt: string
   updatedAt: string
   status: string
-  plan: ManagedIdentityPlan
   metadata?: ManagedIdentityCredentialMetadata
 }
 
@@ -92,22 +87,15 @@ function buildManagedIdentitySummary(row: {
   identityId: string
   email: string
   label: string | null
-  tags: string[]
-  credentialCount: number
   status: string
-  plan: ManagedIdentityPlan
   lastSeenAt: Date
 }): AdminIdentitySummary {
   return {
     id: row.identityId,
     label: row.label || row.email,
-    tags: normalizeManagedIdentityTags(row.tags),
-    provider: m.server_identity_provider(),
     account: row.email,
-    flowCount: row.credentialCount,
     lastSeenAt: row.lastSeenAt.toISOString(),
     status: mapManagedStatus(row.status),
-    plan: row.plan,
   } satisfies AdminIdentitySummary
 }
 
@@ -115,12 +103,10 @@ function buildManagedIdentityCredentialSummary(row: {
   identityId: string
   email: string
   label: string | null
-  tags: string[]
   credentialCount: number
   passwordCiphertext: string | null
   credentialMetadata: Record<string, unknown> | null
   status: string
-  plan: ManagedIdentityPlan
   createdAt: Date
   updatedAt: Date
 }): ManagedIdentityCredentialSummary {
@@ -128,13 +114,11 @@ function buildManagedIdentityCredentialSummary(row: {
     id: row.identityId,
     email: row.email,
     label: row.label,
-    tags: normalizeManagedIdentityTags(row.tags),
     credentialCount: row.credentialCount,
     encrypted: Boolean(row.passwordCiphertext),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     status: mapManagedStatus(row.status),
-    plan: row.plan,
     metadata: normalizeCredentialMetadata(row.credentialMetadata),
   }
 }
@@ -143,12 +127,10 @@ function buildManagedIdentityCredentialRecord(row: {
   identityId: string
   email: string
   label: string | null
-  tags: string[]
   credentialCount: number
   passwordCiphertext: string | null
   credentialMetadata: Record<string, unknown> | null
   status: string
-  plan: ManagedIdentityPlan
   createdAt: Date
   updatedAt: Date
 }): ManagedIdentityCredentialRecord {
@@ -183,6 +165,25 @@ function normalizePassword(value?: string): string | undefined {
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase()
+}
+
+async function syncManagedIdentityWorkspaceMembership(params: {
+  identityId: string
+  email: string
+  status: string
+}) {
+  if (params.status === 'BANNED') {
+    await removeManagedIdentityFromAllWorkspaces({
+      identityId: params.identityId,
+      email: params.email,
+    })
+    return
+  }
+
+  await linkWorkspaceMembersToManagedIdentity({
+    identityId: params.identityId,
+    email: params.email,
+  })
 }
 
 export async function listAdminIdentitySummaries(): Promise<
@@ -248,17 +249,10 @@ export async function upsertManagedIdentity(params: {
   identityId: string
   email: string
   label?: string
-  tags?: string[]
   status?: ManagedIdentityStatus
-  plan?: ManagedIdentityPlan
 }) {
   const label = params.label?.trim() || undefined
-  const tags =
-    params.tags === undefined
-      ? undefined
-      : normalizeManagedIdentityTags(params.tags)
   const status = params.status || 'ACTIVE'
-  const plan = params.plan || 'free'
 
   const [record] = await getDb()
     .insert(managedIdentities)
@@ -267,18 +261,14 @@ export async function upsertManagedIdentity(params: {
       identityId: params.identityId,
       email: normalizeEmail(params.email),
       ...(label !== undefined ? { label } : {}),
-      ...(tags !== undefined ? { tags } : {}),
       status,
-      plan,
     })
     .onConflictDoUpdate({
       target: managedIdentities.identityId,
       set: {
         email: normalizeEmail(params.email),
         ...(label !== undefined ? { label } : {}),
-        ...(tags !== undefined ? { tags } : {}),
         status,
-        plan,
         updatedAt: new Date(),
       },
     })
@@ -291,16 +281,18 @@ export async function upsertManagedIdentity(params: {
     if (!existing) {
       throw new Error('Unable to persist managed identity')
     }
-    await linkWorkspaceMembersToManagedIdentity({
+    await syncManagedIdentityWorkspaceMembership({
       identityId: existing.identityId,
       email: existing.email,
+      status: existing.status,
     })
     return existing
   }
 
-  await linkWorkspaceMembersToManagedIdentity({
+  await syncManagedIdentityWorkspaceMembership({
     identityId: record.identityId,
     email: record.email,
+    status: record.status,
   })
 
   return record
@@ -309,9 +301,7 @@ export async function upsertManagedIdentity(params: {
 export async function updateManagedIdentity(params: {
   identityId: string
   label?: string | null
-  tags?: string[]
   status?: ManagedIdentityStatus
-  plan?: ManagedIdentityPlan
 }) {
   const existing = await getDb().query.managedIdentities.findFirst({
     where: eq(managedIdentities.identityId, params.identityId),
@@ -322,23 +312,24 @@ export async function updateManagedIdentity(params: {
 
   const label =
     params.label === undefined ? existing.label : params.label?.trim() || null
-  const tags =
-    params.tags === undefined
-      ? normalizeManagedIdentityTags(existing.tags)
-      : normalizeManagedIdentityTags(params.tags)
   const status = params.status ?? existing.status
-  const plan = params.plan ?? existing.plan
   const [record] = await getDb()
     .update(managedIdentities)
     .set({
       label,
-      tags,
       status,
-      plan,
       updatedAt: new Date(),
     })
     .where(eq(managedIdentities.identityId, params.identityId))
     .returning()
+
+  if (record) {
+    await syncManagedIdentityWorkspaceMembership({
+      identityId: record.identityId,
+      email: record.email,
+      status: record.status,
+    })
+  }
 
   return record ?? existing
 }
@@ -372,9 +363,7 @@ export async function syncManagedIdentity(params: {
   email: string
   credentialCount?: number
   label?: string
-  tags?: string[]
   status?: ManagedIdentityStatus
-  plan?: ManagedIdentityPlan
   password?: string
   metadata?: Record<string, unknown>
   reservationId?: string
@@ -384,12 +373,7 @@ export async function syncManagedIdentity(params: {
   const reservationId = params.reservationId?.trim() || null
   const credentialCount = normalizeCredentialCount(params.credentialCount)
   const label = params.label?.trim() || null
-  const tags =
-    params.tags === undefined
-      ? undefined
-      : normalizeManagedIdentityTags(params.tags)
   const status = params.status
-  const plan = params.plan
   const password = normalizePassword(params.password)
   const passwordCiphertext = password
     ? encryptSecret(
@@ -423,14 +407,12 @@ export async function syncManagedIdentity(params: {
       .set({
         email,
         label: label ?? existing.label,
-        tags: tags ?? existing.tags,
         passwordCiphertext: passwordCiphertext ?? existing.passwordCiphertext,
         credentialMetadata: metadata
           ? { ...metadata }
           : existing.credentialMetadata,
         credentialCount: credentialCount ?? existing.credentialCount,
         status: status ?? existing.status,
-        plan: plan ?? existing.plan,
         lastSeenAt: seenAt,
         updatedAt: seenAt,
       })
@@ -439,9 +421,10 @@ export async function syncManagedIdentity(params: {
 
     if (record) {
       await attachReservation()
-      await linkWorkspaceMembersToManagedIdentity({
+      await syncManagedIdentityWorkspaceMembership({
         identityId: record.identityId,
         email: record.email,
+        status: record.status,
       })
       return record
     }
@@ -454,12 +437,10 @@ export async function syncManagedIdentity(params: {
       identityId,
       email,
       label,
-      tags: tags ?? [],
       passwordCiphertext,
       credentialMetadata: metadata ? { ...metadata } : null,
       credentialCount: credentialCount ?? 0,
       status: status ?? 'ACTIVE',
-      plan: plan ?? 'free',
       lastSeenAt: seenAt,
     })
     .returning()
@@ -469,9 +450,10 @@ export async function syncManagedIdentity(params: {
   }
 
   await attachReservation()
-  await linkWorkspaceMembersToManagedIdentity({
+  await syncManagedIdentityWorkspaceMembership({
     identityId: created.identityId,
     email: created.email,
+    status: created.status,
   })
   return created
 }

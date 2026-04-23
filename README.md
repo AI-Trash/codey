@@ -238,6 +238,8 @@ If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth pa
 
 If `SUB2API_BASE_URL` is configured together with either `SUB2API_BEARER_TOKEN` or the `SUB2API_EMAIL` / `SUB2API_PASSWORD` login pair, `flow codex-oauth` also refreshes the captured Codex refresh token against Sub2API and upserts an OpenAI OAuth account there. Codey matches existing Sub2API accounts by email and updates them in place; otherwise it creates a new account, using the email address as the Sub2API account name. When both auth modes are present, `SUB2API_BEARER_TOKEN` takes priority.
 
+When Codey creates a new Sub2API account, you can also pass default scheduler fields such as proxy, concurrency, priority, group IDs, mixed-channel confirmation, and an optional "auto-fill related models" whitelist that mirrors Sub2API's OpenAI model presets.
+
 For web-dispatched `codex-oauth` runs, you can now manage the same Sub2API settings centrally from `/admin/external-services`. When that app-managed integration is enabled, tasks dispatched from `/admin/cli` fetch the Sub2API config from the Codey app at runtime, so the connected TUI no longer needs a separate local Sub2API env setup. The environment variables below remain available as an optional fallback for direct/local CLI runs.
 
 Optional environment variables:
@@ -254,6 +256,13 @@ SUB2API_PASSWORD=your-sub2api-admin-password
 SUB2API_LOGIN_PATH=/api/v1/auth/login
 SUB2API_REFRESH_TOKEN_PATH=/api/v1/admin/openai/refresh-token
 SUB2API_ACCOUNTS_PATH=/api/v1/admin/accounts
+SUB2API_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann
+SUB2API_PROXY_ID=1
+SUB2API_CONCURRENCY=0
+SUB2API_PRIORITY=0
+SUB2API_GROUP_IDS=1,2,3
+SUB2API_AUTO_FILL_RELATED_MODELS=false
+SUB2API_CONFIRM_MIXED_CHANNEL_RISK=false
 ```
 
 ## Cloudflare Email Worker

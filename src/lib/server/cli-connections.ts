@@ -397,3 +397,20 @@ export async function getAdminCliConnectionSummaryById(
 
   return row ? mapSummary(row) : null
 }
+
+export async function listRecentVisibleCliConnectionsForActor(
+  actor: CliConnectionActorScope,
+  input: {
+    limit?: number
+  } = {},
+) {
+  const rows = await listRecentCliConnectionRows(input.limit || 200)
+
+  return rows
+    .map(mapSummary)
+    .filter(
+      (connection) =>
+        isCliConnectionOwnedByActor(connection, actor) ||
+        isSharedCliConnection(connection),
+    )
+}

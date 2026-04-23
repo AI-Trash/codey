@@ -99,6 +99,7 @@ export interface Sub2ApiConfig {
   concurrency?: number
   priority?: number
   groupIds?: number[]
+  autoFillRelatedModels?: boolean
   confirmMixedChannelRisk?: boolean
 }
 
@@ -265,6 +266,7 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
     'SUB2API_CONCURRENCY',
     'SUB2API_PRIORITY',
     'SUB2API_GROUP_IDS',
+    'SUB2API_AUTO_FILL_RELATED_MODELS',
     'SUB2API_CONFIRM_MIXED_CHANNEL_RISK',
   ]
 
@@ -285,6 +287,11 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
     concurrency: parseOptionalNumber(process.env.SUB2API_CONCURRENCY),
     priority: parseOptionalNumber(process.env.SUB2API_PRIORITY),
     groupIds: parseIntegerList(process.env.SUB2API_GROUP_IDS),
+    autoFillRelatedModels: hasEnvValue(
+      process.env.SUB2API_AUTO_FILL_RELATED_MODELS,
+    )
+      ? parseBoolean(process.env.SUB2API_AUTO_FILL_RELATED_MODELS, false)
+      : undefined,
     confirmMixedChannelRisk: hasEnvValue(
       process.env.SUB2API_CONFIRM_MIXED_CHANNEL_RISK,
     )

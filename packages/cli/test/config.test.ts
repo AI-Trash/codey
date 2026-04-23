@@ -59,6 +59,7 @@ const sub2apiEnvNames = {
   SUB2API_CONCURRENCY: undefined,
   SUB2API_PRIORITY: undefined,
   SUB2API_GROUP_IDS: undefined,
+  SUB2API_AUTO_FILL_RELATED_MODELS: undefined,
   SUB2API_CONFIRM_MIXED_CHANNEL_RISK: undefined,
 }
 
@@ -103,6 +104,7 @@ describe('resolveConfig sub2api sync config', () => {
         SUB2API_CONCURRENCY: '3',
         SUB2API_PRIORITY: '7',
         SUB2API_GROUP_IDS: '11, 12, invalid, 13',
+        SUB2API_AUTO_FILL_RELATED_MODELS: 'true',
         SUB2API_CONFIRM_MIXED_CHANNEL_RISK: 'true',
       },
       () => resolveConfig(),
@@ -121,6 +123,7 @@ describe('resolveConfig sub2api sync config', () => {
       concurrency: 3,
       priority: 7,
       groupIds: [11, 12, 13],
+      autoFillRelatedModels: true,
       confirmMixedChannelRisk: true,
     })
   })
@@ -150,6 +153,7 @@ describe('resolveConfig sub2api sync config', () => {
       concurrency: undefined,
       priority: undefined,
       groupIds: undefined,
+      autoFillRelatedModels: undefined,
       confirmMixedChannelRisk: undefined,
     })
   })
