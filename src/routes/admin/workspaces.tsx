@@ -179,16 +179,19 @@ type WorkspaceEditorState = {
 function createWorkspaceEditorState(
   summary?: WorkspaceSummary | null,
 ): WorkspaceEditorState {
+  const members = summary?.members ?? []
+
   return {
     id: summary?.id,
     workspaceId: summary?.workspaceId || '',
     label: summary?.label || '',
     ownerIdentityId: summary?.owner?.identityId || '',
-    memberIdentityIds: summary?.members
-      .flatMap((member) => (member.identityId ? [member.identityId] : [])),
-    legacyMemberEmails: summary?.members
+    memberIdentityIds: members.flatMap((member) =>
+      member.identityId ? [member.identityId] : [],
+    ),
+    legacyMemberEmails: members
       .flatMap((member) => (member.identityId ? [] : [member.email]))
-      .filter(Boolean) || [],
+      .filter(Boolean),
   }
 }
 
