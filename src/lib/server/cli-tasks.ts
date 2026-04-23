@@ -11,7 +11,9 @@ import {
   normalizeCliFlowTaskParallelism,
 } from "../../../packages/cli/src/modules/flow-cli/flow-registry";
 import {
+  type AdminCliConnectionSummary,
   getAdminCliConnectionSummaryById,
+  listAdminCliConnectionStateForActor,
   type CliConnectionActorScope,
   isCliConnectionOwnedByActor,
   isSharedCliConnection,
@@ -25,6 +27,12 @@ export {
   MAX_CLI_FLOW_TASK_BATCH_SIZE,
   MAX_CLI_FLOW_TASK_PARALLELISM,
 };
+
+interface CliDispatchTarget {
+  connection: AdminCliConnectionSummary;
+  workerId: string;
+  batchParallelism: number;
+}
 
 function buildTaskTitle(input: {
   flowId: string;
@@ -120,6 +128,99 @@ function normalizeEmailKey(value: unknown): string | undefined {
 
   const normalized = value.trim().toLowerCase();
   return normalized || undefined;
+}
+
+function isConnectionBusy(
+  connection: Pick<
+    AdminCliConnectionSummary,
+    "runtimeFlowId" | "runtimeFlowCompletedAt" | "runtimeFlowStatus"
+  >,
+) {
+  return Boolean(
+    connection.runtimeFlowId &&
+      !connection.runtimeFlowCompletedAt &&
+      connection.runtimeFlowStatus !== "completed",
+  );
+}
+
+function compareDispatchConnections(
+  left: AdminCliConnectionSummary,
+  right: AdminCliConnectionSummary,
+  preferredConnectionId: string,
+) {
+  const preferredDelta =
+    Number(right.id === preferredConnectionId) -
+    Number(left.id === preferredConnectionId);
+  if (preferredDelta) {
+    return preferredDelta;
+  }
+
+  const sharedDelta =
+    Number(isSharedCliConnection(right)) - Number(isSharedCliConnection(left));
+  if (sharedDelta) {
+    return sharedDelta;
+  }
+
+  const busyDelta = Number(isConnectionBusy(left)) - Number(isConnectionBusy(right));
+  if (busyDelta) {
+    return busyDelta;
+  }
+
+  const lastSeenDelta =
+    new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime();
+  if (lastSeenDelta) {
+    return lastSeenDelta;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function buildCliDispatchTargets(input: {
+  connection: AdminCliConnectionSummary;
+  eligibleConnections: AdminCliConnectionSummary[];
+  count: number;
+  parallelism: number;
+}): CliDispatchTarget[] {
+  const uniqueTargets = new Map<string, AdminCliConnectionSummary>();
+  const sortedConnections = [...input.eligibleConnections].sort((left, right) =>
+    compareDispatchConnections(left, right, input.connection.id),
+  );
+
+  for (const connection of sortedConnections) {
+    const workerId = getCliConnectionTaskWorkerId(connection);
+    if (!uniqueTargets.has(workerId)) {
+      uniqueTargets.set(workerId, connection);
+    }
+  }
+
+  const selectedTargets = [...uniqueTargets.entries()]
+    .slice(0, Math.max(1, Math.min(input.count, input.parallelism, uniqueTargets.size)))
+    .map(([workerId, connection]) => ({
+      connection,
+      workerId,
+    }));
+
+  if (selectedTargets.length <= 1) {
+    const [singleTarget] = selectedTargets;
+    if (!singleTarget) {
+      throw new Error("No eligible CLI worker is available for dispatch.");
+    }
+
+    return [
+      {
+        ...singleTarget,
+        batchParallelism: input.parallelism,
+      },
+    ];
+  }
+
+  const baseParallelism = Math.floor(input.parallelism / selectedTargets.length);
+  const remainder = input.parallelism % selectedTargets.length;
+
+  return selectedTargets.map((target, index) => ({
+    ...target,
+    batchParallelism: baseParallelism + (index < remainder ? 1 : 0),
+  }));
 }
 
 function supportsEmailBatchDispatch(
@@ -245,8 +346,23 @@ async function resolveDispatchableCliFlow(input: {
     throw new Error("Unsupported flow type.");
   }
 
+  const eligibleConnections = input.actor
+    ? (
+        await listAdminCliConnectionStateForActor(input.actor)
+      ).activeConnections.filter(
+        (candidate) =>
+          candidate.status === "active" &&
+          candidate.registeredFlows.includes(input.flowId),
+      )
+    : [connection];
+
+  if (!eligibleConnections.some((candidate) => candidate.id === connection.id)) {
+    eligibleConnections.unshift(connection);
+  }
+
   return {
     connection,
+    eligibleConnections,
     flowDefinition,
   };
 }
@@ -264,7 +380,8 @@ export async function dispatchCliFlowTasks(input: {
   parallelism?: number | null;
   actor?: CliConnectionActorScope;
 }) {
-  const { connection, flowDefinition } = await resolveDispatchableCliFlow(input);
+  const { connection, eligibleConnections, flowDefinition } =
+    await resolveDispatchableCliFlow(input);
   const taskConfigs = resolveRequestedTaskConfigs({
     flowId: flowDefinition.id,
     config: input.config,
@@ -283,18 +400,28 @@ export async function dispatchCliFlowTasks(input: {
     flowDefinition.id,
   );
   const batchId = count > 1 ? createId() : undefined;
-  const workerId = getCliConnectionTaskWorkerId(connection);
   const queuedConfigs =
     taskConfigs.length > 1
       ? taskConfigs
       : Array.from({ length: count }, () => taskConfigs[0] || {});
+  const dispatchTargets = buildCliDispatchTargets({
+    connection,
+    eligibleConnections,
+    count,
+    parallelism,
+  });
   const queuedTaskRows = queuedConfigs.map((config, index) => {
     const sequence = index + 1;
     const email =
       typeof config.email === "string" ? config.email.trim() : undefined;
+    const target =
+      dispatchTargets[index % dispatchTargets.length] || dispatchTargets[0];
+    if (!target) {
+      throw new Error("No eligible CLI worker is available for dispatch.");
+    }
     const body = buildTaskBody({
       flowId: flowDefinition.id,
-      cliName: connection.cliName,
+      cliName: target.connection.cliName,
       configCount: Object.keys(config).length,
       sequence,
       total: count,
@@ -304,7 +431,7 @@ export async function dispatchCliFlowTasks(input: {
 
     return {
       id: createId(),
-      workerId,
+      workerId: target.workerId,
       title: buildTaskTitle({
         flowId: flowDefinition.id,
         sequence,
@@ -313,7 +440,7 @@ export async function dispatchCliFlowTasks(input: {
       }),
       body,
       flowType: flowDefinition.id,
-      target: connection.target,
+      target: target.connection.target,
       lastMessage: body,
       payload: createCliFlowTaskPayload(
         flowDefinition.id,
@@ -321,7 +448,9 @@ export async function dispatchCliFlowTasks(input: {
         {
           ...(batchId ? { batchId } : {}),
           ...(count > 1 ? { sequence, total: count } : {}),
-          ...(parallelism > 1 ? { parallelism } : {}),
+          ...(target.batchParallelism > 1
+            ? { parallelism: target.batchParallelism }
+            : {}),
         },
         externalServices,
       ),
@@ -354,6 +483,8 @@ export async function dispatchCliFlowTasks(input: {
     config: queuedConfigs[0] || {},
     configs: queuedConfigs,
     batchId,
+    assignedCliCount: dispatchTargets.length,
+    assignedConnections: dispatchTargets.map((target) => target.connection),
     externalServices,
     parallelism,
   };

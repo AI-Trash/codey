@@ -2,7 +2,7 @@ import type { AdminFlowTaskSummary } from '#/lib/server/flow-runs'
 import { m } from '#/paraglide/messages'
 
 export function buildAdminFlowTaskHref(taskId: string) {
-  return `/admin/flows/${encodeURIComponent(taskId)}`
+  return `/admin/flows?taskId=${encodeURIComponent(taskId)}`
 }
 
 export function getFlowDisplayName(flowType: string) {

@@ -87,7 +87,7 @@ describe("syncManagedCodexOAuthSessionToSub2Api", () => {
             message: "success",
             data: {
               id: 42,
-              name: "person@example.com",
+              name: "person@example.com + ws-primary",
             },
           }),
           {
@@ -128,7 +128,7 @@ describe("syncManagedCodexOAuthSessionToSub2Api", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          name: "person@example.com",
+          name: "person@example.com + ws-primary",
           notes: JSON.stringify({
             workspaceId: "ws-primary",
             email: "person@example.com",
@@ -209,7 +209,7 @@ describe("syncManagedCodexOAuthSessionToSub2Api", () => {
             message: "success",
             data: {
               id: 101,
-              name: "person@example.com",
+              name: "person@example.com + ws-primary",
             },
           }),
           {
@@ -248,7 +248,7 @@ describe("syncManagedCodexOAuthSessionToSub2Api", () => {
       expect.objectContaining({
         method: "PUT",
         body: JSON.stringify({
-          name: "person@example.com",
+          name: "person@example.com + ws-primary",
           notes: JSON.stringify({
             workspaceId: "ws-primary",
             email: "person@example.com",
@@ -325,7 +325,7 @@ describe("syncManagedCodexOAuthSessionToSub2Api", () => {
             message: "success",
             data: {
               id: 144,
-              name: "person@example.com",
+              name: "person@example.com + ws-primary",
             },
           }),
           {
@@ -364,7 +364,7 @@ describe("syncManagedCodexOAuthSessionToSub2Api", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          name: "person@example.com",
+          name: "person@example.com + ws-primary",
           notes: JSON.stringify({
             workspaceId: "ws-primary",
             email: "person@example.com",
@@ -377,6 +377,114 @@ describe("syncManagedCodexOAuthSessionToSub2Api", () => {
             email: "person@example.com",
             client_id: "codex-client-id",
             model_mapping: buildSub2ApiOpenAiRelatedModelMapping(),
+          },
+          extra: {
+            email: "person@example.com",
+          },
+          concurrency: 0,
+          priority: 0,
+        }),
+      }),
+    );
+  });
+
+  it("falls back to the email as the Sub2API account name when no workspace is provided", async () => {
+    mocks.hasEnabledSub2ApiServiceConfig.mockResolvedValue(true);
+    mocks.getCliSub2ApiConfig.mockResolvedValue({
+      baseUrl: "https://sub2api.example.com",
+      bearerToken: "sub2api-bearer",
+    });
+
+    const fetchMock = vi.fn<typeof fetch>();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: "success",
+            data: {
+              access_token: "fresh-access-token",
+              email: "person@example.com",
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: "success",
+            data: {
+              items: [],
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: "success",
+            data: {
+              id: 303,
+              name: "person@example.com",
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { syncManagedCodexOAuthSessionToSub2Api } = await import(
+      "./sub2api-codex-oauth"
+    );
+
+    await expect(
+      syncManagedCodexOAuthSessionToSub2Api({
+        email: "person@example.com",
+        clientId: "codex-client-id",
+        sessionData: {
+          tokens: {
+            refresh_token: "codex-refresh-token",
+          },
+        },
+      }),
+    ).resolves.toEqual({
+      accountId: 303,
+      action: "created",
+      email: "person@example.com",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "https://sub2api.example.com/api/v1/admin/accounts",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "person@example.com",
+          notes: JSON.stringify({
+            workspaceId: null,
+            email: "person@example.com",
+          }),
+          platform: "openai",
+          type: "oauth",
+          credentials: {
+            access_token: "fresh-access-token",
+            refresh_token: "codex-refresh-token",
+            email: "person@example.com",
+            client_id: "codex-client-id",
           },
           extra: {
             email: "person@example.com",

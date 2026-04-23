@@ -16,6 +16,7 @@ import type {
   AdminFlowRunSnapshot,
   AdminFlowTaskSummary,
 } from '#/lib/server/flow-runs'
+import { FlowDetailPanel } from '#/components/admin/flow-runs'
 import {
   AdminPageHeader,
   EmptyState,
@@ -50,6 +51,13 @@ import {
 } from '#/components/ui/card'
 import { CopyableValue } from '#/components/ui/copyable-value'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
+import {
   Table,
   TableBody,
   TableCell,
@@ -57,7 +65,7 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
-import { buildAdminFlowTaskHref, getFlowDisplayName } from '#/lib/admin-flows'
+import { getFlowDisplayName } from '#/lib/admin-flows'
 import { translateStatusLabel } from '#/lib/i18n'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
@@ -78,8 +86,9 @@ type FlowPageFlash = {
   description: string
 }
 
-const loadAdminFlowRuns = createServerFn({ method: 'GET' }).handler(
-  async () => {
+const loadAdminFlowRuns = createServerFn({ method: 'GET' })
+  .inputValidator((data: { taskId?: string }) => data)
+  .handler(async ({ data }) => {
     const [{ getRequest }, { requireAdminPermission }, { getAdminFlowRunSnapshotForActor }] =
       await Promise.all([
         import('@tanstack/react-start/server'),
@@ -100,25 +109,27 @@ const loadAdminFlowRuns = createServerFn({ method: 'GET' }).handler(
             githubLogin: admin.user.githubLogin,
             email: admin.user.email,
           },
+          taskId: data?.taskId,
         }),
       }
     } catch {
       return { authorized: false as const }
     }
-  },
-)
+  })
 
 export const Route = createFileRoute('/admin/flows/')({
   validateSearch: (search: Record<string, unknown>) => ({
     taskId: typeof search.taskId === 'string' ? search.taskId : undefined,
   }),
-  loader: async () => loadAdminFlowRuns(),
+  loaderDeps: ({ search: { taskId } }) => ({ taskId }),
+  loader: ({ deps }) => loadAdminFlowRuns({ data: { taskId: deps.taskId } }),
   component: AdminFlowsPage,
 })
 
 function AdminFlowsPage() {
   const data = Route.useLoaderData()
   const search = Route.useSearch()
+  const navigate = Route.useNavigate()
   const locale = getLocale()
   const authorizedSnapshot = data.authorized
     ? (data.snapshot as AdminFlowRunSnapshot)
@@ -143,19 +154,18 @@ function AdminFlowsPage() {
 
     setSnapshot(authorizedSnapshot)
   }, [authorizedSnapshot])
+  const activeTaskId = search.taskId
+  const activeTask =
+    !activeTaskId
+      ? null
+      : snapshot.selectedTask?.id === activeTaskId
+        ? snapshot.selectedTask
+        : snapshot.tasks.find((task) => task.id === activeTaskId) || null
 
-  useEffect(() => {
-    if (!search.taskId || typeof window === 'undefined') {
-      return
-    }
-
-    window.location.replace(buildAdminFlowTaskHref(search.taskId))
-  }, [search.taskId])
-
-  async function refreshSnapshot() {
+  async function refreshSnapshot(taskId = activeTaskId) {
     setIsRefreshing(true)
     try {
-      const response = await fetch('/api/admin/flows', {
+      const response = await fetch(buildAdminFlowSnapshotApiHref(taskId), {
         headers: {
           Accept: 'application/json',
         },
@@ -172,6 +182,17 @@ function AdminFlowsPage() {
     } finally {
       setIsRefreshing(false)
     }
+  }
+
+  function setDetailsOpen(taskId?: string, replace = false) {
+    void navigate({
+      to: '/admin/flows',
+      search: (current) => ({
+        ...current,
+        taskId,
+      }),
+      replace,
+    })
   }
 
   async function clearFlowRuns(mode: ClearFlowRunsMode) {
@@ -197,19 +218,30 @@ function AdminFlowsPage() {
       }
 
       const result = (await response.json()) as ClearFlowRunsResponse
+      const nextTasks =
+        mode === 'all'
+          ? []
+          : snapshot.tasks.filter((task) => !isClearableFlowTaskStatus(task.status))
       startTransition(() => {
         setSnapshot((current) => ({
           ...current,
           snapshotAt: new Date().toISOString(),
-          tasks:
-            mode === 'all'
-              ? []
-              : current.tasks.filter(
-                  (task) => !isClearableFlowTaskStatus(task.status),
-                ),
+          tasks: nextTasks,
+          selectedTask:
+            current.selectedTask &&
+            nextTasks.some((task) => task.id === current.selectedTask?.id)
+              ? current.selectedTask
+              : null,
         }))
       })
       setClearMode(null)
+
+      if (
+        activeTaskId &&
+        !nextTasks.some((task) => task.id === activeTaskId)
+      ) {
+        setDetailsOpen(undefined, true)
+      }
 
       if (mode === 'all') {
         setFlash({
@@ -275,6 +307,14 @@ function AdminFlowsPage() {
   }
 
   useEffect(() => {
+    if (!activeTaskId) {
+      return
+    }
+
+    void refreshSnapshot(activeTaskId)
+  }, [activeTaskId])
+
+  useEffect(() => {
     let active = true
 
     const tick = async () => {
@@ -284,7 +324,7 @@ function AdminFlowsPage() {
 
       setIsRefreshing(true)
       try {
-        const response = await fetch('/api/admin/flows', {
+        const response = await fetch(buildAdminFlowSnapshotApiHref(activeTaskId), {
           headers: {
             Accept: 'application/json',
           },
@@ -313,7 +353,7 @@ function AdminFlowsPage() {
       active = false
       window.clearInterval(interval)
     }
-  }, [])
+  }, [activeTaskId])
 
   const flowColumns = useMemo(() => {
     const dtf = createColumnConfigHelper<AdminFlowTaskSummary>()
@@ -415,7 +455,7 @@ function AdminFlowsPage() {
               variant="outline"
               onClick={() => {
                 setFlash(null)
-                void refreshSnapshot()
+                void refreshSnapshot(activeTaskId)
               }}
               disabled={isRefreshing}
             >
@@ -560,10 +600,15 @@ function AdminFlowsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="align-top">
-                        <Button asChild size="sm" variant="outline">
-                          <a href={buildAdminFlowTaskHref(task.id)}>
-                            {m.mail_inbox_table_details()}
-                          </a>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setDetailsOpen(task.id)
+                          }}
+                        >
+                          {m.mail_inbox_table_details()}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -623,12 +668,93 @@ function AdminFlowsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={Boolean(activeTaskId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetailsOpen(undefined, true)
+          }
+        }}
+      >
+        <DialogContent className="grid max-h-[92vh] max-w-[min(1120px,calc(100%-2rem))] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-[min(1120px,calc(100%-2rem))]">
+          <DialogHeader className="gap-3 border-b px-6 py-5 pr-14 text-left">
+            <DialogDescription>{m.admin_flow_page_title()}</DialogDescription>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-2">
+                <DialogTitle className="text-xl">
+                  {activeTask
+                    ? getFlowDisplayName(activeTask.flowType)
+                    : m.admin_flow_not_found_title()}
+                </DialogTitle>
+                <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                  {activeTask
+                    ? activeTask.title || activeTask.body
+                    : m.admin_flow_not_found_description()}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  void refreshSnapshot(activeTaskId)
+                }}
+                disabled={isRefreshing}
+              >
+                {isRefreshing ? m.status_refreshing() : m.admin_flow_refresh()}
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <p>
+                {m.admin_flow_auto_refresh({
+                  seconds: String(FLOW_PAGE_POLL_INTERVAL_MS / 1000),
+                })}
+              </p>
+              <p>
+                {m.admin_flow_snapshot({
+                  time:
+                    formatAdminDate(snapshot.snapshotAt) ||
+                    snapshot.snapshotAt,
+                })}
+              </p>
+            </div>
+          </DialogHeader>
+
+          <div className="min-h-0 overflow-y-auto px-6 py-5">
+            {activeTask ? (
+              <div className="flex flex-col gap-6">
+                <FlowDetailPanel task={activeTask} />
+              </div>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardDescription>{m.admin_flow_page_title()}</CardDescription>
+                  <CardTitle>{m.admin_flow_not_found_title()}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {m.admin_flow_not_found_description()}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
 function isClearableFlowTaskStatus(status: string) {
   return status === 'SUCCEEDED' || status === 'FAILED' || status === 'CANCELED'
+}
+
+function buildAdminFlowSnapshotApiHref(taskId?: string) {
+  if (!taskId) {
+    return '/api/admin/flows'
+  }
+
+  return `/api/admin/flows?taskId=${encodeURIComponent(taskId)}`
 }
 
 function normalizeDate(value?: string | null) {

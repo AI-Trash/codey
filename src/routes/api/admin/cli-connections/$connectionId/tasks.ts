@@ -162,6 +162,7 @@ export const Route = createFileRoute(
               taskId: result.tasks[0]?.id || null,
               taskIds: result.tasks.map((task) => task.id),
               queuedCount: result.tasks.length,
+              assignedCliCount: result.assignedCliCount,
               parallelism: result.parallelism,
               batchId: result.batchId || null,
               connectionId: result.connection.id,

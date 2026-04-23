@@ -327,6 +327,15 @@ function buildSub2ApiAccountExtra(
   return Object.keys(extra).length > 0 ? extra : undefined;
 }
 
+function buildSub2ApiAccountName(input: {
+  workspaceId?: string | null;
+  email: string;
+}): string {
+  const email = normalizeEmail(input.email);
+  const workspaceId = normalizeWorkspaceId(input.workspaceId);
+  return workspaceId ? `${email} + ${workspaceId}` : email;
+}
+
 function buildSub2ApiAccountNotes(input: {
   workspaceId?: string;
   email: string;
@@ -464,6 +473,11 @@ export async function syncManagedCodexOAuthSessionToSub2Api(input: {
   const accountEmail = normalizeEmail(
     asNonEmptyString(refreshedToken.email) || normalizedEmail,
   );
+  const normalizedWorkspaceId = normalizeWorkspaceId(input.workspaceId);
+  const accountName = buildSub2ApiAccountName({
+    workspaceId: normalizedWorkspaceId,
+    email: accountEmail,
+  });
   const credentials = buildSub2ApiAccountCredentials({
     tokenInfo: refreshedToken,
     fallbackRefreshToken: refreshToken,
@@ -472,7 +486,7 @@ export async function syncManagedCodexOAuthSessionToSub2Api(input: {
     fallbackExpiresAt: asNonEmptyStringOrNumber(sessionTokens.expires_at),
   });
   const notes = buildSub2ApiAccountNotes({
-    workspaceId: normalizeWorkspaceId(input.workspaceId),
+    workspaceId: normalizedWorkspaceId,
     email: accountEmail,
   });
 
@@ -494,7 +508,7 @@ export async function syncManagedCodexOAuthSessionToSub2Api(input: {
     Array.isArray(existingAccounts.items) ? existingAccounts.items : [],
     {
       email: accountEmail,
-      workspaceId: normalizeWorkspaceId(input.workspaceId),
+      workspaceId: normalizedWorkspaceId,
     },
   );
 
@@ -506,7 +520,7 @@ export async function syncManagedCodexOAuthSessionToSub2Api(input: {
         method: "PUT",
         pathname: `${accountsPath.replace(/\/+$/, "")}/${existing.id}`,
         body: {
-          name: accountEmail,
+          name: accountName,
           notes,
           credentials,
         },
@@ -527,7 +541,7 @@ export async function syncManagedCodexOAuthSessionToSub2Api(input: {
       method: "POST",
       pathname: accountsPath,
       body: {
-        name: accountEmail,
+        name: accountName,
         notes,
         platform: "openai",
         type: "oauth",

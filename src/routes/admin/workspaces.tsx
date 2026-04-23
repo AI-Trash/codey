@@ -178,6 +178,7 @@ type DispatchWorkspaceInviteResponse = {
   mode: 'dispatch' | 'request'
   memberEmails: string[]
   queuedCount?: number
+  assignedCliCount?: number
   connectionLabel?: string
   requestId?: string
 }
@@ -187,6 +188,7 @@ type DispatchWorkspaceCodexOAuthResponse = {
   mode: 'dispatch' | 'request'
   memberEmails: string[]
   queuedCount?: number
+  assignedCliCount?: number
   connectionLabel?: string
   requestId?: string
 }
@@ -1441,10 +1443,16 @@ function WorkspaceDetailDialog(props: {
         result.mode === 'dispatch'
           ? {
               kind: 'success',
-              message: m.admin_workspace_invite_success_dispatched({
-                count: String(result.memberEmails.length),
-                cli: result.connectionLabel || 'CLI',
-              }),
+              message:
+                (result.assignedCliCount || 1) > 1
+                  ? m.admin_workspace_invite_success_dispatched_multi({
+                      count: String(result.memberEmails.length),
+                      cliCount: String(result.assignedCliCount || 1),
+                    })
+                  : m.admin_workspace_invite_success_dispatched({
+                      count: String(result.memberEmails.length),
+                      cli: result.connectionLabel || 'CLI',
+                    }),
             }
           : {
               kind: 'success',
@@ -1497,10 +1505,16 @@ function WorkspaceDetailDialog(props: {
         result.mode === 'dispatch'
           ? {
               kind: 'success',
-              message: m.admin_workspace_authorize_success_dispatched({
-                count: String(result.memberEmails.length),
-                cli: result.connectionLabel || 'CLI',
-              }),
+              message:
+                (result.assignedCliCount || 1) > 1
+                  ? m.admin_workspace_authorize_success_dispatched_multi({
+                      count: String(result.memberEmails.length),
+                      cliCount: String(result.assignedCliCount || 1),
+                    })
+                  : m.admin_workspace_authorize_success_dispatched({
+                      count: String(result.memberEmails.length),
+                      cli: result.connectionLabel || 'CLI',
+                    }),
             }
           : {
               kind: 'success',

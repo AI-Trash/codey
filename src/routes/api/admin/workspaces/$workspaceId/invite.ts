@@ -183,6 +183,7 @@ export const Route = createFileRoute(
               ok: true,
               mode: 'dispatch' as const,
               queuedCount: result.tasks.length,
+              assignedCliCount: result.assignedCliCount,
               memberEmails,
               connectionId: result.connection.id,
               connectionLabel: getConnectionLabel(result.connection),

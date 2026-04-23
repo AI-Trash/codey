@@ -179,6 +179,11 @@ type DispatchFlash = {
   description: string
 }
 
+type DispatchResultSummary = {
+  queuedCount: number
+  assignedCliCount: number
+}
+
 type DraftOptionState = Record<string, string>
 
 function AdminCliConnectionsPage() {
@@ -321,20 +326,31 @@ function AdminCliConnectionsPage() {
             setSelectedConnection(null)
           }
         }}
-        onDispatched={(flowId, connection, queuedCount) => {
+        onDispatched={(flowId, connection, result) => {
           setDispatchFlash({
             title: m.admin_cli_dispatch_success_title(),
             description:
-              queuedCount > 1
-                ? m.admin_cli_dispatch_success_description_batch({
-                    flow: getFlowDisplayName(flowId),
-                    cli: connection.cliName || m.admin_cli_unknown_cli(),
-                    count: String(queuedCount),
-                  })
-                : m.admin_cli_dispatch_success_description({
-                    flow: getFlowDisplayName(flowId),
-                    cli: connection.cliName || m.admin_cli_unknown_cli(),
-                  }),
+              result.assignedCliCount > 1
+                ? result.queuedCount > 1
+                  ? m.admin_cli_dispatch_success_description_batch_multi({
+                      flow: getFlowDisplayName(flowId),
+                      count: String(result.queuedCount),
+                      cliCount: String(result.assignedCliCount),
+                    })
+                  : m.admin_cli_dispatch_success_description_multi({
+                      flow: getFlowDisplayName(flowId),
+                      cliCount: String(result.assignedCliCount),
+                    })
+                : result.queuedCount > 1
+                  ? m.admin_cli_dispatch_success_description_batch({
+                      flow: getFlowDisplayName(flowId),
+                      cli: connection.cliName || m.admin_cli_unknown_cli(),
+                      count: String(result.queuedCount),
+                    })
+                  : m.admin_cli_dispatch_success_description({
+                      flow: getFlowDisplayName(flowId),
+                      cli: connection.cliName || m.admin_cli_unknown_cli(),
+                    }),
           })
           setSelectedConnection(null)
         }}
@@ -481,7 +497,7 @@ function CliTaskDialog(props: {
   onDispatched: (
     flowId: CliFlowCommandId,
     connection: CliConnectionSummary,
-    queuedCount: number,
+    result: DispatchResultSummary,
   ) => void
 }) {
   const availableFlows = useMemo(() => {
@@ -566,14 +582,23 @@ function CliTaskDialog(props: {
 
       const result = (await response.json()) as {
         queuedCount?: number
+        assignedCliCount?: number
       }
 
       props.onDispatched(
         selectedFlowId,
         props.connection,
-        typeof result.queuedCount === 'number' && result.queuedCount > 0
-          ? result.queuedCount
-          : submission.repeatCount,
+        {
+          queuedCount:
+            typeof result.queuedCount === 'number' && result.queuedCount > 0
+              ? result.queuedCount
+              : submission.repeatCount,
+          assignedCliCount:
+            typeof result.assignedCliCount === 'number' &&
+            result.assignedCliCount > 0
+              ? result.assignedCliCount
+              : 1,
+        },
       )
     } catch (error) {
       setSubmitError(
