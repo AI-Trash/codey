@@ -236,7 +236,7 @@ CODEX_SCOPE=openid profile email offline_access
 
 If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
 
-If `SUB2API_BASE_URL` is configured together with either `SUB2API_BEARER_TOKEN` or the `SUB2API_EMAIL` / `SUB2API_PASSWORD` login pair, `flow codex-oauth` also refreshes the captured Codex refresh token against Sub2API and upserts an OpenAI OAuth account there. Codey matches existing Sub2API accounts by email and updates them in place; otherwise it creates a new account, using the email address as the Sub2API account name. When both auth modes are present, `SUB2API_BEARER_TOKEN` takes priority.
+If `SUB2API_BASE_URL` is configured together with `SUB2API_API_KEY`, `SUB2API_BEARER_TOKEN`, or the `SUB2API_EMAIL` / `SUB2API_PASSWORD` login pair, `flow codex-oauth` also refreshes the captured Codex refresh token against Sub2API and upserts an OpenAI OAuth account there. Codey matches existing Sub2API accounts by email and updates them in place; otherwise it creates a new account, using the email address as the Sub2API account name. `SUB2API_API_KEY` is sent as the `x-api-key` header and takes priority over `SUB2API_BEARER_TOKEN`, which still takes priority over email/password login.
 
 When Codey creates a new Sub2API account, you can also pass default scheduler fields such as proxy, concurrency, priority, group IDs, mixed-channel confirmation, and an optional "auto-fill related models" whitelist that mirrors Sub2API's OpenAI model presets.
 
@@ -250,6 +250,7 @@ CODEX_REDIRECT_HOST=localhost
 CODEX_REDIRECT_PORT=1455
 CODEX_REDIRECT_PATH=/auth/callback
 SUB2API_BASE_URL=https://sub2api.example.com
+SUB2API_API_KEY=your-sub2api-admin-api-key
 SUB2API_BEARER_TOKEN=your-sub2api-admin-bearer-token
 SUB2API_EMAIL=admin@example.com
 SUB2API_PASSWORD=your-sub2api-admin-password

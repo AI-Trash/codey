@@ -21,6 +21,7 @@ export interface ManagedSub2ApiServiceSummary {
   configured: boolean;
   baseUrl: string;
   authMode: ExternalServiceAuthMode;
+  hasApiKey: boolean;
   hasBearerToken: boolean;
   email: string;
   hasPassword: boolean;
@@ -43,6 +44,7 @@ export interface UpsertSub2ApiServiceInput {
   enabled?: boolean;
   baseUrl?: string | null;
   authMode?: ExternalServiceAuthMode;
+  apiKey?: string | null;
   bearerToken?: string | null;
   email?: string | null;
   password?: string | null;
@@ -158,12 +160,42 @@ function resolveGroupIdsUpdate(
   return normalizeGroupIds(nextValue);
 }
 
+function resolveSub2ApiAuthMode(
+  row: Pick<
+    ExternalServiceConfigRow,
+    | "authMode"
+    | "apiKeyCiphertext"
+    | "bearerTokenCiphertext"
+    | "email"
+    | "passwordCiphertext"
+  > | null | undefined,
+): ExternalServiceAuthMode {
+  if (row?.authMode) {
+    return row.authMode;
+  }
+
+  if (row?.apiKeyCiphertext) {
+    return "api_key";
+  }
+
+  if (row?.bearerTokenCiphertext) {
+    return "bearer_token";
+  }
+
+  if (normalizeOptionalText(row?.email) || row?.passwordCiphertext) {
+    return "password";
+  }
+
+  return "api_key";
+}
+
 function isSub2ApiConfigReady(
   row: Pick<
     ExternalServiceConfigRow,
     | "enabled"
     | "baseUrl"
     | "authMode"
+    | "apiKeyCiphertext"
     | "bearerTokenCiphertext"
     | "email"
     | "passwordCiphertext"
@@ -173,11 +205,17 @@ function isSub2ApiConfigReady(
     return false;
   }
 
-  if (row.authMode === "bearer_token") {
+  const authMode = resolveSub2ApiAuthMode(row);
+
+  if (authMode === "api_key") {
+    return Boolean(row.apiKeyCiphertext);
+  }
+
+  if (authMode === "bearer_token") {
     return Boolean(row.bearerTokenCiphertext);
   }
 
-  if (row.authMode === "password") {
+  if (authMode === "password") {
     return Boolean(
       normalizeOptionalText(row.email) && row.passwordCiphertext,
     );
@@ -189,13 +227,16 @@ function isSub2ApiConfigReady(
 function toSummary(
   row: ExternalServiceConfigRow | null | undefined,
 ): ManagedSub2ApiServiceSummary {
+  const authMode = resolveSub2ApiAuthMode(row);
+
   return {
     id: row?.id ?? null,
     kind: SUB2API_SERVICE_KIND,
     enabled: row?.enabled ?? false,
     configured: isSub2ApiConfigReady(row),
     baseUrl: row?.baseUrl ?? "",
-    authMode: row?.authMode ?? "bearer_token",
+    authMode,
+    hasApiKey: Boolean(row?.apiKeyCiphertext),
     hasBearerToken: Boolean(row?.bearerTokenCiphertext),
     email: row?.email ?? "",
     hasPassword: Boolean(row?.passwordCiphertext),
@@ -236,7 +277,8 @@ export async function upsertSub2ApiServiceConfig(
 ): Promise<ManagedSub2ApiServiceSummary> {
   const existing = await findSub2ApiServiceRow();
   const now = new Date();
-  const authMode = input.authMode ?? existing?.authMode ?? "bearer_token";
+  const existingAuthMode = resolveSub2ApiAuthMode(existing);
+  const authMode = input.authMode ?? existingAuthMode;
   const enabled = input.enabled ?? existing?.enabled ?? false;
   const baseUrl = resolveOptionalTextUpdate(input.baseUrl, existing?.baseUrl);
   const email =
@@ -244,16 +286,27 @@ export async function upsertSub2ApiServiceConfig(
       ? resolveOptionalTextUpdate(input.email, existing?.email)
       : undefined;
 
+  const nextApiKey =
+    authMode === "api_key" ? normalizeSecret(input.apiKey) : undefined;
   const nextBearerToken =
     authMode === "bearer_token" ? normalizeSecret(input.bearerToken) : undefined;
   const nextPassword =
     authMode === "password" ? normalizeSecret(input.password) : undefined;
 
+  const apiKeyCiphertext =
+    authMode === "api_key"
+      ? nextApiKey
+        ? encryptSecret(nextApiKey, "manage Sub2API API keys")
+        : existingAuthMode === "api_key"
+          ? existing?.apiKeyCiphertext ?? undefined
+          : undefined
+      : undefined;
+
   const bearerTokenCiphertext =
     authMode === "bearer_token"
       ? nextBearerToken
         ? encryptSecret(nextBearerToken, "manage Sub2API bearer tokens")
-        : existing?.authMode === "bearer_token"
+        : existingAuthMode === "bearer_token"
           ? existing.bearerTokenCiphertext ?? undefined
           : undefined
       : undefined;
@@ -262,7 +315,7 @@ export async function upsertSub2ApiServiceConfig(
     authMode === "password"
       ? nextPassword
         ? encryptSecret(nextPassword, "manage Sub2API passwords")
-        : existing?.authMode === "password"
+        : existingAuthMode === "password"
           ? existing.passwordCiphertext ?? undefined
           : undefined
       : undefined;
@@ -270,6 +323,12 @@ export async function upsertSub2ApiServiceConfig(
   if (enabled) {
     if (!baseUrl) {
       throw new Error("Sub2API base URL is required before enabling the service.");
+    }
+
+    if (authMode === "api_key" && !apiKeyCiphertext) {
+      throw new Error(
+        "Sub2API API key is required before enabling api-key auth.",
+      );
     }
 
     if (authMode === "bearer_token" && !bearerTokenCiphertext) {
@@ -298,6 +357,7 @@ export async function upsertSub2ApiServiceConfig(
     enabled,
     baseUrl: baseUrl ?? null,
     authMode,
+    apiKeyCiphertext: apiKeyCiphertext ?? null,
     bearerTokenCiphertext: bearerTokenCiphertext ?? null,
     email: email ?? null,
     passwordCiphertext: passwordCiphertext ?? null,
@@ -362,11 +422,37 @@ export async function getCliSub2ApiConfig(): Promise<Sub2ApiConfig> {
     throw new Error("Sub2API app configuration is not enabled.");
   }
 
-  if (!row?.baseUrl || !row.authMode) {
+  if (!row?.baseUrl) {
     throw new Error("Sub2API app configuration is incomplete.");
   }
 
-  if (row.authMode === "bearer_token") {
+  const authMode = resolveSub2ApiAuthMode(row);
+
+  if (authMode === "api_key") {
+    if (!row.apiKeyCiphertext) {
+      throw new Error("Sub2API API key is not configured.");
+    }
+
+    return {
+      baseUrl: row.baseUrl,
+      apiKey: decryptSecret(
+        row.apiKeyCiphertext,
+        "decrypt a Sub2API API key",
+      ),
+      loginPath: row.loginPath ?? undefined,
+      refreshTokenPath: row.refreshTokenPath ?? undefined,
+      accountsPath: row.accountsPath ?? undefined,
+      clientId: row.clientId ?? undefined,
+      proxyId: row.proxyId ?? undefined,
+      concurrency: row.concurrency ?? undefined,
+      priority: row.priority ?? undefined,
+      groupIds: normalizeGroupIds(row.groupIds),
+      autoFillRelatedModels: row.autoFillRelatedModels ?? undefined,
+      confirmMixedChannelRisk: row.confirmMixedChannelRisk ?? undefined,
+    };
+  }
+
+  if (authMode === "bearer_token") {
     if (!row.bearerTokenCiphertext) {
       throw new Error("Sub2API bearer token is not configured.");
     }

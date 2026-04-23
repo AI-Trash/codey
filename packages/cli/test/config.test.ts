@@ -48,6 +48,7 @@ const codexEnvNames = {
 
 const sub2apiEnvNames = {
   SUB2API_BASE_URL: undefined,
+  SUB2API_API_KEY: undefined,
   SUB2API_BEARER_TOKEN: '',
   SUB2API_EMAIL: undefined,
   SUB2API_PASSWORD: undefined,
@@ -95,6 +96,35 @@ describe('resolveConfig codex defaults', () => {
 })
 
 describe('resolveConfig sub2api sync config', () => {
+  it('reads Sub2API API-key env vars into sync config', async () => {
+    const config = await withEnv(
+      {
+        ...sub2apiEnvNames,
+        SUB2API_BASE_URL: 'https://sub2api.example.com',
+        SUB2API_API_KEY: 'admin-test-api-key',
+      },
+      () => resolveConfig(),
+    )
+
+    expect(config.sub2api).toEqual({
+      baseUrl: 'https://sub2api.example.com',
+      apiKey: 'admin-test-api-key',
+      bearerToken: '',
+      email: undefined,
+      password: undefined,
+      loginPath: undefined,
+      refreshTokenPath: undefined,
+      accountsPath: undefined,
+      clientId: undefined,
+      proxyId: undefined,
+      concurrency: undefined,
+      priority: undefined,
+      groupIds: undefined,
+      autoFillRelatedModels: undefined,
+      confirmMixedChannelRisk: undefined,
+    })
+  })
+
   it('reads SUB2API env vars into sync config', async () => {
     const config = await withEnv(
       {
@@ -112,6 +142,7 @@ describe('resolveConfig sub2api sync config', () => {
 
     expect(config.sub2api).toEqual({
       baseUrl: 'https://sub2api.example.com',
+      apiKey: undefined,
       bearerToken: 'sub2api-bearer',
       email: undefined,
       password: undefined,
@@ -142,6 +173,7 @@ describe('resolveConfig sub2api sync config', () => {
 
     expect(config.sub2api).toEqual({
       baseUrl: 'https://sub2api.example.com',
+      apiKey: undefined,
       bearerToken: '',
       email: 'admin@example.com',
       password: 'super-secret',

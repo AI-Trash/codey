@@ -130,12 +130,13 @@ function requireSub2ApiConfig(): Sub2ApiConfig | null {
   }
 
   const hasBaseUrl = Boolean(config.baseUrl?.trim())
+  const hasApiKey = Boolean(config.apiKey?.trim())
   const hasBearerToken = Boolean(config.bearerToken?.trim())
   const hasEmail = Boolean(config.email?.trim())
   const hasPassword = Boolean(config.password?.trim())
   const hasPasswordLogin = hasEmail || hasPassword
 
-  if (!hasBaseUrl && !hasBearerToken && !hasPasswordLogin) {
+  if (!hasBaseUrl && !hasApiKey && !hasBearerToken && !hasPasswordLogin) {
     return null
   }
 
@@ -143,13 +144,13 @@ function requireSub2ApiConfig(): Sub2ApiConfig | null {
     throw new Error('Sub2API sync requires SUB2API_BASE_URL.')
   }
 
-  if (!hasBearerToken && !hasPasswordLogin) {
+  if (!hasApiKey && !hasBearerToken && !hasPasswordLogin) {
     throw new Error(
-      'Sub2API sync requires either SUB2API_BEARER_TOKEN or both SUB2API_EMAIL and SUB2API_PASSWORD.',
+      'Sub2API sync requires SUB2API_API_KEY, SUB2API_BEARER_TOKEN, or both SUB2API_EMAIL and SUB2API_PASSWORD.',
     )
   }
 
-  if (!hasBearerToken && hasEmail !== hasPassword) {
+  if (!hasApiKey && !hasBearerToken && hasEmail !== hasPassword) {
     throw new Error(
       'Sub2API password login requires both SUB2API_EMAIL and SUB2API_PASSWORD.',
     )
@@ -179,7 +180,23 @@ function buildSub2ApiUrl(config: Sub2ApiConfig, pathname: string): string {
   return joinSub2ApiUrl(config.baseUrl, pathname)
 }
 
-function buildSub2ApiHeaders(accessToken: string): HeadersInit {
+function buildSub2ApiHeaders(input: {
+  accessToken?: string
+  apiKey?: string
+}): HeadersInit {
+  const apiKey = asNonEmptyString(input.apiKey)
+  if (apiKey) {
+    return {
+      Accept: 'application/json',
+      'x-api-key': apiKey,
+    }
+  }
+
+  const accessToken = asNonEmptyString(input.accessToken)
+  if (!accessToken) {
+    throw new Error('Sub2API request auth is not configured.')
+  }
+
   return {
     Accept: 'application/json',
     Authorization: `Bearer ${accessToken}`,
@@ -212,7 +229,7 @@ async function parseSub2ApiResponse<T>(response: Response): Promise<T> {
 
 async function requestSub2ApiJson<T>(
   config: Sub2ApiConfig,
-  accessToken: string,
+  authHeaders: HeadersInit,
   input: {
     method: 'GET' | 'POST' | 'PUT'
     pathname: string
@@ -228,7 +245,7 @@ async function requestSub2ApiJson<T>(
   const response = await fetch(url.toString(), {
     method: input.method,
     headers: {
-      ...buildSub2ApiHeaders(accessToken),
+      ...authHeaders,
       ...(input.body ? { 'Content-Type': 'application/json' } : {}),
     },
     body: input.body ? JSON.stringify(input.body) : undefined,
@@ -237,10 +254,17 @@ async function requestSub2ApiJson<T>(
   return parseSub2ApiResponse<T>(response)
 }
 
-async function resolveSub2ApiAccessToken(config: Sub2ApiConfig): Promise<string> {
+async function resolveSub2ApiAuthHeaders(
+  config: Sub2ApiConfig,
+): Promise<HeadersInit> {
+  const apiKey = asNonEmptyString(config.apiKey)
+  if (apiKey) {
+    return buildSub2ApiHeaders({ apiKey })
+  }
+
   const bearerToken = asNonEmptyString(config.bearerToken)
   if (bearerToken) {
-    return bearerToken
+    return buildSub2ApiHeaders({ accessToken: bearerToken })
   }
 
   const email = asNonEmptyString(config.email)
@@ -283,7 +307,7 @@ async function resolveSub2ApiAccessToken(config: Sub2ApiConfig): Promise<string>
     )
   }
 
-  return accessToken
+  return buildSub2ApiHeaders({ accessToken })
 }
 
 function buildSub2ApiAccountCredentials(input: {
@@ -478,11 +502,11 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
   const accountsPath =
     config.accountsPath?.trim() || DEFAULT_SUB2API_ACCOUNTS_PATH
   const resolvedClientId = config.clientId?.trim() || input.clientId
-  const accessToken = await resolveSub2ApiAccessToken(config)
+  const authHeaders = await resolveSub2ApiAuthHeaders(config)
 
   const refreshedToken = await requestSub2ApiJson<Sub2ApiTokenInfo>(
     config,
-    accessToken,
+    authHeaders,
     {
       method: 'POST',
       pathname: refreshTokenPath,
@@ -516,7 +540,7 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
   })
   const existingAccounts = await requestSub2ApiJson<
     Sub2ApiPaginatedData<Sub2ApiAccountRecord>
-  >(config, accessToken, {
+  >(config, authHeaders, {
     method: 'GET',
     pathname: accountsPath,
     searchParams,
@@ -529,7 +553,7 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
   if (existing) {
     const updated = await requestSub2ApiJson<Sub2ApiAccountRecord>(
       config,
-      accessToken,
+      authHeaders,
       {
         method: 'PUT',
         pathname: `${accountsPath.replace(/\/+$/, '')}/${existing.id}`,
@@ -549,7 +573,7 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
 
   const created = await requestSub2ApiJson<Sub2ApiAccountRecord>(
     config,
-    accessToken,
+    authHeaders,
     {
       method: 'POST',
       pathname: accountsPath,

@@ -19,11 +19,10 @@ import {
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
-  ActivityIcon,
+  type LucideIcon,
   BotIcon,
+  BriefcaseIcon,
   RefreshCcwIcon,
-  ShieldIcon,
-  UserRoundIcon,
 } from 'lucide-react'
 
 import {
@@ -80,6 +79,12 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { Textarea } from '#/components/ui/textarea'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '#/components/ui/tooltip'
 import { m } from '#/paraglide/messages'
 
 const CLI_CONNECTION_POLL_INTERVAL_MS = 10_000
@@ -354,140 +359,110 @@ function CliConnectionsTableCard(props: {
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col">
         {props.connections.length ? (
-          <AdminPaginatedTable
-            rows={props.connections}
-            getRowId={(connection) => connection.id}
-            fillHeight
-            emptyState={
-              <EmptyState
-                title={props.emptyTitle}
-                description={props.emptyDescription}
-              />
-            }
-            renderTable={({ rows, selection }) => (
-              <Table className="min-w-[1280px]">
-                <TableHeader>
-                  <TableRow>
-                    <AdminTableSelectionHead rows={rows} selection={selection} />
-                    <TableHead>{m.admin_cli_table_cli()}</TableHead>
-                    <TableHead>{m.admin_cli_table_operator()}</TableHead>
-                    <TableHead>{m.admin_cli_table_target()}</TableHead>
-                    <TableHead>{m.admin_cli_table_auth_client()}</TableHead>
-                    <TableHead>{m.admin_cli_table_flow()}</TableHead>
-                    <TableHead>{m.admin_cli_table_status()}</TableHead>
-                    <TableHead>{m.admin_cli_table_connected_at()}</TableHead>
-                    <TableHead>{m.admin_cli_table_last_seen()}</TableHead>
-                    {props.onDispatch ? (
-                      <TableHead>{m.admin_cli_table_actions()}</TableHead>
-                    ) : null}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((connection) => {
-                    const dispatchableCount =
-                      getDispatchableFlowIds(connection).length
+          <TooltipProvider>
+            <AdminPaginatedTable
+              rows={props.connections}
+              getRowId={(connection) => connection.id}
+              fillHeight
+              emptyState={
+                <EmptyState
+                  title={props.emptyTitle}
+                  description={props.emptyDescription}
+                />
+              }
+              renderTable={({ rows, selection }) => (
+                <Table className="min-w-[920px]">
+                  <TableHeader>
+                    <TableRow>
+                      <AdminTableSelectionHead
+                        rows={rows}
+                        selection={selection}
+                      />
+                      <TableHead>{m.admin_cli_table_cli()}</TableHead>
+                      <TableHead>{m.admin_cli_table_flow()}</TableHead>
+                      <TableHead>{m.admin_cli_table_status()}</TableHead>
+                      <TableHead>{m.admin_cli_table_last_seen()}</TableHead>
+                      {props.onDispatch ? (
+                        <TableHead>{m.admin_cli_table_actions()}</TableHead>
+                      ) : null}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map((connection) => {
+                      const dispatchableCount =
+                        getDispatchableFlowIds(connection).length
 
-                    return (
-                      <TableRow
-                        key={connection.id}
-                        data-selected={
-                          selection.isSelected(connection) || undefined
-                        }
-                      >
-                        <AdminTableSelectionCell
-                          row={connection}
-                          selection={selection}
-                        />
-                        <TableCell>
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <span className="inline-flex items-center gap-2 font-medium">
-                              <BotIcon className="size-4 text-muted-foreground" />
-                              {connection.cliName || m.admin_cli_unknown_cli()}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              {connection.connectionPath}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              {m.admin_cli_registered_flows_count({
-                                count: String(dispatchableCount),
-                              })}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <span className="inline-flex items-center gap-2 font-medium">
-                              <UserRoundIcon className="size-4 text-muted-foreground" />
-                              {connection.userLabel}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              {formatSecondaryIdentity(connection)}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <span className="font-medium">
-                              {connection.target ||
-                                m.admin_cli_unknown_target()}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              {connection.sessionRef || m.oauth_none()}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex min-w-0 flex-col gap-1">
-                            <span className="inline-flex items-center gap-2 font-medium">
-                              <ShieldIcon className="size-4 text-muted-foreground" />
-                              {connection.authClientId ||
-                                m.admin_cli_unknown_auth_client()}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              {connection.userAgent || m.oauth_none()}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <RuntimeFlowCell connection={connection} />
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge value={connection.status} />
-                        </TableCell>
-                        <TableCell>
-                          <DateCell
-                            value={connection.connectedAt}
-                            icon={ActivityIcon}
+                      return (
+                        <TableRow
+                          key={connection.id}
+                          data-selected={
+                            selection.isSelected(connection) || undefined
+                          }
+                        >
+                          <AdminTableSelectionCell
+                            row={connection}
+                            selection={selection}
                           />
-                        </TableCell>
-                        <TableCell>
-                          <DateCell
-                            value={connection.lastSeenAt}
-                            icon={RefreshCcwIcon}
-                          />
-                        </TableCell>
-                        {props.onDispatch ? (
-                          <TableCell className="w-[132px]">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              disabled={dispatchableCount === 0}
-                              onClick={() => {
-                                props.onDispatch?.(connection)
-                              }}
-                            >
-                              {m.admin_cli_dispatch_action()}
-                            </Button>
+                          <TableCell>
+                            <div className="flex min-w-0 flex-col gap-1">
+                              <span className="inline-flex items-center gap-2 font-medium">
+                                <BotIcon className="size-4 text-muted-foreground" />
+                                {connection.cliName || m.admin_cli_unknown_cli()}
+                              </span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                {connection.connectionPath}
+                              </span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                {m.admin_cli_registered_flows_count({
+                                  count: String(dispatchableCount),
+                                })}
+                              </span>
+                            </div>
                           </TableCell>
-                        ) : null}
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          />
+                          <TableCell>
+                            <RuntimeFlowCell connection={connection} />
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge value={connection.status} />
+                          </TableCell>
+                          <TableCell>
+                            <DateCell
+                              value={connection.lastSeenAt}
+                              icon={RefreshCcwIcon}
+                            />
+                          </TableCell>
+                          {props.onDispatch ? (
+                            <TableCell className="w-14">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    size="icon-sm"
+                                    variant="outline"
+                                    aria-label={m.admin_cli_dispatch_action()}
+                                    title={m.admin_cli_dispatch_action()}
+                                    disabled={dispatchableCount === 0}
+                                    onClick={() => {
+                                      props.onDispatch?.(connection)
+                                    }}
+                                  >
+                                    <BriefcaseIcon />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent sideOffset={6}>
+                                  {m.admin_cli_dispatch_action()}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TableCell>
+                          ) : null}
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            />
+          </TooltipProvider>
         ) : (
           <EmptyState
             title={props.emptyTitle}
@@ -1083,7 +1058,7 @@ function EmailBatchDispatchField(props: {
   )
 }
 
-function DateCell(props: { value?: string | null; icon: typeof ActivityIcon }) {
+function DateCell(props: { value?: string | null; icon: LucideIcon }) {
   return (
     <span className="inline-flex items-center gap-2 text-sm">
       <props.icon className="size-4 text-muted-foreground" />
@@ -1127,7 +1102,7 @@ function RuntimeFlowCell(props: { connection: CliConnectionSummary }) {
       </span>
       {connection.runtimeTaskId ? (
         <a
-          href={`/admin/flows?taskId=${encodeURIComponent(connection.runtimeTaskId)}`}
+          href={`/admin/flows/${encodeURIComponent(connection.runtimeTaskId)}`}
           className="text-xs font-medium text-foreground underline underline-offset-4"
         >
           {m.admin_cli_view_flow()}
@@ -1135,18 +1110,6 @@ function RuntimeFlowCell(props: { connection: CliConnectionSummary }) {
       ) : null}
     </div>
   )
-}
-
-function formatSecondaryIdentity(connection: CliConnectionSummary) {
-  if (connection.githubLogin && connection.email) {
-    return `@${connection.githubLogin} · ${connection.email}`
-  }
-
-  if (connection.githubLogin) {
-    return `@${connection.githubLogin}`
-  }
-
-  return connection.email || m.oauth_none()
 }
 
 function getDispatchableFlowIds(

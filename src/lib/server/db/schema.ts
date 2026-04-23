@@ -67,7 +67,7 @@ export const externalServiceKindEnum = pgEnum('external_service_kind', [
 ])
 export const externalServiceAuthModeEnum = pgEnum(
   'external_service_auth_mode',
-  ['bearer_token', 'password'],
+  ['api_key', 'bearer_token', 'password'],
 )
 
 export const users = pgTable(
@@ -728,6 +728,7 @@ export const externalServiceConfigs = pgTable(
     enabled: boolean('enabled').default(false).notNull(),
     baseUrl: text('base_url'),
     authMode: externalServiceAuthModeEnum('auth_mode'),
+    apiKeyCiphertext: text('api_key_ciphertext'),
     bearerTokenCiphertext: text('bearer_token_ciphertext'),
     email: text('email'),
     passwordCiphertext: text('password_ciphertext'),

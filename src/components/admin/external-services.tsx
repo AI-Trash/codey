@@ -22,7 +22,8 @@ export type ManagedSub2ApiService = {
   enabled: boolean
   configured: boolean
   baseUrl: string
-  authMode: 'bearer_token' | 'password'
+  authMode: 'api_key' | 'bearer_token' | 'password'
+  hasApiKey: boolean
   hasBearerToken: boolean
   email: string
   hasPassword: boolean
@@ -44,7 +45,8 @@ export type ManagedSub2ApiService = {
 type Sub2ApiFormValues = {
   enabled: boolean
   baseUrl: string
-  authMode: 'bearer_token' | 'password'
+  authMode: 'api_key' | 'bearer_token' | 'password'
+  apiKey: string
   bearerToken: string
   email: string
   password: string
@@ -90,6 +92,7 @@ export function ExternalServicesPageContent(props: {
           enabled: form.enabled,
           baseUrl: form.baseUrl,
           authMode: form.authMode,
+          ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
           ...(form.bearerToken.trim()
             ? { bearerToken: form.bearerToken.trim() }
             : {}),
@@ -130,6 +133,7 @@ export function ExternalServicesPageContent(props: {
     }
   }
 
+  const isApiKeyAuth = form.authMode === 'api_key'
   const isBearerAuth = form.authMode === 'bearer_token'
 
   return (
@@ -184,15 +188,22 @@ export function ExternalServicesPageContent(props: {
               <NativeSelect
                 value={form.authMode}
                 onChange={(event) => {
-                  const nextValue = event.target.value as 'bearer_token' | 'password'
+                  const nextValue = event.target.value as
+                    | 'api_key'
+                    | 'bearer_token'
+                    | 'password'
                   setForm((current) => ({
                     ...current,
                     authMode: nextValue,
+                    apiKey: '',
                     bearerToken: '',
                     password: '',
                   }))
                 }}
               >
+                <NativeSelectOption value="api_key">
+                  {m.external_services_auth_mode_api_key()}
+                </NativeSelectOption>
                 <NativeSelectOption value="bearer_token">
                   {m.external_services_auth_mode_bearer()}
                 </NativeSelectOption>
@@ -203,7 +214,30 @@ export function ExternalServicesPageContent(props: {
             </Field>
           </div>
 
-          {isBearerAuth ? (
+          {isApiKeyAuth ? (
+            <Field
+              label={m.external_services_field_api_key()}
+              description={
+                service.hasApiKey
+                  ? m.external_services_secret_keep_hint()
+                  : m.external_services_secret_required_hint()
+              }
+            >
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={form.apiKey}
+                onChange={(event) => {
+                  const nextValue = event.target.value
+                  setForm((current) => ({
+                    ...current,
+                    apiKey: nextValue,
+                  }))
+                }}
+                placeholder={m.external_services_field_api_key_placeholder()}
+              />
+            </Field>
+          ) : isBearerAuth ? (
             <Field
               label={m.external_services_field_bearer_token()}
               description={
@@ -475,6 +509,7 @@ function toSub2ApiFormValues(
     enabled: service.enabled,
     baseUrl: service.baseUrl,
     authMode: service.authMode,
+    apiKey: '',
     bearerToken: '',
     email: service.email,
     password: '',

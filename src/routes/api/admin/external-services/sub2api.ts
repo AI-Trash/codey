@@ -11,7 +11,8 @@ import { readJsonBody } from "../../../../lib/server/request";
 interface UpdateSub2ApiServiceBody {
   enabled?: boolean;
   baseUrl?: string | null;
-  authMode?: "bearer_token" | "password";
+  authMode?: "api_key" | "bearer_token" | "password";
+  apiKey?: string | null;
   bearerToken?: string | null;
   email?: string | null;
   password?: string | null;
@@ -126,11 +127,17 @@ export const Route = createFileRoute("/api/admin/external-services/sub2api")({
                 ? body.baseUrl
                 : undefined,
             authMode:
-              body.authMode === "password"
+              body.authMode === "api_key"
+                ? "api_key"
+                : body.authMode === "password"
                 ? "password"
                 : body.authMode === "bearer_token"
                   ? "bearer_token"
                   : undefined,
+            apiKey:
+              typeof body.apiKey === "string" || body.apiKey === null
+                ? body.apiKey
+                : undefined,
             bearerToken:
               typeof body.bearerToken === "string" || body.bearerToken === null
                 ? body.bearerToken

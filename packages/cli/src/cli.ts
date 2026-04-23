@@ -808,6 +808,19 @@ async function runDaemonCommand(
             message: claimedTask.title || 'Task started',
             batch: taskPayload.batch,
             leaseReporter,
+          }).catch((error) => {
+            writeCliStderrLine(
+              JSON.stringify(
+                {
+                  command: 'daemon:task:schedule:error',
+                  notificationId: claimedTask.id,
+                  flowId: taskPayload.flowId,
+                  error: sanitizeErrorForOutput(error).message,
+                },
+                null,
+                2,
+              ),
+            )
           })
         }
       } catch (error) {

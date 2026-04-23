@@ -218,39 +218,10 @@ export async function waitForEnabledSelector(
       const locator = toLocator(page, selector).first()
       const isVisible = await locator.isVisible().catch(() => false)
       if (!isVisible) continue
-      const handle = await locator.elementHandle().catch(() => null)
-      if (!handle) continue
-      try {
-        const perSelectorTimeoutMs = Math.min(
-          1000,
-          Math.max(1, deadline - Date.now()),
-        )
-        await page.waitForFunction(
-          (element) => {
-            const candidate = element as HTMLElement & { disabled?: boolean }
-            const style = window.getComputedStyle(candidate)
-            const rect = candidate.getBoundingClientRect()
-            return (
-              candidate.isConnected &&
-              style.display !== 'none' &&
-              style.visibility !== 'hidden' &&
-              Number(style.opacity || '1') > 0 &&
-              rect.width > 0 &&
-              rect.height > 0 &&
-              !candidate.disabled &&
-              candidate.getAttribute('aria-disabled') !== 'true'
-            )
-          },
-          handle,
-          { timeout: perSelectorTimeoutMs },
-        )
-        return true
-      } catch {
-        // try next selector
-      } finally {
-        await handle.dispose().catch(() => undefined)
-      }
+      if (await isLocatorEnabled(locator)) return true
     }
+
+    await sleep(Math.min(200, Math.max(1, deadline - Date.now())))
   }
 
   return hasEnabledSelector(page, selectors)
@@ -749,14 +720,16 @@ export async function getAgeGateFieldCandidates(
     page,
     AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
   )
-  const birthdayHiddenPresent = await waitForAnySelectorState(
-    page,
-    AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
-    'attached',
-    250,
-  )
+  const birthdayHiddenPresent =
+    birthdayVisible ||
+    (await waitForAnySelectorState(
+      page,
+      AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
+      'attached',
+      1,
+    ))
 
-  if (birthdayVisible || birthdayHiddenPresent) {
+  if (birthdayHiddenPresent) {
     pushUniqueCandidate(candidates, 'birthday')
   }
 
@@ -773,7 +746,7 @@ export async function waitForAgeGateFieldCandidates(
     if (candidates.length > 0) {
       return candidates
     }
-    await sleep(250)
+    await sleep(Math.min(100, Math.max(1, deadline - Date.now())))
   }
 
   return getAgeGateFieldCandidates(page)

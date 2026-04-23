@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getCodexOAuthSurfaceCandidates,
   getLoginEntryCandidates,
+  waitForEnabledSelector,
   waitForEditableSelector,
   waitForLoginEmailFormReady,
 } from '../src/modules/chatgpt/queries'
@@ -46,6 +47,10 @@ class FakeLocator {
   }
 
   async isEditable(): Promise<boolean> {
+    return this.evaluate()
+  }
+
+  async isEnabled(): Promise<boolean> {
     return this.evaluate()
   }
 }
@@ -98,6 +103,21 @@ class FakePage {
 }
 
 describe('waitForEditableSelector', () => {
+  it('waits until a visible button becomes enabled', async () => {
+    const submitLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [false, false, true],
+    })
+    const page = new FakePage({
+      'button[type="submit"]': submitLocator,
+    })
+
+    await expect(
+      waitForEnabledSelector(page as never, ['button[type="submit"]'], 800),
+    ).resolves.toBe(true)
+    expect(submitLocator.editableChecks).toBeGreaterThanOrEqual(3)
+  })
+
   it('waits until a visible field becomes editable', async () => {
     const emailLocator = new FakeLocator({
       visible: true,

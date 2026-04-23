@@ -128,7 +128,8 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
       label: m.admin_nav_flows(),
       to: '/admin/flows',
       icon: ActivityIcon,
-      matches: (pathname: string) => pathname === '/admin/flows',
+      matches: (pathname: string) =>
+        pathname === '/admin/flows' || pathname.startsWith('/admin/flows/'),
     })
   }
 
@@ -197,6 +198,7 @@ export function AdminShell(props: {
     pathname === '/admin/users' ||
     pathname === '/admin/cli' ||
     pathname === '/admin/flows' ||
+    pathname.startsWith('/admin/flows/') ||
     pathname === '/admin/apps'
 
   return (
@@ -634,6 +636,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/flows') {
     return m.admin_nav_flows()
+  }
+
+  if (pathname.startsWith('/admin/flows/')) {
+    return m.mail_inbox_table_details()
   }
 
   if (pathname === '/admin/apps/new') {

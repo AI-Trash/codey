@@ -189,6 +189,11 @@ type FlashMessage = {
   message: string
 }
 
+type RandomOwnerConfirmationState = {
+  identity: IdentitySummary
+  memberWorkspaces: WorkspaceSummary[]
+}
+
 type WorkspaceEditorState = {
   id?: string
   workspaceId: string
@@ -286,6 +291,12 @@ function filterIdentitySummaries(
   })
 }
 
+function isWorkspaceSelectableIdentity(identity: IdentitySummary) {
+  const status = identity.status?.trim().toLowerCase()
+
+  return status !== 'archived' && status !== 'banned'
+}
+
 function shuffleItems<T>(items: T[]): T[] {
   const next = [...items]
 
@@ -309,6 +320,57 @@ function getOtherWorkspaceOwnerWorkspace(
   }
 
   return ownerWorkspace
+}
+
+function getOtherWorkspaceMemberWorkspaces(
+  identityId: string,
+  memberWorkspacesByIdentityId: Map<string, WorkspaceSummary[]>,
+  currentWorkspaceId?: string,
+) {
+  return (memberWorkspacesByIdentityId.get(identityId) || []).filter(
+    (workspace) => workspace.id !== currentWorkspaceId,
+  )
+}
+
+function getRandomWorkspaceOwnerIdentity(input: {
+  identities: IdentitySummary[]
+  ownerWorkspaceByIdentityId: Map<string, WorkspaceSummary>
+  memberWorkspacesByIdentityId: Map<string, WorkspaceSummary[]>
+  currentWorkspaceId?: string
+}) {
+  const eligibleIdentities = input.identities.filter(
+    (identity) =>
+      !getOtherWorkspaceOwnerWorkspace(
+        identity.id,
+        input.ownerWorkspaceByIdentityId,
+        input.currentWorkspaceId,
+      ),
+  )
+  const [preferredIdentities, fallbackIdentities] = eligibleIdentities.reduce<
+    [IdentitySummary[], IdentitySummary[]]
+  >(
+    (groups, identity) => {
+      if (
+        getOtherWorkspaceMemberWorkspaces(
+          identity.id,
+          input.memberWorkspacesByIdentityId,
+          input.currentWorkspaceId,
+        ).length
+      ) {
+        groups[1].push(identity)
+      } else {
+        groups[0].push(identity)
+      }
+
+      return groups
+    },
+    [[], []],
+  )
+
+  return [
+    ...shuffleItems(preferredIdentities),
+    ...shuffleItems(fallbackIdentities),
+  ][0]
 }
 
 function getRandomWorkspaceMemberIdentityIds(input: {
@@ -674,6 +736,8 @@ function WorkspaceEditorDialog(props: {
 }) {
   const [ownerQuery, setOwnerQuery] = useState('')
   const [memberQuery, setMemberQuery] = useState('')
+  const [pendingRandomOwner, setPendingRandomOwner] =
+    useState<RandomOwnerConfirmationState | null>(null)
 
   useEffect(() => {
     if (!props.open) {
@@ -682,10 +746,15 @@ function WorkspaceEditorDialog(props: {
 
     setOwnerQuery('')
     setMemberQuery('')
+    setPendingRandomOwner(null)
   }, [props.editor.id, props.open])
 
   const identityById = useMemo(
     () => new Map(props.identities.map((identity) => [identity.id, identity])),
+    [props.identities],
+  )
+  const selectableIdentities = useMemo(
+    () => props.identities.filter(isWorkspaceSelectableIdentity),
     [props.identities],
   )
   const ownerWorkspaceByIdentityId = useMemo(() => {
@@ -697,27 +766,66 @@ function WorkspaceEditorDialog(props: {
       ),
     )
   }, [props.workspaces])
+  const memberWorkspacesByIdentityId = useMemo(() => {
+    const entries = new Map<string, WorkspaceSummary[]>()
+
+    for (const workspace of props.workspaces) {
+      for (const member of workspace.members) {
+        if (!member.identityId) {
+          continue
+        }
+
+        const memberWorkspaces = entries.get(member.identityId) || []
+
+        if (!memberWorkspaces.some((entry) => entry.id === workspace.id)) {
+          memberWorkspaces.push(workspace)
+        }
+
+        entries.set(member.identityId, memberWorkspaces)
+      }
+    }
+
+    return entries
+  }, [props.workspaces])
+  const ownerPickerIdentities = props.editor.id
+    ? props.identities
+    : selectableIdentities
+  const memberPickerIdentities = props.editor.id
+    ? props.identities
+    : selectableIdentities
   const selectedMemberIds = useMemo(
     () => new Set(props.editor.memberIdentityIds),
     [props.editor.memberIdentityIds],
   )
   const filteredOwnerIdentities = useMemo(
-    () => filterIdentitySummaries(props.identities, ownerQuery),
-    [ownerQuery, props.identities],
+    () => filterIdentitySummaries(ownerPickerIdentities, ownerQuery),
+    [ownerPickerIdentities, ownerQuery],
   )
   const filteredMemberIdentities = useMemo(
-    () => filterIdentitySummaries(props.identities, memberQuery),
-    [memberQuery, props.identities],
+    () => filterIdentitySummaries(memberPickerIdentities, memberQuery),
+    [memberPickerIdentities, memberQuery],
   )
   const selectedOwner = props.editor.ownerIdentityId
     ? identityById.get(props.editor.ownerIdentityId) || null
     : null
   const memberCapReached =
     props.editor.memberIdentityIds.length >= MAX_WORKSPACE_MEMBER_COUNT
+  const canRandomizeOwner =
+    !props.editor.id &&
+    ownerPickerIdentities.some(
+      (identity) =>
+        !getOtherWorkspaceOwnerWorkspace(
+          identity.id,
+          ownerWorkspaceByIdentityId,
+          props.editor.id,
+        ),
+    )
   const canRandomizeMembers =
     !props.editor.id &&
     Boolean(props.editor.ownerIdentityId) &&
-    props.identities.some((identity) => identity.id !== props.editor.ownerIdentityId)
+    memberPickerIdentities.some(
+      (identity) => identity.id !== props.editor.ownerIdentityId,
+    )
 
   function setEditor(
     updater:
@@ -725,6 +833,16 @@ function WorkspaceEditorDialog(props: {
       | ((current: WorkspaceEditorState) => WorkspaceEditorState),
   ) {
     props.onEditorChange(updater)
+  }
+
+  function selectOwner(identityId: string) {
+    setEditor((current) => ({
+      ...current,
+      ownerIdentityId: identityId,
+      memberIdentityIds: current.memberIdentityIds.filter(
+        (entry) => entry !== identityId,
+      ),
+    }))
   }
 
   function toggleMember(identityId: string) {
@@ -750,6 +868,35 @@ function WorkspaceEditorDialog(props: {
     })
   }
 
+  function randomizeOwner() {
+    const nextOwner = getRandomWorkspaceOwnerIdentity({
+      identities: ownerPickerIdentities,
+      ownerWorkspaceByIdentityId,
+      memberWorkspacesByIdentityId,
+      currentWorkspaceId: props.editor.id,
+    })
+
+    if (!nextOwner) {
+      return
+    }
+
+    const otherMemberWorkspaces = getOtherWorkspaceMemberWorkspaces(
+      nextOwner.id,
+      memberWorkspacesByIdentityId,
+      props.editor.id,
+    )
+
+    if (otherMemberWorkspaces.length) {
+      setPendingRandomOwner({
+        identity: nextOwner,
+        memberWorkspaces: otherMemberWorkspaces,
+      })
+      return
+    }
+
+    selectOwner(nextOwner.id)
+  }
+
   function randomizeMembers() {
     if (!props.editor.ownerIdentityId) {
       return
@@ -758,7 +905,7 @@ function WorkspaceEditorDialog(props: {
     setEditor((current) => ({
       ...current,
       memberIdentityIds: getRandomWorkspaceMemberIdentityIds({
-        identities: props.identities,
+        identities: memberPickerIdentities,
         ownerIdentityId: current.ownerIdentityId,
         ownerWorkspaceByIdentityId,
         currentWorkspaceId: current.id,
@@ -768,257 +915,137 @@ function WorkspaceEditorDialog(props: {
   }
 
   return (
-    <Dialog
-      open={props.open}
-      onOpenChange={(open) => {
-        if (!props.isSaving) {
-          props.onOpenChange(open)
-        }
-      }}
-    >
-      <DialogContent className="max-h-[92vh] max-w-[min(1080px,calc(100%-2rem))] overflow-y-auto sm:max-w-[min(1080px,calc(100%-2rem))]">
-        <DialogHeader>
-          <DialogTitle>
-            {props.editor.id
-              ? m.admin_workspace_dialog_edit_title()
-              : m.admin_workspace_dialog_create_title()}
-          </DialogTitle>
-          <DialogDescription>
-            {m.admin_workspace_dialog_description()}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog
+        open={props.open}
+        onOpenChange={(open) => {
+          if (!props.isSaving) {
+            props.onOpenChange(open)
+          }
+        }}
+      >
+        <DialogContent className="max-h-[92vh] max-w-[min(1080px,calc(100%-2rem))] overflow-y-auto sm:max-w-[min(1080px,calc(100%-2rem))]">
+          <DialogHeader>
+            <DialogTitle>
+              {props.editor.id
+                ? m.admin_workspace_dialog_edit_title()
+                : m.admin_workspace_dialog_create_title()}
+            </DialogTitle>
+            <DialogDescription>
+              {m.admin_workspace_dialog_description()}
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-2">
-              <span className="text-sm font-medium">
-                {m.admin_workspace_id_label()}
-              </span>
-              <Input
-                value={props.editor.workspaceId}
-                onChange={(event) => {
-                  setEditor((current) => ({
-                    ...current,
-                    workspaceId: event.target.value,
-                  }))
-                }}
-              />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-medium">
-                {m.admin_workspace_label_label()}
-              </span>
-              <Input
-                value={props.editor.label}
-                placeholder={m.admin_workspace_label_placeholder()}
-                onChange={(event) => {
-                  setEditor((current) => ({
-                    ...current,
-                    label: event.target.value,
-                  }))
-                }}
-              />
-            </label>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <UserRoundIcon className="size-4 text-muted-foreground" />
-              <h3 className="text-sm font-medium">
-                {m.admin_workspace_owner_label()}
-              </h3>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {m.admin_workspace_owner_description()}
-            </p>
-            {selectedOwner ? (
-              <Badge variant="secondary" className="max-w-full">
-                <span className="truncate">
-                  {selectedOwner.label}
-                  {selectedOwner.account
-                    ? ` · ${selectedOwner.account}`
-                    : ''}
+          <div className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-sm font-medium">
+                  {m.admin_workspace_id_label()}
                 </span>
-              </Badge>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {m.admin_workspace_owner_none_selected()}
-              </p>
-            )}
-            <Input
-              value={ownerQuery}
-              onChange={(event) => {
-                setOwnerQuery(event.target.value)
-              }}
-              placeholder={m.admin_workspace_identity_search_placeholder()}
-            />
-            <ScrollArea className="h-60 rounded-lg border">
-              <div className="divide-y">
-                {filteredOwnerIdentities.length ? (
-                  filteredOwnerIdentities.map((identity) => {
-                    const ownerWorkspace = ownerWorkspaceByIdentityId.get(identity.id)
-                    const disabled =
-                      Boolean(ownerWorkspace) && ownerWorkspace?.id !== props.editor.id
-                    const selected = props.editor.ownerIdentityId === identity.id
+                <Input
+                  value={props.editor.workspaceId}
+                  onChange={(event) => {
+                    setEditor((current) => ({
+                      ...current,
+                      workspaceId: event.target.value,
+                    }))
+                  }}
+                />
+              </label>
 
-                    return (
-                      <button
-                        key={identity.id}
-                        type="button"
-                        disabled={disabled}
-                        className={cn(
-                          'flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors',
-                          selected && 'bg-primary/5',
-                          disabled
-                            ? 'cursor-not-allowed opacity-60'
-                            : 'hover:bg-muted/40',
-                        )}
-                        onClick={() => {
-                          if (disabled) {
-                            return
-                          }
+              <label className="space-y-2">
+                <span className="text-sm font-medium">
+                  {m.admin_workspace_label_label()}
+                </span>
+                <Input
+                  value={props.editor.label}
+                  placeholder={m.admin_workspace_label_placeholder()}
+                  onChange={(event) => {
+                    setEditor((current) => ({
+                      ...current,
+                      label: event.target.value,
+                    }))
+                  }}
+                />
+              </label>
+            </div>
 
-                          setEditor((current) => ({
-                            ...current,
-                            ownerIdentityId: identity.id,
-                            memberIdentityIds: current.memberIdentityIds.filter(
-                              (entry) => entry !== identity.id,
-                            ),
-                          }))
-                        }}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">
-                              {identity.label}
-                            </div>
-                            <div className="truncate text-sm text-muted-foreground">
-                              {identity.account || identity.id}
-                            </div>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {selected ? (
-                              <Badge>{m.admin_workspace_owner_selected_badge()}</Badge>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>{identity.id}</span>
-                          <span>·</span>
-                          <span>
-                            {translateStatusLabel(identity.status || 'active')}
-                          </span>
-                          {disabled ? (
-                            <>
-                              <span>·</span>
-                              <span>
-                                {m.admin_workspace_owner_taken_hint({
-                                  workspace: getWorkspaceDisplayLabel(ownerWorkspace),
-                                })}
-                              </span>
-                            </>
-                          ) : null}
-                        </div>
-                      </button>
-                    )
-                  })
-                ) : (
-                  <div className="px-4 py-6 text-sm text-muted-foreground">
-                    {m.admin_workspace_identity_search_empty()}
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <UsersIcon className="size-4 text-muted-foreground" />
+                <UserRoundIcon className="size-4 text-muted-foreground" />
                 <h3 className="text-sm font-medium">
-                  {m.admin_workspace_members_label()}
+                  {m.admin_workspace_owner_label()}
                 </h3>
               </div>
-              <Badge variant="outline">
-                {m.admin_workspace_members_count({
-                  count: String(props.editor.memberIdentityIds.length),
-                  max: String(MAX_WORKSPACE_MEMBER_COUNT),
-                })}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {m.admin_workspace_members_picker_description({
-                max: String(MAX_WORKSPACE_MEMBER_COUNT),
-              })}
-            </p>
-            {!props.editor.id ? (
-              <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {m.admin_workspace_owner_description()}
+              </p>
+              {!props.editor.id ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   className="w-full sm:w-auto"
-                  disabled={!canRandomizeMembers}
-                  onClick={randomizeMembers}
+                  disabled={!canRandomizeOwner}
+                  onClick={randomizeOwner}
                 >
                   <RefreshCcwIcon className="size-4" />
-                  {m.admin_workspace_member_random_button({
-                    count: String(MAX_WORKSPACE_MEMBER_COUNT),
-                  })}
+                  {m.admin_workspace_owner_random_button()}
                 </Button>
-                {!props.editor.ownerIdentityId ? (
-                  <p className="text-xs text-muted-foreground">
-                    {m.admin_workspace_member_random_requires_owner()}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            <SelectedMemberBadges
-              identityById={identityById}
-              memberIdentityIds={props.editor.memberIdentityIds}
-              legacyMemberEmails={props.editor.legacyMemberEmails}
-            />
-            <Input
-              value={memberQuery}
-              onChange={(event) => {
-                setMemberQuery(event.target.value)
-              }}
-              placeholder={m.admin_workspace_identity_search_placeholder()}
-            />
-            <ScrollArea className="h-72 rounded-lg border">
-              <div className="divide-y">
-                {filteredMemberIdentities.length ? (
-                  filteredMemberIdentities.map((identity) => {
-                    const selected = selectedMemberIds.has(identity.id)
-                    const otherOwnerWorkspace = getOtherWorkspaceOwnerWorkspace(
-                      identity.id,
-                      ownerWorkspaceByIdentityId,
-                      props.editor.id,
-                    )
-                    const disabled =
-                      identity.id === props.editor.ownerIdentityId ||
-                      (!selected && memberCapReached)
+              ) : null}
+              {selectedOwner ? (
+                <Badge variant="secondary" className="max-w-full">
+                  <span className="truncate">
+                    {selectedOwner.label}
+                    {selectedOwner.account
+                      ? ` · ${selectedOwner.account}`
+                      : ''}
+                  </span>
+                </Badge>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {m.admin_workspace_owner_none_selected()}
+                </p>
+              )}
+              <Input
+                value={ownerQuery}
+                onChange={(event) => {
+                  setOwnerQuery(event.target.value)
+                }}
+                placeholder={m.admin_workspace_identity_search_placeholder()}
+              />
+              <ScrollArea className="h-60 rounded-lg border">
+                <div className="divide-y">
+                  {filteredOwnerIdentities.length ? (
+                    filteredOwnerIdentities.map((identity) => {
+                      const ownerWorkspace = ownerWorkspaceByIdentityId.get(
+                        identity.id,
+                      )
+                      const disabled =
+                        Boolean(ownerWorkspace) &&
+                        ownerWorkspace?.id !== props.editor.id
+                      const selected = props.editor.ownerIdentityId === identity.id
 
-                    return (
-                      <label
-                        key={identity.id}
-                        className={cn(
-                          'flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors',
-                          disabled && 'cursor-not-allowed opacity-60',
-                          selected && 'bg-primary/5',
-                          !disabled && 'hover:bg-muted/40',
-                        )}
-                      >
-                        <Checkbox
-                          checked={selected}
+                      return (
+                        <button
+                          key={identity.id}
+                          type="button"
                           disabled={disabled}
-                          onCheckedChange={() => {
-                            toggleMember(identity.id)
+                          className={cn(
+                            'flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors',
+                            selected && 'bg-primary/5',
+                            disabled
+                              ? 'cursor-not-allowed opacity-60'
+                              : 'hover:bg-muted/40',
+                          )}
+                          onClick={() => {
+                            if (disabled) {
+                              return
+                            }
+
+                            selectOwner(identity.id)
                           }}
-                          className="mt-0.5"
-                        />
-                        <div className="min-w-0 flex-1">
+                        >
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
                               <div className="truncate font-medium">
@@ -1029,88 +1056,289 @@ function WorkspaceEditorDialog(props: {
                               </div>
                             </div>
                             <div className="flex shrink-0 items-center gap-1.5">
-                              {otherOwnerWorkspace ? (
-                                <Badge variant="outline">
-                                  {m.admin_workspace_member_other_owner_badge()}
-                                </Badge>
-                              ) : null}
                               {selected ? (
                                 <Badge>
-                                  {m.admin_workspace_member_selected_badge()}
+                                  {m.admin_workspace_owner_selected_badge()}
                                 </Badge>
                               ) : null}
                             </div>
                           </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {identity.id}
-                            {' · '}
-                            {translateStatusLabel(identity.status || 'active')}
-                            {otherOwnerWorkspace
-                              ? ` · ${m.admin_workspace_member_other_owner_hint({
-                                  workspace: getWorkspaceDisplayLabel(
-                                    otherOwnerWorkspace,
-                                  ),
-                                })}`
-                              : null}
-                            {identity.id === props.editor.ownerIdentityId
-                              ? ` · ${m.admin_workspace_member_disabled_owner()}`
-                              : null}
-                            {!selected &&
-                            memberCapReached &&
-                            identity.id !== props.editor.ownerIdentityId
-                              ? ` · ${m.admin_workspace_member_disabled_limit({
-                                  max: String(MAX_WORKSPACE_MEMBER_COUNT),
-                                })}`
-                              : null}
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{identity.id}</span>
+                            <span>·</span>
+                            <span>
+                              {translateStatusLabel(identity.status || 'active')}
+                            </span>
+                            {disabled ? (
+                              <>
+                                <span>·</span>
+                                <span>
+                                  {m.admin_workspace_owner_taken_hint({
+                                    workspace:
+                                      getWorkspaceDisplayLabel(ownerWorkspace),
+                                  })}
+                                </span>
+                              </>
+                            ) : null}
                           </div>
-                        </div>
-                      </label>
-                    )
-                  })
-                ) : (
-                  <div className="px-4 py-6 text-sm text-muted-foreground">
-                    {m.admin_workspace_identity_search_empty()}
-                  </div>
-                )}
+                        </button>
+                      )
+                    })
+                  ) : (
+                    <div className="px-4 py-6 text-sm text-muted-foreground">
+                      {m.admin_workspace_identity_search_empty()}
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <UsersIcon className="size-4 text-muted-foreground" />
+                  <h3 className="text-sm font-medium">
+                    {m.admin_workspace_members_label()}
+                  </h3>
+                </div>
+                <Badge variant="outline">
+                  {m.admin_workspace_members_count({
+                    count: String(props.editor.memberIdentityIds.length),
+                    max: String(MAX_WORKSPACE_MEMBER_COUNT),
+                  })}
+                </Badge>
               </div>
-            </ScrollArea>
-            {props.editor.legacyMemberEmails.length ? (
               <p className="text-sm text-muted-foreground">
-                {m.admin_workspace_legacy_members_notice({
-                  count: String(props.editor.legacyMemberEmails.length),
+                {m.admin_workspace_members_picker_description({
+                  max: String(MAX_WORKSPACE_MEMBER_COUNT),
                 })}
               </p>
-            ) : null}
-          </div>
-        </div>
+              {!props.editor.id ? (
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    disabled={!canRandomizeMembers}
+                    onClick={randomizeMembers}
+                  >
+                    <RefreshCcwIcon className="size-4" />
+                    {m.admin_workspace_member_random_button({
+                      count: String(MAX_WORKSPACE_MEMBER_COUNT),
+                    })}
+                  </Button>
+                  {!props.editor.ownerIdentityId ? (
+                    <p className="text-xs text-muted-foreground">
+                      {m.admin_workspace_member_random_requires_owner()}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              <SelectedMemberBadges
+                identityById={identityById}
+                memberIdentityIds={props.editor.memberIdentityIds}
+                legacyMemberEmails={props.editor.legacyMemberEmails}
+              />
+              <Input
+                value={memberQuery}
+                onChange={(event) => {
+                  setMemberQuery(event.target.value)
+                }}
+                placeholder={m.admin_workspace_identity_search_placeholder()}
+              />
+              <ScrollArea className="h-72 rounded-lg border">
+                <div className="divide-y">
+                  {filteredMemberIdentities.length ? (
+                    filteredMemberIdentities.map((identity) => {
+                      const selected = selectedMemberIds.has(identity.id)
+                      const otherOwnerWorkspace =
+                        getOtherWorkspaceOwnerWorkspace(
+                          identity.id,
+                          ownerWorkspaceByIdentityId,
+                          props.editor.id,
+                        )
+                      const disabled =
+                        identity.id === props.editor.ownerIdentityId ||
+                        (!selected && memberCapReached)
 
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              props.onOpenChange(false)
-            }}
-            disabled={props.isSaving}
-          >
-            {m.ui_close()}
-          </Button>
-          <Button
-            type="button"
-            disabled={
-              props.isSaving ||
-              !props.editor.workspaceId.trim() ||
-              !props.editor.ownerIdentityId
-            }
-            onClick={() => {
-              void props.onSave()
-            }}
-          >
-            {m.admin_workspace_save_button()}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+                      return (
+                        <label
+                          key={identity.id}
+                          className={cn(
+                            'flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors',
+                            disabled && 'cursor-not-allowed opacity-60',
+                            selected && 'bg-primary/5',
+                            !disabled && 'hover:bg-muted/40',
+                          )}
+                        >
+                          <Checkbox
+                            checked={selected}
+                            disabled={disabled}
+                            onCheckedChange={() => {
+                              toggleMember(identity.id)
+                            }}
+                            className="mt-0.5"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">
+                                  {identity.label}
+                                </div>
+                                <div className="truncate text-sm text-muted-foreground">
+                                  {identity.account || identity.id}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                {otherOwnerWorkspace ? (
+                                  <Badge variant="outline">
+                                    {m.admin_workspace_member_other_owner_badge()}
+                                  </Badge>
+                                ) : null}
+                                {selected ? (
+                                  <Badge>
+                                    {m.admin_workspace_member_selected_badge()}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {identity.id}
+                              {' · '}
+                              {translateStatusLabel(identity.status || 'active')}
+                              {otherOwnerWorkspace
+                                ? ` · ${m.admin_workspace_member_other_owner_hint({
+                                    workspace: getWorkspaceDisplayLabel(
+                                      otherOwnerWorkspace,
+                                    ),
+                                  })}`
+                                : null}
+                              {identity.id === props.editor.ownerIdentityId
+                                ? ` · ${m.admin_workspace_member_disabled_owner()}`
+                                : null}
+                              {!selected &&
+                              memberCapReached &&
+                              identity.id !== props.editor.ownerIdentityId
+                                ? ` · ${m.admin_workspace_member_disabled_limit({
+                                    max: String(MAX_WORKSPACE_MEMBER_COUNT),
+                                  })}`
+                                : null}
+                            </div>
+                          </div>
+                        </label>
+                      )
+                    })
+                  ) : (
+                    <div className="px-4 py-6 text-sm text-muted-foreground">
+                      {m.admin_workspace_identity_search_empty()}
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+              {props.editor.legacyMemberEmails.length ? (
+                <p className="text-sm text-muted-foreground">
+                  {m.admin_workspace_legacy_members_notice({
+                    count: String(props.editor.legacyMemberEmails.length),
+                  })}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                props.onOpenChange(false)
+              }}
+              disabled={props.isSaving}
+            >
+              {m.ui_close()}
+            </Button>
+            <Button
+              type="button"
+              disabled={
+                props.isSaving ||
+                !props.editor.workspaceId.trim() ||
+                !props.editor.ownerIdentityId
+              }
+              onClick={() => {
+                void props.onSave()
+              }}
+            >
+              {m.admin_workspace_save_button()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(pendingRandomOwner)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingRandomOwner(null)
+          }
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {m.admin_workspace_owner_random_confirm_title()}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingRandomOwner
+                ? m.admin_workspace_owner_random_confirm_description({
+                    identity: pendingRandomOwner.identity.label,
+                    count: String(pendingRandomOwner.memberWorkspaces.length),
+                  })
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingRandomOwner ? (
+            <div className="space-y-3">
+              <Badge variant="secondary" className="max-w-full">
+                <span className="truncate">
+                  {pendingRandomOwner.identity.label}
+                  {pendingRandomOwner.identity.account
+                    ? ` · ${pendingRandomOwner.identity.account}`
+                    : ''}
+                </span>
+              </Badge>
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {m.admin_workspace_owner_random_confirm_memberships_label()}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {pendingRandomOwner.memberWorkspaces.map((workspace) => (
+                    <Badge key={workspace.id} variant="outline">
+                      {getWorkspaceDisplayLabel(workspace)}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{m.ui_close()}</AlertDialogCancel>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!pendingRandomOwner) {
+                  return
+                }
+
+                selectOwner(pendingRandomOwner.identity.id)
+                setPendingRandomOwner(null)
+              }}
+            >
+              {m.admin_workspace_owner_random_confirm_button()}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 

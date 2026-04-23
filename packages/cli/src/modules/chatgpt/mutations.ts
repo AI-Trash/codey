@@ -283,6 +283,9 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
       await options.onCodeUpdate?.(event)
     }
   } finally {
+    // A pending stream read may reject after we abort/return. Consume it so a
+    // late provider shutdown never escapes as an unhandled rejection.
+    void nextEventPromise.catch(() => undefined)
     abortController.abort()
     await iterator.return?.().catch(() => undefined)
   }

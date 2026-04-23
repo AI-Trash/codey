@@ -86,6 +86,10 @@ class FakeLocator {
   text = ''
   clickCount = 0
   mouseUpCount = 0
+  readonly waitForCalls: Array<{
+    state: 'visible' | 'hidden' | 'attached' | 'detached'
+    timeout?: number
+  }> = []
 
   constructor(
     private readonly page: FakePage,
@@ -111,6 +115,7 @@ class FakeLocator {
     state: 'visible' | 'hidden' | 'attached' | 'detached'
     timeout?: number
   }): Promise<void> {
+    this.waitForCalls.push(options)
     const attached = this.state.attached ?? this.state.visible ?? true
     const visible = this.state.visible ?? true
     if (options.state === 'visible' && visible) return
@@ -263,6 +268,28 @@ describe('age gate text inputs', () => {
     await expect(
       waitForAgeGateFieldCandidates(page as never, 200),
     ).resolves.toEqual(['age', 'birthday'])
+  })
+
+  it('does not wait on the hidden birthday input when the birthday control is already visible', async () => {
+    const page = new FakePage()
+    const birthdayGroup = new FakeLocator(page, {
+      visible: true,
+      editable: false,
+      attached: true,
+    })
+    const hiddenBirthdayInput = new FakeLocator(page, {
+      visible: false,
+      editable: false,
+      attached: false,
+    })
+
+    page.locators['[role="group"][id$="-birthday"]'] = birthdayGroup
+    page.locators['input[name="birthday"]'] = hiddenBirthdayInput
+
+    await expect(
+      waitForAgeGateFieldCandidates(page as never, 200),
+    ).resolves.toEqual(['birthday'])
+    expect(hiddenBirthdayInput.waitForCalls).toEqual([])
   })
 
   it('types the visible name field using the generic name selector fallback', async () => {

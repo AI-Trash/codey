@@ -274,8 +274,7 @@ export async function getAdminFlowRunSnapshotForActor(input: {
   const tasks = taskRows
     .filter((task) => isVisibleTask(task, connectionMaps))
     .map((task) => mapTaskSummary(task, connectionMaps))
-  const selectedTaskId =
-    normalizeOptionalText(input.taskId) || tasks[0]?.id || null
+  const selectedTaskId = normalizeOptionalText(input.taskId)
 
   return {
     snapshotAt: new Date().toISOString(),

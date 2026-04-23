@@ -619,15 +619,15 @@ async function waitForCodexOAuthStep(
   })
 
   const waitForCallbackNavigation = new Promise<CodexOAuthStep>((resolve) => {
-    void waitForCodexOAuthCallbackNavigation(page, redirectUri, timeoutMs).then(
-      (matched) => {
+    void waitForCodexOAuthCallbackNavigation(page, redirectUri, timeoutMs)
+      .then((matched) => {
         if (matched) {
           resolve({
             kind: 'callback-navigation',
           })
         }
-      },
-    )
+      })
+      .catch(() => undefined)
   })
 
   const nextStep = await Promise.race([
@@ -677,28 +677,30 @@ async function waitForCodexOAuthLoginProgressStep(
   })
 
   const waitForCallbackNavigation = new Promise<CodexOAuthStep>((resolve) => {
-    void waitForCodexOAuthCallbackNavigation(page, redirectUri, timeoutMs).then(
-      (matched) => {
+    void waitForCodexOAuthCallbackNavigation(page, redirectUri, timeoutMs)
+      .then((matched) => {
         if (matched) {
           resolve({
             kind: 'callback-navigation',
           })
         }
-      },
-    )
+      })
+      .catch(() => undefined)
   })
 
   const waitForPostLoginStep = new Promise<CodexOAuthStep>((resolve) => {
-    void waitForPostEmailLoginCandidates(page, timeoutMs).then((candidates) => {
-      if (candidates.length === 0) {
-        return
-      }
+    void waitForPostEmailLoginCandidates(page, timeoutMs)
+      .then((candidates) => {
+        if (candidates.length === 0) {
+          return
+        }
 
-      resolve({
-        kind: 'post-login-candidates',
-        candidates,
+        resolve({
+          kind: 'post-login-candidates',
+          candidates,
+        })
       })
-    })
+      .catch(() => undefined)
   })
 
   return Promise.race([

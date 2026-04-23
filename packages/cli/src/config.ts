@@ -88,6 +88,7 @@ export interface CodexOAuthConfig {
 
 export interface Sub2ApiConfig {
   baseUrl?: string
+  apiKey?: string
   bearerToken?: string
   email?: string
   password?: string
@@ -255,6 +256,7 @@ function parseIntegerList(value: string | undefined): number[] | undefined {
 function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
   const relevantEnvNames = [
     'SUB2API_BASE_URL',
+    'SUB2API_API_KEY',
     'SUB2API_BEARER_TOKEN',
     'SUB2API_EMAIL',
     'SUB2API_PASSWORD',
@@ -276,6 +278,7 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
 
   return {
     baseUrl: process.env.SUB2API_BASE_URL,
+    apiKey: process.env.SUB2API_API_KEY,
     bearerToken: process.env.SUB2API_BEARER_TOKEN,
     email: process.env.SUB2API_EMAIL,
     password: process.env.SUB2API_PASSWORD,

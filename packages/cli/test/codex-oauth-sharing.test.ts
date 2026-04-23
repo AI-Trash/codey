@@ -172,6 +172,119 @@ describe('syncCodexOAuthSessionToSub2Api', () => {
     )
   })
 
+  it('uses x-api-key auth when a Sub2API admin API key is configured', async () => {
+    getRuntimeConfig.mockReturnValue({
+      sub2api: {
+        baseUrl: 'https://sub2api.example.com',
+        apiKey: 'admin-test-api-key',
+        bearerToken: 'sub2api-bearer',
+      },
+    })
+
+    const fetchMock = vi.fn<typeof fetch>()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              access_token: 'fresh-access-token',
+              refresh_token: 'fresh-refresh-token',
+              email: 'person@example.com',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              items: [],
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              id: 52,
+              name: 'person@example.com',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { syncCodexOAuthSessionToSub2Api } =
+      await import('../src/modules/app-auth/codex-oauth-sharing')
+
+    await expect(
+      syncCodexOAuthSessionToSub2Api({
+        identity: {
+          id: 'identity-1',
+          email: 'person@example.com',
+          createdAt: '2026-04-21T00:00:00.000Z',
+          updatedAt: '2026-04-21T00:00:00.000Z',
+          credentialCount: 1,
+          encrypted: true,
+          storePath: 'codey-app://managed-identities/identity-1',
+        },
+        token: {
+          accessToken: 'codex-access-token',
+          refreshToken: 'codex-refresh-token',
+          createdAt: '2026-04-21T00:00:00.000Z',
+        },
+        clientId: 'codex-client-id',
+      }),
+    ).resolves.toEqual({
+      accountId: 52,
+      action: 'created',
+      email: 'person@example.com',
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://sub2api.example.com/api/v1/admin/openai/refresh-token',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'x-api-key': 'admin-test-api-key',
+          'Content-Type': 'application/json',
+        }),
+      }),
+    )
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://sub2api.example.com/api/v1/admin/accounts?page=1&page_size=1000&platform=openai&type=oauth&search=person%40example.com',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          'x-api-key': 'admin-test-api-key',
+        }),
+      }),
+    )
+  })
+
   it('adds related model mappings when auto-fill is enabled', async () => {
     getRuntimeConfig.mockReturnValue({
       sub2api: {
