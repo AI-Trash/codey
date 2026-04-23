@@ -191,10 +191,28 @@ type DispatchWorkspaceCodexOAuthResponse = {
   requestId?: string
 }
 
+type ResetWorkspaceAuthorizationResponse = {
+  ok: boolean
+  workspace: WorkspaceSummary
+  resetCount: number
+}
+
 type FlashMessage = {
   kind: 'success' | 'error'
   message: string
 }
+
+type PendingAuthorizationReset =
+  | {
+      scope: 'all'
+      memberIds?: undefined
+      memberLabel?: undefined
+    }
+  | {
+      scope: 'member'
+      memberIds: string[]
+      memberLabel: string
+    }
 
 type RandomOwnerConfirmationState = {
   identity: IdentitySummary
@@ -317,6 +335,13 @@ function isWorkspaceAuthorized(
   authorization?: WorkspaceAuthorizationSummary | null,
 ) {
   return authorization?.state === 'authorized'
+}
+
+function canResetWorkspaceAuthorization(
+  authorization?: WorkspaceAuthorizationSummary | null,
+  identityId?: string | null,
+) {
+  return Boolean(identityId && authorization?.state && authorization.state !== 'missing')
 }
 
 function getWorkspaceAuthorizationLabel(
@@ -545,6 +570,31 @@ async function dispatchWorkspaceCodexOAuth(
   }
 
   return (await response.json()) as DispatchWorkspaceCodexOAuthResponse
+}
+
+async function resetWorkspaceAuthorizationStatuses(
+  workspaceId: string,
+  memberIds?: string[],
+): Promise<ResetWorkspaceAuthorizationResponse> {
+  const response = await fetch(
+    `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/reset-authorization`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        memberIds,
+      }),
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response))
+  }
+
+  return (await response.json()) as ResetWorkspaceAuthorizationResponse
 }
 
 function WorkspaceMembersPreview(props: { workspace: WorkspaceSummary }) {
@@ -1334,10 +1384,15 @@ function WorkspaceDetailDialog(props: {
   workspace: WorkspaceSummary | null
   canDispatchFlows: boolean
   onEdit: (workspace: WorkspaceSummary) => void
+  onWorkspaceChange: (workspace: WorkspaceSummary) => void
   onFlash: (flash: FlashMessage) => void
 }) {
   const [inviteActionKey, setInviteActionKey] = useState<string | null>(null)
   const [authorizationPending, setAuthorizationPending] = useState(false)
+  const [authorizationResetPending, setAuthorizationResetPending] =
+    useState(false)
+  const [authorizationResetTarget, setAuthorizationResetTarget] =
+    useState<PendingAuthorizationReset | null>(null)
   const [localFlash, setLocalFlash] = useState<FlashMessage | null>(null)
 
   useEffect(() => {
@@ -1347,6 +1402,8 @@ function WorkspaceDetailDialog(props: {
 
     setInviteActionKey(null)
     setAuthorizationPending(false)
+    setAuthorizationResetPending(false)
+    setAuthorizationResetTarget(null)
     setLocalFlash(null)
   }, [props.open, props.workspace?.id])
 
@@ -1466,6 +1523,46 @@ function WorkspaceDetailDialog(props: {
     }
   }
 
+  async function handleResetAuthorization(
+    target: PendingAuthorizationReset,
+  ) {
+    if (!props.workspace) {
+      return
+    }
+
+    setAuthorizationResetPending(true)
+    setLocalFlash(null)
+
+    try {
+      const result = await resetWorkspaceAuthorizationStatuses(
+        props.workspace.id,
+        target.memberIds,
+      )
+
+      props.onWorkspaceChange(result.workspace)
+      setAuthorizationResetTarget(null)
+      publishFlash({
+        kind: 'success',
+        message:
+          target.scope === 'all'
+            ? m.admin_workspace_authorization_reset_all_success()
+            : m.admin_workspace_authorization_reset_member_success({
+                member: target.memberLabel,
+              }),
+      })
+    } catch (error) {
+      publishFlash({
+        kind: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : m.admin_workspace_authorization_reset_error_fallback(),
+      })
+    } finally {
+      setAuthorizationResetPending(false)
+    }
+  }
+
   function handleDownloadEmails(
     mode: 'owner-and-members' | 'members',
     values: string[],
@@ -1512,7 +1609,18 @@ function WorkspaceDetailDialog(props: {
     props.workspace?.members.filter(
       (member) => !isWorkspaceAuthorized(member.authorization),
     ) || []
-  const isDispatching = inviteActionKey !== null || authorizationPending
+  const hasResettableOwnerAuthorization = canResetWorkspaceAuthorization(
+    props.workspace?.owner?.authorization,
+    props.workspace?.owner?.identityId,
+  )
+  const resettableMembers =
+    props.workspace?.members.filter((member) =>
+      canResetWorkspaceAuthorization(member.authorization, member.identityId),
+    ) || []
+  const canResetAllAuthorizations =
+    hasResettableOwnerAuthorization || Boolean(resettableMembers.length)
+  const isMutating =
+    inviteActionKey !== null || authorizationPending || authorizationResetPending
   const canAuthorizeMembers =
     props.canDispatchFlows && Boolean(inviteableMembers.length)
   const canInviteAll =
@@ -1663,7 +1771,20 @@ function WorkspaceDetailDialog(props: {
                     </Button>
                     <Button
                       type="button"
-                      disabled={!canAuthorizeMembers || isDispatching}
+                      variant="outline"
+                      disabled={!canResetAllAuthorizations || isMutating}
+                      onClick={() => {
+                        setAuthorizationResetTarget({
+                          scope: 'all',
+                        })
+                      }}
+                    >
+                      <RefreshCcwIcon />
+                      {m.admin_workspace_authorization_reset_all_button()}
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={!canAuthorizeMembers || isMutating}
                       onClick={() => {
                         void handleAuthorizeMembers()
                       }}
@@ -1680,7 +1801,7 @@ function WorkspaceDetailDialog(props: {
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={!canInviteAll || isDispatching}
+                      disabled={!canInviteAll || isMutating}
                       onClick={() => {
                         void handleInvite()
                       }}
@@ -1759,24 +1880,46 @@ function WorkspaceDetailDialog(props: {
                             </div>
                           ) : null}
                         </div>
-                        {isWorkspaceAuthorized(member.authorization) ? (
-                          <Button type="button" variant="secondary" disabled>
-                            {m.admin_workspace_authorization_authorized_button()}
-                          </Button>
-                        ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {isWorkspaceAuthorized(member.authorization) ? (
+                            <Button type="button" variant="secondary" disabled>
+                              {m.admin_workspace_authorization_authorized_button()}
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              disabled={!canInviteAll || isMutating}
+                              onClick={() => {
+                                void handleInvite([member.id])
+                              }}
+                            >
+                              {inviteActionKey === member.id
+                                ? m.admin_workspace_invite_running()
+                                : m.admin_workspace_invite_member_button()}
+                            </Button>
+                          )}
                           <Button
                             type="button"
                             variant="outline"
-                            disabled={!canInviteAll || isDispatching}
+                            disabled={
+                              !canResetWorkspaceAuthorization(
+                                member.authorization,
+                                member.identityId,
+                              ) || isMutating
+                            }
                             onClick={() => {
-                              void handleInvite([member.id])
+                              setAuthorizationResetTarget({
+                                scope: 'member',
+                                memberIds: [member.id],
+                                memberLabel: member.identityLabel || member.email,
+                              })
                             }}
                           >
-                            {inviteActionKey === member.id
-                              ? m.admin_workspace_invite_running()
-                              : m.admin_workspace_invite_member_button()}
+                            <RefreshCcwIcon />
+                            {m.admin_workspace_authorization_reset_member_button()}
                           </Button>
-                        )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1789,6 +1932,53 @@ function WorkspaceDetailDialog(props: {
             </Card>
           </div>
         ) : null}
+
+        <AlertDialog
+          open={Boolean(authorizationResetTarget)}
+          onOpenChange={(open) => {
+            if (!authorizationResetPending && !open) {
+              setAuthorizationResetTarget(null)
+            }
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {m.admin_workspace_authorization_reset_confirm_title()}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {authorizationResetTarget?.scope === 'all'
+                  ? m.admin_workspace_authorization_reset_confirm_all_description()
+                  : m.admin_workspace_authorization_reset_confirm_member_description({
+                      member: authorizationResetTarget?.memberLabel || '',
+                    })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={authorizationResetPending}>
+                {m.ui_close()}
+              </AlertDialogCancel>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!authorizationResetTarget || authorizationResetPending}
+                onClick={() => {
+                  if (!authorizationResetTarget) {
+                    return
+                  }
+
+                  void handleResetAuthorization(authorizationResetTarget)
+                }}
+              >
+                {authorizationResetPending
+                  ? m.admin_workspace_authorization_reset_running()
+                  : authorizationResetTarget?.scope === 'all'
+                    ? m.admin_workspace_authorization_reset_all_button()
+                    : m.admin_workspace_authorization_reset_member_button()}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <DialogFooter>
           {props.workspace ? (
@@ -2122,6 +2312,10 @@ function AdminWorkspacesPage() {
           setDetailsTarget(null)
           setEditor(createWorkspaceEditorState(workspace))
           setEditorOpen(true)
+        }}
+        onWorkspaceChange={(workspace) => {
+          setWorkspaces((current) => upsertWorkspaceSummary(current, workspace))
+          setDetailsTarget(workspace)
         }}
         onFlash={setFlash}
       />

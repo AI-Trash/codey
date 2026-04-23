@@ -918,6 +918,91 @@ export async function deleteManagedWorkspace(id: string) {
   return record ?? null
 }
 
+export async function resetManagedWorkspaceAuthorizationStatuses(input: {
+  id: string
+  memberIds?: string[]
+}): Promise<{
+  workspace: AdminManagedWorkspaceSummary
+  resetCount: number
+}> {
+  const managedWorkspaceId = input.id.trim()
+  if (!managedWorkspaceId) {
+    throw new Error('id is required')
+  }
+
+  const workspace = await findAdminManagedWorkspaceSummary(managedWorkspaceId)
+  if (!workspace) {
+    throw new Error('Workspace not found')
+  }
+
+  const requestedMemberIds = new Set(
+    (input.memberIds || [])
+      .map((memberId) => memberId.trim())
+      .filter(Boolean),
+  )
+  const selectedMembers = requestedMemberIds.size
+    ? workspace.members.filter((member) => requestedMemberIds.has(member.id))
+    : workspace.members
+
+  if (requestedMemberIds.size && selectedMembers.length !== requestedMemberIds.size) {
+    throw new Error('Some requested workspace members were not found')
+  }
+
+  const identityIds = normalizeIdentityIds([
+    ...(!requestedMemberIds.size &&
+    workspace.owner?.identityId &&
+    workspace.owner.authorization.state !== 'missing'
+      ? [workspace.owner.identityId]
+      : []),
+    ...selectedMembers.flatMap((member) =>
+      member.identityId && member.authorization.state !== 'missing'
+        ? [member.identityId]
+        : [],
+    ),
+  ])
+
+  if (!identityIds.length) {
+    throw new Error(
+      requestedMemberIds.size
+        ? 'Selected members do not have a stored authorization status to reset'
+        : 'This workspace does not have any stored authorization statuses to reset',
+    )
+  }
+
+  const deletedSessions = await getDb()
+    .delete(managedIdentitySessions)
+    .where(
+      and(
+        inArray(managedIdentitySessions.identityId, identityIds),
+        eq(managedIdentitySessions.workspaceId, workspace.workspaceId),
+        or(
+          eq(managedIdentitySessions.authMode, 'codex-oauth'),
+          eq(managedIdentitySessions.flowType, 'codex-oauth'),
+        ),
+      ),
+    )
+    .returning({
+      id: managedIdentitySessions.id,
+    })
+
+  await getDb()
+    .update(managedWorkspaces)
+    .set({
+      updatedAt: new Date(),
+    })
+    .where(eq(managedWorkspaces.id, workspace.id))
+
+  const refreshedWorkspace = await findAdminManagedWorkspaceSummary(workspace.id)
+  if (!refreshedWorkspace) {
+    throw new Error('Unable to load updated workspace')
+  }
+
+  return {
+    workspace: refreshedWorkspace,
+    resetCount: deletedSessions.length,
+  }
+}
+
 export async function syncManagedWorkspaceInvite(input: {
   workspaceId: string
   label?: string | null
