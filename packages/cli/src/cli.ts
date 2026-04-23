@@ -1096,6 +1096,10 @@ withCommonOptions(
       'Shared identity email to use if the OpenAI login flow needs credentials; defaults to the latest shared identity',
     )
     .option(
+      '--workspaceId <id>',
+      'Explicit OpenAI workspace id to request during Codex OAuth',
+    )
+    .option(
       '--workspaceIndex <index>',
       '1-based workspace position to select on the Codex consent page (defaults to 1)',
     )
@@ -1107,6 +1111,7 @@ withCommonOptions(
     .example('codey flow codex-oauth --redirectPort 3005')
     .example('codey flow codex-oauth --authorizeUrlOnly true')
     .example('codey flow codex-oauth --email someone@example.com')
+    .example('codey flow codex-oauth --workspaceId ws_123')
     .example('codey flow codex-oauth --workspaceIndex 2'),
 ).action((rawOptions: Record<string, unknown>) => {
   execute(

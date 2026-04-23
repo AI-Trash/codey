@@ -38,6 +38,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'email'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'workspaceId'
   | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
@@ -55,6 +56,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'email'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'workspaceId'
   | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
@@ -72,6 +74,7 @@ export type CliFlowConfigFieldKey =
   | 'email'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'workspaceId'
   | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
@@ -200,6 +203,11 @@ export interface CodexOAuthFlowConfig extends CommonFlowConfig {
    * Poll interval for verification email updates, in milliseconds.
    */
   pollIntervalMs?: number
+
+  /**
+   * Explicit OpenAI workspace id to request during Codex OAuth.
+   */
+  workspaceId?: string
 
   /**
    * 1-based workspace index to select in the Codex workspace picker.
@@ -372,6 +380,13 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'inviteFile',
   },
   {
+    key: 'workspaceId',
+    cliFlag: '--workspaceId',
+    type: 'string',
+    displayNameKey: 'workspaceId',
+    descriptionKey: 'workspaceId',
+  },
+  {
     key: 'workspaceIndex',
     cliFlag: '--workspaceIndex',
     type: 'number',
@@ -422,6 +437,7 @@ export const cliFlowDefinitions = [
       'email',
       'verificationTimeoutMs',
       'pollIntervalMs',
+      'workspaceId',
       'workspaceIndex',
       'redirectPort',
       'authorizeUrlOnly',

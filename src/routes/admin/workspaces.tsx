@@ -8,6 +8,7 @@ import {
   EyeIcon,
   PencilIcon,
   PlusIcon,
+  RefreshCcwIcon,
   SearchIcon,
   Trash2Icon,
   UserRoundIcon,
@@ -91,17 +92,17 @@ const loadAdminWorkspaces = createServerFn({ method: 'GET' }).handler(
       return { authorized: false as const }
     }
 
-    let canDispatchInvites = false
+    let canDispatchFlows = false
     try {
       await requireAdminPermission(request, 'CLI_OPERATIONS')
-      canDispatchInvites = true
+      canDispatchFlows = true
     } catch {
-      canDispatchInvites = false
+      canDispatchFlows = false
     }
 
     return {
       authorized: true as const,
-      canDispatchInvites,
+      canDispatchFlows,
       workspaces: await listAdminManagedWorkspaceSummaries(),
       identitySummaries: await listAdminIdentitySummaries(),
     }
@@ -173,6 +174,14 @@ type DispatchWorkspaceInviteResponse = {
   ok: boolean
   mode: 'dispatch' | 'request'
   memberEmails: string[]
+  queuedCount?: number
+  connectionLabel?: string
+  requestId?: string
+}
+
+type DispatchWorkspaceCodexOAuthResponse = {
+  ok: boolean
+  mode: 'dispatch' | 'request'
   queuedCount?: number
   connectionLabel?: string
   requestId?: string
@@ -284,6 +293,71 @@ function filterIdentitySummaries(
         .includes(normalizedQuery),
     )
   })
+}
+
+function shuffleItems<T>(items: T[]): T[] {
+  const next = [...items]
+
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1))
+    ;[next[index], next[swapIndex]] = [next[swapIndex], next[index]]
+  }
+
+  return next
+}
+
+function getOtherWorkspaceOwnerWorkspace(
+  identityId: string,
+  ownerWorkspaceByIdentityId: Map<string, WorkspaceSummary>,
+  currentWorkspaceId?: string,
+) {
+  const ownerWorkspace = ownerWorkspaceByIdentityId.get(identityId)
+
+  if (!ownerWorkspace || ownerWorkspace.id === currentWorkspaceId) {
+    return null
+  }
+
+  return ownerWorkspace
+}
+
+function getRandomWorkspaceMemberIdentityIds(input: {
+  identities: IdentitySummary[]
+  ownerIdentityId: string
+  ownerWorkspaceByIdentityId: Map<string, WorkspaceSummary>
+  currentWorkspaceId?: string
+  count?: number
+}) {
+  if (!input.ownerIdentityId) {
+    return []
+  }
+
+  const eligibleIdentities = input.identities.filter(
+    (identity) => identity.id !== input.ownerIdentityId,
+  )
+  const [preferredIdentities, fallbackIdentities] = eligibleIdentities.reduce<
+    [IdentitySummary[], IdentitySummary[]]
+  >(
+    (groups, identity) => {
+      if (
+        getOtherWorkspaceOwnerWorkspace(
+          identity.id,
+          input.ownerWorkspaceByIdentityId,
+          input.currentWorkspaceId,
+        )
+      ) {
+        groups[1].push(identity)
+      } else {
+        groups[0].push(identity)
+      }
+
+      return groups
+    },
+    [[], []],
+  )
+
+  return [...shuffleItems(preferredIdentities), ...shuffleItems(fallbackIdentities)]
+    .slice(0, input.count ?? MAX_WORKSPACE_MEMBER_COUNT)
+    .map((identity) => identity.id)
 }
 
 function getWorkspaceDisplayLabel(workspace?: WorkspaceSummary | null) {
@@ -499,6 +573,28 @@ async function dispatchWorkspaceInvite(
   return (await response.json()) as DispatchWorkspaceInviteResponse
 }
 
+async function dispatchWorkspaceCodexOAuth(
+  workspaceId: string,
+): Promise<DispatchWorkspaceCodexOAuthResponse> {
+  const response = await fetch(
+    `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/codex-oauth`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response))
+  }
+
+  return (await response.json()) as DispatchWorkspaceCodexOAuthResponse
+}
+
 function WorkspaceMembersPreview(props: { workspace: WorkspaceSummary }) {
   if (!props.workspace.members.length) {
     return (
@@ -624,6 +720,10 @@ function WorkspaceEditorDialog(props: {
     : null
   const memberCapReached =
     props.editor.memberIdentityIds.length >= MAX_WORKSPACE_MEMBER_COUNT
+  const canRandomizeMembers =
+    !props.editor.id &&
+    Boolean(props.editor.ownerIdentityId) &&
+    props.identities.some((identity) => identity.id !== props.editor.ownerIdentityId)
 
   function setEditor(
     updater:
@@ -654,6 +754,23 @@ function WorkspaceEditorDialog(props: {
         memberIdentityIds: [...current.memberIdentityIds, identityId],
       }
     })
+  }
+
+  function randomizeMembers() {
+    if (!props.editor.ownerIdentityId) {
+      return
+    }
+
+    setEditor((current) => ({
+      ...current,
+      memberIdentityIds: getRandomWorkspaceMemberIdentityIds({
+        identities: props.identities,
+        ownerIdentityId: current.ownerIdentityId,
+        ownerWorkspaceByIdentityId,
+        currentWorkspaceId: current.id,
+        count: MAX_WORKSPACE_MEMBER_COUNT,
+      }),
+    }))
   }
 
   return (
@@ -846,6 +963,28 @@ function WorkspaceEditorDialog(props: {
                 max: String(MAX_WORKSPACE_MEMBER_COUNT),
               })}
             </p>
+            {!props.editor.id ? (
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  disabled={!canRandomizeMembers}
+                  onClick={randomizeMembers}
+                >
+                  <RefreshCcwIcon className="size-4" />
+                  {m.admin_workspace_member_random_button({
+                    count: String(MAX_WORKSPACE_MEMBER_COUNT),
+                  })}
+                </Button>
+                {!props.editor.ownerIdentityId ? (
+                  <p className="text-xs text-muted-foreground">
+                    {m.admin_workspace_member_random_requires_owner()}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <SelectedMemberBadges
               identityById={identityById}
               memberIdentityIds={props.editor.memberIdentityIds}
@@ -863,6 +1002,11 @@ function WorkspaceEditorDialog(props: {
                 {filteredMemberIdentities.length ? (
                   filteredMemberIdentities.map((identity) => {
                     const selected = selectedMemberIds.has(identity.id)
+                    const otherOwnerWorkspace = getOtherWorkspaceOwnerWorkspace(
+                      identity.id,
+                      ownerWorkspaceByIdentityId,
+                      props.editor.id,
+                    )
                     const disabled =
                       identity.id === props.editor.ownerIdentityId ||
                       (!selected && memberCapReached)
@@ -901,6 +1045,11 @@ function WorkspaceEditorDialog(props: {
                                   {translateManagedIdentityPlanLabel(identity.plan)}
                                 </Badge>
                               ) : null}
+                              {otherOwnerWorkspace ? (
+                                <Badge variant="outline">
+                                  {m.admin_workspace_member_other_owner_badge()}
+                                </Badge>
+                              ) : null}
                               {selected ? (
                                 <Badge>
                                   {m.admin_workspace_member_selected_badge()}
@@ -912,6 +1061,13 @@ function WorkspaceEditorDialog(props: {
                             {identity.id}
                             {' · '}
                             {translateStatusLabel(identity.status || 'active')}
+                            {otherOwnerWorkspace
+                              ? ` · ${m.admin_workspace_member_other_owner_hint({
+                                  workspace: getWorkspaceDisplayLabel(
+                                    otherOwnerWorkspace,
+                                  ),
+                                })}`
+                              : null}
                             {identity.id === props.editor.ownerIdentityId
                               ? ` · ${m.admin_workspace_member_disabled_owner()}`
                               : null}
@@ -978,11 +1134,12 @@ function WorkspaceDetailDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
   workspace: WorkspaceSummary | null
-  canDispatchInvites: boolean
+  canDispatchFlows: boolean
   onEdit: (workspace: WorkspaceSummary) => void
   onFlash: (flash: FlashMessage) => void
 }) {
   const [inviteActionKey, setInviteActionKey] = useState<string | null>(null)
+  const [codexOAuthPending, setCodexOAuthPending] = useState(false)
   const [localFlash, setLocalFlash] = useState<FlashMessage | null>(null)
 
   useEffect(() => {
@@ -991,6 +1148,7 @@ function WorkspaceDetailDialog(props: {
     }
 
     setInviteActionKey(null)
+    setCodexOAuthPending(false)
     setLocalFlash(null)
   }, [props.open, props.workspace?.id])
 
@@ -1056,6 +1214,43 @@ function WorkspaceDetailDialog(props: {
     }
   }
 
+  async function handleCodexOAuth() {
+    if (!props.workspace) {
+      return
+    }
+
+    setCodexOAuthPending(true)
+    setLocalFlash(null)
+
+    try {
+      const result = await dispatchWorkspaceCodexOAuth(props.workspace.id)
+      const flash: FlashMessage =
+        result.mode === 'dispatch'
+          ? {
+              kind: 'success',
+              message: m.admin_workspace_codex_oauth_success_dispatched({
+                cli: result.connectionLabel || 'CLI',
+              }),
+            }
+          : {
+              kind: 'success',
+              message: m.admin_workspace_codex_oauth_success_requested(),
+            }
+
+      publishFlash(flash)
+    } catch (error) {
+      publishFlash({
+        kind: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : m.admin_workspace_codex_oauth_error_fallback(),
+      })
+    } finally {
+      setCodexOAuthPending(false)
+    }
+  }
+
   function handleDownloadEmails(
     mode: 'owner-and-members' | 'members',
     values: string[],
@@ -1106,8 +1301,11 @@ function WorkspaceDetailDialog(props: {
     props.workspace?.members.filter(
       (member) => !isWorkspaceAuthorized(member.authorization),
     ) || []
+  const isDispatching = inviteActionKey !== null || codexOAuthPending
+  const canDispatchCodexOAuth =
+    props.canDispatchFlows && Boolean(props.workspace?.owner?.identityId)
   const canInviteAll =
-    props.canDispatchInvites &&
+    props.canDispatchFlows &&
     Boolean(props.workspace?.owner?.identityId) &&
     Boolean(inviteableMembers.length)
 
@@ -1232,6 +1430,45 @@ function WorkspaceDetailDialog(props: {
                 <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <CardDescription>
+                      {m.admin_workspace_codex_oauth_kicker()}
+                    </CardDescription>
+                    <CardTitle>
+                      {m.admin_workspace_codex_oauth_title()}
+                    </CardTitle>
+                  </div>
+                  <Button
+                    type="button"
+                    disabled={!canDispatchCodexOAuth || isDispatching}
+                    onClick={() => {
+                      void handleCodexOAuth()
+                    }}
+                  >
+                    {codexOAuthPending
+                      ? m.admin_workspace_codex_oauth_running()
+                      : m.admin_workspace_codex_oauth_button()}
+                  </Button>
+                </div>
+                {!props.canDispatchFlows ? (
+                  <p className="text-sm text-muted-foreground">
+                    {m.admin_workspace_codex_oauth_requires_cli_permission()}
+                  </p>
+                ) : !props.workspace.owner ? (
+                  <p className="text-sm text-muted-foreground">
+                    {m.admin_workspace_codex_oauth_requires_owner()}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {m.admin_workspace_codex_oauth_dispatch_hint()}
+                  </p>
+                )}
+              </CardHeader>
+            </Card>
+
+            <Card>
+              <CardHeader className="gap-4">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <CardDescription>
                       {m.admin_workspace_members_kicker()}
                     </CardDescription>
                     <CardTitle>
@@ -1268,7 +1505,7 @@ function WorkspaceDetailDialog(props: {
                     </Button>
                     <Button
                       type="button"
-                      disabled={!canInviteAll || inviteActionKey !== null}
+                      disabled={!canInviteAll || isDispatching}
                       onClick={() => {
                         void handleInvite()
                       }}
@@ -1284,7 +1521,7 @@ function WorkspaceDetailDialog(props: {
                     </Button>
                   </div>
                 </div>
-                {!props.canDispatchInvites ? (
+                {!props.canDispatchFlows ? (
                   <p className="text-sm text-muted-foreground">
                     {m.admin_workspace_invite_requires_cli_permission()}
                   </p>
@@ -1352,7 +1589,7 @@ function WorkspaceDetailDialog(props: {
                           <Button
                             type="button"
                             variant="outline"
-                            disabled={!canInviteAll || inviteActionKey !== null}
+                            disabled={!canInviteAll || isDispatching}
                             onClick={() => {
                               void handleInvite([member.id])
                             }}
@@ -1700,8 +1937,8 @@ function AdminWorkspacesPage() {
           }
         }}
         workspace={detailsTarget}
-        canDispatchInvites={Boolean(
-          'canDispatchInvites' in data && data.canDispatchInvites,
+        canDispatchFlows={Boolean(
+          'canDispatchFlows' in data && data.canDispatchFlows,
         )}
         onEdit={(workspace) => {
           setDetailsTarget(null)

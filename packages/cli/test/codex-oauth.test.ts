@@ -717,6 +717,28 @@ describe('runCodexOAuthFlow', () => {
     )
   })
 
+  it('passes an explicit workspace id into the authorize url without resolving associations', async () => {
+    const page = {
+      goto: vi.fn(),
+      url: vi.fn(() => 'about:blank'),
+      title: vi.fn(async () => 'about:blank'),
+    }
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    await runCodexOAuthFlow(page as never, {
+      authorizeUrlOnly: true,
+      workspaceId: 'ws-explicit',
+    })
+
+    expect(startCodexAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codexCliSimplifiedFlow: true,
+        allowedWorkspaceId: 'ws-explicit',
+      }),
+    )
+    expect(resolveAssociatedManagedWorkspaceFromCodeyApp).not.toHaveBeenCalled()
+  })
+
   it('does not pass allowed_workspace_id when selecting by workspace index', async () => {
     resolveAssociatedManagedWorkspaceFromCodeyApp.mockResolvedValue({
       id: 'workspace-record-1',

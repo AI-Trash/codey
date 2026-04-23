@@ -39,6 +39,7 @@ export interface FlowOptions extends CommonOptions {
   password?: string
   identityId?: string
   email?: string
+  workspaceId?: string
   workspaceIndex?: number
   target?: string
   redirectPort?: number

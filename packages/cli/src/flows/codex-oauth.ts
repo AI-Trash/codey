@@ -776,6 +776,17 @@ function hasExplicitCodexWorkspaceIndex(options: FlowOptions): boolean {
   return String(options.workspaceIndex).trim().length > 0
 }
 
+function resolveExplicitCodexWorkspaceId(
+  options: FlowOptions,
+): string | undefined {
+  if (typeof options.workspaceId !== 'string') {
+    return undefined
+  }
+
+  const workspaceId = options.workspaceId.trim()
+  return workspaceId || undefined
+}
+
 async function resolveCodexOAuthAssociatedWorkspace(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   options: FlowOptions,
@@ -797,6 +808,23 @@ async function resolveCodexOAuthAssociatedWorkspace(
   }
 }
 
+async function resolvePreferredCodexWorkspaceId(
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
+  options: FlowOptions,
+): Promise<string | undefined> {
+  if (hasExplicitCodexWorkspaceIndex(options)) {
+    return undefined
+  }
+
+  const explicitWorkspaceId = resolveExplicitCodexWorkspaceId(options)
+  if (explicitWorkspaceId) {
+    return explicitWorkspaceId
+  }
+
+  return (await resolveCodexOAuthAssociatedWorkspace(machine, options))
+    ?.workspaceId
+}
+
 async function completeCodexOAuthWorkspaceSelection(
   page: Page,
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
@@ -810,7 +838,7 @@ async function completeCodexOAuthWorkspaceSelection(
     url: sanitizeUrl(page.url()),
     redirectUri,
     lastMessage: preferredWorkspaceId
-      ? `Selecting associated Codex workspace ${preferredWorkspaceId}`
+      ? `Selecting Codex workspace ${preferredWorkspaceId}`
       : `Selecting Codex workspace #${workspaceIndex}`,
   })
 
@@ -824,9 +852,9 @@ async function completeCodexOAuthWorkspaceSelection(
     preferredWorkspaceId &&
     selection.selectionStrategy === 'workspace_id' &&
     selection.selectedWorkspaceId
-      ? `Selected associated Codex workspace ${selection.selectedWorkspaceId}; waiting for Codex OAuth callback`
+      ? `Selected Codex workspace ${selection.selectedWorkspaceId}; waiting for Codex OAuth callback`
       : preferredWorkspaceId
-        ? `Associated Codex workspace ${preferredWorkspaceId} was unavailable; selected workspace #${selection.selectedWorkspaceIndex} instead and waiting for Codex OAuth callback`
+        ? `Preferred Codex workspace ${preferredWorkspaceId} was unavailable; selected workspace #${selection.selectedWorkspaceIndex} instead and waiting for Codex OAuth callback`
         : `Selected Codex workspace #${selection.selectedWorkspaceIndex}; waiting for Codex OAuth callback`
 
   await sendCodexOAuthMachine(
@@ -1592,10 +1620,10 @@ export async function runCodexOAuthFlow(
       parseNumberFlag(options.redirectPort, codexConfig.redirectPort) ||
       codexConfig.redirectPort ||
       3000
-    const preferredWorkspaceId = hasExplicitCodexWorkspaceIndex(options)
-      ? undefined
-      : (await resolveCodexOAuthAssociatedWorkspace(machine, options))
-          ?.workspaceId
+    const preferredWorkspaceId = await resolvePreferredCodexWorkspaceId(
+      machine,
+      options,
+    )
 
     await sendCodexOAuthMachine(
       machine,
