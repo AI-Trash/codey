@@ -749,6 +749,9 @@ export const externalServiceConfigs = pgTable(
     groupIds: integer('group_ids').array().$type<number[]>(),
     autoFillRelatedModels: boolean('auto_fill_related_models'),
     confirmMixedChannelRisk: boolean('confirm_mixed_channel_risk'),
+    openaiOAuthResponsesWebSocketV2Mode: text(
+      'openai_oauth_responses_websocket_v2_mode',
+    ).$type<'off' | 'ctx_pool' | 'passthrough'>(),
     updatedByUserId: text('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

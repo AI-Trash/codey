@@ -43,6 +43,7 @@ export async function* streamWebSocketEvents<TEvent extends string = string>(inp
   socket?: WebSocket
   headers?: Record<string, string>
   signal?: AbortSignal
+  onReady?: (socket: WebSocket) => void
 }): AsyncGenerator<WsEvent<TEvent>, void, void> {
   const socket =
     input.socket || (await connectWebSocket({ url: input.url, headers: input.headers }))
@@ -105,6 +106,8 @@ export async function* streamWebSocketEvents<TEvent extends string = string>(inp
       resolve({ done: true, value: undefined })
     }
   })
+
+  input.onReady?.(socket)
 
   try {
     while (true) {

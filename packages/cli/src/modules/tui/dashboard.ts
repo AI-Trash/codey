@@ -192,7 +192,7 @@ function formatStatusLines(state: DashboardState): string[] {
     `  Phase: ${state.phase}`,
     `  CLI: ${state.cliName}`,
     `  Target: ${state.target || 'n/a'}`,
-    `  Connection ID: ${state.connectionId || 'waiting for /api/cli/ws'}`,
+    `  Connection ID: ${state.connectionId || 'waiting for /api/realtime/ws'}`,
     `  Connected: ${
       state.connectedAt
         ? formatTimestamp(state.connectedAt, state.nowMs)

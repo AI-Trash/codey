@@ -162,6 +162,13 @@
       "when": 1776943761170,
       "tag": "0022_workspace_scoped_managed_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1777019180902,
+      "tag": "0023_sub2api_openai_ws_mode",
+      "breakpoints": true
     }
   ]
 }

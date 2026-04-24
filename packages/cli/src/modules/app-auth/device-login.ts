@@ -60,7 +60,7 @@ function getCodeyAppConfig() {
     cliEventsPath:
       config.app?.cliEventsPath ??
       config.verification?.app?.cliEventsPath ??
-      '/api/cli/ws',
+      '/api/realtime/ws',
   }
 }
 
@@ -331,19 +331,21 @@ export async function* streamCliNotifications(
     'X-Codey-Registered-Flows': listCliFlowCommandIds().join(','),
   }
   const socket = await connectWebSocket({ url: wsUrl, headers })
-  socket.send(
-    JSON.stringify({
-      action: 'subscribe',
-      channel: 'cli',
-      ...(target ? { target } : {}),
-      ...(input.cliName ? { cliName: input.cliName } : {}),
-    }),
-  )
 
   for await (const envelope of streamWebSocketEvents<CliRealtimeEnvelope['event']>({
     url: wsUrl,
     socket,
     signal: options?.signal,
+    onReady: (readySocket) => {
+      readySocket.send(
+        JSON.stringify({
+          action: 'subscribe',
+          channel: 'cli',
+          ...(target ? { target } : {}),
+          ...(input.cliName ? { cliName: input.cliName } : {}),
+        }),
+      )
+    },
   })) {
     if (envelope.event === 'cli_connection') {
       handlers?.onConnection?.(envelope.data as CliConnectionEvent)

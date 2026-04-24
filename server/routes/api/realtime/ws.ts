@@ -9,12 +9,12 @@ import {
   markCliEventConnectionDisconnected,
   registerCliEventConnection,
   touchCliEventConnection,
-} from '../../../src/lib/server/cli-events'
-import { subscribeAdminInboxEmailEvents } from '../../../src/lib/server/admin-inbox-events'
-import { pollDeviceChallenge } from '../../../src/lib/server/device-auth'
-import { subscribeVerificationCodeEvents } from '../../../src/lib/server/verification-events'
-import { listVerificationCodeEventsAfterCursor } from '../../../src/lib/server/verification'
-import { toWsMessage } from '../../../src/lib/server/ws'
+} from '../../../../src/lib/server/cli-events'
+import { subscribeAdminInboxEmailEvents } from '../../../../src/lib/server/admin-inbox-events'
+import { pollDeviceChallenge } from '../../../../src/lib/server/device-auth'
+import { subscribeVerificationCodeEvents } from '../../../../src/lib/server/verification-events'
+import { listVerificationCodeEventsAfterCursor } from '../../../../src/lib/server/verification'
+import { toWsMessage } from '../../../../src/lib/server/ws'
 
 interface CliSubscriptionState {
   connectionId: string

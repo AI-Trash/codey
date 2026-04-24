@@ -102,6 +102,7 @@ export interface Sub2ApiConfig {
   groupIds?: number[]
   autoFillRelatedModels?: boolean
   confirmMixedChannelRisk?: boolean
+  openaiOAuthResponsesWebSocketV2Mode?: 'off' | 'ctx_pool' | 'passthrough'
 }
 
 export interface AppConfig {
@@ -270,6 +271,7 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
     'SUB2API_GROUP_IDS',
     'SUB2API_AUTO_FILL_RELATED_MODELS',
     'SUB2API_CONFIRM_MIXED_CHANNEL_RISK',
+    'SUB2API_OPENAI_OAUTH_RESPONSES_WEBSOCKET_V2_MODE',
   ]
 
   if (!hasAnyDefinedEnv(relevantEnvNames)) {
@@ -300,7 +302,26 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
     )
       ? parseBoolean(process.env.SUB2API_CONFIRM_MIXED_CHANNEL_RISK, false)
       : undefined,
+    openaiOAuthResponsesWebSocketV2Mode:
+      parseSub2ApiOpenAIWSMode(
+        process.env.SUB2API_OPENAI_OAUTH_RESPONSES_WEBSOCKET_V2_MODE,
+      ),
   }
+}
+
+function parseSub2ApiOpenAIWSMode(
+  value: string | undefined,
+): Sub2ApiConfig['openaiOAuthResponsesWebSocketV2Mode'] {
+  if (!value) return undefined
+  const normalized = value.trim().toLowerCase()
+  if (
+    normalized === 'off' ||
+    normalized === 'ctx_pool' ||
+    normalized === 'passthrough'
+  ) {
+    return normalized
+  }
+  return undefined
 }
 
 function mergeDeep<T>(base: T, patch?: PartialDeep<T>): T {

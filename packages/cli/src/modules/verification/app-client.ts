@@ -481,14 +481,6 @@ export class AppVerificationProviderClient {
       url: toWebSocketUrl(eventsUrl),
       headers,
     })
-    socket.send(
-      JSON.stringify({
-        action: 'subscribe',
-        channel: 'verification',
-        email: params.email,
-        startedAt: params.startedAt,
-      }),
-    )
 
     for await (const event of streamWebSocketEvents<
       'verification_code' | 'keepalive'
@@ -496,6 +488,16 @@ export class AppVerificationProviderClient {
       url: toWebSocketUrl(eventsUrl),
       socket,
       signal: params.signal,
+      onReady: (readySocket) => {
+        readySocket.send(
+          JSON.stringify({
+            action: 'subscribe',
+            channel: 'verification',
+            email: params.email,
+            startedAt: params.startedAt,
+          }),
+        )
+      },
     })) {
       if (event.event === 'verification_code') {
         const payload = event.data as AppVerificationCodeStreamResponse

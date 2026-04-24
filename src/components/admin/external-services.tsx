@@ -37,6 +37,7 @@ export type ManagedSub2ApiService = {
   groupIds: number[]
   autoFillRelatedModels: boolean
   confirmMixedChannelRisk: boolean
+  openaiOAuthResponsesWebSocketV2Mode: 'off' | 'ctx_pool' | 'passthrough'
   updatedByUserId: string | null
   createdAt: string | Date | null
   updatedAt: string | Date | null
@@ -60,6 +61,7 @@ type Sub2ApiFormValues = {
   groupIds: string
   autoFillRelatedModels: boolean
   confirmMixedChannelRisk: boolean
+  openaiOAuthResponsesWebSocketV2Mode: 'off' | 'ctx_pool' | 'passthrough'
 }
 
 export function ExternalServicesPageContent(props: {
@@ -108,6 +110,8 @@ export function ExternalServicesPageContent(props: {
           groupIds: parseGroupIds(form.groupIds),
           autoFillRelatedModels: form.autoFillRelatedModels,
           confirmMixedChannelRisk: form.confirmMixedChannelRisk,
+          openaiOAuthResponsesWebSocketV2Mode:
+            form.openaiOAuthResponsesWebSocketV2Mode,
         }),
       })
 
@@ -396,6 +400,32 @@ export function ExternalServicesPageContent(props: {
                 placeholder={m.external_services_field_group_ids_placeholder()}
               />
             </Field>
+
+            <Field
+              label={m.external_services_field_openai_ws_mode()}
+              description={m.external_services_field_openai_ws_mode_description()}
+            >
+              <NativeSelect
+                value={form.openaiOAuthResponsesWebSocketV2Mode}
+                onChange={(event) => {
+                  const nextValue = event.target.value as Sub2ApiFormValues['openaiOAuthResponsesWebSocketV2Mode']
+                  setForm((current) => ({
+                    ...current,
+                    openaiOAuthResponsesWebSocketV2Mode: nextValue,
+                  }))
+                }}
+              >
+                <NativeSelectOption value="off">
+                  {m.external_services_openai_ws_mode_off()}
+                </NativeSelectOption>
+                <NativeSelectOption value="ctx_pool">
+                  {m.external_services_openai_ws_mode_ctx_pool()}
+                </NativeSelectOption>
+                <NativeSelectOption value="passthrough">
+                  {m.external_services_openai_ws_mode_passthrough()}
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
           </div>
 
           <div className="grid gap-3 lg:grid-cols-2">
@@ -523,6 +553,8 @@ function toSub2ApiFormValues(
     groupIds: service.groupIds.join(', '),
     autoFillRelatedModels: service.autoFillRelatedModels,
     confirmMixedChannelRisk: service.confirmMixedChannelRisk,
+    openaiOAuthResponsesWebSocketV2Mode:
+      service.openaiOAuthResponsesWebSocketV2Mode || 'off',
   }
 }
 

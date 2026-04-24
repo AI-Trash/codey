@@ -35,6 +35,7 @@ export interface ManagedSub2ApiServiceSummary {
   groupIds: number[];
   autoFillRelatedModels: boolean;
   confirmMixedChannelRisk: boolean;
+  openaiOAuthResponsesWebSocketV2Mode: Sub2ApiConfig["openaiOAuthResponsesWebSocketV2Mode"];
   updatedByUserId: string | null;
   createdAt: Date | null;
   updatedAt: Date | null;
@@ -58,6 +59,7 @@ export interface UpsertSub2ApiServiceInput {
   groupIds?: number[] | null;
   autoFillRelatedModels?: boolean | null;
   confirmMixedChannelRisk?: boolean | null;
+  openaiOAuthResponsesWebSocketV2Mode?: Sub2ApiConfig["openaiOAuthResponsesWebSocketV2Mode"] | null;
   updatedByUserId?: string;
 }
 
@@ -147,6 +149,20 @@ function resolveOptionalBooleanUpdate(
   }
 
   return existingValue ?? undefined;
+}
+
+function resolveOpenAIWSModeUpdate(
+  nextValue: Sub2ApiConfig["openaiOAuthResponsesWebSocketV2Mode"] | null | undefined,
+  existingValue: string | null | undefined,
+): Sub2ApiConfig["openaiOAuthResponsesWebSocketV2Mode"] | undefined {
+  if (nextValue === null) {
+    return undefined;
+  }
+
+  const value = nextValue ?? existingValue;
+  return value === "off" || value === "ctx_pool" || value === "passthrough"
+    ? value
+    : undefined;
 }
 
 function resolveGroupIdsUpdate(
@@ -250,6 +266,9 @@ function toSummary(
     groupIds: normalizeGroupIds(row?.groupIds) ?? [],
     autoFillRelatedModels: row?.autoFillRelatedModels ?? false,
     confirmMixedChannelRisk: row?.confirmMixedChannelRisk ?? false,
+    openaiOAuthResponsesWebSocketV2Mode:
+      resolveOpenAIWSModeUpdate(undefined, row?.openaiOAuthResponsesWebSocketV2Mode) ??
+      "off",
     updatedByUserId: row?.updatedByUserId ?? null,
     createdAt: row?.createdAt ?? null,
     updatedAt: row?.updatedAt ?? null,
@@ -390,6 +409,11 @@ export async function upsertSub2ApiServiceConfig(
         input.confirmMixedChannelRisk,
         existing?.confirmMixedChannelRisk,
       ) ?? null,
+    openaiOAuthResponsesWebSocketV2Mode:
+      resolveOpenAIWSModeUpdate(
+        input.openaiOAuthResponsesWebSocketV2Mode,
+        existing?.openaiOAuthResponsesWebSocketV2Mode,
+      ) ?? null,
     updatedByUserId: input.updatedByUserId?.trim() || null,
     updatedAt: now,
   };
@@ -449,6 +473,8 @@ export async function getCliSub2ApiConfig(): Promise<Sub2ApiConfig> {
       groupIds: normalizeGroupIds(row.groupIds),
       autoFillRelatedModels: row.autoFillRelatedModels ?? undefined,
       confirmMixedChannelRisk: row.confirmMixedChannelRisk ?? undefined,
+      openaiOAuthResponsesWebSocketV2Mode:
+        resolveOpenAIWSModeUpdate(undefined, row.openaiOAuthResponsesWebSocketV2Mode),
     };
   }
 
@@ -473,6 +499,8 @@ export async function getCliSub2ApiConfig(): Promise<Sub2ApiConfig> {
       groupIds: normalizeGroupIds(row.groupIds),
       autoFillRelatedModels: row.autoFillRelatedModels ?? undefined,
       confirmMixedChannelRisk: row.confirmMixedChannelRisk ?? undefined,
+      openaiOAuthResponsesWebSocketV2Mode:
+        resolveOpenAIWSModeUpdate(undefined, row.openaiOAuthResponsesWebSocketV2Mode),
     };
   }
 
@@ -497,5 +525,7 @@ export async function getCliSub2ApiConfig(): Promise<Sub2ApiConfig> {
     groupIds: normalizeGroupIds(row.groupIds),
     autoFillRelatedModels: row.autoFillRelatedModels ?? undefined,
     confirmMixedChannelRisk: row.confirmMixedChannelRisk ?? undefined,
+    openaiOAuthResponsesWebSocketV2Mode:
+      resolveOpenAIWSModeUpdate(undefined, row.openaiOAuthResponsesWebSocketV2Mode),
   };
 }

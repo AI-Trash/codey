@@ -26,6 +26,7 @@ interface UpdateSub2ApiServiceBody {
   groupIds?: number[] | null;
   autoFillRelatedModels?: boolean | null;
   confirmMixedChannelRisk?: boolean | null;
+  openaiOAuthResponsesWebSocketV2Mode?: string | null;
 }
 
 function readOptionalInteger(
@@ -86,6 +87,22 @@ function readOptionalIntegerArray(
     .filter((entry): entry is number => Number.isInteger(entry));
 
   return parsed;
+}
+
+function readOpenAIWSMode(value: unknown) {
+  if (value === null) {
+    return null;
+  }
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === "off" || value === "ctx_pool" || value === "passthrough") {
+    return value;
+  }
+
+  throw new Error("openaiOAuthResponsesWebSocketV2Mode must be off, ctx_pool, or passthrough.");
 }
 
 export const Route = createFileRoute("/api/admin/external-services/sub2api")({
@@ -181,6 +198,9 @@ export const Route = createFileRoute("/api/admin/external-services/sub2api")({
               body.confirmMixedChannelRisk === null
                 ? body.confirmMixedChannelRisk
                 : undefined,
+            openaiOAuthResponsesWebSocketV2Mode: readOpenAIWSMode(
+              body.openaiOAuthResponsesWebSocketV2Mode,
+            ),
             updatedByUserId: admin.user.id,
           });
 

@@ -386,6 +386,7 @@ function buildSub2ApiAccountCredentials(input: {
 function buildSub2ApiAccountExtra(
   tokenInfo: Sub2ApiTokenInfo,
   email: string,
+  config?: Sub2ApiConfig,
 ): Record<string, unknown> | undefined {
   const extra: Record<string, unknown> = {}
 
@@ -396,6 +397,12 @@ function buildSub2ApiAccountExtra(
   const privacyMode = asNonEmptyString(tokenInfo.privacy_mode)
   if (privacyMode) {
     extra.privacy_mode = privacyMode
+  }
+
+  const wsMode = config?.openaiOAuthResponsesWebSocketV2Mode
+  if (wsMode) {
+    extra.openai_oauth_responses_websockets_v2_mode = wsMode
+    extra.openai_oauth_responses_websockets_v2_enabled = wsMode !== 'off'
   }
 
   return Object.keys(extra).length > 0 ? extra : undefined
@@ -661,7 +668,7 @@ export async function syncCodexOAuthSessionToSub2Api(input: {
             ...(modelMapping ? { model_mapping: modelMapping } : {}),
           }
         })(),
-        extra: buildSub2ApiAccountExtra(refreshedToken, accountEmail),
+        extra: buildSub2ApiAccountExtra(refreshedToken, accountEmail, config),
         proxy_id: config.proxyId,
         concurrency: config.concurrency ?? 0,
         priority: config.priority ?? 0,
