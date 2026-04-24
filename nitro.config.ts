@@ -6,6 +6,10 @@ export default defineNitroConfig({
   },
   handlers: [
     {
+      route: "/api/realtime/ws",
+      handler: "./server/routes/api/realtime/ws.ts",
+    },
+    {
       route: "/oidc/**",
       handler: "./server/handlers/oidc.ts",
     },
