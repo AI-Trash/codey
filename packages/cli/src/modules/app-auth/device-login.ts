@@ -341,8 +341,6 @@ export async function* streamCliNotifications(
     signal: options?.signal,
     onDebug: handlers?.onDebug,
     onReady: (readySocket) => {
-      handlers?.onDebug?.('Sending realtime ping')
-      readySocket.send(JSON.stringify({ action: 'ping' }))
       handlers?.onDebug?.('Sending realtime subscription: cli')
       readySocket.send(
         JSON.stringify({
@@ -361,10 +359,6 @@ export async function* streamCliNotifications(
     }
     if (envelope.event === 'timeout') {
       break
-    }
-    if (envelope.event === 'pong') {
-      handlers?.onDebug?.('Realtime ping acknowledged')
-      continue
     }
     if (envelope.event === 'realtime_subscription') {
       handlers?.onDebug?.(
