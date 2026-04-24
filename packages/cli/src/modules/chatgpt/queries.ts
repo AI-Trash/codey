@@ -10,8 +10,8 @@ import {
   AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
   CODEX_CONSENT_SUBMIT_SELECTORS,
   CODEX_ORGANIZATION_SELECTORS,
-  CODEX_ORGANIZATION_SUBMIT_SELECTORS,
   CODEX_WORKSPACE_SELECTORS,
+  CODEX_ORGANIZATION_SUBMIT_SELECTORS,
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_HOME_URL,
@@ -855,7 +855,9 @@ export async function isCodexWorkspacePickerReady(
     (await isAnySelectorVisible(page, CODEX_WORKSPACE_SELECTORS)) ||
     (await hasAnySelectorAttached(page, [
       'input[type="radio"][name="workspace_id"]',
+      'input[type="hidden"][name="workspace_id"]',
       'select[name="workspace_id"]',
+      'input[name="workspace_id"]',
     ]))
   )
 }
@@ -893,9 +895,6 @@ export async function getCodexOAuthSurfaceCandidates(
 ): Promise<Exclude<ChatGPTCodexOAuthSurface, 'unknown'>[]> {
   const candidates: Exclude<ChatGPTCodexOAuthSurface, 'unknown'>[] = []
 
-  if (await isCodexWorkspacePickerReady(page)) {
-    pushUniqueCandidate(candidates, 'workspace')
-  }
   if (await isCodexOrganizationPickerReady(page)) {
     pushUniqueCandidate(candidates, 'organization')
   }

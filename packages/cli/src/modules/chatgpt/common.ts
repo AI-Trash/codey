@@ -321,6 +321,8 @@ export const CODEX_ORGANIZATION_SUBMIT_SELECTORS: SelectorTarget[] = [
   { text: /继续|continue|sign in|allow|authorize|approve/i },
 ]
 export const CODEX_CONSENT_SUBMIT_SELECTORS: SelectorTarget[] = [
+  'button[data-dd-action-name="Continue"]',
+  'form[action*="/sign-in-with-chatgpt/codex/consent"] button[type="submit"]',
   'form[action*="/api/accounts/consent"] button[type="submit"]',
   'form button[type="submit"]',
   'button[type="submit"]',

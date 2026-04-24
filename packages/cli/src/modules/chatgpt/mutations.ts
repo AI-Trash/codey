@@ -791,6 +791,13 @@ export async function completePasswordOrVerificationLoginFallback(
       }
     }
 
+    if (
+      (await isCodexConsentReady(page)) ||
+      (await isCodexOrganizationPickerReady(page))
+    ) {
+      return { method: 'password' }
+    }
+
     const nextStep = await waitForPostEmailLoginStep(page, 5000)
     if (nextStep === 'password') continue
     if (nextStep === 'verification') {
@@ -832,7 +839,9 @@ export async function continueCodexWorkspaceSelection(
 
       if (radioInputs.length > 0) {
         const matchedIndex = normalizedPreferredId
-          ? radioInputs.findIndex((radio) => radio.value === normalizedPreferredId) + 1
+          ? radioInputs.findIndex(
+              (radio) => radio.value === normalizedPreferredId,
+            ) + 1
           : 0
         const selectedIndex = matchedIndex || requestedIndex
 
@@ -855,7 +864,9 @@ export async function continueCodexWorkspaceSelection(
           availableWorkspaces: radioInputs.length,
           selectedWorkspaceIndex: selectedIndex,
           selectedWorkspaceId: radio.value || undefined,
-          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
+          selectionStrategy: matchedIndex
+            ? ('workspace_id' as const)
+            : ('index' as const),
           status: 'selected' as const,
         }
       }
@@ -889,7 +900,9 @@ export async function continueCodexWorkspaceSelection(
           availableWorkspaces,
           selectedWorkspaceIndex: selectedIndex,
           selectedWorkspaceId: select.value || undefined,
-          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
+          selectionStrategy: matchedIndex
+            ? ('workspace_id' as const)
+            : ('index' as const),
           status: 'selected' as const,
         }
       }
@@ -899,14 +912,18 @@ export async function continueCodexWorkspaceSelection(
       ) as HTMLInputElement | null
       if (hiddenInput?.value) {
         const matchedIndex =
-          normalizedPreferredId && hiddenInput.value === normalizedPreferredId ? 1 : 0
+          normalizedPreferredId && hiddenInput.value === normalizedPreferredId
+            ? 1
+            : 0
         const selectedIndex = matchedIndex || requestedIndex
 
         return {
           availableWorkspaces: 1,
           selectedWorkspaceIndex: selectedIndex === 1 ? 1 : 0,
           selectedWorkspaceId: hiddenInput.value || undefined,
-          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
+          selectionStrategy: matchedIndex
+            ? ('workspace_id' as const)
+            : ('index' as const),
           status:
             selectedIndex === 1
               ? ('selected' as const)
