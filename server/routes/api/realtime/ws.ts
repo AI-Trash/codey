@@ -82,6 +82,19 @@ export default defineWebSocketHandler({
 
       const action = typeof payload.action === 'string' ? payload.action : ''
       const channel = typeof payload.channel === 'string' ? payload.channel : ''
+      if (action === 'ping') {
+        peer.send(
+          toWsMessage({
+            event: 'pong',
+            data: {
+              ok: true,
+              receivedAt: new Date().toISOString(),
+            },
+          }),
+        )
+        return
+      }
+
       if (action !== 'subscribe') {
         peer.send(
           toWsMessage({ event: 'error', data: { message: 'Unsupported action' } }),

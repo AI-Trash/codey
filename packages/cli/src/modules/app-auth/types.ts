@@ -67,6 +67,7 @@ export interface CliRealtimeEnvelope {
     | 'admin_notification'
     | 'timeout'
     | 'realtime_subscription'
+    | 'pong'
     | 'error'
   data: Record<string, unknown>
 }
