@@ -7,11 +7,7 @@ import {
   type OidcTokenSet,
   startOidcDeviceAuthorization,
 } from '../app-auth/oidc'
-import {
-  connectWebSocket,
-  streamWebSocketEvents,
-  toWebSocketUrl,
-} from '../app-auth/ws'
+import { streamSse } from '../app-auth/sse'
 import {
   clearAppSession,
   createStoredAppSession,
@@ -355,14 +351,6 @@ export class AppVerificationProviderClient {
     return response
   }
 
-  private async buildAuthorizationHeaders(
-    requiredScopes: string[] = [],
-  ): Promise<Record<string, string>> {
-    return {
-      Authorization: `Bearer ${await this.getAccessToken(requiredScopes)}`,
-    }
-  }
-
   private buildUrl(pathname: string): string {
     const baseUrl = this.getBaseUrl()
     const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
@@ -471,36 +459,33 @@ export class AppVerificationProviderClient {
     startedAt: string
     signal?: AbortSignal
   }): AsyncGenerator<AppVerificationEvent, void, void> {
-    const eventsUrl = new URL(this.buildUrl('/api/realtime/ws'))
+    const eventsUrl = new URL(
+      this.buildUrl(
+        this.config.verificationEventsPath || '/api/verification/events',
+      ),
+    )
     eventsUrl.searchParams.set('email', params.email)
     eventsUrl.searchParams.set('startedAt', params.startedAt)
-    const headers = await this.buildAuthorizationHeaders([
-      ...VERIFICATION_APP_SCOPES,
-    ])
-    const socket = await connectWebSocket({
-      url: toWebSocketUrl(eventsUrl),
-      headers,
-    })
-
-    for await (const event of streamWebSocketEvents<
-      'verification_code' | 'keepalive'
-    >({
-      url: toWebSocketUrl(eventsUrl),
-      socket,
-      signal: params.signal,
-      onReady: (readySocket) => {
-        readySocket.send(
-          JSON.stringify({
-            action: 'subscribe',
-            channel: 'verification',
-            email: params.email,
-            startedAt: params.startedAt,
-          }),
-        )
+    const response = await this.fetchWithAuthorization(
+      eventsUrl,
+      {
+        signal: params.signal,
+        headers: {
+          Accept: 'text/event-stream',
+        },
       },
-    })) {
-      if (event.event === 'verification_code') {
-        const payload = event.data as AppVerificationCodeStreamResponse
+      [...VERIFICATION_APP_SCOPES],
+    )
+
+    if (!response.ok) {
+      throw new Error(await response.text())
+    }
+
+    for await (const event of streamSse(response)) {
+      if (event.event === 'verification_code' && event.data) {
+        const payload = JSON.parse(
+          event.data,
+        ) as AppVerificationCodeStreamResponse
         yield {
           type: 'verification_code',
           reservationId: payload.reservationId,

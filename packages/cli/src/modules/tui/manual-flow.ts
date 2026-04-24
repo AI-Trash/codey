@@ -49,6 +49,8 @@ const flowOptionLabelByKey: Record<string, string> = {
   email: 'Shared identity email',
   inviteEmail: 'Invite email addresses',
   inviteFile: 'Invite CSV/JSON file',
+  workspaceId: 'Codex workspace ID',
+  workspaceIndex: 'Codex workspace index',
   redirectPort: 'OAuth redirect port',
   authorizeUrlOnly: 'Print authorize URL only and exit',
 }
@@ -69,6 +71,8 @@ const flowOptionDescriptionByKey: Record<string, string> = {
   email: 'Choose a specific shared identity by email.',
   inviteEmail: 'Enter one or more invite emails separated by commas or lines.',
   inviteFile: 'Path to a CSV or JSON file that contains invite emails.',
+  workspaceId: 'Explicit OpenAI workspace ID to request during Codex OAuth.',
+  workspaceIndex: '1-based Codex workspace position to select.',
   redirectPort: 'Local port to use for the OAuth redirect callback.',
   authorizeUrlOnly: 'Print the authorize URL and exit before browser login.',
 }
@@ -107,13 +111,13 @@ export function describeManualFlowOption(optionKey: string): string {
   return flowOptionDescriptionByKey[optionKey] || humanizeKey(optionKey)
 }
 
-export function supportsManualFlowBatching(flowId: CliFlowCommandId): boolean {
+export function supportsManualFlowBatching(
+  flowId: CliFlowCommandId,
+): boolean {
   return flowId === 'chatgpt-register'
 }
 
-function formatManualFlowChoice(
-  definition: CliFlowDefinition,
-): ManualFlowChoice {
+function formatManualFlowChoice(definition: CliFlowDefinition): ManualFlowChoice {
   return {
     name: definition.id,
     message: definition.id,
@@ -339,7 +343,10 @@ async function promptForOptionValue(
         return 'A value is required.'
       }
 
-      if (definition.type === 'number' && !Number.isFinite(Number(current))) {
+      if (
+        definition.type === 'number' &&
+        !Number.isFinite(Number(current))
+      ) {
         return 'Enter a valid number.'
       }
 

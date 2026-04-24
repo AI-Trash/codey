@@ -38,6 +38,8 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'email'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'workspaceId'
+  | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
 
@@ -54,6 +56,8 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'email'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'workspaceId'
+  | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
 
@@ -70,6 +74,8 @@ export type CliFlowConfigFieldKey =
   | 'email'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'workspaceId'
+  | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
 
@@ -158,7 +164,8 @@ export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
 /**
  * Configuration for signing in and inviting ChatGPT workspace members.
  */
-export interface ChatGPTLoginInviteFlowConfig extends ChatGPTLoginFlowConfig {
+export interface ChatGPTLoginInviteFlowConfig
+  extends ChatGPTLoginFlowConfig {
   /**
    * Invite one or more email addresses after login succeeds.
    */
@@ -196,6 +203,16 @@ export interface CodexOAuthFlowConfig extends CommonFlowConfig {
    * Poll interval for verification email updates, in milliseconds.
    */
   pollIntervalMs?: number
+
+  /**
+   * Explicit OpenAI workspace id to request during Codex OAuth.
+   */
+  workspaceId?: string
+
+  /**
+   * 1-based workspace index to select in the Codex workspace picker.
+   */
+  workspaceIndex?: number
 
   /**
    * Override the local redirect port used for the OAuth callback.
@@ -252,7 +269,8 @@ export type CliFlowTaskRequestById = {
   }
 }
 
-export type CliFlowTaskRequest = CliFlowTaskRequestById[CliFlowCommandId]
+export type CliFlowTaskRequest =
+  CliFlowTaskRequestById[CliFlowCommandId]
 
 export type CliFlowTaskPayloadById = {
   [FlowId in CliFlowCommandId]: {
@@ -264,7 +282,8 @@ export type CliFlowTaskPayloadById = {
   }
 }
 
-export type CliFlowTaskPayload = CliFlowTaskPayloadById[CliFlowCommandId]
+export type CliFlowTaskPayload =
+  CliFlowTaskPayloadById[CliFlowCommandId]
 
 export const cliFlowCommonConfigFieldDefinitions = [
   {
@@ -361,6 +380,20 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'inviteFile',
   },
   {
+    key: 'workspaceId',
+    cliFlag: '--workspaceId',
+    type: 'string',
+    displayNameKey: 'workspaceId',
+    descriptionKey: 'workspaceId',
+  },
+  {
+    key: 'workspaceIndex',
+    cliFlag: '--workspaceIndex',
+    type: 'number',
+    displayNameKey: 'workspaceIndex',
+    descriptionKey: 'workspaceIndex',
+  },
+  {
     key: 'redirectPort',
     cliFlag: '--redirectPort',
     type: 'number',
@@ -404,6 +437,8 @@ export const cliFlowDefinitions = [
       'email',
       'verificationTimeoutMs',
       'pollIntervalMs',
+      'workspaceId',
+      'workspaceIndex',
       'redirectPort',
       'authorizeUrlOnly',
     ],
@@ -421,17 +456,11 @@ const cliFlowDefinitionsById = new Map(
 )
 
 const cliFlowConfigFieldDefinitionsByKey = new Map(
-  cliFlowConfigFieldDefinitions.map((definition) => [
-    definition.key,
-    definition,
-  ]),
+  cliFlowConfigFieldDefinitions.map((definition) => [definition.key, definition]),
 )
 
 const cliFlowConfigFieldDefinitionsByFlag = new Map(
-  cliFlowConfigFieldDefinitions.map((definition) => [
-    definition.cliFlag,
-    definition,
-  ]),
+  cliFlowConfigFieldDefinitions.map((definition) => [definition.cliFlag, definition]),
 )
 
 function normalizeBoolean(value: unknown): boolean | undefined {
@@ -676,7 +705,10 @@ export function normalizeCliFlowConfig<TFlowId extends CliFlowCommandId>(
   }
 
   for (const field of allowedFields) {
-    const normalized = normalizeCliFlowConfigFieldValue(field, input[field.key])
+    const normalized = normalizeCliFlowConfigFieldValue(
+      field,
+      input[field.key],
+    )
 
     if (normalized !== undefined) {
       output[field.key] = normalized
@@ -738,7 +770,8 @@ export function normalizeCliFlowTaskPayload(
     return undefined
   }
 
-  const flowId = typeof value.flowId === 'string' ? value.flowId.trim() : ''
+  const flowId =
+    typeof value.flowId === 'string' ? value.flowId.trim() : ''
   const flowDefinition = getCliFlowDefinition(flowId)
   if (!flowDefinition) {
     return undefined

@@ -19,7 +19,7 @@ function App() {
   const signalBadges = [
     { name: m.home_entry_badge_github() },
     { name: m.home_entry_badge_cloudflare() },
-    { name: m.home_entry_badge_ws() },
+    { name: m.home_entry_badge_sse() },
   ] as const
 
   return (

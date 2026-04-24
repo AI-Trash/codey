@@ -29,6 +29,7 @@ import {
 } from '../modules/flow-cli/helpers'
 import { shareCodexOAuthSessionWithCodeyApp } from '../modules/app-auth/codex-oauth-sharing'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
+import { resolveAssociatedManagedWorkspaceFromCodeyApp } from '../modules/app-auth/workspaces'
 import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
@@ -50,6 +51,7 @@ import {
   completePasswordOrVerificationLoginFallback,
   continueCodexOAuthConsent,
   continueCodexOrganizationSelection,
+  continueCodexWorkspaceSelection,
   submitLoginEmail,
   type ChatGPTCodexOAuthSurface,
   type ChatGPTPostEmailLoginStep,
@@ -73,6 +75,7 @@ export type CodexOAuthFlowState =
   | 'email-step'
   | 'password-step'
   | 'verification-step'
+  | 'workspace-step'
   | 'organization-step'
   | 'consent-step'
   | 'waiting-for-callback'
@@ -254,6 +257,7 @@ const codexOAuthStates = [
   'email-step',
   'password-step',
   'verification-step',
+  'workspace-step',
   'organization-step',
   'consent-step',
   'waiting-for-callback',
@@ -305,6 +309,12 @@ function createCodexOAuthSurfaceTransitions<Result>() {
   >({
     isInput: isCodexOAuthSurfaceInput,
     cases: [
+      {
+        priority: 50,
+        when: ({ input }) => input.surface === 'workspace',
+        target: 'workspace-step',
+        actions: assignSurfaceContext('Codex workspace selection ready'),
+      },
       {
         priority: 45,
         when: ({ input }) => input.surface === 'organization',
@@ -603,7 +613,7 @@ async function waitForCodexOAuthStep(
   ).then((candidates) => {
     if (candidates.length === 0) {
       throw new Error(
-        'Codex OAuth page did not reach a supported login, consent, organization, or callback surface.',
+        'Codex OAuth page did not reach a supported login, workspace, or callback surface.',
       )
     }
 
@@ -661,7 +671,7 @@ async function waitForCodexOAuthLoginProgressStep(
   ).then((candidates) => {
     if (candidates.length === 0) {
       throw new Error(
-        'Codex OAuth page did not reach a supported login, consent, organization, or callback surface.',
+        'Codex OAuth page did not reach a supported login, workspace, consent, or callback surface.',
       )
     }
 
@@ -747,6 +757,125 @@ async function sendCodexOAuthSurfaceReady(
       redirectUri,
     },
   })
+}
+
+function resolveCodexWorkspaceIndex(options: FlowOptions): number {
+  const requestedWorkspaceIndex = parseNumberFlag(options.workspaceIndex, 1)
+
+  if (
+    requestedWorkspaceIndex == null ||
+    !Number.isInteger(requestedWorkspaceIndex) ||
+    requestedWorkspaceIndex < 1
+  ) {
+    throw new Error(
+      'The Codex OAuth workspace index must be a positive 1-based integer.',
+    )
+  }
+
+  return requestedWorkspaceIndex
+}
+
+function hasExplicitCodexWorkspaceIndex(options: FlowOptions): boolean {
+  if (options.workspaceIndex === undefined || options.workspaceIndex === null) {
+    return false
+  }
+
+  return String(options.workspaceIndex).trim().length > 0
+}
+
+function resolveExplicitCodexWorkspaceId(
+  options: FlowOptions,
+): string | undefined {
+  if (typeof options.workspaceId !== 'string') {
+    return undefined
+  }
+
+  const workspaceId = options.workspaceId.trim()
+  return workspaceId || undefined
+}
+
+async function resolveCodexOAuthAssociatedWorkspace(
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
+  options: FlowOptions,
+) {
+  const storedIdentity = await resolveCodexOAuthStoredIdentity(machine, options)
+  if (!storedIdentity) {
+    return undefined
+  }
+
+  try {
+    return (
+      (await resolveAssociatedManagedWorkspaceFromCodeyApp({
+        identityId: storedIdentity.id,
+        email: storedIdentity.email,
+      })) || undefined
+    )
+  } catch {
+    return undefined
+  }
+}
+
+async function resolvePreferredCodexWorkspaceId(
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
+  options: FlowOptions,
+): Promise<string | undefined> {
+  if (hasExplicitCodexWorkspaceIndex(options)) {
+    return undefined
+  }
+
+  const explicitWorkspaceId = resolveExplicitCodexWorkspaceId(options)
+  if (explicitWorkspaceId) {
+    return explicitWorkspaceId
+  }
+
+  return (await resolveCodexOAuthAssociatedWorkspace(machine, options))
+    ?.workspaceId
+}
+
+async function completeCodexOAuthWorkspaceSelection(
+  page: Page,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
+  options: FlowOptions,
+  redirectUri: string,
+  preferredWorkspaceId?: string,
+): Promise<string | undefined> {
+  const workspaceIndex = resolveCodexWorkspaceIndex(options)
+
+  await sendCodexOAuthMachine(machine, 'workspace-step', 'context.updated', {
+    url: sanitizeUrl(page.url()),
+    redirectUri,
+    lastMessage: preferredWorkspaceId
+      ? `Selecting Codex workspace ${preferredWorkspaceId}`
+      : `Selecting Codex workspace #${workspaceIndex}`,
+  })
+
+  const selection = await continueCodexWorkspaceSelection(
+    page,
+    workspaceIndex,
+    preferredWorkspaceId,
+  )
+
+  const selectionMessage =
+    preferredWorkspaceId &&
+    selection.selectionStrategy === 'workspace_id' &&
+    selection.selectedWorkspaceId
+      ? `Selected Codex workspace ${selection.selectedWorkspaceId}; waiting for Codex OAuth callback`
+      : preferredWorkspaceId
+        ? `Preferred Codex workspace ${preferredWorkspaceId} was unavailable; selected workspace #${selection.selectedWorkspaceIndex} instead and waiting for Codex OAuth callback`
+        : `Selected Codex workspace #${selection.selectedWorkspaceIndex}; waiting for Codex OAuth callback`
+
+  await sendCodexOAuthMachine(
+    machine,
+    'waiting-for-callback',
+    'context.updated',
+    {
+      url: sanitizeUrl(page.url()),
+      redirectUri,
+      lastMessage: selectionMessage,
+    },
+  )
+
+  return selection.selectedWorkspaceId
 }
 
 async function completeCodexOAuthOrganizationSelection(
@@ -1068,6 +1197,8 @@ async function resolveCodexOAuthNextStep(
   nextStep: CodexOAuthStep,
   waitForCallback: Promise<CodexOAuthCallbackPayload>,
   getResolvedCallback: () => CodexOAuthCallbackPayload | undefined,
+  preferredWorkspaceId?: string,
+  onSelectedWorkspaceId?: (workspaceId: string | undefined) => void,
 ): Promise<CodexOAuthCallbackPayload> {
   let currentStep = nextStep
 
@@ -1087,6 +1218,7 @@ async function resolveCodexOAuthNextStep(
         | 'retry'
         | 'unsupported-surface'
         | 'unsupported-post-login'
+        | 'workspace'
         | 'organization'
         | 'consent'
       >(
@@ -1110,6 +1242,51 @@ async function resolveCodexOAuthNextStep(
               kind: 'callback' as const,
               callback: await waitForCallback,
             }),
+          },
+          {
+            branch: 'workspace' as const,
+            priority: 60,
+            guard: ({ input }) =>
+              input.kind === 'surface-candidates' &&
+              input.candidates.includes('workspace'),
+            run: async () => {
+              await sendCodexOAuthSurfaceReady(
+                machine,
+                page,
+                'workspace',
+                redirectUri,
+              )
+              try {
+                const selectedWorkspaceId =
+                  await completeCodexOAuthWorkspaceSelection(
+                    page,
+                    machine,
+                    options,
+                    redirectUri,
+                    preferredWorkspaceId,
+                  )
+                onSelectedWorkspaceId?.(selectedWorkspaceId)
+              } catch (error) {
+                const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
+                  page,
+                  waitForCallback,
+                  redirectUri,
+                  getResolvedCallback,
+                )
+                if (callbackStep) {
+                  return callbackStep
+                }
+                throw wrapRecoverableCodexOAuthBranchError('workspace', error)
+              }
+
+              return waitForCodexOAuthStep(
+                page,
+                waitForCallback,
+                redirectUri,
+                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
+                getResolvedCallback,
+              )
+            },
           },
           {
             branch: 'organization' as const,
@@ -1299,7 +1476,7 @@ async function resolveCodexOAuthNextStep(
               ) {
                 throw new GuardedBranchError(
                   'login',
-                  'OpenAI login entry did not advance to an authenticated, organization, consent, or email surface.',
+                  'OpenAI login entry did not advance to an authenticated, workspace, organization, consent, or email surface.',
                 )
               }
               return postLoginStep
@@ -1455,6 +1632,12 @@ export async function runCodexOAuthFlow(
       parseNumberFlag(options.redirectPort, codexConfig.redirectPort) ||
       codexConfig.redirectPort ||
       3000
+    const preferredWorkspaceId = await resolvePreferredCodexWorkspaceId(
+      machine,
+      options,
+    )
+    let selectedCodexWorkspaceId = preferredWorkspaceId
+
     await sendCodexOAuthMachine(
       machine,
       'starting-oauth',
@@ -1473,6 +1656,7 @@ export async function runCodexOAuthFlow(
       redirectPath: codexConfig.redirectPath,
       openBrowserWindow: false,
       codexCliSimplifiedFlow: true,
+      allowedWorkspaceId: preferredWorkspaceId,
     })
 
     if (authorizeUrlOnly) {
@@ -1525,7 +1709,7 @@ export async function runCodexOAuthFlow(
       email:
         typeof options.email === 'string' ? options.email.trim() : undefined,
       lastMessage:
-        'Waiting for Codex OAuth callback, login, or consent surface',
+        'Waiting for Codex OAuth callback, login, or workspace surface',
     })
 
     let resolvedCallback: CodexOAuthCallbackPayload | undefined
@@ -1552,6 +1736,12 @@ export async function runCodexOAuthFlow(
       nextStep,
       waitForCallback,
       () => resolvedCallback,
+      preferredWorkspaceId,
+      (workspaceId) => {
+        if (workspaceId) {
+          selectedCodexWorkspaceId = workspaceId
+        }
+      },
     )
     if (!callback.code) {
       throw new Error(
@@ -1643,6 +1833,7 @@ export async function runCodexOAuthFlow(
         token,
         clientId: codexConfig.clientId,
         redirectUri: started.redirectUri,
+        workspaceId: selectedCodexWorkspaceId,
       })) || undefined
 
     if (!codeyApp) {

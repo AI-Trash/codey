@@ -179,7 +179,7 @@ function formatShellHelpLines(): string[] {
     '  events      Show the recent event buffer.',
     '  start       Launch a local flow with prompt-driven questions.',
     '  stop        Stop running tasks and clear queued tasks.',
-    '  reconnect   Reconnect the realtime stream after the queue drains.',
+    '  reconnect   Reconnect the SSE stream after the queue drains.',
     '  clear       Clear the recent event buffer.',
     '  quit        Exit after running tasks finish.',
     '  Ctrl+C      Exit immediately.',
@@ -192,7 +192,7 @@ function formatStatusLines(state: DashboardState): string[] {
     `  Phase: ${state.phase}`,
     `  CLI: ${state.cliName}`,
     `  Target: ${state.target || 'n/a'}`,
-    `  Connection ID: ${state.connectionId || 'waiting for /api/realtime/ws'}`,
+    `  Connection ID: ${state.connectionId || 'waiting for /api/cli/events'}`,
     `  Connected: ${
       state.connectedAt
         ? formatTimestamp(state.connectedAt, state.nowMs)
@@ -1215,9 +1215,6 @@ export async function runPromptDashboard(input: {
           },
           authState,
           {
-            onDebug: (message: string) => {
-              updateState((state) => appendDashboardEvent(state, message))
-            },
             onConnection: (event: CliConnectionEvent) => {
               connectionOpened = true
               claimConnectionId = event.connectionId

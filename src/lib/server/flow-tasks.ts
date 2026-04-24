@@ -167,7 +167,7 @@ export async function refreshFlowTaskLease(input: {
           status: input.status,
           cliConnectionId: connection.id,
           leaseExpiresAt,
-          startedAt: sql`coalesce(${flowTasks.startedAt}, ${now.toISOString()}::timestamptz)`,
+          startedAt: sql`coalesce(${flowTasks.startedAt}, ${now})`,
           ...(normalizedMessage !== null
             ? { lastMessage: normalizedMessage }
             : {}),

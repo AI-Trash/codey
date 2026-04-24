@@ -277,9 +277,14 @@ export function AdminMailInbox(props: {
       return
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new window.WebSocket(
-      `${protocol}//${window.location.host}/api/realtime/ws`,
+    if (typeof window.EventSource === 'undefined') {
+      setLiveStatus('offline')
+      setStreamError(m.mail_inbox_error_sse_unsupported())
+      return
+    }
+
+    const eventSource = new window.EventSource(
+      `/api/admin/emails/events?after=${encodeURIComponent(props.initialCursor)}`,
     )
 
     const handleEmail = () => {
@@ -292,39 +297,23 @@ export function AdminMailInbox(props: {
       setStreamError(null)
     }
 
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          action: 'subscribe',
-          channel: 'admin_inbox',
-          after: props.initialCursor,
-        }),
-      )
+    eventSource.onopen = () => {
       setLiveStatus('live')
       setStreamError(null)
     }
 
-    ws.onerror = () => {
+    eventSource.onerror = () => {
       setLiveStatus('reconnecting')
       setStreamError(m.mail_inbox_error_stream_reconnecting())
     }
 
-    ws.onmessage = (event) => {
-      const payload = JSON.parse(String(event.data)) as {
-        event?: string
-        data?: Record<string, unknown>
-      }
-      if (payload.event === 'email') {
-        handleEmail()
-        return
-      }
-      if (payload.event === 'timeout') {
-        setLiveStatus('reconnecting')
-      }
-    }
+    eventSource.addEventListener('email', handleEmail)
+    eventSource.addEventListener('timeout', () => {
+      setLiveStatus('reconnecting')
+    })
 
     return () => {
-      ws.close()
+      eventSource.close()
     }
   }, [props.initialCursor, queryClient])
 
@@ -1575,4 +1564,3 @@ function getInboxRefreshStatusLabel(params: {
 
   return getLiveStatusLabel(params.liveStatus)
 }
-

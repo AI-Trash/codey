@@ -10,7 +10,8 @@ describe('flow task payload external services', () => {
     const payload = createCliFlowTaskPayload(
       'codex-oauth',
       {
-        email: 'person@example.com',
+        workspaceId: 'ws-explicit',
+        workspaceIndex: 2,
       },
       {
         batchId: 'batch-1',

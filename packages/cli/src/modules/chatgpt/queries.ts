@@ -10,8 +10,8 @@ import {
   AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
   CODEX_CONSENT_SUBMIT_SELECTORS,
   CODEX_ORGANIZATION_SELECTORS,
-  CODEX_WORKSPACE_SELECTORS,
   CODEX_ORGANIZATION_SUBMIT_SELECTORS,
+  CODEX_WORKSPACE_SELECTORS,
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_HOME_URL,
@@ -194,17 +194,6 @@ export async function isAnySelectorVisible(
   for (const selector of selectors) {
     const locator = toLocator(page, selector).first()
     if (await locator.isVisible().catch(() => false)) return true
-  }
-  return false
-}
-
-async function hasAnySelectorAttached(
-  page: Page,
-  selectors: SelectorTarget[],
-): Promise<boolean> {
-  for (const selector of selectors) {
-    const locator = toLocator(page, selector).first()
-    if ((await locator.count().catch(() => 0)) > 0) return true
   }
   return false
 }
@@ -424,9 +413,7 @@ export async function getPendingOnboardingAnnouncementKeys(
     )
 
     return Array.isArray(pendingKeys)
-      ? pendingKeys.filter(
-          (value): value is string => typeof value === 'string',
-        )
+      ? pendingKeys.filter((value): value is string => typeof value === 'string')
       : []
   } catch {
     return []
@@ -443,7 +430,10 @@ export async function waitUntilChatGPTHomeReady(
   const longIdleRounds = Math.ceil(
     ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS / ONBOARDING_IDLE_POLL_MS,
   )
-  const maxRounds = Math.max(rounds, longIdleRounds + MIN_ONBOARDING_CLICKS + 2)
+  const maxRounds = Math.max(
+    rounds,
+    longIdleRounds + MIN_ONBOARDING_CLICKS + 2,
+  )
 
   for (let round = 0; round < maxRounds; round += 1) {
     const onboardingVisible = await isAnySelectorVisible(
@@ -483,9 +473,7 @@ export async function waitUntilChatGPTHomeReady(
       authenticatedIdleStartedAt ??= Date.now()
       const idleElapsedMs = Date.now() - authenticatedIdleStartedAt
       if (idleElapsedMs >= requiredIdleMs) return true
-      await sleep(
-        Math.min(ONBOARDING_IDLE_POLL_MS, requiredIdleMs - idleElapsedMs),
-      )
+      await sleep(Math.min(ONBOARDING_IDLE_POLL_MS, requiredIdleMs - idleElapsedMs))
       continue
     }
 
@@ -853,12 +841,7 @@ export async function isCodexWorkspacePickerReady(
 
   return (
     (await isAnySelectorVisible(page, CODEX_WORKSPACE_SELECTORS)) ||
-    (await hasAnySelectorAttached(page, [
-      'input[type="radio"][name="workspace_id"]',
-      'input[type="hidden"][name="workspace_id"]',
-      'select[name="workspace_id"]',
-      'input[name="workspace_id"]',
-    ]))
+    (await hasEnabledSelector(page, CODEX_WORKSPACE_SUBMIT_SELECTORS))
   )
 }
 
@@ -876,11 +859,7 @@ export async function isCodexOrganizationPickerReady(
 }
 
 export async function isCodexConsentReady(page: Page): Promise<boolean> {
-  const currentUrl = page.url()
-  if (
-    !isChatGPTCodexAccountConsentUrl(currentUrl) &&
-    !isChatGPTCodexConsentUrl(currentUrl)
-  ) {
+  if (!isChatGPTCodexAccountConsentUrl(page.url())) {
     return false
   }
 
@@ -895,6 +874,9 @@ export async function getCodexOAuthSurfaceCandidates(
 ): Promise<Exclude<ChatGPTCodexOAuthSurface, 'unknown'>[]> {
   const candidates: Exclude<ChatGPTCodexOAuthSurface, 'unknown'>[] = []
 
+  if (await isCodexWorkspacePickerReady(page)) {
+    pushUniqueCandidate(candidates, 'workspace')
+  }
   if (await isCodexOrganizationPickerReady(page)) {
     pushUniqueCandidate(candidates, 'organization')
   }
