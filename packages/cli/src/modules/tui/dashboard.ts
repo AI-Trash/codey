@@ -1215,6 +1215,9 @@ export async function runPromptDashboard(input: {
           },
           authState,
           {
+            onDebug: (message: string) => {
+              updateState((state) => appendDashboardEvent(state, message))
+            },
             onConnection: (event: CliConnectionEvent) => {
               connectionOpened = true
               claimConnectionId = event.connectionId

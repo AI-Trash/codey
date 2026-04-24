@@ -44,6 +44,7 @@ export async function* streamWebSocketEvents<TEvent extends string = string>(inp
   headers?: Record<string, string>
   signal?: AbortSignal
   onReady?: (socket: WebSocket) => void
+  onDebug?: (message: string) => void
 }): AsyncGenerator<WsEvent<TEvent>, void, void> {
   const socket =
     input.socket || (await connectWebSocket({ url: input.url, headers: input.headers }))
@@ -70,6 +71,7 @@ export async function* streamWebSocketEvents<TEvent extends string = string>(inp
   socket.addEventListener('message', (rawEvent) => {
     try {
       const envelope = JSON.parse(String(rawEvent.data)) as WsEvent<TEvent>
+      input.onDebug?.(`WebSocket message ${envelope.event}`)
       if (waiting) {
         const resolve = waiting
         waiting = undefined
@@ -89,6 +91,7 @@ export async function* streamWebSocketEvents<TEvent extends string = string>(inp
   })
 
   socket.addEventListener('error', () => {
+    input.onDebug?.('WebSocket error event')
     pendingError = new Error('WebSocket connection failed.')
     if (waiting) {
       const resolve = waiting
@@ -99,6 +102,7 @@ export async function* streamWebSocketEvents<TEvent extends string = string>(inp
   })
 
   socket.addEventListener('close', () => {
+    input.onDebug?.('WebSocket close event')
     closed = true
     if (waiting) {
       const resolve = waiting

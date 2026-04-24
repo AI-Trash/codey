@@ -62,6 +62,11 @@ export interface CliConnectionEvent {
 }
 
 export interface CliRealtimeEnvelope {
-  event: 'cli_connection' | 'admin_notification' | 'timeout'
+  event:
+    | 'cli_connection'
+    | 'admin_notification'
+    | 'timeout'
+    | 'realtime_subscription'
+    | 'error'
   data: Record<string, unknown>
 }

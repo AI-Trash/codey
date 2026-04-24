@@ -307,6 +307,7 @@ export async function* streamCliNotifications(
   } = {},
   authState?: CliNotificationsAuthState,
   handlers?: {
+    onDebug?: (message: string) => void
     onConnection?: (event: CliConnectionEvent) => void
   },
   options?: {
@@ -318,6 +319,7 @@ export async function* streamCliNotifications(
     authState || (await resolveCliNotificationsAuthState())
   const target = input.target || deriveCliTargetFromAuthState(resolvedAuthState)
   const wsUrl = toWebSocketUrl(new URL(resolveAppUrl('/api/realtime/ws')))
+  handlers?.onDebug?.(`Opening WebSocket ${wsUrl.toString()}`)
   const headers = {
     Authorization: `Bearer ${resolvedAuthState.accessToken}`,
     ...(resolvedAuthState.mode === 'device_session' && resolvedAuthState.session?.user?.id
@@ -331,12 +333,15 @@ export async function* streamCliNotifications(
     'X-Codey-Registered-Flows': listCliFlowCommandIds().join(','),
   }
   const socket = await connectWebSocket({ url: wsUrl, headers })
+  handlers?.onDebug?.(`WebSocket open ${wsUrl.toString()}`)
 
   for await (const envelope of streamWebSocketEvents<CliRealtimeEnvelope['event']>({
     url: wsUrl,
     socket,
     signal: options?.signal,
+    onDebug: handlers?.onDebug,
     onReady: (readySocket) => {
+      handlers?.onDebug?.('Sending realtime subscription: cli')
       readySocket.send(
         JSON.stringify({
           action: 'subscribe',
@@ -347,12 +352,22 @@ export async function* streamCliNotifications(
       )
     },
   })) {
+    handlers?.onDebug?.(`Realtime event received: ${envelope.event}`)
     if (envelope.event === 'cli_connection') {
       handlers?.onConnection?.(envelope.data as CliConnectionEvent)
       continue
     }
     if (envelope.event === 'timeout') {
       break
+    }
+    if (envelope.event === 'realtime_subscription') {
+      handlers?.onDebug?.(
+        `Realtime subscription acknowledged: ${String(envelope.data.channel || 'unknown')} ${String(envelope.data.status || '')}`.trim(),
+      )
+      continue
+    }
+    if (envelope.event === 'error') {
+      throw new Error(String(envelope.data.message || 'Realtime connection error'))
     }
     if (envelope.event !== 'admin_notification') {
       continue

@@ -76,24 +76,29 @@ export default defineWebSocketHandler({
     getPeerState(peer)
   },
   async message(peer, message) {
-    let payload: Record<string, unknown>
     try {
+      let payload: Record<string, unknown>
       payload = JSON.parse(message.text()) as Record<string, unknown>
-    } catch {
-      peer.send(toWsMessage({ event: 'error', data: { message: 'Invalid JSON message' } }))
-      return
-    }
 
-    const action = typeof payload.action === 'string' ? payload.action : ''
-    const channel = typeof payload.channel === 'string' ? payload.channel : ''
-    if (action !== 'subscribe') {
-      peer.send(toWsMessage({ event: 'error', data: { message: 'Unsupported action' } }))
-      return
-    }
+      const action = typeof payload.action === 'string' ? payload.action : ''
+      const channel = typeof payload.channel === 'string' ? payload.channel : ''
+      if (action !== 'subscribe') {
+        peer.send(
+          toWsMessage({ event: 'error', data: { message: 'Unsupported action' } }),
+        )
+        return
+      }
 
-    const state = getPeerState(peer)
+      peer.send(
+        toWsMessage({
+          event: 'realtime_subscription',
+          data: { channel, status: 'received' },
+        }),
+      )
 
-    if (channel === 'cli') {
+      const state = getPeerState(peer)
+
+      if (channel === 'cli') {
       if (state.cli) {
         return
       }
@@ -177,10 +182,10 @@ export default defineWebSocketHandler({
 
       await touchConnection(true)
       await runTick()
-      return
-    }
+        return
+      }
 
-    if (channel === 'verification') {
+      if (channel === 'verification') {
       const email = typeof payload.email === 'string' ? payload.email : ''
       const startedAt = typeof payload.startedAt === 'string' ? payload.startedAt : ''
       if (!email || !startedAt) {
@@ -236,10 +241,10 @@ export default defineWebSocketHandler({
       pendingEvents
         .sort((left, right) => compareVerificationCodeCursor(left.cursor, right.cursor))
         .forEach(sendVerificationCode)
-      return
-    }
+        return
+      }
 
-    if (channel === 'device') {
+      if (channel === 'device') {
       const deviceCode = typeof payload.deviceCode === 'string' ? payload.deviceCode : ''
       if (!deviceCode) {
         peer.send(toWsMessage({ event: 'error', data: { message: 'deviceCode is required' } }))
@@ -275,18 +280,31 @@ export default defineWebSocketHandler({
         clearInterval(interval)
         clearTimeout(timeout)
       })
-      return
-    }
+        return
+      }
 
-    if (channel === 'admin_inbox') {
+      if (channel === 'admin_inbox') {
       const unsubscribe = subscribeAdminInboxEmailEvents(() => {
         peer.send(toWsMessage({ event: 'email', data: { ok: true } }))
       })
       state.cleanup.push(() => unsubscribe())
-      return
-    }
+        return
+      }
 
-    peer.send(toWsMessage({ event: 'error', data: { message: 'Unsupported channel' } }))
+      peer.send(toWsMessage({ event: 'error', data: { message: 'Unsupported channel' } }))
+    } catch (error) {
+      peer.send(
+        toWsMessage({
+          event: 'error',
+          data: {
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Realtime subscription failed',
+          },
+        }),
+      )
+    }
   },
   async close(peer) {
     const state = peerState.get(peer)
