@@ -25,6 +25,7 @@ import {
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
+  CHATGPT_TEAM_PRICING_PROMO_URL,
   COMPLETE_ACCOUNT_SELECTORS,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
@@ -36,6 +37,7 @@ import {
   REGISTRATION_CONTINUE_SELECTORS,
   REGISTRATION_EMAIL_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
+  TEAM_PRICING_FREE_TRIAL_SELECTORS,
   CHATGPT_HOME_URL,
 } from './common'
 import type { SelectorTarget } from '../../types'
@@ -56,6 +58,7 @@ import {
   waitForPasswordInputReady,
   waitForPasswordSubmissionOutcome,
   waitForPostEmailLoginStep,
+  waitForTeamPricingFreeTrialReady,
   waitForVerificationCode,
   waitForVerificationCodeInputReady,
 } from './queries'
@@ -93,6 +96,24 @@ export async function gotoLoginEntry(page: Page): Promise<void> {
   await page.goto(CHATGPT_ENTRY_LOGIN_URL, { waitUntil: 'domcontentloaded' })
   await page.locator('body').waitFor({ state: 'visible' })
   await page.waitForLoadState('networkidle').catch(() => undefined)
+}
+
+export async function gotoTeamPricingPromo(page: Page): Promise<void> {
+  await page.goto(CHATGPT_TEAM_PRICING_PROMO_URL, {
+    waitUntil: 'domcontentloaded',
+  })
+  await page.locator('body').waitFor({ state: 'visible' })
+  await page.waitForLoadState('networkidle').catch(() => undefined)
+}
+
+export async function clickTeamPricingFreeTrial(page: Page): Promise<void> {
+  const ready = await waitForTeamPricingFreeTrialReady(page, 30000)
+  if (!ready) {
+    throw new Error('ChatGPT Team pricing free trial button did not become ready.')
+  }
+
+  await clickAny(page, TEAM_PRICING_FREE_TRIAL_SELECTORS)
+  await page.waitForLoadState('domcontentloaded').catch(() => undefined)
 }
 
 export async function clickLoginEntryIfPresent(page: Page): Promise<boolean> {

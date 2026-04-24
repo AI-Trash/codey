@@ -3,6 +3,8 @@ import type { SelectorTarget } from '../../types'
 import { logCliEvent } from '../../utils/observability'
 
 export const CHATGPT_HOME_URL = 'https://chatgpt.com/'
+export const CHATGPT_TEAM_PRICING_PROMO_URL =
+  'https://chatgpt.com/?promo_campaign=team-1-month-free#pricing'
 export const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login'
 export const CHATGPT_LOGIN_URL =
   'https://auth.openai.com/log-in-or-create-account'
@@ -28,6 +30,15 @@ export const ONBOARDING_IDLE_POLL_MS = 500
 export const ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS = 10000
 export const ONBOARDING_IDLE_WAIT_AFTER_MIN_CLICKS_MS = 3000
 export const DEFAULT_EVENT_TIMEOUT_MS = 5000
+
+export const TEAM_PRICING_FREE_TRIAL_SELECTORS: SelectorTarget[] = [
+  'button[data-testid="select-plan-button-teams-create"]',
+  {
+    role: 'button',
+    options: { name: /领取免费试用|free trial|try for free|start trial/i },
+  },
+  { text: /领取免费试用|free trial|try for free|start trial/i },
+]
 
 const PROFILE_FIRST_NAMES = [
   'Alex',

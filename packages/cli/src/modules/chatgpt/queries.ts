@@ -15,6 +15,7 @@ import {
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_HOME_URL,
+  CHATGPT_TEAM_PRICING_PROMO_URL,
   DEFAULT_EVENT_TIMEOUT_MS,
   isChatGPTCodexAccountConsentUrl,
   isChatGPTCodexConsentUrl,
@@ -32,6 +33,7 @@ import {
   PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
+  TEAM_PRICING_FREE_TRIAL_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
 } from './common'
 import { ChatGPTAccountDeactivatedError } from './errors'
@@ -671,6 +673,22 @@ export async function waitForAuthenticatedSession(
   if (ready) return true
   await throwIfChatGPTAccountDeactivated(page)
   return isProfileReady(page)
+}
+
+export function isChatGPTTeamPricingPromoUrl(url: string): boolean {
+  return url.startsWith(CHATGPT_TEAM_PRICING_PROMO_URL)
+}
+
+export async function waitForTeamPricingFreeTrialReady(
+  page: Page,
+  timeoutMs = 30000,
+): Promise<boolean> {
+  return waitForAnySelectorState(
+    page,
+    TEAM_PRICING_FREE_TRIAL_SELECTORS,
+    'visible',
+    timeoutMs,
+  )
 }
 
 export async function getRegistrationEntryCandidates(
