@@ -424,7 +424,9 @@ export async function getPendingOnboardingAnnouncementKeys(
     )
 
     return Array.isArray(pendingKeys)
-      ? pendingKeys.filter((value): value is string => typeof value === 'string')
+      ? pendingKeys.filter(
+          (value): value is string => typeof value === 'string',
+        )
       : []
   } catch {
     return []
@@ -441,10 +443,7 @@ export async function waitUntilChatGPTHomeReady(
   const longIdleRounds = Math.ceil(
     ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS / ONBOARDING_IDLE_POLL_MS,
   )
-  const maxRounds = Math.max(
-    rounds,
-    longIdleRounds + MIN_ONBOARDING_CLICKS + 2,
-  )
+  const maxRounds = Math.max(rounds, longIdleRounds + MIN_ONBOARDING_CLICKS + 2)
 
   for (let round = 0; round < maxRounds; round += 1) {
     const onboardingVisible = await isAnySelectorVisible(
@@ -484,7 +483,9 @@ export async function waitUntilChatGPTHomeReady(
       authenticatedIdleStartedAt ??= Date.now()
       const idleElapsedMs = Date.now() - authenticatedIdleStartedAt
       if (idleElapsedMs >= requiredIdleMs) return true
-      await sleep(Math.min(ONBOARDING_IDLE_POLL_MS, requiredIdleMs - idleElapsedMs))
+      await sleep(
+        Math.min(ONBOARDING_IDLE_POLL_MS, requiredIdleMs - idleElapsedMs),
+      )
       continue
     }
 
@@ -854,9 +855,7 @@ export async function isCodexWorkspacePickerReady(
     (await isAnySelectorVisible(page, CODEX_WORKSPACE_SELECTORS)) ||
     (await hasAnySelectorAttached(page, [
       'input[type="radio"][name="workspace_id"]',
-      'input[type="hidden"][name="workspace_id"]',
       'select[name="workspace_id"]',
-      'input[name="workspace_id"]',
     ]))
   )
 }
@@ -879,18 +878,6 @@ export async function isCodexConsentReady(page: Page): Promise<boolean> {
   if (
     !isChatGPTCodexAccountConsentUrl(currentUrl) &&
     !isChatGPTCodexConsentUrl(currentUrl)
-  ) {
-    return false
-  }
-
-  if (
-    isChatGPTCodexConsentUrl(currentUrl) &&
-    (await hasAnySelectorAttached(page, [
-      'input[type="radio"][name="workspace_id"]',
-      'input[type="hidden"][name="workspace_id"]',
-      'select[name="workspace_id"]',
-      'input[name="workspace_id"]',
-    ]))
   ) {
     return false
   }
