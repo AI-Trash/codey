@@ -10,6 +10,7 @@ import {
 import type {
   AdminNotificationEvent,
   CliConnectionEvent,
+  CliRealtimeEnvelope,
   DeviceChallengeResponse,
   DeviceChallengeStatusResponse,
   DeviceChallengeTokenResponse,
@@ -22,9 +23,9 @@ import {
   saveAppSession,
   type StoredAppSession,
 } from './token-store'
-import { streamSse } from './sse'
 import { listCliFlowCommandIds } from '../flow-cli/flow-registry'
 import { deriveCliTargetFromAuthState } from './target'
+import { connectWebSocket, streamWebSocketEvents, toWebSocketUrl } from './ws'
 
 const NOTIFICATIONS_READ_SCOPE = 'notifications:read'
 
@@ -59,7 +60,7 @@ function getCodeyAppConfig() {
     cliEventsPath:
       config.app?.cliEventsPath ??
       config.verification?.app?.cliEventsPath ??
-      '/api/cli/events',
+      '/api/cli/ws',
   }
 }
 
@@ -316,35 +317,45 @@ export async function* streamCliNotifications(
   const resolvedAuthState =
     authState || (await resolveCliNotificationsAuthState())
   const target = input.target || deriveCliTargetFromAuthState(resolvedAuthState)
-  const eventsUrl = new URL(
-    resolveAppUrl(config.cliEventsPath || '/api/cli/events'),
+  const wsUrl = toWebSocketUrl(new URL(resolveAppUrl('/api/realtime/ws')))
+  const headers = {
+    Authorization: `Bearer ${resolvedAuthState.accessToken}`,
+    ...(resolvedAuthState.mode === 'device_session' && resolvedAuthState.session?.user?.id
+      ? { 'X-Codey-User-Id': resolvedAuthState.session.user.id }
+      : {}),
+    ...(resolvedAuthState.mode === 'client_credentials' && resolvedAuthState.clientId
+      ? { 'X-Codey-Auth-Client-Id': resolvedAuthState.clientId }
+      : {}),
+    ...(input.cliName ? { 'X-Codey-CLI-Name': input.cliName } : {}),
+    ...(input.workerId ? { 'X-Codey-Worker-Id': input.workerId } : {}),
+    'X-Codey-Registered-Flows': listCliFlowCommandIds().join(','),
+  }
+  const socket = await connectWebSocket({ url: wsUrl, headers })
+  socket.send(
+    JSON.stringify({
+      action: 'subscribe',
+      channel: 'cli',
+      ...(target ? { target } : {}),
+      ...(input.cliName ? { cliName: input.cliName } : {}),
+    }),
   )
-  if (target) {
-    eventsUrl.searchParams.set('target', target)
-  }
 
-  const response = await fetch(eventsUrl, {
+  for await (const envelope of streamWebSocketEvents<CliRealtimeEnvelope['event']>({
+    url: wsUrl,
+    socket,
     signal: options?.signal,
-    headers: {
-      Accept: 'text/event-stream',
-      Authorization: `Bearer ${resolvedAuthState.accessToken}`,
-      ...(input.cliName ? { 'X-Codey-CLI-Name': input.cliName } : {}),
-      ...(input.workerId ? { 'X-Codey-Worker-Id': input.workerId } : {}),
-      'X-Codey-Registered-Flows': listCliFlowCommandIds().join(','),
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
-
-  for await (const event of streamSse(response)) {
-    if (event.event === 'cli_connection' && event.data) {
-      handlers?.onConnection?.(JSON.parse(event.data) as CliConnectionEvent)
+  })) {
+    if (envelope.event === 'cli_connection') {
+      handlers?.onConnection?.(envelope.data as CliConnectionEvent)
+      continue
+    }
+    if (envelope.event === 'timeout') {
+      break
+    }
+    if (envelope.event !== 'admin_notification') {
       continue
     }
 
-    if (event.event !== 'admin_notification' || !event.data) continue
-    yield JSON.parse(event.data) as AdminNotificationEvent
+    yield envelope.data as AdminNotificationEvent
   }
 }

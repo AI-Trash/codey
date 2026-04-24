@@ -60,3 +60,8 @@ export interface CliConnectionEvent {
   target?: string
   connectedAt: string
 }
+
+export interface CliRealtimeEnvelope {
+  event: 'cli_connection' | 'admin_notification' | 'timeout'
+  data: Record<string, unknown>
+}
