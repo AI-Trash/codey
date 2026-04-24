@@ -205,4 +205,43 @@ describe('waitForEditableSelector', () => {
       getCodexOAuthSurfaceCandidates(page as never),
     ).resolves.toContain('organization')
   })
+
+  it('detects the codex consent route as consent when no workspace input exists', async () => {
+    const submitLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const page = new FakePage(
+      {
+        'button[type="submit"]': submitLocator,
+      },
+      'https://auth.openai.com/sign-in-with-chatgpt/codex/consent',
+    )
+
+    await expect(getCodexOAuthSurfaceCandidates(page as never)).resolves.toEqual(
+      ['consent'],
+    )
+  })
+
+  it('keeps the codex consent route as workspace when workspace input exists', async () => {
+    const workspaceLocator = new FakeLocator({
+      count: 1,
+      visible: false,
+    })
+    const submitLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const page = new FakePage(
+      {
+        'input[type="hidden"][name="workspace_id"]': workspaceLocator,
+        'button[type="submit"]': submitLocator,
+      },
+      'https://auth.openai.com/sign-in-with-chatgpt/codex/consent',
+    )
+
+    await expect(getCodexOAuthSurfaceCandidates(page as never)).resolves.toEqual(
+      ['workspace'],
+    )
+  })
 })

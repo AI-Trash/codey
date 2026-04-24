@@ -198,6 +198,17 @@ export async function isAnySelectorVisible(
   return false
 }
 
+async function hasAnySelectorAttached(
+  page: Page,
+  selectors: SelectorTarget[],
+): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = toLocator(page, selector).first()
+    if ((await locator.count().catch(() => 0)) > 0) return true
+  }
+  return false
+}
+
 export async function waitForEnabledSelector(
   page: Page,
   selectors: SelectorTarget[],
@@ -841,7 +852,12 @@ export async function isCodexWorkspacePickerReady(
 
   return (
     (await isAnySelectorVisible(page, CODEX_WORKSPACE_SELECTORS)) ||
-    (await hasEnabledSelector(page, CODEX_WORKSPACE_SUBMIT_SELECTORS))
+    (await hasAnySelectorAttached(page, [
+      'input[type="radio"][name="workspace_id"]',
+      'input[type="hidden"][name="workspace_id"]',
+      'select[name="workspace_id"]',
+      'input[name="workspace_id"]',
+    ]))
   )
 }
 
@@ -859,7 +875,23 @@ export async function isCodexOrganizationPickerReady(
 }
 
 export async function isCodexConsentReady(page: Page): Promise<boolean> {
-  if (!isChatGPTCodexAccountConsentUrl(page.url())) {
+  const currentUrl = page.url()
+  if (
+    !isChatGPTCodexAccountConsentUrl(currentUrl) &&
+    !isChatGPTCodexConsentUrl(currentUrl)
+  ) {
+    return false
+  }
+
+  if (
+    isChatGPTCodexConsentUrl(currentUrl) &&
+    (await hasAnySelectorAttached(page, [
+      'input[type="radio"][name="workspace_id"]',
+      'input[type="hidden"][name="workspace_id"]',
+      'select[name="workspace_id"]',
+      'input[name="workspace_id"]',
+    ]))
+  ) {
     return false
   }
 
