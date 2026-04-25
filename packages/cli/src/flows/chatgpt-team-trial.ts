@@ -27,14 +27,11 @@ import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
-import {
-  loginChatGPT,
-  type ChatGPTLoginFlowResult,
-} from './chatgpt-login'
+import { loginChatGPT, type ChatGPTLoginFlowResult } from './chatgpt-login'
 
-export type ChatGPTPurchaseFlowKind = 'chatgpt-purchase'
+export type ChatGPTTeamTrialFlowKind = 'chatgpt-team-trial'
 
-export type ChatGPTPurchaseFlowState =
+export type ChatGPTTeamTrialFlowState =
   | 'idle'
   | 'logging-in'
   | 'home-ready'
@@ -46,7 +43,7 @@ export type ChatGPTPurchaseFlowState =
   | 'completed'
   | 'failed'
 
-export type ChatGPTPurchaseFlowEvent =
+export type ChatGPTTeamTrialFlowEvent =
   | 'machine.started'
   | 'chatgpt.login.started'
   | 'chatgpt.login.completed'
@@ -62,36 +59,36 @@ export type ChatGPTPurchaseFlowEvent =
   | 'action.started'
   | 'action.finished'
 
-export interface ChatGPTPurchaseFlowContext<Result = unknown> {
-  kind: ChatGPTPurchaseFlowKind
+export interface ChatGPTTeamTrialFlowContext<Result = unknown> {
+  kind: ChatGPTTeamTrialFlowKind
   url?: string
   title?: string
   email?: string
   login?: ChatGPTLoginFlowResult
   retryCount?: number
   retryReason?: string
-  retryFromState?: ChatGPTPurchaseFlowState
+  retryFromState?: ChatGPTTeamTrialFlowState
   lastAttempt?: number
   lastMessage?: string
   result?: Result
 }
 
-export type ChatGPTPurchaseFlowMachine<Result = unknown> =
+export type ChatGPTTeamTrialFlowMachine<Result = unknown> =
   StateMachineController<
-    ChatGPTPurchaseFlowState,
-    ChatGPTPurchaseFlowContext<Result>,
-    ChatGPTPurchaseFlowEvent
+    ChatGPTTeamTrialFlowState,
+    ChatGPTTeamTrialFlowContext<Result>,
+    ChatGPTTeamTrialFlowEvent
   >
 
-export type ChatGPTPurchaseFlowSnapshot<Result = unknown> =
+export type ChatGPTTeamTrialFlowSnapshot<Result = unknown> =
   StateMachineSnapshot<
-    ChatGPTPurchaseFlowState,
-    ChatGPTPurchaseFlowContext<Result>,
-    ChatGPTPurchaseFlowEvent
+    ChatGPTTeamTrialFlowState,
+    ChatGPTTeamTrialFlowContext<Result>,
+    ChatGPTTeamTrialFlowEvent
   >
 
-export interface ChatGPTPurchaseFlowResult {
-  pageName: 'chatgpt-purchase'
+export interface ChatGPTTeamTrialFlowResult {
+  pageName: 'chatgpt-team-trial'
   url: string
   title: string
   email: string
@@ -99,10 +96,10 @@ export interface ChatGPTPurchaseFlowResult {
   pricingUrl: string
   trialClaimClicked: boolean
   login: ChatGPTLoginFlowResult
-  machine: ChatGPTPurchaseFlowSnapshot<ChatGPTPurchaseFlowResult>
+  machine: ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialFlowResult>
 }
 
-const chatgptPurchaseEventTargets = {
+const chatgptTeamTrialEventTargets = {
   'machine.started': 'idle',
   'chatgpt.login.started': 'logging-in',
   'chatgpt.login.completed': 'home-ready',
@@ -114,16 +111,16 @@ const chatgptPurchaseEventTargets = {
   'chatgpt.completed': 'completed',
   'chatgpt.failed': 'failed',
 } as const satisfies Partial<
-  Record<ChatGPTPurchaseFlowEvent, ChatGPTPurchaseFlowState>
+  Record<ChatGPTTeamTrialFlowEvent, ChatGPTTeamTrialFlowState>
 >
 
-const chatgptPurchaseMutableContextEvents = [
+const chatgptTeamTrialMutableContextEvents = [
   'context.updated',
   'action.started',
   'action.finished',
-] as const satisfies ChatGPTPurchaseFlowEvent[]
+] as const satisfies ChatGPTTeamTrialFlowEvent[]
 
-const chatgptPurchaseStates = [
+const chatgptTeamTrialStates = [
   'idle',
   'logging-in',
   'home-ready',
@@ -134,68 +131,68 @@ const chatgptPurchaseStates = [
   'retrying',
   'completed',
   'failed',
-] as const satisfies readonly ChatGPTPurchaseFlowState[]
+] as const satisfies readonly ChatGPTTeamTrialFlowState[]
 
-function createChatGPTPurchaseLifecycleFragment<Result>() {
+function createChatGPTTeamTrialLifecycleFragment<Result>() {
   return defineStateMachineFragment<
-    ChatGPTPurchaseFlowState,
-    ChatGPTPurchaseFlowContext<Result>,
-    ChatGPTPurchaseFlowEvent
+    ChatGPTTeamTrialFlowState,
+    ChatGPTTeamTrialFlowContext<Result>,
+    ChatGPTTeamTrialFlowEvent
   >({
     on: {
       ...createPatchTransitionMap<
-        ChatGPTPurchaseFlowState,
-        ChatGPTPurchaseFlowContext<Result>,
-        ChatGPTPurchaseFlowEvent
-      >(chatgptPurchaseEventTargets),
+        ChatGPTTeamTrialFlowState,
+        ChatGPTTeamTrialFlowContext<Result>,
+        ChatGPTTeamTrialFlowEvent
+      >(chatgptTeamTrialEventTargets),
       'chatgpt.retry.requested': createRetryTransition<
-        ChatGPTPurchaseFlowState,
-        ChatGPTPurchaseFlowContext<Result>,
-        ChatGPTPurchaseFlowEvent
+        ChatGPTTeamTrialFlowState,
+        ChatGPTTeamTrialFlowContext<Result>,
+        ChatGPTTeamTrialFlowEvent
       >({
         target: 'retrying',
-        defaultMessage: 'Retrying ChatGPT purchase flow',
+        defaultMessage: 'Retrying ChatGPT Team trial flow',
       }),
       ...createSelfPatchTransitionMap<
-        ChatGPTPurchaseFlowState,
-        ChatGPTPurchaseFlowContext<Result>,
-        ChatGPTPurchaseFlowEvent
-      >([...chatgptPurchaseMutableContextEvents]),
+        ChatGPTTeamTrialFlowState,
+        ChatGPTTeamTrialFlowContext<Result>,
+        ChatGPTTeamTrialFlowEvent
+      >([...chatgptTeamTrialMutableContextEvents]),
     },
   })
 }
 
-export function createChatGPTPurchaseMachine(): ChatGPTPurchaseFlowMachine<ChatGPTPurchaseFlowResult> {
+export function createChatGPTTeamTrialMachine(): ChatGPTTeamTrialFlowMachine<ChatGPTTeamTrialFlowResult> {
   return createStateMachine<
-    ChatGPTPurchaseFlowState,
-    ChatGPTPurchaseFlowContext<ChatGPTPurchaseFlowResult>,
-    ChatGPTPurchaseFlowEvent
+    ChatGPTTeamTrialFlowState,
+    ChatGPTTeamTrialFlowContext<ChatGPTTeamTrialFlowResult>,
+    ChatGPTTeamTrialFlowEvent
   >(
     composeStateMachineConfig(
       {
-        id: 'flow.chatgpt.purchase',
+        id: 'flow.chatgpt.team_trial',
         initialState: 'idle',
         initialContext: {
-          kind: 'chatgpt-purchase',
+          kind: 'chatgpt-team-trial',
           url: CHATGPT_TEAM_PRICING_PROMO_URL,
         },
         historyLimit: 200,
         states: declareStateMachineStates<
-          ChatGPTPurchaseFlowState,
-          ChatGPTPurchaseFlowContext<ChatGPTPurchaseFlowResult>,
-          ChatGPTPurchaseFlowEvent
-        >(chatgptPurchaseStates),
+          ChatGPTTeamTrialFlowState,
+          ChatGPTTeamTrialFlowContext<ChatGPTTeamTrialFlowResult>,
+          ChatGPTTeamTrialFlowEvent
+        >(chatgptTeamTrialStates),
       },
-      createChatGPTPurchaseLifecycleFragment<ChatGPTPurchaseFlowResult>(),
+      createChatGPTTeamTrialLifecycleFragment<ChatGPTTeamTrialFlowResult>(),
     ),
   )
 }
 
-async function sendPurchaseMachine(
-  machine: ChatGPTPurchaseFlowMachine<ChatGPTPurchaseFlowResult>,
-  state: ChatGPTPurchaseFlowState,
-  event: ChatGPTPurchaseFlowEvent,
-  patch?: Partial<ChatGPTPurchaseFlowContext<ChatGPTPurchaseFlowResult>>,
+async function sendTeamTrialMachine(
+  machine: ChatGPTTeamTrialFlowMachine<ChatGPTTeamTrialFlowResult>,
+  state: ChatGPTTeamTrialFlowState,
+  event: ChatGPTTeamTrialFlowEvent,
+  patch?: Partial<ChatGPTTeamTrialFlowContext<ChatGPTTeamTrialFlowResult>>,
 ): Promise<void> {
   await machine.send(event, {
     target: state,
@@ -203,11 +200,11 @@ async function sendPurchaseMachine(
   })
 }
 
-export async function purchaseChatGPTTeamTrial(
+export async function runChatGPTTeamTrial(
   page: Page,
   options: FlowOptions = {},
-): Promise<ChatGPTPurchaseFlowResult> {
-  const machine = createChatGPTPurchaseMachine()
+): Promise<ChatGPTTeamTrialFlowResult> {
+  const machine = createChatGPTTeamTrialMachine()
   const detachProgress = attachStateMachineProgressReporter(
     machine,
     options.progressReporter,
@@ -217,39 +214,46 @@ export async function purchaseChatGPTTeamTrial(
     machine.start(
       {
         url: CHATGPT_TEAM_PRICING_PROMO_URL,
-        lastMessage: 'Starting ChatGPT purchase flow',
+        lastMessage: 'Starting ChatGPT Team trial flow',
       },
       {
-        source: 'purchaseChatGPTTeamTrial',
+        source: 'runChatGPTTeamTrial',
       },
     )
 
-    await sendPurchaseMachine(machine, 'logging-in', 'chatgpt.login.started', {
+    await sendTeamTrialMachine(machine, 'logging-in', 'chatgpt.login.started', {
       url: page.url(),
       lastMessage: 'Logging in before opening pricing promo',
     })
     const login = await loginChatGPT(page, options)
 
-    await sendPurchaseMachine(machine, 'home-ready', 'chatgpt.login.completed', {
-      email: login.email,
-      login,
-      url: login.url,
-      title: login.title,
-      lastMessage: 'ChatGPT login completed',
-    })
+    await sendTeamTrialMachine(
+      machine,
+      'home-ready',
+      'chatgpt.login.completed',
+      {
+        email: login.email,
+        login,
+        url: login.url,
+        title: login.title,
+        lastMessage: 'ChatGPT login completed',
+      },
+    )
 
     const authenticated = await waitForAuthenticatedSession(page, 30000)
     if (!authenticated) {
-      throw new Error('ChatGPT purchase flow lost the authenticated session after login.')
+      throw new Error(
+        'ChatGPT Team trial flow lost the authenticated session after login.',
+      )
     }
 
-    await sendPurchaseMachine(machine, 'home-ready', 'chatgpt.home.ready', {
+    await sendTeamTrialMachine(machine, 'home-ready', 'chatgpt.home.ready', {
       email: login.email,
       url: page.url(),
       lastMessage: 'Authenticated ChatGPT home is ready',
     })
 
-    await sendPurchaseMachine(
+    await sendTeamTrialMachine(
       machine,
       'opening-pricing',
       'chatgpt.pricing.opening',
@@ -266,13 +270,18 @@ export async function purchaseChatGPTTeamTrial(
       throw new Error('ChatGPT Team pricing free trial button was not visible.')
     }
 
-    await sendPurchaseMachine(machine, 'pricing-ready', 'chatgpt.pricing.ready', {
-      email: login.email,
-      url: page.url(),
-      lastMessage: 'ChatGPT Team pricing free trial button is ready',
-    })
+    await sendTeamTrialMachine(
+      machine,
+      'pricing-ready',
+      'chatgpt.pricing.ready',
+      {
+        email: login.email,
+        url: page.url(),
+        lastMessage: 'ChatGPT Team pricing free trial button is ready',
+      },
+    )
 
-    await sendPurchaseMachine(
+    await sendTeamTrialMachine(
       machine,
       'claiming-trial',
       'chatgpt.trial.claiming',
@@ -285,15 +294,20 @@ export async function purchaseChatGPTTeamTrial(
     await clickTeamPricingFreeTrial(page)
 
     const title = await page.title()
-    await sendPurchaseMachine(machine, 'trial-claimed', 'chatgpt.trial.claimed', {
-      email: login.email,
-      url: page.url(),
-      title,
-      lastMessage: 'ChatGPT Team free trial button clicked',
-    })
+    await sendTeamTrialMachine(
+      machine,
+      'trial-claimed',
+      'chatgpt.trial.claimed',
+      {
+        email: login.email,
+        url: page.url(),
+        title,
+        lastMessage: 'ChatGPT Team free trial button clicked',
+      },
+    )
 
     const result = {
-      pageName: 'chatgpt-purchase' as const,
+      pageName: 'chatgpt-team-trial' as const,
       url: page.url(),
       title,
       email: login.email,
@@ -302,7 +316,7 @@ export async function purchaseChatGPTTeamTrial(
       trialClaimClicked: true,
       login,
       machine:
-        undefined as unknown as ChatGPTPurchaseFlowSnapshot<ChatGPTPurchaseFlowResult>,
+        undefined as unknown as ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialFlowResult>,
     }
 
     const snapshot = machine.succeed('completed', {
@@ -333,14 +347,17 @@ export async function purchaseChatGPTTeamTrial(
   }
 }
 
-export const chatgptPurchaseFlow: SingleFileFlowDefinition<
+export const chatgptTeamTrialFlow: SingleFileFlowDefinition<
   FlowOptions,
-  ChatGPTPurchaseFlowResult
+  ChatGPTTeamTrialFlowResult
 > = {
-  command: 'flow:chatgpt-purchase',
-  run: purchaseChatGPTTeamTrial,
+  command: 'flow:chatgpt-team-trial',
+  run: runChatGPTTeamTrial,
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runSingleFileFlowFromCommandLine('chatgpt-purchase', chatgptPurchaseFlow)
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  runSingleFileFlowFromCommandLine('chatgpt-team-trial', chatgptTeamTrialFlow)
 }

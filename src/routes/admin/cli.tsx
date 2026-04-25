@@ -1427,6 +1427,7 @@ function buildDispatchConfig<TFlowId extends CliFlowCommandId>(
 const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
   chatgptRegister: () => m.admin_cli_flow_chatgpt_register_name(),
   chatgptLogin: () => m.admin_cli_flow_chatgpt_login_name(),
+  chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_name(),
   chatgptLoginInvite: () => m.admin_cli_flow_chatgpt_login_invite_name(),
   codexOauth: () => m.admin_cli_flow_codex_oauth_name(),
   noop: () => m.admin_cli_flow_noop_name(),
@@ -1435,6 +1436,7 @@ const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
 const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
   chatgptRegister: () => m.admin_cli_flow_chatgpt_register_description(),
   chatgptLogin: () => m.admin_cli_flow_chatgpt_login_description(),
+  chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_description(),
   chatgptLoginInvite: () => m.admin_cli_flow_chatgpt_login_invite_description(),
   codexOauth: () => m.admin_cli_flow_codex_oauth_description(),
   noop: () => m.admin_cli_flow_noop_description(),

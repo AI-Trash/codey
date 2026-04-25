@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createChatGPTPurchaseMachine } from '../src/flows/chatgpt-purchase'
+import { createChatGPTTeamTrialMachine } from '../src/flows/chatgpt-team-trial'
 
-describe('chatgpt purchase machine', () => {
+describe('chatgpt team trial machine', () => {
   it('tracks login, pricing, and trial claim states', async () => {
-    const machine = createChatGPTPurchaseMachine()
+    const machine = createChatGPTTeamTrialMachine()
 
     machine.start({
       email: 'person@example.com',
@@ -53,7 +53,7 @@ describe('chatgpt purchase machine', () => {
   })
 
   it('records retry bookkeeping globally', async () => {
-    const machine = createChatGPTPurchaseMachine()
+    const machine = createChatGPTTeamTrialMachine()
 
     machine.start({
       email: 'person@example.com',

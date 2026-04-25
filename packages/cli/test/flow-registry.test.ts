@@ -2,10 +2,27 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createCliFlowTaskPayload,
+  getCliFlowDefinition,
+  listCliFlowCommandIds,
   normalizeCliFlowTaskPayload,
 } from '../src/modules/flow-cli/flow-registry'
 
-describe('flow task payload external services', () => {
+describe('flow registry', () => {
+  it('registers the ChatGPT Team trial flow for app dispatch', () => {
+    const flowIds = listCliFlowCommandIds()
+    const payload = createCliFlowTaskPayload('chatgpt-team-trial', {
+      email: 'person@example.com',
+    })
+
+    expect(flowIds).toContain('chatgpt-team-trial')
+    expect(flowIds).not.toContain('chatgpt-purchase')
+    expect(getCliFlowDefinition('chatgpt-team-trial')).toMatchObject({
+      id: 'chatgpt-team-trial',
+      configKeys: ['identityId', 'email'],
+    })
+    expect(normalizeCliFlowTaskPayload(payload)).toEqual(payload)
+  })
+
   it('preserves app-managed Sub2API task metadata', () => {
     const payload = createCliFlowTaskPayload(
       'codex-oauth',

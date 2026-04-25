@@ -408,6 +408,8 @@
   "admin_cli_flow_chatgpt_register_description": "Create a new ChatGPT account and wait for email verification.",
   "admin_cli_flow_chatgpt_login_name": "ChatGPT login",
   "admin_cli_flow_chatgpt_login_description": "Sign in with a previously shared ChatGPT identity.",
+  "admin_cli_flow_chatgpt_team_trial_name": "ChatGPT Team trial",
+  "admin_cli_flow_chatgpt_team_trial_description": "Sign in and claim the ChatGPT Team free trial offer.",
   "admin_cli_flow_chatgpt_login_invite_name": "ChatGPT login + invite",
   "admin_cli_flow_chatgpt_login_invite_description": "Sign in with a shared identity and invite workspace members.",
   "admin_cli_flow_codex_oauth_name": "Codex OAuth",

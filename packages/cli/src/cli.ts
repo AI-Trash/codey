@@ -10,7 +10,7 @@ import {
   loginChatGPTAndInviteMembers,
   loginChatGPT,
   openNoopFlow,
-  purchaseChatGPTTeamTrial,
+  runChatGPTTeamTrial,
   registerChatGPT,
   runCodexOAuthFlow,
 } from './flows'
@@ -115,8 +115,8 @@ async function runFlowCommand(
         return
       }
 
-      if (subcommand === 'chatgpt-purchase') {
-        result = await purchaseChatGPTTeamTrial(session.page, runtimeOptions)
+      if (subcommand === 'chatgpt-team-trial') {
+        result = await runChatGPTTeamTrial(session.page, runtimeOptions)
         return
       }
 
@@ -1057,7 +1057,7 @@ withCommonOptions(
 withCommonOptions(
   flowCli
     .command(
-      'chatgpt-purchase',
+      'chatgpt-team-trial',
       'Sign in to ChatGPT and claim the Team free trial offer',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
@@ -1073,16 +1073,16 @@ withCommonOptions(
       '--email <email>',
       'Shared identity email; defaults to the latest shared identity',
     )
-    .example('codey flow chatgpt-purchase')
-    .example('codey flow chatgpt-purchase --email someone@example.com'),
+    .example('codey flow chatgpt-team-trial')
+    .example('codey flow chatgpt-team-trial --email someone@example.com'),
 ).action((rawOptions: Record<string, unknown>) => {
   execute(
     (async () => {
       const options = normalizeFlowCommandOptions(
-        'chatgpt-purchase',
+        'chatgpt-team-trial',
         rawOptions,
       )
-      await executeFlowSubcommandWithReporting('chatgpt-purchase', options)
+      await executeFlowSubcommandWithReporting('chatgpt-team-trial', options)
     })(),
   )
 })

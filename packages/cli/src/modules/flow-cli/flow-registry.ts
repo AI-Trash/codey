@@ -1,7 +1,7 @@
 export type CliFlowCommandId =
   | 'chatgpt-register'
   | 'chatgpt-login'
-  | 'chatgpt-purchase'
+  | 'chatgpt-team-trial'
   | 'chatgpt-login-invite'
   | 'codex-oauth'
   | 'noop'
@@ -15,7 +15,7 @@ export type CliFlowConfigFieldType =
 export type CliFlowDisplayNameKey =
   | 'chatgptRegister'
   | 'chatgptLogin'
-  | 'chatgptPurchase'
+  | 'chatgptTeamTrial'
   | 'chatgptLoginInvite'
   | 'codexOauth'
   | 'noop'
@@ -23,7 +23,7 @@ export type CliFlowDisplayNameKey =
 export type CliFlowDescriptionKey =
   | 'chatgptRegister'
   | 'chatgptLogin'
-  | 'chatgptPurchase'
+  | 'chatgptTeamTrial'
   | 'chatgptLoginInvite'
   | 'codexOauth'
   | 'noop'
@@ -237,7 +237,7 @@ export interface NoopFlowConfig extends CommonFlowConfig {}
 export interface CliFlowConfigById {
   'chatgpt-register': ChatGPTRegisterFlowConfig
   'chatgpt-login': ChatGPTLoginFlowConfig
-  'chatgpt-purchase': ChatGPTLoginFlowConfig
+  'chatgpt-team-trial': ChatGPTLoginFlowConfig
   'chatgpt-login-invite': ChatGPTLoginInviteFlowConfig
   'codex-oauth': CodexOAuthFlowConfig
   noop: NoopFlowConfig
@@ -427,9 +427,9 @@ export const cliFlowDefinitions = [
     configKeys: ['identityId', 'email'],
   },
   {
-    id: 'chatgpt-purchase',
-    displayNameKey: 'chatgptPurchase',
-    descriptionKey: 'chatgptPurchase',
+    id: 'chatgpt-team-trial',
+    displayNameKey: 'chatgptTeamTrial',
+    descriptionKey: 'chatgptTeamTrial',
     configKeys: ['identityId', 'email'],
   },
   {
