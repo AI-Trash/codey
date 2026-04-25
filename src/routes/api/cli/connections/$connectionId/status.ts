@@ -39,6 +39,23 @@ function parseOptionalTimestamp(value: unknown): string | null | undefined {
   return Number.isNaN(Date.parse(normalized)) ? undefined : normalized
 }
 
+function parseOptionalStringArray(value: unknown): string[] | null | undefined {
+  if (value === null) {
+    return null
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const normalized = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+  return Array.from(new Set(normalized))
+}
+
 export const Route = createFileRoute(
   '/api/cli/connections/$connectionId/status',
 )({
@@ -142,6 +159,26 @@ export const Route = createFileRoute(
           )
         }
 
+        const storageStateIdentityIds = parseOptionalStringArray(
+          body?.storageStateIdentityIds,
+        )
+        if (
+          'storageStateIdentityIds' in (body || {}) &&
+          storageStateIdentityIds === undefined
+        ) {
+          return text('storageStateIdentityIds must be a string array or null', 400)
+        }
+
+        const storageStateEmails = parseOptionalStringArray(
+          body?.storageStateEmails,
+        )
+        if (
+          'storageStateEmails' in (body || {}) &&
+          storageStateEmails === undefined
+        ) {
+          return text('storageStateEmails must be a string array or null', 400)
+        }
+
         await updateCliConnectionRuntimeState(params.connectionId, {
           runtimeFlowId,
           runtimeTaskId,
@@ -149,6 +186,8 @@ export const Route = createFileRoute(
           runtimeFlowMessage,
           runtimeFlowStartedAt,
           runtimeFlowCompletedAt,
+          storageStateIdentityIds,
+          storageStateEmails,
         })
 
         return json({ ok: true })

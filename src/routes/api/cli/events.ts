@@ -101,6 +101,14 @@ export const Route = createFileRoute('/api/cli/events')({
                 request,
                 'x-codey-registered-flows',
               ),
+              storageStateIdentityIds: readListHeader(
+                request,
+                'x-codey-storage-state-identity-ids',
+              ),
+              storageStateEmails: readListHeader(
+                request,
+                'x-codey-storage-state-emails',
+              ),
               connectionPath: '/api/cli/events',
             })
 

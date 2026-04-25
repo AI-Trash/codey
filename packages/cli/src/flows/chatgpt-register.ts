@@ -31,6 +31,7 @@ import type {
 import { getRuntimeConfig } from '../config'
 import { createVerificationProvider } from '../modules/verification'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
+import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
 import {
   type ChatGPTAgeGateFieldMode,
   type ChatGPTRegistrationEntrySurface,
@@ -1428,6 +1429,21 @@ export async function registerChatGPT(
     } catch (error) {
       options.progressReporter?.({
         message: `Codey app session save failed: ${sanitizeErrorForOutput(error).message}`,
+      })
+    }
+
+    try {
+      await saveLocalChatGPTStorageState(page, {
+        identityId: storedIdentity.id,
+        email: storedIdentity.email,
+        flowType: 'chatgpt-register',
+      })
+      options.progressReporter?.({
+        message: `Saved local ChatGPT storage state for ${storedIdentity.email}`,
+      })
+    } catch (error) {
+      options.progressReporter?.({
+        message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
       })
     }
 

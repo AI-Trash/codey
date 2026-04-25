@@ -37,6 +37,8 @@ function createCliConnectionSummary(
     target: string | null
     userAgent: string | null
     registeredFlows: string[]
+    storageStateIdentityIds: string[]
+    storageStateEmails: string[]
     connectionPath: string
     status: 'active' | 'offline'
     connectedAt: string
@@ -64,6 +66,8 @@ function createCliConnectionSummary(
     target: 'target-default',
     userAgent: 'codey-test',
     registeredFlows: ['chatgpt-register'],
+    storageStateIdentityIds: [],
+    storageStateEmails: [],
     connectionPath: '/tmp/codey',
     status: 'active' as const,
     connectedAt: '2026-04-24T00:00:00.000Z',
@@ -260,5 +264,103 @@ describe('cli flow task dispatch', () => {
       'worker-a': 2,
       'worker-b': 1,
     })
+  })
+
+  it('prioritizes a CLI worker that reports local storage state for the requested identity', async () => {
+    const anchorConnection = createCliConnectionSummary({
+      id: 'connection-a',
+      workerId: 'worker-a',
+      cliName: 'CLI A',
+      registeredFlows: ['chatgpt-login'],
+      lastSeenAt: '2026-04-24T00:00:05.000Z',
+    })
+    const affineConnection = createCliConnectionSummary({
+      id: 'connection-b',
+      workerId: 'worker-b',
+      cliName: 'CLI B',
+      registeredFlows: ['chatgpt-login'],
+      storageStateIdentityIds: ['identity-123'],
+      storageStateEmails: ['person@example.com'],
+      lastSeenAt: '2026-04-24T00:00:04.000Z',
+    })
+    const { insertedTasks } = createTransactionRecorder()
+
+    mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
+    mocks.listAdminCliConnectionStateForActor.mockResolvedValue({
+      snapshotAt: '2026-04-24T00:00:06.000Z',
+      activeConnections: [anchorConnection, affineConnection],
+    })
+
+    const result = await dispatchCliFlowTasks({
+      connectionId: anchorConnection.id,
+      flowId: 'chatgpt-login',
+      config: {
+        identityId: 'identity-123',
+        email: 'person@example.com',
+      },
+      actor: {
+        userId: 'user-1',
+      },
+    })
+
+    expect(result.assignedConnections.map((connection) => connection.id)).toEqual([
+      'connection-b',
+    ])
+    expect(insertedTasks.map((task) => task.workerId)).toEqual(['worker-b'])
+  })
+
+  it('keeps batch task assignments close to workers with matching storage state', async () => {
+    const anchorConnection = createCliConnectionSummary({
+      id: 'connection-a',
+      workerId: 'worker-a',
+      cliName: 'CLI A',
+      registeredFlows: ['chatgpt-login-invite'],
+      lastSeenAt: '2026-04-24T00:00:07.000Z',
+    })
+    const alphaConnection = createCliConnectionSummary({
+      id: 'connection-b',
+      workerId: 'worker-b',
+      cliName: 'CLI B',
+      registeredFlows: ['chatgpt-login-invite'],
+      storageStateEmails: ['alpha@example.com'],
+      lastSeenAt: '2026-04-24T00:00:05.000Z',
+    })
+    const betaConnection = createCliConnectionSummary({
+      id: 'connection-c',
+      workerId: 'worker-c',
+      cliName: 'CLI C',
+      registeredFlows: ['chatgpt-login-invite'],
+      storageStateEmails: ['beta@example.com'],
+      lastSeenAt: '2026-04-24T00:00:04.000Z',
+    })
+    const { insertedTasks } = createTransactionRecorder()
+
+    mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
+    mocks.listAdminCliConnectionStateForActor.mockResolvedValue({
+      snapshotAt: '2026-04-24T00:00:08.000Z',
+      activeConnections: [anchorConnection, betaConnection, alphaConnection],
+    })
+
+    const result = await dispatchCliFlowTasks({
+      connectionId: anchorConnection.id,
+      flowId: 'chatgpt-login-invite',
+      configs: [
+        { email: 'alpha@example.com' },
+        { email: 'beta@example.com' },
+      ],
+      parallelism: 2,
+      actor: {
+        userId: 'user-1',
+      },
+    })
+
+    expect(result.assignedConnections.map((connection) => connection.id)).toEqual([
+      'connection-b',
+      'connection-c',
+    ])
+    expect(insertedTasks.map((task) => task.workerId)).toEqual([
+      'worker-b',
+      'worker-c',
+    ])
   })
 })

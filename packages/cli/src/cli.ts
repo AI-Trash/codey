@@ -67,6 +67,7 @@ import {
   type FlowCommandExecution,
 } from './modules/flow-cli/result-file'
 import { assertFlowTaskExecutionSucceeded } from './modules/flow-cli/task-completion'
+import { prepareFlowStorageState } from './modules/flow-cli/storage-state'
 import { sleep } from './utils/wait'
 import {
   initializeCliFileLogging,
@@ -92,17 +93,31 @@ async function runFlowCommand(
     abortSignal?: AbortSignal
   } = {},
 ): Promise<unknown> {
-  const runtimeOptions: FlowOptions = {
+  let runtimeOptions: FlowOptions = {
     ...options,
     progressReporter:
       options.progressReporter ||
       createConsoleFlowProgressReporter(`flow:${subcommand}`),
   }
+  const preparedStorageState = await prepareFlowStorageState({
+    flowId: subcommand,
+    options: runtimeOptions,
+  })
+  runtimeOptions = preparedStorageState.options
+  if (preparedStorageState.storageState) {
+    runtimeOptions.progressReporter?.({
+      message: `Loaded local ChatGPT storage state for ${preparedStorageState.storageState.email}`,
+    })
+  }
   let result: unknown
   let browserHarPath: string | undefined
 
   await runWithSession(
-    { artifactName: subcommand, context: {} },
+    {
+      artifactName: subcommand,
+      context: {},
+      storageStatePath: preparedStorageState.storageState?.storageStatePath,
+    },
     async (session) => {
       browserHarPath = session.harPath
       if (subcommand === 'chatgpt-register') {

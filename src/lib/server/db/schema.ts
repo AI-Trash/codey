@@ -795,6 +795,16 @@ export const cliConnections = pgTable(
       .$type<string[]>()
       .default(sql`'{}'::text[]`)
       .notNull(),
+    storageStateIdentityIds: text('storage_state_identity_ids')
+      .array()
+      .$type<string[]>()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
+    storageStateEmails: text('storage_state_emails')
+      .array()
+      .$type<string[]>()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
     connectionPath: text('connection_path').notNull(),
     runtimeFlowId: text('runtime_flow_id'),
     runtimeTaskId: text('runtime_task_id'),

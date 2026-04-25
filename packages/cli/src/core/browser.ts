@@ -85,6 +85,7 @@ export async function newSession(
   options: {
     artifactName?: string
     context?: Parameters<Browser['newContext']>[0]
+    storageStatePath?: string
   } = {},
 ): Promise<Session> {
   const config = getRuntimeConfig()
@@ -219,6 +220,13 @@ export async function newSession(
           } catch (error) {
             await userDataDirCleanup?.().catch(() => undefined)
             throw error
+          }
+
+          if (options.storageStatePath) {
+            await context.setStorageState(options.storageStatePath)
+            logBrowserEvent('storage_state.loaded', {
+              storageStatePath: options.storageStatePath,
+            })
           }
 
           if (typeof context.on === 'function') {

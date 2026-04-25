@@ -194,4 +194,53 @@ describe('newSession', () => {
       }),
     )
   })
+
+  it('loads a provided storage state before resolving the session page', async () => {
+    const artifactsDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'codey-browser-artifacts-'),
+    )
+    const storageStatePath = path.join(artifactsDir, 'state.json')
+    tempDirs.push(artifactsDir)
+
+    const calls: string[] = []
+    const page = createOpenPage()
+    const context = {
+      pages: vi.fn(() => {
+        calls.push('pages')
+        return []
+      }),
+      newPage: vi.fn(async () => {
+        calls.push('newPage')
+        return page
+      }),
+      setStorageState: vi.fn(async () => {
+        calls.push('setStorageState')
+      }),
+      close: vi.fn(async () => undefined),
+    }
+    const browser = {
+      newContext: vi.fn(async () => context),
+      close: vi.fn(async () => undefined),
+    }
+
+    getRuntimeConfigMock.mockReturnValue({
+      command: 'flow:chatgpt-login',
+      artifactsDir,
+      browser: {
+        recordHar: false,
+        headless: false,
+        slowMo: undefined,
+        defaultTimeoutMs: 30000,
+        navigationTimeoutMs: 45000,
+      },
+    })
+    launchMock.mockResolvedValue(browser)
+
+    await newSession({
+      storageStatePath,
+    })
+
+    expect(context.setStorageState).toHaveBeenCalledWith(storageStatePath)
+    expect(calls).toEqual(['setStorageState', 'pages', 'newPage'])
+  })
 })

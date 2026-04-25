@@ -1,4 +1,5 @@
 import { sanitizeErrorForOutput } from '../flow-cli/helpers'
+import { listLocalChatGPTStorageStateAffinities } from '../chatgpt/storage-state'
 import type { CliNotificationsAuthState } from './device-login'
 import { resolveAppUrl } from './http'
 import { ensureJson } from './http'
@@ -10,6 +11,8 @@ export interface CliConnectionRuntimeState {
   runtimeFlowMessage?: string | null
   runtimeFlowStartedAt?: string | null
   runtimeFlowCompletedAt?: string | null
+  storageStateIdentityIds?: string[] | null
+  storageStateEmails?: string[] | null
 }
 
 async function postCliConnectionRuntimeState(input: {
@@ -17,6 +20,7 @@ async function postCliConnectionRuntimeState(input: {
   authState: CliNotificationsAuthState
   state: CliConnectionRuntimeState
 }): Promise<void> {
+  const storageStateAffinities = listLocalChatGPTStorageStateAffinities()
   const response = await fetch(
     resolveAppUrl(
       `/api/cli/connections/${encodeURIComponent(input.connectionId)}/status`,
@@ -28,7 +32,11 @@ async function postCliConnectionRuntimeState(input: {
         Accept: 'application/json',
         Authorization: `Bearer ${input.authState.accessToken}`,
       },
-      body: JSON.stringify(input.state),
+      body: JSON.stringify({
+        ...input.state,
+        storageStateIdentityIds: storageStateAffinities.identityIds,
+        storageStateEmails: storageStateAffinities.emails,
+      }),
     },
   )
 

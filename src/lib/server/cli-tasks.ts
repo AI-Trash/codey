@@ -130,6 +130,59 @@ function normalizeEmailKey(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+function normalizeIdentityKey(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function getConfigAffinity(input: Record<string, unknown> | null | undefined): {
+  identityId?: string;
+  email?: string;
+} {
+  return {
+    identityId: normalizeIdentityKey(input?.identityId),
+    email: normalizeEmailKey(input?.email),
+  };
+}
+
+function connectionHasStorageStateAffinity(
+  connection: Pick<
+    AdminCliConnectionSummary,
+    "storageStateIdentityIds" | "storageStateEmails"
+  >,
+  affinity: {
+    identityId?: string;
+    email?: string;
+  },
+) {
+  return Boolean(
+    (affinity.identityId &&
+      connection.storageStateIdentityIds.includes(affinity.identityId)) ||
+      (affinity.email && connection.storageStateEmails.includes(affinity.email)),
+  );
+}
+
+function connectionStorageStateAffinityScore(
+  connection: Pick<
+    AdminCliConnectionSummary,
+    "storageStateIdentityIds" | "storageStateEmails"
+  >,
+  affinities: Array<{
+    identityId?: string;
+    email?: string;
+  }>,
+) {
+  return affinities.reduce(
+    (score, affinity) =>
+      score + Number(connectionHasStorageStateAffinity(connection, affinity)),
+    0,
+  );
+}
+
 function isConnectionBusy(
   connection: Pick<
     AdminCliConnectionSummary,
@@ -147,7 +200,18 @@ function compareDispatchConnections(
   left: AdminCliConnectionSummary,
   right: AdminCliConnectionSummary,
   preferredConnectionId: string,
+  affinities: Array<{
+    identityId?: string;
+    email?: string;
+  }> = [],
 ) {
+  const affinityDelta =
+    connectionStorageStateAffinityScore(right, affinities) -
+    connectionStorageStateAffinityScore(left, affinities);
+  if (affinityDelta) {
+    return affinityDelta;
+  }
+
   const preferredDelta =
     Number(right.id === preferredConnectionId) -
     Number(left.id === preferredConnectionId);
@@ -180,10 +244,19 @@ function buildCliDispatchTargets(input: {
   eligibleConnections: AdminCliConnectionSummary[];
   count: number;
   parallelism: number;
+  configs: Array<Record<string, unknown>>;
 }): CliDispatchTarget[] {
   const uniqueTargets = new Map<string, AdminCliConnectionSummary>();
+  const dispatchAffinities = input.configs
+    .map((config) => getConfigAffinity(config))
+    .filter((affinity) => affinity.identityId || affinity.email);
   const sortedConnections = [...input.eligibleConnections].sort((left, right) =>
-    compareDispatchConnections(left, right, input.connection.id),
+    compareDispatchConnections(
+      left,
+      right,
+      input.connection.id,
+      dispatchAffinities,
+    ),
   );
 
   for (const connection of sortedConnections) {
@@ -221,6 +294,19 @@ function buildCliDispatchTargets(input: {
     ...target,
     batchParallelism: baseParallelism + (index < remainder ? 1 : 0),
   }));
+}
+
+function selectDispatchTargetForConfig(input: {
+  dispatchTargets: CliDispatchTarget[];
+  config: Record<string, unknown>;
+  index: number;
+}): CliDispatchTarget | undefined {
+  const affinity = getConfigAffinity(input.config);
+  const affineTargets = input.dispatchTargets.filter((target) =>
+    connectionHasStorageStateAffinity(target.connection, affinity),
+  );
+  const targets = affineTargets.length ? affineTargets : input.dispatchTargets;
+  return targets[input.index % targets.length];
 }
 
 function supportsEmailBatchDispatch(
@@ -409,13 +495,17 @@ export async function dispatchCliFlowTasks(input: {
     eligibleConnections,
     count,
     parallelism,
+    configs: queuedConfigs,
   });
   const queuedTaskRows = queuedConfigs.map((config, index) => {
     const sequence = index + 1;
     const email =
       typeof config.email === "string" ? config.email.trim() : undefined;
-    const target =
-      dispatchTargets[index % dispatchTargets.length] || dispatchTargets[0];
+    const target = selectDispatchTargetForConfig({
+      dispatchTargets,
+      config,
+      index,
+    });
     if (!target) {
       throw new Error("No eligible CLI worker is available for dispatch.");
     }

@@ -14,6 +14,7 @@ import {
 } from './helpers'
 import { parseFlowCliArgsForCommand } from './parse-argv'
 import { runWithSession } from './run-with-session'
+import { flowCommandToId, prepareFlowStorageState } from './storage-state'
 import {
   setObservabilityRuntimeState,
   traceCliOperation,
@@ -68,6 +69,20 @@ export async function runSingleFileFlow<
         async () => {
           let result!: TResult
           let browserHarPath: string | undefined
+          const flowId = flowCommandToId(definition.command)
+          const preparedStorageState = flowId
+            ? await prepareFlowStorageState({
+                flowId,
+                options: runtimeOptions,
+              })
+            : undefined
+          const flowOptions = (preparedStorageState?.options ||
+            runtimeOptions) as TOptions
+          if (preparedStorageState?.storageState) {
+            flowOptions.progressReporter?.({
+              message: `Loaded local ChatGPT storage state for ${preparedStorageState.storageState.email}`,
+            })
+          }
           const startedAt = new Date().toISOString()
           setObservabilityRuntimeState({
             command: definition.command,
@@ -76,18 +91,23 @@ export async function runSingleFileFlow<
             startedAt,
           })
           await runWithSession(
-            { artifactName: definition.command, context: {} },
+            {
+              artifactName: definition.command,
+              context: {},
+              storageStatePath:
+                preparedStorageState?.storageState?.storageStatePath,
+            },
             async (session) => {
               browserHarPath = session.harPath
-              result = await definition.run(session.page, runtimeOptions)
+              result = await definition.run(session.page, flowOptions)
             },
-            { closeOnComplete: !shouldKeepFlowOpen(runtimeOptions) },
+            { closeOnComplete: !shouldKeepFlowOpen(flowOptions) },
           )
           result = attachFlowArtifactPaths(result, {
             harPath: browserHarPath,
           })
           printFlowCompletionSummary(definition.command, result)
-          if (shouldKeepFlowOpen(runtimeOptions)) {
+          if (shouldKeepFlowOpen(flowOptions)) {
             writeCliStderrLine(
               'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
             )

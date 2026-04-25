@@ -176,6 +176,13 @@
       "when": 1777105955561,
       "tag": "0024_optional_workspace_id",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777110473411,
+      "tag": "0025_cli_storage_state_affinity",
+      "breakpoints": true
     }
   ]
 }

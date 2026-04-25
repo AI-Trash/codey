@@ -1,5 +1,8 @@
 import { pathToFileURL } from 'url'
-import type { FlowOptions } from '../modules/flow-cli/helpers'
+import {
+  sanitizeErrorForOutput,
+  type FlowOptions,
+} from '../modules/flow-cli/helpers'
 import {
   inviteWorkspaceMembers,
   resolveInviteEmails,
@@ -12,6 +15,7 @@ import {
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
 import { syncManagedWorkspaceToCodeyApp } from '../modules/app-auth/workspaces'
+import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
 
 export interface ChatGPTLoginInviteFlowResult {
   pageName: 'chatgpt-login-invite'
@@ -70,6 +74,20 @@ export async function loginChatGPTAndInviteMembers(
   options.progressReporter?.({
     message: 'Workspace invitations completed',
   })
+  try {
+    await saveLocalChatGPTStorageState(page, {
+      identityId: login.storedIdentity.id,
+      email: login.storedIdentity.email,
+      flowType: 'chatgpt-login-invite',
+    })
+    options.progressReporter?.({
+      message: `Saved local ChatGPT storage state for ${login.storedIdentity.email}`,
+    })
+  } catch (error) {
+    options.progressReporter?.({
+      message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
+    })
+  }
 
   return {
     pageName: 'chatgpt-login-invite',

@@ -23,6 +23,7 @@ import {
   attachStateMachineProgressReporter,
   sanitizeErrorForOutput,
 } from '../modules/flow-cli/helpers'
+import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
 import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
@@ -294,6 +295,21 @@ export async function runChatGPTTeamTrial(
     await clickTeamPricingFreeTrial(page)
 
     const title = await page.title()
+    try {
+      await saveLocalChatGPTStorageState(page, {
+        identityId: login.storedIdentity.id,
+        email: login.storedIdentity.email,
+        flowType: 'chatgpt-team-trial',
+      })
+      options.progressReporter?.({
+        message: `Saved local ChatGPT storage state for ${login.storedIdentity.email}`,
+      })
+    } catch (error) {
+      options.progressReporter?.({
+        message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
+      })
+    }
+
     await sendTeamTrialMachine(
       machine,
       'trial-claimed',

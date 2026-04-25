@@ -56,6 +56,30 @@ describe('chatgpt login machine', () => {
     })
   })
 
+  it('tracks the local storage-state restore check before login steps', async () => {
+    const machine = createChatGPTLoginMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.session.restoring', {
+      target: 'restoring-session',
+      patch: {
+        email: 'person@example.com',
+        lastMessage: 'Checking local state',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'restoring-session',
+      context: {
+        email: 'person@example.com',
+        lastMessage: 'Checking local state',
+      },
+    })
+  })
+
   it('moves into the add-phone failure state from any step', async () => {
     const machine = createChatGPTLoginMachine()
 

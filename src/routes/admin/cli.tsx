@@ -152,6 +152,8 @@ type CliConnectionSummary = {
   target: string | null
   userAgent: string | null
   registeredFlows: string[]
+  storageStateIdentityIds: string[]
+  storageStateEmails: string[]
   connectionPath: string
   status: 'active' | 'offline'
   connectedAt: string

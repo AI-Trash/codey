@@ -25,6 +25,7 @@ import {
 import { streamSse } from './sse'
 import { listCliFlowCommandIds } from '../flow-cli/flow-registry'
 import { deriveCliTargetFromAuthState } from './target'
+import { listLocalChatGPTStorageStateAffinities } from '../chatgpt/storage-state'
 
 const NOTIFICATIONS_READ_SCOPE = 'notifications:read'
 
@@ -322,6 +323,7 @@ export async function* streamCliNotifications(
   if (target) {
     eventsUrl.searchParams.set('target', target)
   }
+  const storageStateAffinities = listLocalChatGPTStorageStateAffinities()
 
   const response = await fetch(eventsUrl, {
     signal: options?.signal,
@@ -331,6 +333,18 @@ export async function* streamCliNotifications(
       ...(input.cliName ? { 'X-Codey-CLI-Name': input.cliName } : {}),
       ...(input.workerId ? { 'X-Codey-Worker-Id': input.workerId } : {}),
       'X-Codey-Registered-Flows': listCliFlowCommandIds().join(','),
+      ...(storageStateAffinities.identityIds.length
+        ? {
+            'X-Codey-Storage-State-Identity-Ids':
+              storageStateAffinities.identityIds.join(','),
+          }
+        : {}),
+      ...(storageStateAffinities.emails.length
+        ? {
+            'X-Codey-Storage-State-Emails':
+              storageStateAffinities.emails.join(','),
+          }
+        : {}),
     },
   })
 

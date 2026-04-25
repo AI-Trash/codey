@@ -33,6 +33,7 @@ import type {
 } from '../state-machine'
 import {
   CHATGPT_ENTRY_LOGIN_URL,
+  CHATGPT_HOME_URL,
   type ChatGPTPostEmailLoginStep,
   logStep,
   waitForAuthenticatedSession,
@@ -46,6 +47,8 @@ import {
   waitForVerificationCodeInputReady,
 } from '../modules/chatgpt/shared'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
+import type { ChatGPTSessionCapture } from '../modules/chatgpt/session'
+import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
 import type { ResolvedChatGPTIdentity } from '../modules/credentials'
 import type { FlowOptions } from '../modules/flow-cli/helpers'
 import {
@@ -63,6 +66,7 @@ export type ChatGPTLoginFlowKind = 'chatgpt-login'
 
 export type ChatGPTLoginFlowState =
   | 'idle'
+  | 'restoring-session'
   | 'opening-entry'
   | 'email-step'
   | 'password-step'
@@ -81,6 +85,7 @@ export type ChatGPTLoginFlowState =
 
 export type ChatGPTLoginFlowEvent =
   | 'machine.started'
+  | 'chatgpt.session.restoring'
   | 'chatgpt.entry.opened'
   | 'chatgpt.email.started'
   | 'chatgpt.email.submitted'
@@ -110,7 +115,7 @@ export interface ChatGPTLoginFlowContext<Result = unknown> {
   email?: string
   postEmailStep?: ChatGPTPostEmailLoginStep
   verificationCode?: string
-  method?: 'password' | 'verification'
+  method?: 'password' | 'verification' | 'restored'
   storedIdentity?: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
   retryCount?: number
@@ -144,7 +149,7 @@ export interface ChatGPTLoginFlowResult {
   url: string
   title: string
   email: string
-  method: 'password' | 'verification'
+  method: 'password' | 'verification' | 'restored'
   authenticated: boolean
   storedIdentity: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
@@ -191,6 +196,7 @@ function isChatGPTLoginEmailSubmittedInput<Result>(
 }
 
 const chatgptLoginEventTargets = {
+  'chatgpt.session.restoring': 'restoring-session',
   'chatgpt.entry.opened': 'opening-entry',
   'chatgpt.authenticated': 'authenticated',
   'chatgpt.login.surface.ready': 'login-surface',
@@ -215,6 +221,7 @@ const chatgptLoginMutableContextEvents = [
 ] as const satisfies ChatGPTLoginFlowEvent[]
 
 const chatgptLoginAddPhoneGuardEvents = [
+  'chatgpt.session.restoring',
   'chatgpt.entry.opened',
   'chatgpt.email.started',
   'chatgpt.email.submitted',
@@ -236,6 +243,7 @@ const chatgptLoginAddPhoneGuardEvents = [
 
 const chatgptLoginStates = [
   'idle',
+  'restoring-session',
   'opening-entry',
   'email-step',
   'password-step',
@@ -421,6 +429,69 @@ async function sendLoginMachine(
     target: state,
     patch,
   })
+}
+
+async function waitForRestoredChatGPTSession(page: Page): Promise<boolean> {
+  await page
+    .goto(CHATGPT_HOME_URL, { waitUntil: 'domcontentloaded' })
+    .catch(() => undefined)
+  await page
+    .locator('body')
+    .waitFor({ state: 'visible' })
+    .catch(() => undefined)
+  await page.waitForLoadState('networkidle').catch(() => undefined)
+  return waitForAuthenticatedSession(page, 8000)
+}
+
+async function persistLoginSessionArtifacts(input: {
+  page: Page
+  sessionCapture: ChatGPTSessionCapture
+  storedIdentity: StoredChatGPTIdentitySummary
+  flowType: 'chatgpt-login'
+  progressReporter?: FlowOptions['progressReporter']
+}): Promise<StoredChatGPTSessionSummary | undefined> {
+  let storedSession: StoredChatGPTSessionSummary | undefined
+
+  try {
+    const capturedSessions = await input.sessionCapture.capture()
+    if (capturedSessions.length > 0) {
+      const persistedSessions = await persistChatGPTSessions({
+        identityId: input.storedIdentity.id,
+        email: input.storedIdentity.email,
+        flowType: input.flowType,
+        snapshots: capturedSessions,
+      })
+      storedSession = persistedSessions.primarySummary
+      input.progressReporter?.({
+        message: `Saved ${persistedSessions.sessions.length} ChatGPT session snapshot(s) to Codey app`,
+      })
+    } else {
+      input.progressReporter?.({
+        message: 'No ChatGPT session snapshot was captured after login',
+      })
+    }
+  } catch (error) {
+    input.progressReporter?.({
+      message: `Codey app session save failed: ${sanitizeErrorForOutput(error).message}`,
+    })
+  }
+
+  try {
+    await saveLocalChatGPTStorageState(input.page, {
+      identityId: input.storedIdentity.id,
+      email: input.storedIdentity.email,
+      flowType: input.flowType,
+    })
+    input.progressReporter?.({
+      message: `Saved local ChatGPT storage state for ${input.storedIdentity.email}`,
+    })
+  } catch (error) {
+    input.progressReporter?.({
+      message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
+    })
+  }
+
+  return storedSession
 }
 
 function isRecoverableLoginBranchEntryError(error: unknown): boolean {
@@ -684,12 +755,76 @@ export async function loginChatGPT(
         email: stored.identity.email,
         storedIdentity: stored.summary,
         method: 'password',
-        url: CHATGPT_ENTRY_LOGIN_URL,
+        url: CHATGPT_HOME_URL,
       },
       {
         source: 'loginChatGPT',
       },
     )
+
+    await sendLoginMachine(
+      machine,
+      'restoring-session',
+      'chatgpt.session.restoring',
+      {
+        email: stored.identity.email,
+        storedIdentity: stored.summary,
+        url: CHATGPT_HOME_URL,
+        lastMessage:
+          'Checking whether local ChatGPT session state restores login',
+      },
+    )
+    const sessionRestored = await waitForRestoredChatGPTSession(page)
+    if (sessionRestored) {
+      await sendLoginMachine(
+        machine,
+        'authenticated',
+        'chatgpt.authenticated',
+        {
+          email: stored.identity.email,
+          method: 'restored',
+          storedIdentity: stored.summary,
+          url: page.url(),
+          lastMessage:
+            'Authenticated ChatGPT session restored from local storage state',
+        },
+      )
+
+      const title = await page.title()
+      const storedSession = await persistLoginSessionArtifacts({
+        page,
+        sessionCapture,
+        storedIdentity: stored.summary,
+        flowType: 'chatgpt-login',
+        progressReporter: options.progressReporter,
+      })
+      const result = {
+        pageName: 'chatgpt-login' as const,
+        url: page.url(),
+        title,
+        email: stored.identity.email,
+        method: 'restored' as const,
+        authenticated: true,
+        storedIdentity: stored.summary,
+        storedSession,
+        machine:
+          undefined as unknown as ChatGPTLoginFlowSnapshot<ChatGPTLoginFlowResult>,
+      }
+      const snapshot = machine.succeed('completed', {
+        event: 'chatgpt.completed',
+        patch: {
+          email: stored.identity.email,
+          method: 'restored',
+          storedIdentity: stored.summary,
+          storedSession,
+          url: result.url,
+          title: result.title,
+          lastMessage: 'ChatGPT login completed from restored session',
+        },
+      })
+      result.machine = snapshot
+      return result
+    }
 
     await sendLoginMachine(machine, 'opening-entry', 'chatgpt.entry.opened', {
       email: stored.identity.email,
@@ -804,31 +939,13 @@ export async function loginChatGPT(
     }
 
     const title = await page.title()
-    let storedSession: StoredChatGPTSessionSummary | undefined
-
-    try {
-      const capturedSessions = await sessionCapture.capture()
-      if (capturedSessions.length > 0) {
-        const persistedSessions = await persistChatGPTSessions({
-          identityId: stored.summary.id,
-          email: stored.summary.email,
-          flowType: 'chatgpt-login',
-          snapshots: capturedSessions,
-        })
-        storedSession = persistedSessions.primarySummary
-        options.progressReporter?.({
-          message: `Saved ${persistedSessions.sessions.length} ChatGPT session snapshot(s) to Codey app`,
-        })
-      } else {
-        options.progressReporter?.({
-          message: 'No ChatGPT session snapshot was captured after login',
-        })
-      }
-    } catch (error) {
-      options.progressReporter?.({
-        message: `Codey app session save failed: ${sanitizeErrorForOutput(error).message}`,
-      })
-    }
+    const storedSession = await persistLoginSessionArtifacts({
+      page,
+      sessionCapture,
+      storedIdentity: stored.summary,
+      flowType: 'chatgpt-login',
+      progressReporter: options.progressReporter,
+    })
 
     const result = {
       pageName: 'chatgpt-login' as const,

@@ -18,6 +18,8 @@ export interface AdminCliConnectionSummary {
   target: string | null
   userAgent: string | null
   registeredFlows: string[]
+  storageStateIdentityIds: string[]
+  storageStateEmails: string[]
   connectionPath: string
   status: 'active' | 'offline'
   connectedAt: string
@@ -101,6 +103,24 @@ function getActorTargetValues(actor: CliConnectionActorScope): string[] {
   )
 }
 
+function normalizeStringList(value: string[] | null | undefined): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => toOptionalString(entry))
+        .filter((entry): entry is string => Boolean(entry)),
+    ),
+  )
+}
+
+function normalizeEmailList(value: string[] | null | undefined): string[] {
+  return normalizeStringList(value).map((entry) => entry.toLowerCase())
+}
+
 export function isCliConnectionOwnedByActor(
   connection: Pick<AdminCliConnectionSummary, 'userId' | 'target'>,
   actor: CliConnectionActorScope,
@@ -149,9 +169,9 @@ function mapSummary(
     cliName: row.cliName,
     target: row.target,
     userAgent: row.userAgent,
-    registeredFlows: Array.isArray(row.registeredFlows)
-      ? row.registeredFlows.filter((value): value is string => Boolean(value))
-      : [],
+    registeredFlows: normalizeStringList(row.registeredFlows),
+    storageStateIdentityIds: normalizeStringList(row.storageStateIdentityIds),
+    storageStateEmails: normalizeEmailList(row.storageStateEmails),
     connectionPath: row.connectionPath,
     status: getCliConnectionStatus(row),
     connectedAt: row.connectedAt.toISOString(),
@@ -189,6 +209,8 @@ export async function registerCliConnection(input: {
   target?: string | null
   userAgent?: string | null
   registeredFlows?: string[] | null
+  storageStateIdentityIds?: string[] | null
+  storageStateEmails?: string[] | null
   connectionPath: string
 }) {
   const [connection] = await getDb()
@@ -202,15 +224,9 @@ export async function registerCliConnection(input: {
       cliName: toOptionalString(input.cliName),
       target: toOptionalString(input.target),
       userAgent: toOptionalString(input.userAgent),
-      registeredFlows: Array.isArray(input.registeredFlows)
-        ? Array.from(
-            new Set(
-              input.registeredFlows
-                .map((value) => toOptionalString(value))
-                .filter((value): value is string => Boolean(value)),
-            ),
-          )
-        : [],
+      registeredFlows: normalizeStringList(input.registeredFlows),
+      storageStateIdentityIds: normalizeStringList(input.storageStateIdentityIds),
+      storageStateEmails: normalizeEmailList(input.storageStateEmails),
       connectionPath: input.connectionPath,
     })
     .returning()
@@ -274,6 +290,8 @@ export async function updateCliConnectionRuntimeState(
     runtimeFlowMessage?: string | null
     runtimeFlowStartedAt?: string | Date | null
     runtimeFlowCompletedAt?: string | Date | null
+    storageStateIdentityIds?: string[] | null
+    storageStateEmails?: string[] | null
   },
 ) {
   const patch = {
@@ -295,6 +313,14 @@ export async function updateCliConnectionRuntimeState(
         : toOptionalString(input.runtimeFlowMessage),
     runtimeFlowStartedAt: toOptionalDate(input.runtimeFlowStartedAt),
     runtimeFlowCompletedAt: toOptionalDate(input.runtimeFlowCompletedAt),
+    storageStateIdentityIds:
+      input.storageStateIdentityIds === undefined
+        ? undefined
+        : normalizeStringList(input.storageStateIdentityIds),
+    storageStateEmails:
+      input.storageStateEmails === undefined
+        ? undefined
+        : normalizeEmailList(input.storageStateEmails),
     runtimeFlowUpdatedAt: new Date(),
   }
 
