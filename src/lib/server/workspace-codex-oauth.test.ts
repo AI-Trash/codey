@@ -7,8 +7,8 @@ describe('getWorkspaceCodexOAuthParallelism', () => {
     expect(getWorkspaceCodexOAuthParallelism(2)).toBe(2)
   })
 
-  it('caps workspace authorization parallelism at the global batch limit', () => {
-    expect(getWorkspaceCodexOAuthParallelism(20)).toBe(4)
+  it('caps workspace authorization parallelism at the global parallelism limit', () => {
+    expect(getWorkspaceCodexOAuthParallelism(20)).toBe(10)
   })
 
   it('never returns less than one', () => {

@@ -263,8 +263,8 @@ export interface CliFlowTaskExternalServices {
 
 export const DEFAULT_CLI_FLOW_TASK_COUNT = 1
 export const DEFAULT_CLI_FLOW_TASK_PARALLELISM = 1
-export const MAX_CLI_FLOW_TASK_BATCH_SIZE = 20
-export const MAX_CLI_FLOW_TASK_PARALLELISM = 4
+export const MAX_CLI_FLOW_TASK_BATCH_SIZE = 100
+export const MAX_CLI_FLOW_TASK_PARALLELISM = 10
 
 export type CliFlowTaskRequestById = {
   [FlowId in CliFlowCommandId]: {
