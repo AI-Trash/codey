@@ -8,8 +8,16 @@ vi.mock('./db/client', () => ({
   getDb: mocks.getDb,
 }))
 
-import { listAdminManagedWorkspaceSummaries } from './workspaces'
-import { resetManagedWorkspaceAuthorizationStatuses } from './workspaces'
+import {
+  managedIdentities,
+  managedWorkspaceMembers,
+  managedWorkspaces,
+} from './db/schema'
+import {
+  deleteManagedWorkspace,
+  listAdminManagedWorkspaceSummaries,
+  resetManagedWorkspaceAuthorizationStatuses,
+} from './workspaces'
 
 describe('managed workspace authorization summaries', () => {
   beforeEach(() => {
@@ -57,7 +65,7 @@ describe('managed workspace authorization summaries', () => {
               identityId: 'identity-1',
               workspaceId: 'ws_alpha',
               status: 'ACTIVE',
-              expiresAt: new Date('2026-04-24T00:00:00.000Z'),
+              expiresAt: new Date('2999-05-24T00:00:00.000Z'),
               lastSeenAt: now,
             },
           ]),
@@ -157,14 +165,14 @@ describe('managed workspace authorization summaries', () => {
           identityId: 'identity-1',
           workspaceId: 'ws_alpha',
           status: 'ACTIVE',
-          expiresAt: new Date('2026-04-24T00:00:00.000Z'),
+          expiresAt: new Date('2999-05-24T00:00:00.000Z'),
           lastSeenAt: now,
         },
         {
           identityId: 'identity-2',
           workspaceId: 'ws_alpha',
           status: 'ACTIVE',
-          expiresAt: new Date('2026-04-24T00:00:00.000Z'),
+          expiresAt: new Date('2999-05-24T00:00:00.000Z'),
           lastSeenAt: now,
         },
       ])
@@ -286,14 +294,14 @@ describe('managed workspace authorization summaries', () => {
           identityId: 'identity-1',
           workspaceId: 'ws_alpha',
           status: 'ACTIVE',
-          expiresAt: new Date('2026-04-24T00:00:00.000Z'),
+          expiresAt: new Date('2999-05-24T00:00:00.000Z'),
           lastSeenAt: now,
         },
         {
           identityId: 'identity-2',
           workspaceId: 'ws_alpha',
           status: 'ACTIVE',
-          expiresAt: new Date('2026-04-24T00:00:00.000Z'),
+          expiresAt: new Date('2999-05-24T00:00:00.000Z'),
           lastSeenAt: now,
         },
       ])
@@ -302,7 +310,7 @@ describe('managed workspace authorization summaries', () => {
           identityId: 'identity-1',
           workspaceId: 'ws_alpha',
           status: 'ACTIVE',
-          expiresAt: new Date('2026-04-24T00:00:00.000Z'),
+          expiresAt: new Date('2999-05-24T00:00:00.000Z'),
           lastSeenAt: later,
         },
       ])
@@ -356,5 +364,117 @@ describe('managed workspace authorization summaries', () => {
     )
 
     expect(deleteReturning).toHaveBeenCalledTimes(1)
+  })
+
+  it('archives the owner and removes remaining workspace associations when deleting a workspace', async () => {
+    const now = new Date('2026-04-23T00:00:00.000Z')
+    const deletedWorkspace = {
+      id: 'workspace-record-1',
+      workspaceId: 'ws_alpha',
+      label: 'Alpha',
+      ownerIdentityId: 'owner-identity-1',
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const deleteWorkspaceReturning = vi
+      .fn()
+      .mockResolvedValue([deletedWorkspace])
+    const deleteWorkspaceWhere = vi.fn().mockReturnValue({
+      returning: deleteWorkspaceReturning,
+    })
+    const deleteMemberWhere = vi.fn().mockResolvedValue(undefined)
+    const deleteRecord = vi.fn((table: unknown) => {
+      if (table === managedWorkspaces) {
+        return {
+          where: deleteWorkspaceWhere,
+        }
+      }
+
+      if (table === managedWorkspaceMembers) {
+        return {
+          where: deleteMemberWhere,
+        }
+      }
+
+      throw new Error('Unexpected delete table')
+    })
+
+    const archiveWhere = vi.fn().mockResolvedValue(undefined)
+    const archiveSet = vi.fn().mockReturnValue({
+      where: archiveWhere,
+    })
+
+    const workspaceWhere = vi.fn().mockResolvedValue(undefined)
+    const workspaceSet = vi.fn().mockReturnValue({
+      where: workspaceWhere,
+    })
+    const updateRecord = vi.fn((table: unknown) => {
+      if (table === managedIdentities) {
+        return {
+          set: archiveSet,
+        }
+      }
+
+      if (table === managedWorkspaces) {
+        return {
+          set: workspaceSet,
+        }
+      }
+
+      throw new Error('Unexpected update table')
+    })
+    const findOwnerWorkspaceRows = vi.fn().mockResolvedValue([
+      {
+        id: 'other-workspace',
+      },
+    ])
+    const findMemberWorkspaceRows = vi.fn().mockResolvedValue([
+      {
+        id: 'member-row-1',
+        managedWorkspaceId: 'other-workspace',
+      },
+    ])
+    const findOwnerIdentity = vi.fn().mockResolvedValue({
+      identityId: 'owner-identity-1',
+      email: 'owner@example.com',
+      status: 'ACTIVE',
+    })
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedIdentities: {
+          findFirst: findOwnerIdentity,
+        },
+        managedWorkspaces: {
+          findMany: findOwnerWorkspaceRows,
+        },
+        managedWorkspaceMembers: {
+          findMany: findMemberWorkspaceRows,
+        },
+      },
+      delete: deleteRecord,
+      update: updateRecord,
+    })
+
+    await expect(deleteManagedWorkspace('workspace-record-1')).resolves.toEqual(
+      deletedWorkspace,
+    )
+
+    expect(archiveSet).toHaveBeenCalledWith({
+      status: 'ARCHIVED',
+      updatedAt: expect.any(Date),
+    })
+    expect(findOwnerIdentity).toHaveBeenCalledTimes(1)
+    expect(findOwnerWorkspaceRows).toHaveBeenCalledTimes(1)
+    expect(findMemberWorkspaceRows).toHaveBeenCalledTimes(1)
+    expect(deleteRecord).toHaveBeenCalledWith(managedWorkspaceMembers)
+    expect(workspaceSet).toHaveBeenNthCalledWith(1, {
+      ownerIdentityId: null,
+      updatedAt: expect.any(Date),
+    })
+    expect(workspaceSet).toHaveBeenNthCalledWith(2, {
+      updatedAt: expect.any(Date),
+    })
   })
 })

@@ -704,7 +704,7 @@
   "admin_workspace_save_button": "保存工作空间",
   "admin_workspace_save_error_fallback": "当前无法保存工作空间。",
   "admin_workspace_delete_confirm_title": "确认删除这个工作空间？",
-  "admin_workspace_delete_confirm_description": "这会把该工作空间记录以及所有关联的被邀请账号绑定从管理台中删除。",
+  "admin_workspace_delete_confirm_description": "这会把该工作空间记录和关联的被邀请账号绑定从管理台中删除，并归档所有者身份，避免后续继续复用。",
   "admin_workspace_table_label": "工作空间",
   "admin_workspace_table_workspace_id": "工作空间 ID",
   "admin_workspace_table_owner": "所有者",

@@ -915,7 +915,48 @@ export async function deleteManagedWorkspace(id: string) {
     .where(eq(managedWorkspaces.id, id))
     .returning()
 
+  if (record?.ownerIdentityId) {
+    await archiveDeletedWorkspaceOwnerIdentity(record.ownerIdentityId)
+  }
+
   return record ?? null
+}
+
+async function archiveDeletedWorkspaceOwnerIdentity(ownerIdentityId: string) {
+  const identityId = normalizeOptionalIdentityId(ownerIdentityId)
+  if (!identityId) {
+    return null
+  }
+
+  const owner = await getDb().query.managedIdentities.findFirst({
+    where: eq(managedIdentities.identityId, identityId),
+    columns: {
+      identityId: true,
+      email: true,
+      status: true,
+    },
+  })
+
+  if (!owner) {
+    return null
+  }
+
+  if (owner.status !== 'BANNED') {
+    await getDb()
+      .update(managedIdentities)
+      .set({
+        status: 'ARCHIVED',
+        updatedAt: new Date(),
+      })
+      .where(eq(managedIdentities.identityId, identityId))
+  }
+
+  await removeManagedIdentityFromAllWorkspaces({
+    identityId: owner.identityId,
+    email: owner.email,
+  })
+
+  return owner
 }
 
 export async function resetManagedWorkspaceAuthorizationStatuses(input: {

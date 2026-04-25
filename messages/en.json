@@ -699,7 +699,7 @@
   "admin_workspace_save_button": "Save workspace",
   "admin_workspace_save_error_fallback": "Unable to save the workspace right now.",
   "admin_workspace_delete_confirm_title": "Delete this workspace?",
-  "admin_workspace_delete_confirm_description": "This removes the stored workspace record and all linked invited-account associations from the admin console.",
+  "admin_workspace_delete_confirm_description": "This removes the stored workspace record and linked invited-account associations, then archives the owner identity so it is no longer reused.",
   "admin_workspace_table_label": "Workspace",
   "admin_workspace_table_workspace_id": "Workspace ID",
   "admin_workspace_table_owner": "Owner",
