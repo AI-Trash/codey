@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { waitUntilChatGPTHomeReady } from '../src/modules/chatgpt/queries'
+import {
+  waitForAnySelectorState,
+  waitUntilChatGPTHomeReady,
+} from '../src/modules/chatgpt/queries'
 
 class FakeLocator {
   constructor(
@@ -290,7 +293,63 @@ describe('waitUntilChatGPTHomeReady', () => {
     await expect(readyPromise).resolves.toBe(true)
     expect(clicks).toBe(4)
   })
+
+  it('keeps polling after a transient stale browser context selector error', async () => {
+    const page = new TransientStaleContextPage('[data-testid="composer-root"]')
+
+    const readyPromise = waitForAnySelectorState(
+      page as never,
+      ['[data-testid="composer-root"]'],
+      'visible',
+      500,
+    )
+
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(readyPromise).resolves.toBe(true)
+    expect(page.visibleChecks).toBeGreaterThanOrEqual(2)
+  })
 })
+
+class TransientStaleContextLocator {
+  constructor(private readonly page: TransientStaleContextPage) {}
+
+  first(): TransientStaleContextLocator {
+    return this
+  }
+
+  async isVisible(): Promise<boolean> {
+    this.page.visibleChecks += 1
+    if (this.page.visibleChecks === 1) {
+      throw new Error(
+        'Protocol error (DOM.describeNode): Cannot find context with specified id',
+      )
+    }
+    return true
+  }
+
+  async count(): Promise<number> {
+    return (await this.isVisible()) ? 1 : 0
+  }
+
+  async waitFor(): Promise<void> {
+    if (!(await this.isVisible())) {
+      throw new Error('State visible not reached')
+    }
+  }
+}
+
+class TransientStaleContextPage {
+  visibleChecks = 0
+
+  constructor(private readonly selector: string) {}
+
+  locator(selector: string): TransientStaleContextLocator {
+    if (selector !== this.selector) {
+      throw new Error(`Unexpected selector: ${selector}`)
+    }
+    return new TransientStaleContextLocator(this)
+  }
+}
 
 function trackPromise<T>(promise: Promise<T>): {
   status: () => 'pending' | 'fulfilled' | 'rejected'

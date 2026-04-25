@@ -11,11 +11,10 @@ import {
   sanitizeErrorForOutput,
   sanitizeText,
 } from './redaction'
+import { isRecoverableBrowserAutomationError } from './browser-errors'
 
 type CliObservabilityPrimitive = string | number | boolean | null
-type CliObservabilityContextValue =
-  | CliObservabilityPrimitive
-  | undefined
+type CliObservabilityContextValue = CliObservabilityPrimitive | undefined
 
 export type CliObservabilityContext = Record<
   string,
@@ -78,21 +77,21 @@ const shouldInstallFatalProcessListeners = !(
 )
 
 let pinoModule:
-  | (typeof import('pino')['default'] & {
-      stdTimeFunctions: typeof import('pino')['stdTimeFunctions']
-      destination: typeof import('pino')['destination']
+  | ((typeof import('pino'))['default'] & {
+      stdTimeFunctions: (typeof import('pino'))['stdTimeFunctions']
+      destination: (typeof import('pino'))['destination']
     })
   | undefined
-let pinoPrettyModule:
-  | (typeof import('pino-pretty')['default'])
-  | undefined
+let pinoPrettyModule: (typeof import('pino-pretty'))['default'] | undefined
 
 function getPino(): NonNullable<typeof pinoModule> {
   if (!pinoModule) {
     const loaded = require('pino') as
       | typeof import('pino')
-      | typeof import('pino')['default']
-    pinoModule = ('default' in loaded ? loaded.default : loaded) as typeof pinoModule
+      | (typeof import('pino'))['default']
+    pinoModule = (
+      'default' in loaded ? loaded.default : loaded
+    ) as typeof pinoModule
   }
 
   return pinoModule as NonNullable<typeof pinoModule>
@@ -102,8 +101,10 @@ function getPinoPretty(): NonNullable<typeof pinoPrettyModule> {
   if (!pinoPrettyModule) {
     const loaded = require('pino-pretty') as
       | typeof import('pino-pretty')
-      | typeof import('pino-pretty')['default']
-    pinoPrettyModule = ('default' in loaded ? loaded.default : loaded) as typeof pinoPrettyModule
+      | (typeof import('pino-pretty'))['default']
+    pinoPrettyModule = (
+      'default' in loaded ? loaded.default : loaded
+    ) as typeof pinoPrettyModule
   }
 
   return pinoPrettyModule as NonNullable<typeof pinoPrettyModule>
@@ -172,7 +173,10 @@ function createStructuredLogger(
   })
 
   return {
-    logger: pino(createLoggerOptions(runId, resolveStructuredLogLevel()), destination),
+    logger: pino(
+      createLoggerOptions(runId, resolveStructuredLogLevel()),
+      destination,
+    ),
     destination,
   }
 }
@@ -196,7 +200,10 @@ function createHumanLogger(
   })
 
   return {
-    logger: pino(createLoggerOptions(runId, resolveHumanLogLevel()), destination),
+    logger: pino(
+      createLoggerOptions(runId, resolveHumanLogLevel()),
+      destination,
+    ),
     destination,
   }
 }
@@ -237,7 +244,9 @@ const handleUncaughtException = (error: Error) => {
   writeDirectStderr(
     [
       `[codey:fatal] Uncaught exception: ${sanitizeErrorForOutput(error).message}`,
-      artifacts.snapshotPath ? `snapshot: ${artifacts.snapshotPath}` : undefined,
+      artifacts.snapshotPath
+        ? `snapshot: ${artifacts.snapshotPath}`
+        : undefined,
       artifacts.reportPath ? `report: ${artifacts.reportPath}` : undefined,
       observabilityState?.humanLogPath
         ? `log: ${observabilityState.humanLogPath}`
@@ -253,6 +262,19 @@ const handleUncaughtException = (error: Error) => {
 }
 
 const handleUnhandledRejection = (reason: unknown) => {
+  if (isRecoverableBrowserAutomationError(reason)) {
+    const sanitized = sanitizeErrorForOutput(reason)
+    logCliEvent('warn', 'process.unhandled_rejection.recovered', {
+      reason: 'unhandled-rejection',
+      handled: true,
+      error: serializeError(reason),
+    })
+    writeDirectStderr(
+      `[codey:warn] Recovered late browser automation rejection: ${sanitized.message}`,
+    )
+    return
+  }
+
   if (fatalInFlight) {
     writeDirectStderr(
       `[codey:fatal] secondary unhandled rejection: ${sanitizeErrorForOutput(reason).message}`,
@@ -270,7 +292,9 @@ const handleUnhandledRejection = (reason: unknown) => {
   writeDirectStderr(
     [
       `[codey:fatal] Unhandled rejection: ${sanitizeErrorForOutput(reason).message}`,
-      artifacts.snapshotPath ? `snapshot: ${artifacts.snapshotPath}` : undefined,
+      artifacts.snapshotPath
+        ? `snapshot: ${artifacts.snapshotPath}`
+        : undefined,
       artifacts.reportPath ? `report: ${artifacts.reportPath}` : undefined,
       observabilityState?.humanLogPath
         ? `log: ${observabilityState.humanLogPath}`
@@ -328,7 +352,10 @@ function mergeContext(
 }
 
 function sanitizeLogLabel(value: string): string {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
   return normalized.replace(/^-+|-+$/g, '') || 'cli'
 }
 

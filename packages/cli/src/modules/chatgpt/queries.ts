@@ -2,6 +2,7 @@ import type { Locator, Page } from 'patchright'
 import { toLocator } from '../../utils/selectors'
 import type { SelectorTarget } from '../../types'
 import { sleep } from '../../utils/wait'
+import { isRecoverableBrowserAutomationError } from '../../utils/browser-errors'
 import type { VerificationProvider } from '../verification'
 import {
   ACCOUNT_DEACTIVATED_ERROR_SELECTORS,
@@ -73,6 +74,7 @@ const CHATGPT_NEW_USER_ONBOARDING_ANNOUNCEMENT_KEYS = [
   'oai/apps/hasSeenStaticOnboarding',
   'oai/apps/hasSeenPromptOnboarding',
 ] as const
+const SELECTOR_STATE_POLL_INTERVAL_MS = 100
 
 export function isChatGPTHomeUrl(url: string): boolean {
   return (
@@ -99,18 +101,35 @@ export async function waitForAnySelectorState(
   timeoutMs = DEFAULT_EVENT_TIMEOUT_MS,
 ): Promise<boolean> {
   if (!selectors.length) return false
-  try {
-    await Promise.any(
-      selectors.map((selector) =>
-        toLocator(page, selector)
-          .first()
-          .waitFor({ state, timeout: timeoutMs }),
-      ),
+  const deadline = Date.now() + Math.max(0, timeoutMs)
+
+  do {
+    for (const selector of selectors) {
+      if (await selectorMatchesState(page, selector, state)) {
+        return true
+      }
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+
+    const probeTimeoutMs = Math.min(
+      SELECTOR_STATE_POLL_INTERVAL_MS,
+      remainingMs,
     )
-    return true
-  } catch {
-    return false
-  }
+    const probeStartedAt = Date.now()
+    if (
+      await waitForAnySelectorStateProbe(page, selectors, state, probeTimeoutMs)
+    ) {
+      return true
+    }
+
+    if (Date.now() - probeStartedAt < Math.min(5, probeTimeoutMs)) {
+      break
+    }
+  } while (Date.now() <= deadline)
+
+  return false
 }
 
 export async function waitForUrlMatch(
@@ -194,8 +213,7 @@ export async function isAnySelectorVisible(
   selectors: SelectorTarget[],
 ): Promise<boolean> {
   for (const selector of selectors) {
-    const locator = toLocator(page, selector).first()
-    if (await locator.isVisible().catch(() => false)) return true
+    if (await selectorMatchesState(page, selector, 'visible')) return true
   }
   return false
 }
@@ -317,50 +335,98 @@ export async function waitForHomeInteractionSignal(
   page: Page,
   timeoutMs = 10000,
 ): Promise<boolean> {
-  if (await isAnySelectorVisible(page, CHATGPT_AUTHENTICATED_SELECTORS)) {
-    return true
+  const deadline = Date.now() + Math.max(0, timeoutMs)
+
+  do {
+    if (await isProfileReady(page)) return true
+    if (await isAnySelectorVisible(page, CHATGPT_AUTHENTICATED_SELECTORS)) {
+      return true
+    }
+    if (await isAnySelectorVisible(page, ONBOARDING_SIGNAL_SELECTORS)) {
+      return true
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+
+    await sleep(Math.min(SELECTOR_STATE_POLL_INTERVAL_MS, remainingMs))
+  } while (Date.now() <= deadline)
+
+  return false
+}
+
+async function selectorMatchesState(
+  page: Page,
+  selector: SelectorTarget,
+  state: 'visible' | 'hidden' | 'attached' | 'detached',
+): Promise<boolean> {
+  try {
+    const locator = toLocator(page, selector).first()
+    return locatorMatchesState(locator, state)
+  } catch (error) {
+    if (isRecoverableBrowserAutomationError(error)) {
+      return false
+    }
+    return false
   }
+}
 
-  const waiters: Array<Promise<void>> = []
-
-  if (!(await isProfileReady(page))) {
-    waiters.push(
-      waitForProfileReady(page, timeoutMs).then((ready) => {
-        if (!ready) throw new Error('profile not ready')
-      }),
-    )
-  }
-
-  waiters.push(
-    waitForAnySelectorState(
-      page,
-      CHATGPT_AUTHENTICATED_SELECTORS,
-      'visible',
-      timeoutMs,
-    ).then((ready) => {
-      if (!ready) throw new Error('authenticated home signal not ready')
+async function waitForAnySelectorStateProbe(
+  page: Page,
+  selectors: SelectorTarget[],
+  state: 'visible' | 'hidden' | 'attached' | 'detached',
+  timeoutMs: number,
+): Promise<boolean> {
+  const results = await Promise.all(
+    selectors.map(async (selector) => {
+      try {
+        await toLocator(page, selector)
+          .first()
+          .waitFor({ state, timeout: timeoutMs })
+        return true
+      } catch (error) {
+        if (isRecoverableBrowserAutomationError(error)) {
+          return false
+        }
+        return false
+      }
     }),
   )
 
-  waiters.push(
-    waitForAnySelectorState(
-      page,
-      ONBOARDING_SIGNAL_SELECTORS,
-      'visible',
-      timeoutMs,
-    ).then((ready) => {
-      if (!ready) throw new Error('onboarding action not ready')
-    }),
-  )
+  return results.some(Boolean)
+}
 
-  if (!waiters.length) {
-    await sleep(Math.min(timeoutMs, 250))
+async function locatorMatchesState(
+  locator: Locator,
+  state: 'visible' | 'hidden' | 'attached' | 'detached',
+): Promise<boolean> {
+  try {
+    if (state === 'visible') {
+      return locator.isVisible().catch(() => false)
+    }
+
+    if (state === 'hidden') {
+      return !(await locator.isVisible().catch(() => false))
+    }
+
+    const count =
+      typeof (locator as { count?: () => Promise<number> }).count === 'function'
+        ? await (locator as { count: () => Promise<number> })
+            .count()
+            .catch(() => 0)
+        : undefined
+    if (count !== undefined) {
+      return state === 'attached' ? count > 0 : count === 0
+    }
+
+    await locator.waitFor({ state, timeout: 1 })
     return true
+  } catch (error) {
+    if (isRecoverableBrowserAutomationError(error)) {
+      return false
+    }
+    return false
   }
-
-  return Promise.any(waiters)
-    .then(() => true)
-    .catch(() => false)
 }
 
 export async function waitForPasswordSubmissionOutcome(
@@ -415,7 +481,9 @@ export async function getPendingOnboardingAnnouncementKeys(
     )
 
     return Array.isArray(pendingKeys)
-      ? pendingKeys.filter((value): value is string => typeof value === 'string')
+      ? pendingKeys.filter(
+          (value): value is string => typeof value === 'string',
+        )
       : []
   } catch {
     return []
@@ -432,10 +500,7 @@ export async function waitUntilChatGPTHomeReady(
   const longIdleRounds = Math.ceil(
     ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS / ONBOARDING_IDLE_POLL_MS,
   )
-  const maxRounds = Math.max(
-    rounds,
-    longIdleRounds + MIN_ONBOARDING_CLICKS + 2,
-  )
+  const maxRounds = Math.max(rounds, longIdleRounds + MIN_ONBOARDING_CLICKS + 2)
 
   for (let round = 0; round < maxRounds; round += 1) {
     const onboardingVisible = await isAnySelectorVisible(
@@ -475,7 +540,9 @@ export async function waitUntilChatGPTHomeReady(
       authenticatedIdleStartedAt ??= Date.now()
       const idleElapsedMs = Date.now() - authenticatedIdleStartedAt
       if (idleElapsedMs >= requiredIdleMs) return true
-      await sleep(Math.min(ONBOARDING_IDLE_POLL_MS, requiredIdleMs - idleElapsedMs))
+      await sleep(
+        Math.min(ONBOARDING_IDLE_POLL_MS, requiredIdleMs - idleElapsedMs),
+      )
       continue
     }
 

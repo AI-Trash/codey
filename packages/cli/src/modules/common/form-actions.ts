@@ -71,8 +71,11 @@ export async function clickIfPresent(
   for (const selector of selectors) {
     const locator = toLocator(page, selector).first()
     if (await locator.isVisible().catch(() => false)) {
-      await locator.click()
-      return true
+      const clicked = await locator
+        .click()
+        .then(() => true)
+        .catch(() => false)
+      if (clicked) return true
     }
   }
   return false
@@ -85,8 +88,16 @@ export async function checkIfPresent(
   for (const selector of selectors) {
     const locator = toLocator(page, selector).first()
     if (await locator.isVisible().catch(() => false)) {
-      await locator.check().catch(async () => locator.click())
-      return true
+      const checked = await locator
+        .check()
+        .then(() => true)
+        .catch(async () =>
+          locator
+            .click()
+            .then(() => true)
+            .catch(() => false),
+        )
+      if (checked) return true
     }
   }
   return false
