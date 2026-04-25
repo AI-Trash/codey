@@ -10,6 +10,7 @@ import {
   PlusIcon,
   RefreshCcwIcon,
   SearchIcon,
+  SparklesIcon,
   Trash2Icon,
   UserRoundIcon,
   UsersIcon,
@@ -188,6 +189,16 @@ type DispatchWorkspaceCodexOAuthResponse = {
   ok: boolean
   mode: 'dispatch' | 'request'
   memberEmails: string[]
+  queuedCount?: number
+  assignedCliCount?: number
+  connectionLabel?: string
+  requestId?: string
+}
+
+type DispatchWorkspaceTeamTrialResponse = {
+  ok: boolean
+  mode: 'dispatch' | 'request'
+  ownerEmail: string
   queuedCount?: number
   assignedCliCount?: number
   connectionLabel?: string
@@ -580,6 +591,28 @@ async function dispatchWorkspaceCodexOAuth(
   }
 
   return (await response.json()) as DispatchWorkspaceCodexOAuthResponse
+}
+
+async function dispatchWorkspaceTeamTrial(
+  workspaceId: string,
+): Promise<DispatchWorkspaceTeamTrialResponse> {
+  const response = await fetch(
+    `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/team-trial`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response))
+  }
+
+  return (await response.json()) as DispatchWorkspaceTeamTrialResponse
 }
 
 async function resetWorkspaceAuthorizationStatuses(
@@ -1402,6 +1435,7 @@ function WorkspaceDetailDialog(props: {
   onFlash: (flash: FlashMessage) => void
 }) {
   const [inviteActionKey, setInviteActionKey] = useState<string | null>(null)
+  const [teamTrialPending, setTeamTrialPending] = useState(false)
   const [authorizationPending, setAuthorizationPending] = useState(false)
   const [authorizationResetPending, setAuthorizationResetPending] =
     useState(false)
@@ -1415,6 +1449,7 @@ function WorkspaceDetailDialog(props: {
     }
 
     setInviteActionKey(null)
+    setTeamTrialPending(false)
     setAuthorizationPending(false)
     setAuthorizationResetPending(false)
     setAuthorizationResetTarget(null)
@@ -1424,6 +1459,46 @@ function WorkspaceDetailDialog(props: {
   function publishFlash(flash: FlashMessage) {
     setLocalFlash(flash)
     props.onFlash(flash)
+  }
+
+  async function handleTeamTrial() {
+    if (!props.workspace) {
+      return
+    }
+
+    setTeamTrialPending(true)
+    setLocalFlash(null)
+
+    try {
+      const result = await dispatchWorkspaceTeamTrial(props.workspace.id)
+      const flash: FlashMessage =
+        result.mode === 'dispatch'
+          ? {
+              kind: 'success',
+              message: m.admin_workspace_team_trial_success_dispatched({
+                email: result.ownerEmail,
+                cli: result.connectionLabel || 'CLI',
+              }),
+            }
+          : {
+              kind: 'success',
+              message: m.admin_workspace_team_trial_success_requested({
+                email: result.ownerEmail,
+              }),
+            }
+
+      publishFlash(flash)
+    } catch (error) {
+      publishFlash({
+        kind: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : m.admin_workspace_team_trial_error_fallback(),
+      })
+    } finally {
+      setTeamTrialPending(false)
+    }
   }
 
   async function handleInvite(memberIds?: string[]) {
@@ -1643,8 +1718,11 @@ function WorkspaceDetailDialog(props: {
     hasResettableOwnerAuthorization || Boolean(resettableMembers.length)
   const isMutating =
     inviteActionKey !== null ||
+    teamTrialPending ||
     authorizationPending ||
     authorizationResetPending
+  const canStartTeamTrial =
+    props.canDispatchFlows && Boolean(props.workspace?.owner?.email)
   const canAuthorizeMembers =
     props.canDispatchFlows && Boolean(inviteableMembers.length)
   const canInviteAll =
@@ -1731,13 +1809,30 @@ function WorkspaceDetailDialog(props: {
               </Card>
 
               <Card>
-                <CardHeader className="pb-3">
-                  <CardDescription>
-                    {m.admin_workspace_owner_kicker()}
-                  </CardDescription>
-                  <CardTitle>{m.admin_workspace_owner_label()}</CardTitle>
+                <CardHeader className="gap-3 pb-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <CardDescription>
+                        {m.admin_workspace_owner_kicker()}
+                      </CardDescription>
+                      <CardTitle>{m.admin_workspace_owner_label()}</CardTitle>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!canStartTeamTrial || isMutating}
+                      onClick={() => {
+                        void handleTeamTrial()
+                      }}
+                    >
+                      <SparklesIcon />
+                      {teamTrialPending
+                        ? m.admin_workspace_team_trial_running()
+                        : m.admin_workspace_team_trial_button()}
+                    </Button>
+                  </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-3">
                   {props.workspace.owner ? (
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1776,6 +1871,11 @@ function WorkspaceDetailDialog(props: {
                       {m.admin_workspace_owner_missing()}
                     </p>
                   )}
+                  {props.workspace.owner && !props.canDispatchFlows ? (
+                    <p className="text-xs text-muted-foreground">
+                      {m.admin_workspace_team_trial_requires_cli_permission()}
+                    </p>
+                  ) : null}
                 </CardContent>
               </Card>
             </div>
