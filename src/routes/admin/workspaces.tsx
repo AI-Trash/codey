@@ -155,7 +155,7 @@ type WorkspaceAuthorizationSummary = {
 
 type WorkspaceSummary = {
   id: string
-  workspaceId: string
+  workspaceId: string | null
   label?: string | null
   owner?: WorkspaceIdentitySummary | null
   memberCount: number
@@ -314,7 +314,12 @@ function filterIdentitySummaries(
   }
 
   return identities.filter((identity) => {
-    const searchableValues = [identity.id, identity.label, identity.account, identity.status]
+    const searchableValues = [
+      identity.id,
+      identity.label,
+      identity.account,
+      identity.status,
+    ]
 
     return searchableValues.some((value) =>
       String(value || '')
@@ -324,8 +329,14 @@ function filterIdentitySummaries(
   })
 }
 
-function getWorkspaceDisplayLabel(workspace?: { label?: string | null } | null) {
+function getWorkspaceDisplayLabel(
+  workspace?: { label?: string | null } | null,
+) {
   return workspace?.label || m.admin_workspace_unnamed_label()
+}
+
+function getWorkspaceIdDisplayValue(workspaceId?: string | null) {
+  return workspaceId || m.admin_workspace_id_missing_value()
 }
 
 function isWorkspaceAuthorized(
@@ -338,7 +349,9 @@ function canResetWorkspaceAuthorization(
   authorization?: WorkspaceAuthorizationSummary | null,
   identityId?: string | null,
 ) {
-  return Boolean(identityId && authorization?.state && authorization.state !== 'missing')
+  return Boolean(
+    identityId && authorization?.state && authorization.state !== 'missing',
+  )
 }
 
 function getWorkspaceAuthorizationLabel(
@@ -894,6 +907,7 @@ function WorkspaceEditorDialog(props: {
                 </span>
                 <Input
                   value={props.editor.workspaceId}
+                  placeholder={m.admin_workspace_id_placeholder()}
                   onChange={(event) => {
                     setEditor((current) => ({
                       ...current,
@@ -901,6 +915,9 @@ function WorkspaceEditorDialog(props: {
                     }))
                   }}
                 />
+                <p className="text-xs text-muted-foreground">
+                  {m.admin_workspace_id_description()}
+                </p>
               </label>
 
               <label className="space-y-2">
@@ -947,9 +964,7 @@ function WorkspaceEditorDialog(props: {
                 <Badge variant="secondary" className="max-w-full">
                   <span className="truncate">
                     {selectedOwner.label}
-                    {selectedOwner.account
-                      ? ` · ${selectedOwner.account}`
-                      : ''}
+                    {selectedOwner.account ? ` · ${selectedOwner.account}` : ''}
                   </span>
                 </Badge>
               ) : (
@@ -974,7 +989,8 @@ function WorkspaceEditorDialog(props: {
                       const disabled =
                         Boolean(ownerWorkspace) &&
                         ownerWorkspace?.id !== props.editor.id
-                      const selected = props.editor.ownerIdentityId === identity.id
+                      const selected =
+                        props.editor.ownerIdentityId === identity.id
 
                       return (
                         <button
@@ -1017,7 +1033,9 @@ function WorkspaceEditorDialog(props: {
                             <span>{identity.id}</span>
                             <span>·</span>
                             <span>
-                              {translateStatusLabel(identity.status || 'active')}
+                              {translateStatusLabel(
+                                identity.status || 'active',
+                              )}
                             </span>
                             {disabled ? (
                               <>
@@ -1156,13 +1174,18 @@ function WorkspaceEditorDialog(props: {
                             <div className="mt-1 text-xs text-muted-foreground">
                               {identity.id}
                               {' · '}
-                              {translateStatusLabel(identity.status || 'active')}
+                              {translateStatusLabel(
+                                identity.status || 'active',
+                              )}
                               {otherOwnerWorkspace
-                                ? ` · ${m.admin_workspace_member_other_owner_hint({
-                                    workspace: getWorkspaceDisplayLabel(
-                                      otherOwnerWorkspace,
-                                    ),
-                                  })}`
+                                ? ` · ${m.admin_workspace_member_other_owner_hint(
+                                    {
+                                      workspace:
+                                        getWorkspaceDisplayLabel(
+                                          otherOwnerWorkspace,
+                                        ),
+                                    },
+                                  )}`
                                 : null}
                               {identity.id === props.editor.ownerIdentityId
                                 ? ` · ${m.admin_workspace_member_disabled_owner()}`
@@ -1170,9 +1193,11 @@ function WorkspaceEditorDialog(props: {
                               {!selected &&
                               memberCapReached &&
                               identity.id !== props.editor.ownerIdentityId
-                                ? ` · ${m.admin_workspace_member_disabled_limit({
-                                    max: String(MAX_WORKSPACE_MEMBER_COUNT),
-                                  })}`
+                                ? ` · ${m.admin_workspace_member_disabled_limit(
+                                    {
+                                      max: String(MAX_WORKSPACE_MEMBER_COUNT),
+                                    },
+                                  )}`
                                 : null}
                             </div>
                           </div>
@@ -1209,11 +1234,7 @@ function WorkspaceEditorDialog(props: {
             </Button>
             <Button
               type="button"
-              disabled={
-                props.isSaving ||
-                !props.editor.workspaceId.trim() ||
-                !props.editor.ownerIdentityId
-              }
+              disabled={props.isSaving || !props.editor.ownerIdentityId}
               onClick={() => {
                 void props.onSave()
               }}
@@ -1410,12 +1431,11 @@ function WorkspaceDetailDialog(props: {
       return
     }
 
-    const requestedMemberIds =
-      memberIds?.length
-        ? memberIds
-        : props.workspace.members
-            .filter((member) => !isWorkspaceAuthorized(member.authorization))
-            .map((member) => member.id)
+    const requestedMemberIds = memberIds?.length
+      ? memberIds
+      : props.workspace.members
+          .filter((member) => !isWorkspaceAuthorized(member.authorization))
+          .map((member) => member.id)
 
     if (!requestedMemberIds.length) {
       return
@@ -1473,12 +1493,11 @@ function WorkspaceDetailDialog(props: {
       return
     }
 
-    const requestedMemberIds =
-      memberIds?.length
-        ? memberIds
-        : props.workspace.members
-            .filter((member) => !isWorkspaceAuthorized(member.authorization))
-            .map((member) => member.id)
+    const requestedMemberIds = memberIds?.length
+      ? memberIds
+      : props.workspace.members
+          .filter((member) => !isWorkspaceAuthorized(member.authorization))
+          .map((member) => member.id)
 
     if (!requestedMemberIds.length) {
       return
@@ -1528,9 +1547,7 @@ function WorkspaceDetailDialog(props: {
     }
   }
 
-  async function handleResetAuthorization(
-    target: PendingAuthorizationReset,
-  ) {
+  async function handleResetAuthorization(target: PendingAuthorizationReset) {
     if (!props.workspace) {
       return
     }
@@ -1625,7 +1642,9 @@ function WorkspaceDetailDialog(props: {
   const canResetAllAuthorizations =
     hasResettableOwnerAuthorization || Boolean(resettableMembers.length)
   const isMutating =
-    inviteActionKey !== null || authorizationPending || authorizationResetPending
+    inviteActionKey !== null ||
+    authorizationPending ||
+    authorizationResetPending
   const canAuthorizeMembers =
     props.canDispatchFlows && Boolean(inviteableMembers.length)
   const canInviteAll =
@@ -1646,7 +1665,11 @@ function WorkspaceDetailDialog(props: {
         {props.workspace ? (
           <div className="space-y-6">
             {localFlash ? (
-              <Alert variant={localFlash.kind === 'error' ? 'destructive' : undefined}>
+              <Alert
+                variant={
+                  localFlash.kind === 'error' ? 'destructive' : undefined
+                }
+              >
                 <AlertTitle>
                   {localFlash.kind === 'error'
                     ? m.status_failed()
@@ -1669,12 +1692,20 @@ function WorkspaceDetailDialog(props: {
                     <div className="text-sm font-medium text-foreground">
                       {m.admin_workspace_table_workspace_id()}
                     </div>
-                    <CopyableValue
-                      value={props.workspace.workspaceId}
-                      code
-                      className="max-w-full text-sm text-muted-foreground"
-                      contentClassName="break-all"
-                    />
+                    {props.workspace.workspaceId ? (
+                      <CopyableValue
+                        value={props.workspace.workspaceId}
+                        code
+                        className="max-w-full text-sm text-muted-foreground"
+                        contentClassName="break-all"
+                      />
+                    ) : (
+                      <div className="text-sm text-muted-foreground">
+                        {getWorkspaceIdDisplayValue(
+                          props.workspace.workspaceId,
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
@@ -1836,7 +1867,9 @@ function WorkspaceDetailDialog(props: {
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_authorize_dispatch_hint()}
+                    {props.workspace.workspaceId
+                      ? m.admin_workspace_authorize_dispatch_hint()
+                      : m.admin_workspace_authorize_dispatch_default_workspace_hint()}
                   </p>
                 )}
                 {props.canDispatchFlows &&
@@ -1879,8 +1912,9 @@ function WorkspaceDetailDialog(props: {
                             <div className="text-xs text-muted-foreground">
                               {m.admin_workspace_authorization_last_seen({
                                 time:
-                                  formatAdminDate(member.authorization.lastSeenAt) ||
-                                  member.authorization.lastSeenAt,
+                                  formatAdminDate(
+                                    member.authorization.lastSeenAt,
+                                  ) || member.authorization.lastSeenAt,
                               })}
                             </div>
                           ) : null}
@@ -1917,7 +1951,8 @@ function WorkspaceDetailDialog(props: {
                               setAuthorizationResetTarget({
                                 scope: 'member',
                                 memberIds: [member.id],
-                                memberLabel: member.identityLabel || member.email,
+                                memberLabel:
+                                  member.identityLabel || member.email,
                               })
                             }}
                           >
@@ -1954,9 +1989,11 @@ function WorkspaceDetailDialog(props: {
               <AlertDialogDescription>
                 {authorizationResetTarget?.scope === 'all'
                   ? m.admin_workspace_authorization_reset_confirm_all_description()
-                  : m.admin_workspace_authorization_reset_confirm_member_description({
-                      member: authorizationResetTarget?.memberLabel || '',
-                    })}
+                  : m.admin_workspace_authorization_reset_confirm_member_description(
+                      {
+                        member: authorizationResetTarget?.memberLabel || '',
+                      },
+                    )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -1966,7 +2003,9 @@ function WorkspaceDetailDialog(props: {
               <Button
                 type="button"
                 variant="destructive"
-                disabled={!authorizationResetTarget || authorizationResetPending}
+                disabled={
+                  !authorizationResetTarget || authorizationResetPending
+                }
                 onClick={() => {
                   if (!authorizationResetTarget) {
                     return
@@ -2015,23 +2054,29 @@ function WorkspaceDetailDialog(props: {
 
 function AdminWorkspacesPage() {
   const data = Route.useLoaderData()
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(
-    () => ('workspaces' in data ? (data.workspaces as WorkspaceSummary[]) : []),
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(() =>
+    'workspaces' in data ? (data.workspaces as WorkspaceSummary[]) : [],
   )
   const [query, setQuery] = useState('')
   const [editor, setEditor] = useState<WorkspaceEditorState>(
     createWorkspaceEditorState(),
   )
   const [editorOpen, setEditorOpen] = useState(false)
-  const [detailsTarget, setDetailsTarget] = useState<WorkspaceSummary | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<WorkspaceSummary | null>(null)
+  const [detailsTarget, setDetailsTarget] = useState<WorkspaceSummary | null>(
+    null,
+  )
+  const [deleteTarget, setDeleteTarget] = useState<WorkspaceSummary | null>(
+    null,
+  )
   const [flash, setFlash] = useState<FlashMessage | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     if ('workspaces' in data) {
-      setWorkspaces(sortWorkspaceSummaries(data.workspaces as WorkspaceSummary[]))
+      setWorkspaces(
+        sortWorkspaceSummaries(data.workspaces as WorkspaceSummary[]),
+      )
     }
   }, [data])
 
@@ -2048,7 +2093,9 @@ function AdminWorkspacesPage() {
         return
       }
 
-      setWorkspaces(sortWorkspaceSummaries(next.workspaces as WorkspaceSummary[]))
+      setWorkspaces(
+        sortWorkspaceSummaries(next.workspaces as WorkspaceSummary[]),
+      )
     }
 
     const interval = window.setInterval(() => {
@@ -2079,9 +2126,10 @@ function AdminWorkspacesPage() {
     }
   }, [detailsTarget, workspaces])
 
-  const identitySummaries = 'identitySummaries' in data
-    ? (data.identitySummaries as IdentitySummary[])
-    : []
+  const identitySummaries =
+    'identitySummaries' in data
+      ? (data.identitySummaries as IdentitySummary[])
+      : []
   const filteredWorkspaces = useMemo(
     () => filterWorkspaceSummaries(workspaces, query),
     [query, workspaces],
@@ -2154,10 +2202,14 @@ function AdminWorkspacesPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>{m.admin_workspace_table_label()}</TableHead>
-                      <TableHead>{m.admin_workspace_table_workspace_id()}</TableHead>
+                      <TableHead>
+                        {m.admin_workspace_table_workspace_id()}
+                      </TableHead>
                       <TableHead>{m.admin_workspace_table_owner()}</TableHead>
                       <TableHead>{m.admin_workspace_table_members()}</TableHead>
-                      <TableHead>{m.admin_workspace_table_updated_at()}</TableHead>
+                      <TableHead>
+                        {m.admin_workspace_table_updated_at()}
+                      </TableHead>
                       <TableHead>{m.admin_dashboard_table_manage()}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2170,17 +2222,26 @@ function AdminWorkspacesPage() {
                               {getWorkspaceDisplayLabel(workspace)}
                             </div>
                             <div className="text-sm text-muted-foreground">
-                              {workspace.memberCount} {m.admin_workspace_members_label()}
+                              {workspace.memberCount}{' '}
+                              {m.admin_workspace_members_label()}
                             </div>
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
-                          <CopyableValue
-                            value={workspace.workspaceId}
-                            code
-                            className="max-w-full text-sm text-muted-foreground"
-                            contentClassName="break-all"
-                          />
+                          {workspace.workspaceId ? (
+                            <CopyableValue
+                              value={workspace.workspaceId}
+                              code
+                              className="max-w-full text-sm text-muted-foreground"
+                              contentClassName="break-all"
+                            />
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              {getWorkspaceIdDisplayValue(
+                                workspace.workspaceId,
+                              )}
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="align-top">
                           {workspace.owner ? (
@@ -2286,7 +2347,9 @@ function AdminWorkspacesPage() {
 
           try {
             const workspace = await saveWorkspace(editor)
-            setWorkspaces((current) => upsertWorkspaceSummary(current, workspace))
+            setWorkspaces((current) =>
+              upsertWorkspaceSummary(current, workspace),
+            )
             setEditorOpen(false)
           } catch (error) {
             setFlash({
@@ -2385,4 +2448,3 @@ function AdminWorkspacesPage() {
     </>
   )
 }
-

@@ -1,6 +1,15 @@
 import '@tanstack/react-start/server-only'
 
-import { and, asc, desc, eq, inArray, isNull, notInArray, or } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  notInArray,
+  or,
+} from 'drizzle-orm'
 import { getDb } from './db/client'
 import {
   managedIdentities,
@@ -41,7 +50,7 @@ export interface AdminManagedWorkspaceMemberSummary {
 
 export interface AdminManagedWorkspaceSummary {
   id: string
-  workspaceId: string
+  workspaceId: string | null
   label: string | null
   owner: AdminManagedWorkspaceIdentitySummary | null
   memberCount: number
@@ -50,8 +59,7 @@ export interface AdminManagedWorkspaceSummary {
   updatedAt: string
 }
 
-export type ResolvedManagedWorkspaceAssociation =
-  AdminManagedWorkspaceSummary
+export type ResolvedManagedWorkspaceAssociation = AdminManagedWorkspaceSummary
 
 interface ManagedIdentityLookupRow {
   identityId: string
@@ -66,7 +74,7 @@ interface WorkspaceMemberInput {
 
 interface ManagedWorkspaceAuthorizationInput {
   identityId: string
-  workspaceId: string
+  workspaceId: string | null
 }
 
 interface ManagedWorkspaceAuthorizationLookupRow {
@@ -77,14 +85,16 @@ interface ManagedWorkspaceAuthorizationLookupRow {
   lastSeenAt: Date
 }
 
-const DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY: ManagedWorkspaceAuthorizationSummary = {
-  state: 'missing',
-  expiresAt: null,
-  lastSeenAt: null,
-}
+const DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY: ManagedWorkspaceAuthorizationSummary =
+  {
+    state: 'missing',
+    expiresAt: null,
+    lastSeenAt: null,
+  }
 
-function normalizeWorkspaceId(value: string): string {
-  return value.trim()
+function normalizeWorkspaceId(value?: string | null): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
 }
 
 function normalizeOptionalLabel(value?: string | null): string | null {
@@ -92,9 +102,7 @@ function normalizeOptionalLabel(value?: string | null): string | null {
   return normalized ? normalized : null
 }
 
-function normalizeOptionalIdentityId(
-  value?: string | null,
-): string | null {
+function normalizeOptionalIdentityId(value?: string | null): string | null {
   const normalized = value?.trim()
   return normalized ? normalized : null
 }
@@ -133,7 +141,7 @@ function normalizeIdentityIds(values: Iterable<string>): string[] {
   return [...deduped.values()]
 }
 
-function normalizeWorkspaceIds(values: Iterable<string>): string[] {
+function normalizeWorkspaceIds(values: Iterable<string | null>): string[] {
   const deduped = new Map<string, string>()
 
   for (const value of values) {
@@ -150,26 +158,31 @@ function normalizeWorkspaceIds(values: Iterable<string>): string[] {
 
 function buildManagedWorkspaceAuthorizationKey(input: {
   identityId: string
-  workspaceId: string
+  workspaceId?: string | null
 }): string {
-  return `${input.identityId}::${input.workspaceId}`
+  const workspaceId = normalizeWorkspaceId(input.workspaceId)
+  return `${input.identityId}::${workspaceId ? `workspace:${workspaceId}` : 'default:'}`
 }
 
 function buildManagedWorkspaceIdentitySummary(
   identity?: ManagedIdentityLookupRow | null,
-  workspaceId?: string,
-  authorizationsByWorkspaceIdentity: Map<string, ManagedWorkspaceAuthorizationSummary> = new Map(),
+  workspaceId?: string | null,
+  authorizationsByWorkspaceIdentity: Map<
+    string,
+    ManagedWorkspaceAuthorizationSummary
+  > = new Map(),
 ): AdminManagedWorkspaceIdentitySummary | null {
   if (!identity) {
     return null
   }
 
-  const authorizationKey = workspaceId
-    ? buildManagedWorkspaceAuthorizationKey({
-        identityId: identity.identityId,
-        workspaceId,
-      })
-    : null
+  const authorizationKey =
+    workspaceId !== undefined
+      ? buildManagedWorkspaceAuthorizationKey({
+          identityId: identity.identityId,
+          workspaceId,
+        })
+      : null
 
   return {
     identityId: identity.identityId,
@@ -178,8 +191,7 @@ function buildManagedWorkspaceIdentitySummary(
     authorization:
       (authorizationKey
         ? authorizationsByWorkspaceIdentity.get(authorizationKey)
-        : null) ||
-      DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY,
+        : null) || DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY,
   }
 }
 
@@ -192,7 +204,7 @@ function normalizeManagedWorkspaceAuthorizationInputs(
     const identityId = value.identityId.trim()
     const workspaceId = normalizeWorkspaceId(value.workspaceId)
 
-    if (!identityId || !workspaceId) {
+    if (!identityId) {
       continue
     }
 
@@ -260,9 +272,8 @@ function buildManagedWorkspaceAuthorizationSummary(
 async function resolveManagedWorkspaceAuthorizations(
   authorizations: Iterable<ManagedWorkspaceAuthorizationInput>,
 ): Promise<Map<string, ManagedWorkspaceAuthorizationSummary>> {
-  const normalizedAuthorizations = normalizeManagedWorkspaceAuthorizationInputs(
-    authorizations,
-  )
+  const normalizedAuthorizations =
+    normalizeManagedWorkspaceAuthorizationInputs(authorizations)
   if (!normalizedAuthorizations.length) {
     return new Map()
   }
@@ -278,11 +289,23 @@ async function resolveManagedWorkspaceAuthorizations(
   const normalizedWorkspaceIds = normalizeWorkspaceIds(
     normalizedAuthorizations.map((authorization) => authorization.workspaceId),
   )
+  const requestsDefaultWorkspace = normalizedAuthorizations.some(
+    (authorization) => !authorization.workspaceId,
+  )
+  const workspaceWhere =
+    normalizedWorkspaceIds.length && requestsDefaultWorkspace
+      ? or(
+          inArray(managedIdentitySessions.workspaceId, normalizedWorkspaceIds),
+          isNull(managedIdentitySessions.workspaceId),
+        )
+      : normalizedWorkspaceIds.length
+        ? inArray(managedIdentitySessions.workspaceId, normalizedWorkspaceIds)
+        : isNull(managedIdentitySessions.workspaceId)
 
   const rows = await getDb().query.managedIdentitySessions.findMany({
     where: and(
       inArray(managedIdentitySessions.identityId, normalizedIdentityIds),
-      inArray(managedIdentitySessions.workspaceId, normalizedWorkspaceIds),
+      workspaceWhere,
       or(
         eq(managedIdentitySessions.authMode, 'codex-oauth'),
         eq(managedIdentitySessions.flowType, 'codex-oauth'),
@@ -301,10 +324,6 @@ async function resolveManagedWorkspaceAuthorizations(
   const summaries = new Map<string, ManagedWorkspaceAuthorizationSummary>()
 
   for (const row of rows) {
-    if (!row.workspaceId) {
-      continue
-    }
-
     const authorizationKey = buildManagedWorkspaceAuthorizationKey({
       identityId: row.identityId,
       workspaceId: row.workspaceId,
@@ -352,30 +371,33 @@ async function resolveManagedWorkspaceAuthorizations(
   return summaries
 }
 
-function buildAdminManagedWorkspaceSummary(row: {
-  id: string
-  workspaceId: string
-  label: string | null
-  ownerIdentity?: ManagedIdentityLookupRow | null
-  createdAt: Date
-  updatedAt: Date
-  members: Array<{
+function buildAdminManagedWorkspaceSummary(
+  row: {
     id: string
-    email: string
-    identityId: string | null
-    identity?: ManagedIdentityLookupRow | null
-  }>
-},
-authorizationsByWorkspaceIdentity: Map<string, ManagedWorkspaceAuthorizationSummary>,
+    workspaceId: string | null
+    label: string | null
+    ownerIdentity?: ManagedIdentityLookupRow | null
+    createdAt: Date
+    updatedAt: Date
+    members: Array<{
+      id: string
+      email: string
+      identityId: string | null
+      identity?: ManagedIdentityLookupRow | null
+    }>
+  },
+  authorizationsByWorkspaceIdentity: Map<
+    string,
+    ManagedWorkspaceAuthorizationSummary
+  >,
 ): AdminManagedWorkspaceSummary {
   const members = row.members.map((member) => {
-    const authorizationKey =
-      member.identityId && row.workspaceId
-        ? buildManagedWorkspaceAuthorizationKey({
-            identityId: member.identityId,
-            workspaceId: row.workspaceId,
-          })
-        : null
+    const authorizationKey = member.identityId
+      ? buildManagedWorkspaceAuthorizationKey({
+          identityId: member.identityId,
+          workspaceId: row.workspaceId,
+        })
+      : null
 
     return {
       id: member.id,
@@ -516,9 +538,15 @@ async function resolveWorkspaceMemberInputs(input: {
   memberIdentityIds?: string[]
   memberEmails?: string[]
 }): Promise<WorkspaceMemberInput[]> {
-  const normalizedIdentityIds = normalizeIdentityIds(input.memberIdentityIds || [])
-  const normalizedEmails = normalizeWorkspaceMemberEmails(input.memberEmails || [])
-  const identitiesById = await resolveManagedIdentityRowsByIds(normalizedIdentityIds)
+  const normalizedIdentityIds = normalizeIdentityIds(
+    input.memberIdentityIds || [],
+  )
+  const normalizedEmails = normalizeWorkspaceMemberEmails(
+    input.memberEmails || [],
+  )
+  const identitiesById = await resolveManagedIdentityRowsByIds(
+    normalizedIdentityIds,
+  )
   const memberInputs: WorkspaceMemberInput[] = []
   const identityEmails = new Set<string>()
 
@@ -660,7 +688,7 @@ async function assertWorkspaceOwnerAvailability(
 
   if (duplicate) {
     throw new Error(
-      `This identity already owns workspace ${duplicate.label || duplicate.workspaceId}.`,
+      `This identity already owns workspace ${duplicate.label || duplicate.workspaceId || 'unnamed workspace'}.`,
     )
   }
 }
@@ -693,23 +721,24 @@ export async function listAdminManagedWorkspaceSummaries(): Promise<
     orderBy: [desc(managedWorkspaces.updatedAt)],
   })
 
-  const authorizationsByWorkspaceIdentity = await resolveManagedWorkspaceAuthorizations(
-    rows.flatMap((row) => [
-      ...(row.ownerIdentity?.identityId
-        ? [
-            {
-              identityId: row.ownerIdentity.identityId,
-              workspaceId: row.workspaceId,
-            },
-          ]
-        : []),
-      ...row.members.flatMap((member) =>
-        member.identityId
-          ? [{ identityId: member.identityId, workspaceId: row.workspaceId }]
-          : [],
-      ),
-    ]),
-  )
+  const authorizationsByWorkspaceIdentity =
+    await resolveManagedWorkspaceAuthorizations(
+      rows.flatMap((row) => [
+        ...(row.ownerIdentity?.identityId
+          ? [
+              {
+                identityId: row.ownerIdentity.identityId,
+                workspaceId: row.workspaceId,
+              },
+            ]
+          : []),
+        ...row.members.flatMap((member) =>
+          member.identityId
+            ? [{ identityId: member.identityId, workspaceId: row.workspaceId }]
+            : [],
+        ),
+      ]),
+    )
 
   return rows.map((row) =>
     buildAdminManagedWorkspaceSummary(row, authorizationsByWorkspaceIdentity),
@@ -748,45 +777,48 @@ export async function findAdminManagedWorkspaceSummary(
     return null
   }
 
-  const authorizationsByWorkspaceIdentity = await resolveManagedWorkspaceAuthorizations([
-    ...(row.ownerIdentity?.identityId
-      ? [
-          {
-            identityId: row.ownerIdentity.identityId,
-            workspaceId: row.workspaceId,
-          },
-        ]
-      : []),
-    ...row.members.flatMap((member) =>
-      member.identityId
-        ? [{ identityId: member.identityId, workspaceId: row.workspaceId }]
-        : [],
-    ),
-  ])
+  const authorizationsByWorkspaceIdentity =
+    await resolveManagedWorkspaceAuthorizations([
+      ...(row.ownerIdentity?.identityId
+        ? [
+            {
+              identityId: row.ownerIdentity.identityId,
+              workspaceId: row.workspaceId,
+            },
+          ]
+        : []),
+      ...row.members.flatMap((member) =>
+        member.identityId
+          ? [{ identityId: member.identityId, workspaceId: row.workspaceId }]
+          : [],
+      ),
+    ])
 
-  return buildAdminManagedWorkspaceSummary(row, authorizationsByWorkspaceIdentity)
+  return buildAdminManagedWorkspaceSummary(
+    row,
+    authorizationsByWorkspaceIdentity,
+  )
 }
 
 export async function createManagedWorkspace(input: {
-  workspaceId: string
+  workspaceId?: string | null
   label?: string | null
   ownerIdentityId?: string | null
   memberIdentityIds?: string[]
   memberEmails?: string[]
 }): Promise<AdminManagedWorkspaceSummary> {
   const workspaceId = normalizeWorkspaceId(input.workspaceId)
-  if (!workspaceId) {
-    throw new Error('workspaceId is required')
-  }
 
-  const existing = await getDb().query.managedWorkspaces.findFirst({
-    where: eq(managedWorkspaces.workspaceId, workspaceId),
-    columns: {
-      id: true,
-    },
-  })
-  if (existing) {
-    throw new Error('Workspace ID already exists')
+  if (workspaceId) {
+    const existing = await getDb().query.managedWorkspaces.findFirst({
+      where: eq(managedWorkspaces.workspaceId, workspaceId),
+      columns: {
+        id: true,
+      },
+    })
+    if (existing) {
+      throw new Error('Workspace ID already exists')
+    }
   }
 
   const ownerIdentityId = normalizeOptionalIdentityId(input.ownerIdentityId)
@@ -832,22 +864,18 @@ export async function createManagedWorkspace(input: {
 export async function updateManagedWorkspace(
   id: string,
   input: {
-    workspaceId: string
+    workspaceId?: string | null
     label?: string | null
     ownerIdentityId?: string | null
     memberIdentityIds?: string[]
     memberEmails?: string[]
   },
 ): Promise<AdminManagedWorkspaceSummary | null> {
-  const workspaceId = normalizeWorkspaceId(input.workspaceId)
-  if (!workspaceId) {
-    throw new Error('workspaceId is required')
-  }
-
   const existing = await getDb().query.managedWorkspaces.findFirst({
     where: eq(managedWorkspaces.id, id),
     columns: {
       id: true,
+      workspaceId: true,
       ownerIdentityId: true,
     },
   })
@@ -855,17 +883,24 @@ export async function updateManagedWorkspace(
     return null
   }
 
-  const duplicate = await getDb().query.managedWorkspaces.findFirst({
-    where: and(
-      eq(managedWorkspaces.workspaceId, workspaceId),
-      notInArray(managedWorkspaces.id, [id]),
-    ),
-    columns: {
-      id: true,
-    },
-  })
-  if (duplicate) {
-    throw new Error('Workspace ID already exists')
+  const workspaceId =
+    input.workspaceId === undefined
+      ? existing.workspaceId
+      : normalizeWorkspaceId(input.workspaceId)
+
+  if (workspaceId) {
+    const duplicate = await getDb().query.managedWorkspaces.findFirst({
+      where: and(
+        eq(managedWorkspaces.workspaceId, workspaceId),
+        notInArray(managedWorkspaces.id, [id]),
+      ),
+      columns: {
+        id: true,
+      },
+    })
+    if (duplicate) {
+      throw new Error('Workspace ID already exists')
+    }
   }
 
   const ownerIdentityId =
@@ -902,7 +937,10 @@ export async function updateManagedWorkspace(
     return null
   }
 
-  if (input.memberIdentityIds !== undefined || input.memberEmails !== undefined) {
+  if (
+    input.memberIdentityIds !== undefined ||
+    input.memberEmails !== undefined
+  ) {
     await replaceWorkspaceMembers(record.id, nextMemberInputs)
   }
 
@@ -977,15 +1015,16 @@ export async function resetManagedWorkspaceAuthorizationStatuses(input: {
   }
 
   const requestedMemberIds = new Set(
-    (input.memberIds || [])
-      .map((memberId) => memberId.trim())
-      .filter(Boolean),
+    (input.memberIds || []).map((memberId) => memberId.trim()).filter(Boolean),
   )
   const selectedMembers = requestedMemberIds.size
     ? workspace.members.filter((member) => requestedMemberIds.has(member.id))
     : workspace.members
 
-  if (requestedMemberIds.size && selectedMembers.length !== requestedMemberIds.size) {
+  if (
+    requestedMemberIds.size &&
+    selectedMembers.length !== requestedMemberIds.size
+  ) {
     throw new Error('Some requested workspace members were not found')
   }
 
@@ -1015,7 +1054,9 @@ export async function resetManagedWorkspaceAuthorizationStatuses(input: {
     .where(
       and(
         inArray(managedIdentitySessions.identityId, identityIds),
-        eq(managedIdentitySessions.workspaceId, workspace.workspaceId),
+        workspace.workspaceId
+          ? eq(managedIdentitySessions.workspaceId, workspace.workspaceId)
+          : isNull(managedIdentitySessions.workspaceId),
         or(
           eq(managedIdentitySessions.authMode, 'codex-oauth'),
           eq(managedIdentitySessions.flowType, 'codex-oauth'),
@@ -1033,7 +1074,9 @@ export async function resetManagedWorkspaceAuthorizationStatuses(input: {
     })
     .where(eq(managedWorkspaces.id, workspace.id))
 
-  const refreshedWorkspace = await findAdminManagedWorkspaceSummary(workspace.id)
+  const refreshedWorkspace = await findAdminManagedWorkspaceSummary(
+    workspace.id,
+  )
   if (!refreshedWorkspace) {
     throw new Error('Unable to load updated workspace')
   }
@@ -1103,14 +1146,16 @@ export async function syncManagedWorkspaceInvite(input: {
       })
       .where(eq(managedWorkspaces.id, existing.id))
   } else {
-    await getDb().insert(managedWorkspaces).values({
-      id: managedWorkspaceId,
-      workspaceId,
-      label: normalizeOptionalLabel(input.label),
-      ownerIdentityId,
-      createdAt: seenAt,
-      updatedAt: seenAt,
-    })
+    await getDb()
+      .insert(managedWorkspaces)
+      .values({
+        id: managedWorkspaceId,
+        workspaceId,
+        label: normalizeOptionalLabel(input.label),
+        ownerIdentityId,
+        createdAt: seenAt,
+        updatedAt: seenAt,
+      })
   }
 
   await replaceWorkspaceMembers(managedWorkspaceId, mergedMemberInputs)
@@ -1335,14 +1380,12 @@ export async function removeManagedIdentityFromAllWorkspaces(params: {
       touchedWorkspaceIds.add(row.managedWorkspaceId)
     }
 
-    await db
-      .delete(managedWorkspaceMembers)
-      .where(
-        inArray(
-          managedWorkspaceMembers.id,
-          memberRows.map((row) => row.id),
-        ),
-      )
+    await db.delete(managedWorkspaceMembers).where(
+      inArray(
+        managedWorkspaceMembers.id,
+        memberRows.map((row) => row.id),
+      ),
+    )
   }
 
   const workspaceIdsToTouch = [...touchedWorkspaceIds]
@@ -1360,4 +1403,3 @@ export async function removeManagedIdentityFromAllWorkspaces(params: {
     removedMemberCount: memberRows.length,
   }
 }
-

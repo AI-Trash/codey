@@ -29,7 +29,10 @@ function readStringList(value: unknown): string[] | null | undefined {
       .filter(Boolean)
   }
 
-  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+  if (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === 'string')
+  ) {
     return value
   }
 
@@ -39,17 +42,14 @@ function readStringList(value: unknown): string[] | null | undefined {
 function isConnectionBusy(connection: AdminCliConnectionSummary) {
   return Boolean(
     connection.runtimeFlowId &&
-      !connection.runtimeFlowCompletedAt &&
-      connection.runtimeFlowStatus !== 'completed',
+    !connection.runtimeFlowCompletedAt &&
+    connection.runtimeFlowStatus !== 'completed',
   )
 }
 
 function getConnectionLabel(connection: AdminCliConnectionSummary) {
   return (
-    connection.cliName ||
-    connection.target ||
-    connection.authClientId ||
-    'CLI'
+    connection.cliName || connection.target || connection.authClientId || 'CLI'
   )
 }
 
@@ -63,7 +63,8 @@ function sortCodexOAuthCapableConnections(
       return sharedDelta
     }
 
-    const busyDelta = Number(isConnectionBusy(left)) - Number(isConnectionBusy(right))
+    const busyDelta =
+      Number(isConnectionBusy(left)) - Number(isConnectionBusy(right))
     if (busyDelta) {
       return busyDelta
     }
@@ -75,16 +76,18 @@ function sortCodexOAuthCapableConnections(
 }
 
 function buildWorkspaceCodexOAuthNotes(input: {
-  workspaceId: string
+  workspaceId?: string | null
   workspaceLabel?: string | null
   memberEmails: string[]
 }) {
   return [
-    `Workspace: ${input.workspaceLabel || input.workspaceId}`,
-    `Workspace ID: ${input.workspaceId}`,
+    `Workspace: ${input.workspaceLabel || input.workspaceId || 'Workspace'}`,
+    ...(input.workspaceId ? [`Workspace ID: ${input.workspaceId}`] : []),
     'Authorize members with Codex OAuth:',
     ...input.memberEmails.map((email) => `- ${email}`),
-    'Codey will pass this workspace ID into each Codex OAuth flow.',
+    input.workspaceId
+      ? 'Codey will pass this workspace ID into each Codex OAuth flow.'
+      : 'Codey will let Codex OAuth use the default workspace selection.',
   ].join('\n')
 }
 
@@ -104,7 +107,9 @@ export const Route = createFileRoute(
           )
         }
 
-        const workspace = await findAdminManagedWorkspaceSummary(params.workspaceId)
+        const workspace = await findAdminManagedWorkspaceSummary(
+          params.workspaceId,
+        )
         if (!workspace) {
           return text('Workspace not found', 404)
         }
@@ -125,7 +130,10 @@ export const Route = createFileRoute(
               (member) => member.authorization.state !== 'authorized',
             )
 
-        if (memberIds?.length && selectedMembers.length !== new Set(memberIds).size) {
+        if (
+          memberIds?.length &&
+          selectedMembers.length !== new Set(memberIds).size
+        ) {
           return text('Some requested workspace members were not found', 404)
         }
 
@@ -133,7 +141,10 @@ export const Route = createFileRoute(
           (member) => member.authorization.state !== 'authorized',
         )
         if (!pendingMembers.length) {
-          return text('All requested workspace members are already authorized', 400)
+          return text(
+            'All requested workspace members are already authorized',
+            400,
+          )
         }
 
         const memberEmails = Array.from(
@@ -169,10 +180,14 @@ export const Route = createFileRoute(
               connectionId,
               flowId: 'codex-oauth',
               actor,
-              parallelism: getWorkspaceCodexOAuthParallelism(memberEmails.length),
+              parallelism: getWorkspaceCodexOAuthParallelism(
+                memberEmails.length,
+              ),
               configs: memberEmails.map((email) => ({
                 email,
-                workspaceId: workspace.workspaceId,
+                ...(workspace.workspaceId
+                  ? { workspaceId: workspace.workspaceId }
+                  : {}),
               })),
             })
 
@@ -188,10 +203,13 @@ export const Route = createFileRoute(
           }
 
           const flowRequest = await createFlowAppRequest({
-            appName: workspace.label || workspace.workspaceId,
+            appName: workspace.label || workspace.workspaceId || 'Workspace',
             flowType: 'codex-oauth',
             requestedBy:
-              admin.user.githubLogin || admin.user.email || admin.user.name || undefined,
+              admin.user.githubLogin ||
+              admin.user.email ||
+              admin.user.name ||
+              undefined,
             requestedIdentity:
               pendingMembers.length === 1
                 ? pendingMembers[0]?.identityId || undefined

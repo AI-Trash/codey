@@ -14,6 +14,7 @@ import {
   managedWorkspaces,
 } from './db/schema'
 import {
+  createManagedWorkspace,
   deleteManagedWorkspace,
   listAdminManagedWorkspaceSummaries,
   resetManagedWorkspaceAuthorizationStatuses,
@@ -22,6 +23,90 @@ import {
 describe('managed workspace authorization summaries', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('creates a managed workspace without an OpenAI workspace ID', async () => {
+    const now = new Date('2026-04-23T00:00:00.000Z')
+    const insertedWorkspace = {
+      id: 'workspace-record-1',
+      workspaceId: null,
+      label: 'Alpha',
+      ownerIdentityId: 'identity-1',
+      createdAt: now,
+      updatedAt: now,
+    }
+    const ownerIdentity = {
+      identityId: 'identity-1',
+      email: 'owner@example.com',
+      label: 'Owner',
+    }
+    const findFirstWorkspace = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        ...insertedWorkspace,
+        ownerIdentity,
+        members: [],
+      })
+    const insertValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([insertedWorkspace]),
+    })
+    const deleteMemberWhere = vi.fn().mockResolvedValue(undefined)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedIdentities: {
+          findFirst: vi.fn().mockResolvedValue(ownerIdentity),
+        },
+        managedWorkspaces: {
+          findFirst: findFirstWorkspace,
+        },
+        managedIdentitySessions: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      },
+      insert: vi.fn((table: unknown) => {
+        if (table === managedWorkspaces) {
+          return {
+            values: insertValues,
+          }
+        }
+
+        throw new Error('Unexpected insert table')
+      }),
+      delete: vi.fn((table: unknown) => {
+        if (table === managedWorkspaceMembers) {
+          return {
+            where: deleteMemberWhere,
+          }
+        }
+
+        throw new Error('Unexpected delete table')
+      }),
+    })
+
+    await expect(
+      createManagedWorkspace({
+        workspaceId: '',
+        label: 'Alpha',
+        ownerIdentityId: 'identity-1',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        workspaceId: null,
+        owner: expect.objectContaining({
+          identityId: 'identity-1',
+        }),
+      }),
+    )
+
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: null,
+        label: 'Alpha',
+        ownerIdentityId: 'identity-1',
+      }),
+    )
   })
 
   it('keeps authorization state scoped to the matching workspace', async () => {

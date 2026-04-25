@@ -169,6 +169,13 @@
       "when": 1777019180902,
       "tag": "0023_sub2api_openai_ws_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1777105955561,
+      "tag": "0024_optional_workspace_id",
+      "breakpoints": true
     }
   ]
 }

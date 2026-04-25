@@ -566,7 +566,7 @@ export const managedWorkspaces = pgTable(
   'managed_workspaces',
   {
     id: text('id').primaryKey(),
-    workspaceId: text('workspace_id').notNull(),
+    workspaceId: text('workspace_id'),
     label: text('label'),
     ownerIdentityId: text('owner_identity_id').references(
       () => managedIdentities.identityId,

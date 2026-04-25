@@ -11,7 +11,7 @@ import {
 interface AdminWorkspaceMutationBody {
   intent?: string
   id?: string
-  workspaceId?: string
+  workspaceId?: string | null
   label?: string
   ownerIdentityId?: string | null
   memberIdentityIds?: string[] | string
@@ -30,7 +30,10 @@ function readStringList(value: unknown): string[] | null | undefined {
       .filter(Boolean)
   }
 
-  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+  if (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === 'string')
+  ) {
     return value
   }
 
@@ -38,6 +41,23 @@ function readStringList(value: unknown): string[] | null | undefined {
 }
 
 function readOptionalIdentityId(value: unknown): string | null | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (value === null) {
+    return null
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized ? normalized : null
+}
+
+function readOptionalWorkspaceId(value: unknown): string | null | undefined {
   if (value === undefined) {
     return undefined
   }
@@ -68,7 +88,9 @@ export const Route = createFileRoute('/api/admin/workspaces')({
         }
 
         const body = await readJsonBody<AdminWorkspaceMutationBody>(request)
-        const intent = String(body.intent || 'save').trim().toLowerCase()
+        const intent = String(body.intent || 'save')
+          .trim()
+          .toLowerCase()
 
         try {
           if (intent === 'delete') {
@@ -88,14 +110,11 @@ export const Route = createFileRoute('/api/admin/workspaces')({
             })
           }
 
-          const workspaceId = String(body.workspaceId || '').trim()
+          const workspaceId = readOptionalWorkspaceId(body.workspaceId)
           const ownerIdentityId = readOptionalIdentityId(body.ownerIdentityId)
           const memberIdentityIds = readStringList(body.memberIdentityIds)
           const memberEmails = readStringList(body.memberEmails)
 
-          if (!workspaceId) {
-            return text('workspaceId is required', 400)
-          }
           if (!ownerIdentityId) {
             return text('ownerIdentityId is required', 400)
           }

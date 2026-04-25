@@ -28,7 +28,10 @@ function readStringList(value: unknown): string[] | null | undefined {
       .filter(Boolean)
   }
 
-  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+  if (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === 'string')
+  ) {
     return value
   }
 
@@ -38,17 +41,14 @@ function readStringList(value: unknown): string[] | null | undefined {
 function isConnectionBusy(connection: AdminCliConnectionSummary) {
   return Boolean(
     connection.runtimeFlowId &&
-      !connection.runtimeFlowCompletedAt &&
-      connection.runtimeFlowStatus !== 'completed',
+    !connection.runtimeFlowCompletedAt &&
+    connection.runtimeFlowStatus !== 'completed',
   )
 }
 
 function getConnectionLabel(connection: AdminCliConnectionSummary) {
   return (
-    connection.cliName ||
-    connection.target ||
-    connection.authClientId ||
-    'CLI'
+    connection.cliName || connection.target || connection.authClientId || 'CLI'
   )
 }
 
@@ -62,7 +62,8 @@ function sortInviteCapableConnections(
       return sharedDelta
     }
 
-    const busyDelta = Number(isConnectionBusy(left)) - Number(isConnectionBusy(right))
+    const busyDelta =
+      Number(isConnectionBusy(left)) - Number(isConnectionBusy(right))
     if (busyDelta) {
       return busyDelta
     }
@@ -74,18 +75,20 @@ function sortInviteCapableConnections(
 }
 
 function buildWorkspaceInviteNotes(input: {
-  workspaceId: string
+  workspaceId?: string | null
   workspaceLabel?: string | null
   ownerIdentityId: string
   memberEmails: string[]
 }) {
-  return [
-    `Workspace: ${input.workspaceLabel || input.workspaceId}`,
-    `Workspace ID: ${input.workspaceId}`,
+  const lines = [
+    `Workspace: ${input.workspaceLabel || input.workspaceId || 'Workspace'}`,
+    ...(input.workspaceId ? [`Workspace ID: ${input.workspaceId}`] : []),
     `Owner identity: ${input.ownerIdentityId}`,
     'Invite emails:',
     ...input.memberEmails.map((email) => `- ${email}`),
-  ].join('\n')
+  ]
+
+  return lines.join('\n')
 }
 
 export const Route = createFileRoute(
@@ -104,13 +107,18 @@ export const Route = createFileRoute(
           )
         }
 
-        const workspace = await findAdminManagedWorkspaceSummary(params.workspaceId)
+        const workspace = await findAdminManagedWorkspaceSummary(
+          params.workspaceId,
+        )
         if (!workspace) {
           return text('Workspace not found', 404)
         }
 
         if (!workspace.owner?.identityId || !workspace.owner.email) {
-          return text('Workspace owner identity is required before inviting', 400)
+          return text(
+            'Workspace owner identity is required before inviting',
+            400,
+          )
         }
 
         const body = await readJsonBody<InviteWorkspaceMembersBody>(request)
@@ -126,7 +134,10 @@ export const Route = createFileRoute(
           ? workspace.members.filter((member) => memberIds.includes(member.id))
           : workspace.members
 
-        if (memberIds?.length && selectedMembers.length !== new Set(memberIds).size) {
+        if (
+          memberIds?.length &&
+          selectedMembers.length !== new Set(memberIds).size
+        ) {
           return text('Some requested workspace members were not found', 404)
         }
 
@@ -191,10 +202,13 @@ export const Route = createFileRoute(
           }
 
           const flowRequest = await createFlowAppRequest({
-            appName: workspace.label || workspace.workspaceId,
+            appName: workspace.label || workspace.workspaceId || 'Workspace',
             flowType: 'chatgpt-login-invite',
             requestedBy:
-              admin.user.githubLogin || admin.user.email || admin.user.name || undefined,
+              admin.user.githubLogin ||
+              admin.user.email ||
+              admin.user.name ||
+              undefined,
             requestedIdentity: workspace.owner.identityId,
             notes: buildWorkspaceInviteNotes({
               workspaceId: workspace.workspaceId,
