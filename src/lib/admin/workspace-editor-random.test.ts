@@ -1,8 +1,72 @@
 import { describe, expect, it } from 'vitest'
 
-import { getRandomWorkspaceMemberSelection } from './workspace-editor-random'
+import {
+  getRandomWorkspaceMemberSelection,
+  getRandomWorkspaceOwnerIdentity,
+} from './workspace-editor-random'
+
+describe('workspace owner random selection', () => {
+  it('ignores archived and banned identities', () => {
+    const selection = getRandomWorkspaceOwnerIdentity({
+      identities: [
+        {
+          id: 'owner-archived',
+          label: 'Archived Owner',
+          status: 'archived',
+        },
+        {
+          id: 'owner-banned',
+          label: 'Banned Owner',
+          status: 'banned',
+        },
+        {
+          id: 'owner-active',
+          label: 'Active Owner',
+          status: 'active',
+        },
+      ],
+      ownerWorkspaceByIdentityId: new Map(),
+      memberWorkspacesByIdentityId: new Map(),
+    })
+
+    expect(selection?.id).toBe('owner-active')
+  })
+})
 
 describe('workspace member random selection', () => {
+  it('ignores archived and banned identities', () => {
+    const selection = getRandomWorkspaceMemberSelection({
+      identities: [
+        {
+          id: 'owner',
+          label: 'Owner',
+        },
+        {
+          id: 'member-archived',
+          label: 'Archived Member',
+          status: 'archived',
+        },
+        {
+          id: 'member-banned',
+          label: 'Banned Member',
+          status: 'banned',
+        },
+        {
+          id: 'member-active',
+          label: 'Active Member',
+          status: 'active',
+        },
+      ],
+      ownerIdentityId: 'owner',
+      ownerWorkspaceByIdentityId: new Map(),
+      memberWorkspacesByIdentityId: new Map(),
+      count: 9,
+    })
+
+    expect(selection.identityIds).toEqual(['member-active'])
+    expect(selection.conflicts).toEqual([])
+  })
+
   it('prefers identities that are unused by other workspaces', () => {
     const selection = getRandomWorkspaceMemberSelection({
       identities: [

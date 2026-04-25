@@ -15,6 +15,12 @@ export type RandomWorkspaceMemberConflict = {
   workspaces: RandomizableWorkspace[]
 }
 
+export function isWorkspaceSelectableIdentity(identity: RandomizableIdentity) {
+  const status = identity.status?.trim().toLowerCase()
+
+  return status !== 'archived' && status !== 'banned'
+}
+
 function shuffleItems<T>(items: T[]): T[] {
   const next = [...items]
 
@@ -95,6 +101,7 @@ export function getRandomWorkspaceOwnerIdentity(input: {
 }) {
   const eligibleIdentities = input.identities.filter(
     (identity) =>
+      isWorkspaceSelectableIdentity(identity) &&
       !getOtherWorkspaceOwnerWorkspace(
         identity.id,
         input.ownerWorkspaceByIdentityId,
@@ -147,7 +154,9 @@ export function getRandomWorkspaceMemberSelection(input: {
   }
 
   const eligibleIdentities = input.identities.filter(
-    (identity) => identity.id !== input.ownerIdentityId,
+    (identity) =>
+      isWorkspaceSelectableIdentity(identity) &&
+      identity.id !== input.ownerIdentityId,
   )
   const [preferredIdentities, fallbackIdentities] = eligibleIdentities.reduce<
     [RandomizableIdentity[], RandomWorkspaceMemberConflict[]]

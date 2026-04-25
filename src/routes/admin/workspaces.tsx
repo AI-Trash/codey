@@ -66,6 +66,7 @@ import {
   getOtherWorkspaceOwnerWorkspace,
   getRandomWorkspaceMemberSelection,
   getRandomWorkspaceOwnerIdentity,
+  isWorkspaceSelectableIdentity,
 } from '#/lib/admin/workspace-editor-random'
 import { translateStatusLabel } from '#/lib/i18n'
 import { cn } from '#/lib/utils'
@@ -321,12 +322,6 @@ function filterIdentitySummaries(
         .includes(normalizedQuery),
     )
   })
-}
-
-function isWorkspaceSelectableIdentity(identity: IdentitySummary) {
-  const status = identity.status?.trim().toLowerCase()
-
-  return status !== 'archived' && status !== 'banned'
 }
 
 function getWorkspaceDisplayLabel(workspace?: { label?: string | null } | null) {
@@ -738,12 +733,8 @@ function WorkspaceEditorDialog(props: {
 
     return entries
   }, [props.workspaces])
-  const ownerPickerIdentities = props.editor.id
-    ? props.identities
-    : selectableIdentities
-  const memberPickerIdentities = props.editor.id
-    ? props.identities
-    : selectableIdentities
+  const ownerPickerIdentities = selectableIdentities
+  const memberPickerIdentities = selectableIdentities
   const selectedMemberIds = useMemo(
     () => new Set(props.editor.memberIdentityIds),
     [props.editor.memberIdentityIds],
