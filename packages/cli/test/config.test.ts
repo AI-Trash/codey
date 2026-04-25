@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { defaultCodexOAuthConfig, resolveConfig } from '../src/config'
 import { buildRuntimeConfig } from '../src/modules/flow-cli/helpers'
 import {
+  parseWindowsInternetSettingsProxy,
+  resolveProxyConfig,
+} from '../src/utils/proxy'
+import {
   resolveChromeProfileLaunchConfig,
   resolveDefaultChromeUserDataDir,
 } from '../src/utils/chrome-profile'
@@ -62,6 +66,26 @@ const sub2apiEnvNames = {
   SUB2API_GROUP_IDS: undefined,
   SUB2API_AUTO_FILL_RELATED_MODELS: undefined,
   SUB2API_CONFIRM_MIXED_CHANNEL_RISK: undefined,
+}
+
+const proxyEnvNames = {
+  CODEY_PROXY_URL: undefined,
+  CODEY_PROXY_SERVER: undefined,
+  CODEY_BROWSER_PROXY_URL: undefined,
+  CODEY_BROWSER_PROXY_SERVER: undefined,
+  CODEX_PROXY_URL: undefined,
+  CODEY_PROXY_BYPASS: undefined,
+  CODEY_PROXY_USERNAME: undefined,
+  CODEY_PROXY_PASSWORD: undefined,
+  CODEY_USE_SYSTEM_PROXY: 'false',
+  HTTPS_PROXY: undefined,
+  https_proxy: undefined,
+  ALL_PROXY: undefined,
+  all_proxy: undefined,
+  HTTP_PROXY: undefined,
+  http_proxy: undefined,
+  NO_PROXY: undefined,
+  no_proxy: undefined,
 }
 
 describe('resolveConfig codex defaults', () => {
@@ -253,5 +277,74 @@ describe('chrome profile launch config', () => {
         'C:\\Users\\Summp\\AppData\\Local\\Google\\Chrome\\User Data',
       profileDirectory: 'Default',
     })
+  })
+})
+
+describe('browser proxy config', () => {
+  it('reads explicit proxy env vars into browser config', async () => {
+    const config = await withEnv(
+      {
+        ...proxyEnvNames,
+        CODEY_PROXY_URL: 'http://user:pass@127.0.0.1:7890',
+        CODEY_PROXY_BYPASS: 'example.test;*.internal',
+      },
+      () => resolveConfig(),
+    )
+
+    expect(config.browser.proxy).toEqual({
+      server: 'http://127.0.0.1:7890',
+      bypass: 'localhost,127.0.0.1,::1,example.test,*.internal',
+      username: 'user',
+      password: 'pass',
+    })
+  })
+
+  it('parses enabled Windows system proxy settings', () => {
+    expect(
+      parseWindowsInternetSettingsProxy(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+    ProxyServer    REG_SZ    http=127.0.0.1:7890;https=127.0.0.1:7891;socks=127.0.0.1:1080
+    ProxyOverride    REG_SZ    <local>;*.lan
+`),
+    ).toEqual({
+      server: 'http://127.0.0.1:7891',
+      bypass: 'localhost,127.0.0.1,::1,<local>,*.lan',
+      username: undefined,
+      password: undefined,
+    })
+  })
+
+  it('prefers the Windows system proxy when no explicit env var is set', () => {
+    expect(
+      resolveProxyConfig({
+        env: {
+          ...proxyEnvNames,
+          CODEY_USE_SYSTEM_PROXY: undefined,
+        },
+        platform: 'win32',
+        queryWindowsProxy: () => `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+    ProxyServer    REG_SZ    127.0.0.1:10808
+    ProxyOverride    REG_SZ    <local>;127.*;192.168.*
+`,
+      }),
+    ).toEqual({
+      server: 'http://127.0.0.1:10808',
+      bypass: 'localhost,127.0.0.1,::1,<local>,127.*,192.168.*',
+      username: undefined,
+      password: undefined,
+    })
+  })
+
+  it('ignores disabled Windows system proxy settings', () => {
+    expect(
+      parseWindowsInternetSettingsProxy(`
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x0
+    ProxyServer    REG_SZ    127.0.0.1:7890
+`),
+    ).toBeUndefined()
   })
 })

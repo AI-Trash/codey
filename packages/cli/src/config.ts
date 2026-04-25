@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { loadWorkspaceEnv } from './utils/env'
+import { resolveProxyConfig, type ProxyConfig } from './utils/proxy'
 import { resolveWorkspaceRoot } from './utils/workspace-root'
 
 export interface BrowserCliConfig {
@@ -10,6 +11,7 @@ export interface BrowserCliConfig {
   defaultTimeoutMs: number
   navigationTimeoutMs: number
   recordHar: boolean
+  proxy?: ProxyConfig
   userDataDir?: string
   profileDirectory?: string
   cloneUserDataDirToTemp?: boolean
@@ -302,10 +304,9 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
     )
       ? parseBoolean(process.env.SUB2API_CONFIRM_MIXED_CHANNEL_RISK, false)
       : undefined,
-    openaiOAuthResponsesWebSocketV2Mode:
-      parseSub2ApiOpenAIWSMode(
-        process.env.SUB2API_OPENAI_OAUTH_RESPONSES_WEBSOCKET_V2_MODE,
-      ),
+    openaiOAuthResponsesWebSocketV2Mode: parseSub2ApiOpenAIWSMode(
+      process.env.SUB2API_OPENAI_OAUTH_RESPONSES_WEBSOCKET_V2_MODE,
+    ),
   }
 }
 
@@ -389,6 +390,7 @@ function buildDefaultConfig(): AppConfig {
         30000,
       ),
       recordHar: false,
+      proxy: resolveProxyConfig(),
     },
     openai: {
       baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',

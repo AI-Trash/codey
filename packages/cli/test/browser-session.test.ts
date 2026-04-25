@@ -148,4 +148,50 @@ describe('newSession', () => {
     expect(freshPage.setDefaultTimeout).toHaveBeenCalledWith(30000)
     expect(freshPage.setDefaultNavigationTimeout).toHaveBeenCalledWith(45000)
   })
+
+  it('passes configured proxy settings to disposable browser contexts', async () => {
+    const artifactsDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'codey-browser-artifacts-'),
+    )
+    tempDirs.push(artifactsDir)
+
+    const page = createOpenPage()
+    const context = {
+      pages: vi.fn(() => []),
+      newPage: vi.fn(async () => page),
+      close: vi.fn(async () => undefined),
+    }
+    const browser = {
+      newContext: vi.fn(async () => context),
+      close: vi.fn(async () => undefined),
+    }
+
+    getRuntimeConfigMock.mockReturnValue({
+      command: 'flow:codex-oauth',
+      artifactsDir,
+      browser: {
+        recordHar: false,
+        headless: false,
+        slowMo: undefined,
+        defaultTimeoutMs: 30000,
+        navigationTimeoutMs: 45000,
+        proxy: {
+          server: 'http://127.0.0.1:7890',
+          bypass: 'localhost,127.0.0.1,::1',
+        },
+      },
+    })
+    launchMock.mockResolvedValue(browser)
+
+    await newSession()
+
+    expect(browser.newContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proxy: {
+          server: 'http://127.0.0.1:7890',
+          bypass: 'localhost,127.0.0.1,::1',
+        },
+      }),
+    )
+  })
 })

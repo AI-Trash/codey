@@ -1,7 +1,12 @@
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import { chromium, type Browser, type BrowserContext, type Page } from 'patchright'
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from 'patchright'
 import { getRuntimeConfig } from '../config'
 import { ensureDir } from '../utils/fs'
 import {
@@ -12,6 +17,8 @@ import {
 } from '../utils/observability'
 import { cloneChromeUserDataDirToTemp } from '../utils/chrome-user-data-dir'
 import type { Session } from '../types'
+
+type BrowserContextOptions = NonNullable<Parameters<Browser['newContext']>[0]>
 
 function timeStamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-')
@@ -51,11 +58,13 @@ export async function launchBrowser(): Promise<Browser> {
 function buildContextOptions(
   harPath: string | undefined,
   context: Parameters<Browser['newContext']>[0] | undefined,
+  proxy: BrowserContextOptions['proxy'] | undefined,
 ): Parameters<Browser['newContext']>[0] {
   return {
     viewport: { width: 1440, height: 960 },
     ignoreHTTPSErrors: true,
     ...(harPath ? ({ recordHar: { path: harPath } } as object) : {}),
+    ...(proxy ? { proxy } : {}),
     ...context,
   }
 }
@@ -95,12 +104,21 @@ export async function newSession(
           artifactName: options.artifactName,
           persistentContext: Boolean(config.browser.userDataDir),
           headless: config.browser.headless,
+          proxyConfigured: Boolean(config.browser.proxy),
         },
         async () => {
           const harPath = config.browser.recordHar
-            ? buildHarPath(config.artifactsDir, options.artifactName, config.command)
+            ? buildHarPath(
+                config.artifactsDir,
+                options.artifactName,
+                config.command,
+              )
             : undefined
-          const contextOptions = buildContextOptions(harPath, options.context)
+          const contextOptions = buildContextOptions(
+            harPath,
+            options.context,
+            config.browser.proxy,
+          )
           let browser: Browser | null = null
           let context: BrowserContext
           let userDataDirCleanup: (() => Promise<void>) | undefined
@@ -145,7 +163,10 @@ export async function newSession(
             candidate.on('pageerror', (error) => {
               logBrowserEvent('page.error', {
                 pageId,
-                error: error instanceof Error ? error.stack || error.message : String(error),
+                error:
+                  error instanceof Error
+                    ? error.stack || error.message
+                    : String(error),
               })
             })
           }
@@ -167,7 +188,9 @@ export async function newSession(
 
               if (
                 launchProfileDirectory &&
-                !fs.existsSync(path.join(launchUserDataDir, launchProfileDirectory))
+                !fs.existsSync(
+                  path.join(launchUserDataDir, launchProfileDirectory),
+                )
               ) {
                 throw new Error(
                   `Chrome profile directory not found: ${path.join(launchUserDataDir, launchProfileDirectory)}`,

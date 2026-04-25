@@ -87,6 +87,13 @@ CODEY_APP_CODE_PATH=/api/verification/codes
 CODEY_APP_EVENTS_PATH=/api/verification/events
 ```
 
+CLI browser flows can also use a proxy. Set `CODEY_PROXY_URL` (or standard
+`HTTPS_PROXY` / `ALL_PROXY` / `HTTP_PROXY`) to force an explicit proxy for both
+browser traffic and Patchright API requests such as Codex OAuth token exchange.
+On Windows, Codey reads the enabled system proxy automatically when no explicit
+proxy env var is present. Set `CODEY_USE_SYSTEM_PROXY=false` to disable that
+fallback.
+
 Verification mail domains are now managed in the admin console at `/admin/domains` and stored in Postgres. App-backed CLI registrations now randomly pick one enabled domain for each reserved mailbox instead of binding a domain to the OAuth client. `VERIFICATION_EMAIL_PREFIX` is optional and, when set, is prepended before the generated memorable mailbox name.
 
 If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MAILBOX` or `VERIFICATION_DOMAIN` values are only used as a compatibility seed when the database does not have any registered domains yet.
