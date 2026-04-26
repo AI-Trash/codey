@@ -41,6 +41,13 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'pollIntervalMs'
   | 'identityId'
   | 'email'
+  | 'billingName'
+  | 'billingCountry'
+  | 'billingAddressLine1'
+  | 'billingAddressLine2'
+  | 'billingCity'
+  | 'billingState'
+  | 'billingPostalCode'
   | 'inviteEmail'
   | 'inviteFile'
   | 'workspaceId'
@@ -61,6 +68,13 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'pollIntervalMs'
   | 'identityId'
   | 'email'
+  | 'billingName'
+  | 'billingCountry'
+  | 'billingAddressLine1'
+  | 'billingAddressLine2'
+  | 'billingCity'
+  | 'billingState'
+  | 'billingPostalCode'
   | 'inviteEmail'
   | 'inviteFile'
   | 'workspaceId'
@@ -81,6 +95,13 @@ export type CliFlowConfigFieldKey =
   | 'pollIntervalMs'
   | 'identityId'
   | 'email'
+  | 'billingName'
+  | 'billingCountry'
+  | 'billingAddressLine1'
+  | 'billingAddressLine2'
+  | 'billingCity'
+  | 'billingState'
+  | 'billingPostalCode'
   | 'inviteEmail'
   | 'inviteFile'
   | 'workspaceId'
@@ -181,6 +202,46 @@ export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
 }
 
 /**
+ * Configuration for signing in and completing the Team trial checkout handoff.
+ */
+export interface ChatGPTTeamTrialFlowConfig extends ChatGPTLoginFlowConfig {
+  /**
+   * Billing name to send to Stripe when the checkout address form exposes it.
+   */
+  billingName?: string
+
+  /**
+   * ISO 3166-1 alpha-2 billing country code, for example "IE" or "US".
+   */
+  billingCountry?: string
+
+  /**
+   * Billing street address line 1.
+   */
+  billingAddressLine1?: string
+
+  /**
+   * Optional billing street address line 2.
+   */
+  billingAddressLine2?: string
+
+  /**
+   * Billing city/locality.
+   */
+  billingCity?: string
+
+  /**
+   * Billing state/province/administrative area when required by country.
+   */
+  billingState?: string
+
+  /**
+   * Billing postal or ZIP code.
+   */
+  billingPostalCode?: string
+}
+
+/**
  * Configuration for signing in and inviting ChatGPT workspace members.
  */
 export interface ChatGPTLoginInviteFlowConfig extends ChatGPTLoginFlowConfig {
@@ -252,7 +313,7 @@ export interface NoopFlowConfig extends CommonFlowConfig {}
 export interface CliFlowConfigById {
   'chatgpt-register': ChatGPTRegisterFlowConfig
   'chatgpt-login': ChatGPTLoginFlowConfig
-  'chatgpt-team-trial': ChatGPTLoginFlowConfig
+  'chatgpt-team-trial': ChatGPTTeamTrialFlowConfig
   'chatgpt-login-invite': ChatGPTLoginInviteFlowConfig
   'codex-oauth': CodexOAuthFlowConfig
   noop: NoopFlowConfig
@@ -276,6 +337,17 @@ export interface CliFlowTaskExternalServices {
   }
 }
 
+export interface CliFlowTaskWorkspaceMetadata {
+  recordId?: string
+  workspaceId?: string
+  label?: string
+  ownerIdentityId?: string
+}
+
+export interface CliFlowTaskMetadata {
+  workspace?: CliFlowTaskWorkspaceMetadata
+}
+
 export const DEFAULT_CLI_FLOW_TASK_COUNT = 1
 export const DEFAULT_CLI_FLOW_TASK_PARALLELISM = 1
 export const MAX_CLI_FLOW_TASK_BATCH_SIZE = 100
@@ -297,6 +369,7 @@ export type CliFlowTaskPayloadById = {
     config: CliFlowConfigById[FlowId]
     batch?: CliFlowTaskBatchMetadata
     externalServices?: CliFlowTaskExternalServices
+    metadata?: CliFlowTaskMetadata
   }
 }
 
@@ -391,6 +464,55 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'email',
   },
   {
+    key: 'billingName',
+    cliFlag: '--billingName',
+    type: 'string',
+    displayNameKey: 'billingName',
+    descriptionKey: 'billingName',
+  },
+  {
+    key: 'billingCountry',
+    cliFlag: '--billingCountry',
+    type: 'string',
+    displayNameKey: 'billingCountry',
+    descriptionKey: 'billingCountry',
+  },
+  {
+    key: 'billingAddressLine1',
+    cliFlag: '--billingAddressLine1',
+    type: 'string',
+    displayNameKey: 'billingAddressLine1',
+    descriptionKey: 'billingAddressLine1',
+  },
+  {
+    key: 'billingAddressLine2',
+    cliFlag: '--billingAddressLine2',
+    type: 'string',
+    displayNameKey: 'billingAddressLine2',
+    descriptionKey: 'billingAddressLine2',
+  },
+  {
+    key: 'billingCity',
+    cliFlag: '--billingCity',
+    type: 'string',
+    displayNameKey: 'billingCity',
+    descriptionKey: 'billingCity',
+  },
+  {
+    key: 'billingState',
+    cliFlag: '--billingState',
+    type: 'string',
+    displayNameKey: 'billingState',
+    descriptionKey: 'billingState',
+  },
+  {
+    key: 'billingPostalCode',
+    cliFlag: '--billingPostalCode',
+    type: 'string',
+    displayNameKey: 'billingPostalCode',
+    descriptionKey: 'billingPostalCode',
+  },
+  {
     key: 'restoreStorageState',
     cliFlag: '--restoreStorageState',
     type: 'boolean',
@@ -458,7 +580,18 @@ export const cliFlowDefinitions = [
     id: 'chatgpt-team-trial',
     displayNameKey: 'chatgptTeamTrial',
     descriptionKey: 'chatgptTeamTrial',
-    configKeys: ['identityId', 'email', 'restoreStorageState'],
+    configKeys: [
+      'identityId',
+      'email',
+      'restoreStorageState',
+      'billingName',
+      'billingCountry',
+      'billingAddressLine1',
+      'billingAddressLine2',
+      'billingCity',
+      'billingState',
+      'billingPostalCode',
+    ],
   },
   {
     id: 'chatgpt-login-invite',
@@ -780,6 +913,7 @@ export function createCliFlowTaskPayload<TFlowId extends CliFlowCommandId>(
   config: CliFlowConfigById[TFlowId],
   batch?: CliFlowTaskBatchMetadata,
   externalServices?: CliFlowTaskExternalServices,
+  metadata?: CliFlowTaskMetadata,
 ): CliFlowTaskPayloadById[TFlowId] {
   return {
     kind: 'flow_task',
@@ -787,7 +921,47 @@ export function createCliFlowTaskPayload<TFlowId extends CliFlowCommandId>(
     config,
     ...(batch ? { batch } : {}),
     ...(externalServices ? { externalServices } : {}),
+    ...(metadata ? { metadata } : {}),
   }
+}
+
+function normalizeOptionalMetadataString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
+function normalizeCliFlowTaskMetadata(
+  value: unknown,
+): CliFlowTaskMetadata | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const workspace = isRecord(value.workspace) ? value.workspace : undefined
+  if (!workspace) {
+    return undefined
+  }
+
+  const recordId = normalizeOptionalMetadataString(workspace.recordId)
+  const workspaceId = normalizeOptionalMetadataString(workspace.workspaceId)
+  const label = normalizeOptionalMetadataString(workspace.label)
+  const ownerIdentityId = normalizeOptionalMetadataString(
+    workspace.ownerIdentityId,
+  )
+  const normalizedWorkspace: CliFlowTaskWorkspaceMetadata = {
+    ...(recordId ? { recordId } : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(label ? { label } : {}),
+    ...(ownerIdentityId ? { ownerIdentityId } : {}),
+  }
+
+  return Object.keys(normalizedWorkspace).length
+    ? { workspace: normalizedWorkspace }
+    : undefined
 }
 
 function normalizeCliFlowTaskExternalServices(
@@ -832,12 +1006,14 @@ export function normalizeCliFlowTaskPayload(
   const externalServices = normalizeCliFlowTaskExternalServices(
     value.externalServices,
   )
+  const metadata = normalizeCliFlowTaskMetadata(value.metadata)
 
   return createCliFlowTaskPayload(
     flowDefinition.id,
     normalizeCliFlowConfig(flowDefinition.id, rawConfig),
     batch,
     externalServices,
+    metadata,
   )
 }
 

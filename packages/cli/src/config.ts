@@ -107,6 +107,20 @@ export interface Sub2ApiConfig {
   openaiOAuthResponsesWebSocketV2Mode?: 'off' | 'ctx_pool' | 'passthrough'
 }
 
+export interface ChatGPTTeamTrialBillingAddressConfig {
+  name?: string
+  country?: string
+  line1?: string
+  line2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+}
+
+export interface ChatGPTTeamTrialConfig {
+  billingAddress?: ChatGPTTeamTrialBillingAddressConfig
+}
+
 export interface AppConfig {
   rootDir: string
   artifactsDir: string
@@ -117,6 +131,7 @@ export interface AppConfig {
   app?: AppAuthConfig
   codex?: CodexOAuthConfig
   sub2api?: Sub2ApiConfig
+  chatgptTeamTrial?: ChatGPTTeamTrialConfig
 }
 
 export interface CliRuntimeConfig extends AppConfig {
@@ -310,6 +325,34 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
   }
 }
 
+function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
+  const relevantEnvNames = [
+    'CHATGPT_TEAM_TRIAL_BILLING_NAME',
+    'CHATGPT_TEAM_TRIAL_BILLING_COUNTRY',
+    'CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE1',
+    'CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE2',
+    'CHATGPT_TEAM_TRIAL_BILLING_CITY',
+    'CHATGPT_TEAM_TRIAL_BILLING_STATE',
+    'CHATGPT_TEAM_TRIAL_BILLING_POSTAL_CODE',
+  ]
+
+  if (!hasAnyDefinedEnv(relevantEnvNames)) {
+    return undefined
+  }
+
+  return {
+    billingAddress: {
+      name: process.env.CHATGPT_TEAM_TRIAL_BILLING_NAME,
+      country: process.env.CHATGPT_TEAM_TRIAL_BILLING_COUNTRY,
+      line1: process.env.CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE1,
+      line2: process.env.CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE2,
+      city: process.env.CHATGPT_TEAM_TRIAL_BILLING_CITY,
+      state: process.env.CHATGPT_TEAM_TRIAL_BILLING_STATE,
+      postalCode: process.env.CHATGPT_TEAM_TRIAL_BILLING_POSTAL_CODE,
+    },
+  }
+}
+
 function parseSub2ApiOpenAIWSMode(
   value: string | undefined,
 ): Sub2ApiConfig['openaiOAuthResponsesWebSocketV2Mode'] {
@@ -352,6 +395,7 @@ function buildDefaultConfig(): AppConfig {
     : undefined
   const codeyAppConfig = buildCodeyAppConfig()
   const sub2ApiConfig = buildSub2ApiConfig()
+  const chatgptTeamTrialConfig = buildChatGPTTeamTrialConfig()
   const verificationConfig =
     parseVerificationProviderConfigKind(process.env.VERIFICATION_PROVIDER) ||
     codeyAppConfig
@@ -419,6 +463,7 @@ function buildDefaultConfig(): AppConfig {
     app: codeyAppConfig,
     codex: codexConfig,
     sub2api: sub2ApiConfig,
+    chatgptTeamTrial: chatgptTeamTrialConfig,
   }
 }
 

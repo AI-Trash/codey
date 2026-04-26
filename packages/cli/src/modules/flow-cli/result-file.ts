@@ -17,6 +17,7 @@ export interface FlowCommandExecution<TResult = unknown> {
   durationMs: number
   config: Partial<FlowOptions>
   result?: TResult
+  completionResult?: Record<string, unknown>
   error?: string
 }
 

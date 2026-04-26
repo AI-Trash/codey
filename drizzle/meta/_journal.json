@@ -183,6 +183,13 @@
       "when": 1777110473411,
       "tag": "0025_cli_storage_state_affinity",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1777211600000,
+      "tag": "0026_workspace_team_trial_paypal",
+      "breakpoints": true
     }
   ]
 }

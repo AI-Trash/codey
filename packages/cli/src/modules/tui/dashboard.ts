@@ -768,6 +768,9 @@ export async function runPromptDashboard(input: {
                   await task.leaseReporter.complete({
                     status: 'SUCCEEDED',
                     message: 'Flow completed',
+                    ...(execution.completionResult
+                      ? { result: execution.completionResult }
+                      : {}),
                   })
                 } catch (error) {
                   logTaskLeaseError(

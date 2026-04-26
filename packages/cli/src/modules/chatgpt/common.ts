@@ -19,6 +19,7 @@ export const CHATGPT_CODEX_ORGANIZATION_URL =
   'https://auth.openai.com/sign-in-with-chatgpt/codex/organization'
 export const CHATGPT_CODEX_ACCOUNT_CONSENT_URL =
   'https://auth.openai.com/api/accounts/consent'
+export const CHATGPT_CHECKOUT_ORIGIN = 'https://chatgpt.com'
 export const ADULT_AGE = '25'
 export const ADULT_BIRTHDAY = '1999-01-01'
 export const ADULT_BIRTH_YEAR = '1999'
@@ -38,6 +39,34 @@ export const TEAM_PRICING_FREE_TRIAL_SELECTORS: SelectorTarget[] = [
     options: { name: /领取免费试用|free trial|try for free|start trial/i },
   },
   { text: /领取免费试用|free trial|try for free|start trial/i },
+]
+
+export const CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS: SelectorTarget[] =
+  [
+    'iframe[src*="elements-inner-address"]',
+    'iframe[title*="地址"]',
+    'iframe[title*="address" i]',
+  ]
+
+export const CHATGPT_CHECKOUT_PAYPAL_SELECTORS: SelectorTarget[] = [
+  { role: 'radio', options: { name: /paypal/i } },
+  { role: 'button', options: { name: /paypal/i } },
+  { text: /paypal/i },
+  'input[value="paypal" i]',
+]
+
+export const CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS: SelectorTarget[] = [
+  'button[data-testid="checkout-submit-button"]',
+  'button[type="submit"]',
+  {
+    role: 'button',
+    options: {
+      name: /订阅|購読|subscribe|start trial|start free trial|confirm/i,
+    },
+  },
+  {
+    text: /订阅|購読|subscribe|start trial|start free trial|confirm/i,
+  },
 ]
 
 const PROFILE_FIRST_NAMES = [

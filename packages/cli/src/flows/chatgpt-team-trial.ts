@@ -1,4 +1,5 @@
 import type { Page } from 'patchright'
+import path from 'path'
 import { pathToFileURL } from 'url'
 import {
   composeStateMachineConfig,
@@ -13,11 +14,16 @@ import {
 } from '../state-machine'
 import {
   CHATGPT_TEAM_PRICING_PROMO_URL,
+  clickChatGPTCheckoutSubscribeAndCapturePaypalLink,
   clickTeamPricingFreeTrial,
+  fillChatGPTCheckoutBillingAddress,
   gotoTeamPricingPromo,
+  type ChatGPTTeamTrialBillingAddress,
   waitForAuthenticatedSession,
+  waitForChatGPTCheckoutReady,
   waitForTeamPricingFreeTrialReady,
 } from '../modules/chatgpt/shared'
+import { getRuntimeConfig } from '../config'
 import type { FlowOptions } from '../modules/flow-cli/helpers'
 import {
   attachStateMachineProgressReporter,
@@ -28,7 +34,20 @@ import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
+import { writeFileAtomic } from '../utils/fs'
 import { loginChatGPT, type ChatGPTLoginFlowResult } from './chatgpt-login'
+
+export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME = 'Summpot'
+
+export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS = {
+  name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+  country: 'NL',
+  line1: 'Bertha von Suttnerlaan 97',
+  line2: '762 Effertz Stream',
+  city: 'Amstelveen',
+  state: undefined,
+  postalCode: '1187 ST',
+} as const satisfies ChatGPTTeamTrialBillingAddress
 
 export type ChatGPTTeamTrialFlowKind = 'chatgpt-team-trial'
 
@@ -40,6 +59,11 @@ export type ChatGPTTeamTrialFlowState =
   | 'pricing-ready'
   | 'claiming-trial'
   | 'trial-claimed'
+  | 'checkout-ready'
+  | 'filling-billing-address'
+  | 'billing-address-filled'
+  | 'subscribing'
+  | 'paypal-link-captured'
   | 'retrying'
   | 'completed'
   | 'failed'
@@ -53,6 +77,11 @@ export type ChatGPTTeamTrialFlowEvent =
   | 'chatgpt.pricing.ready'
   | 'chatgpt.trial.claiming'
   | 'chatgpt.trial.claimed'
+  | 'chatgpt.checkout.ready'
+  | 'chatgpt.billing_address.filling'
+  | 'chatgpt.billing_address.filled'
+  | 'chatgpt.subscription.submitting'
+  | 'chatgpt.paypal_link.captured'
   | 'chatgpt.retry.requested'
   | 'chatgpt.completed'
   | 'chatgpt.failed'
@@ -66,6 +95,13 @@ export interface ChatGPTTeamTrialFlowContext<Result = unknown> {
   title?: string
   email?: string
   login?: ChatGPTLoginFlowResult
+  checkoutUrl?: string
+  billingCountry?: string
+  billingAddressFilled?: boolean
+  subscribeClicked?: boolean
+  paypalBaTokenCaptured?: boolean
+  paypalApprovalUrl?: string
+  paypalApprovalUrlPath?: string
   retryCount?: number
   retryReason?: string
   retryFromState?: ChatGPTTeamTrialFlowState
@@ -95,7 +131,13 @@ export interface ChatGPTTeamTrialFlowResult {
   email: string
   authenticated: boolean
   pricingUrl: string
+  checkoutUrl: string
   trialClaimClicked: boolean
+  billingAddressFilled: boolean
+  subscribeClicked: boolean
+  paypalBaTokenCaptured: boolean
+  paypalApprovalUrl: string
+  paypalApprovalUrlPath: string
   login: ChatGPTLoginFlowResult
   machine: ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialFlowResult>
 }
@@ -109,6 +151,11 @@ const chatgptTeamTrialEventTargets = {
   'chatgpt.pricing.ready': 'pricing-ready',
   'chatgpt.trial.claiming': 'claiming-trial',
   'chatgpt.trial.claimed': 'trial-claimed',
+  'chatgpt.checkout.ready': 'checkout-ready',
+  'chatgpt.billing_address.filling': 'filling-billing-address',
+  'chatgpt.billing_address.filled': 'billing-address-filled',
+  'chatgpt.subscription.submitting': 'subscribing',
+  'chatgpt.paypal_link.captured': 'paypal-link-captured',
   'chatgpt.completed': 'completed',
   'chatgpt.failed': 'failed',
 } as const satisfies Partial<
@@ -129,6 +176,11 @@ const chatgptTeamTrialStates = [
   'pricing-ready',
   'claiming-trial',
   'trial-claimed',
+  'checkout-ready',
+  'filling-billing-address',
+  'billing-address-filled',
+  'subscribing',
+  'paypal-link-captured',
   'retrying',
   'completed',
   'failed',
@@ -199,6 +251,62 @@ async function sendTeamTrialMachine(
     target: state,
     patch,
   })
+}
+
+function nonEmptyString(value: string | undefined): string | undefined {
+  const normalized = value?.trim()
+  return normalized || undefined
+}
+
+export function resolveChatGPTTeamTrialBillingAddress(
+  options: FlowOptions = {},
+): ChatGPTTeamTrialBillingAddress {
+  const config = getRuntimeConfig().chatgptTeamTrial?.billingAddress
+
+  return {
+    name:
+      nonEmptyString(options.billingName) ||
+      nonEmptyString(config?.name) ||
+      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+    country:
+      nonEmptyString(options.billingCountry) ||
+      nonEmptyString(config?.country) ||
+      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.country,
+    line1:
+      nonEmptyString(options.billingAddressLine1) ||
+      nonEmptyString(config?.line1) ||
+      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.line1,
+    line2:
+      nonEmptyString(options.billingAddressLine2) ||
+      nonEmptyString(config?.line2) ||
+      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.line2,
+    city:
+      nonEmptyString(options.billingCity) ||
+      nonEmptyString(config?.city) ||
+      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.city,
+    state:
+      nonEmptyString(options.billingState) ||
+      nonEmptyString(config?.state) ||
+      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.state,
+    postalCode:
+      nonEmptyString(options.billingPostalCode) ||
+      nonEmptyString(config?.postalCode) ||
+      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.postalCode,
+  }
+}
+
+function formatArtifactTimestamp(date = new Date()): string {
+  return date.toISOString().replace(/[:.]/g, '-')
+}
+
+function savePaypalApprovalUrl(url: string): string {
+  const runtimeConfig = getRuntimeConfig()
+  const filePath = path.join(
+    runtimeConfig.artifactsDir,
+    `${formatArtifactTimestamp()}-chatgpt-team-trial-paypal-link.txt`,
+  )
+  writeFileAtomic(filePath, `${url}\n`)
+  return filePath
 }
 
 export async function runChatGPTTeamTrial(
@@ -293,8 +401,8 @@ export async function runChatGPTTeamTrial(
       },
     )
     await clickTeamPricingFreeTrial(page)
+    const trialClaimTitle = await page.title()
 
-    const title = await page.title()
     try {
       await saveLocalChatGPTStorageState(page, {
         identityId: login.storedIdentity.id,
@@ -317,11 +425,96 @@ export async function runChatGPTTeamTrial(
       {
         email: login.email,
         url: page.url(),
-        title,
+        title: trialClaimTitle,
         lastMessage: 'ChatGPT Team free trial button clicked',
       },
     )
 
+    const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
+    if (!checkoutReady) {
+      throw new Error('ChatGPT Team trial checkout did not become ready.')
+    }
+
+    const checkoutUrl = page.url()
+    const checkoutTitle = await page.title()
+
+    await sendTeamTrialMachine(
+      machine,
+      'checkout-ready',
+      'chatgpt.checkout.ready',
+      {
+        email: login.email,
+        url: checkoutUrl,
+        checkoutUrl,
+        title: checkoutTitle,
+        lastMessage: 'ChatGPT Team checkout is ready',
+      },
+    )
+
+    const billingAddress = resolveChatGPTTeamTrialBillingAddress(options)
+
+    await sendTeamTrialMachine(
+      machine,
+      'filling-billing-address',
+      'chatgpt.billing_address.filling',
+      {
+        email: login.email,
+        url: checkoutUrl,
+        checkoutUrl,
+        billingCountry: billingAddress.country,
+        lastMessage: 'Filling ChatGPT checkout billing address',
+      },
+    )
+    await fillChatGPTCheckoutBillingAddress(page, billingAddress)
+
+    await sendTeamTrialMachine(
+      machine,
+      'billing-address-filled',
+      'chatgpt.billing_address.filled',
+      {
+        email: login.email,
+        url: page.url(),
+        checkoutUrl,
+        billingCountry: billingAddress.country,
+        billingAddressFilled: true,
+        lastMessage: 'ChatGPT checkout billing address filled',
+      },
+    )
+
+    await sendTeamTrialMachine(
+      machine,
+      'subscribing',
+      'chatgpt.subscription.submitting',
+      {
+        email: login.email,
+        url: page.url(),
+        checkoutUrl,
+        billingAddressFilled: true,
+        lastMessage: 'Submitting ChatGPT Team trial subscription',
+      },
+    )
+    const paypalApproval =
+      await clickChatGPTCheckoutSubscribeAndCapturePaypalLink(page)
+    const paypalApprovalUrlPath = savePaypalApprovalUrl(paypalApproval.url)
+
+    await sendTeamTrialMachine(
+      machine,
+      'paypal-link-captured',
+      'chatgpt.paypal_link.captured',
+      {
+        email: login.email,
+        url: page.url(),
+        checkoutUrl,
+        billingAddressFilled: true,
+        subscribeClicked: true,
+        paypalBaTokenCaptured: true,
+        paypalApprovalUrl: paypalApproval.url,
+        paypalApprovalUrlPath,
+        lastMessage: `Captured PayPal billing agreement link: ${paypalApproval.url}`,
+      },
+    )
+
+    const title = await page.title()
     const result = {
       pageName: 'chatgpt-team-trial' as const,
       url: page.url(),
@@ -329,7 +522,13 @@ export async function runChatGPTTeamTrial(
       email: login.email,
       authenticated: true,
       pricingUrl: CHATGPT_TEAM_PRICING_PROMO_URL,
+      checkoutUrl,
       trialClaimClicked: true,
+      billingAddressFilled: true,
+      subscribeClicked: true,
+      paypalBaTokenCaptured: true,
+      paypalApprovalUrl: paypalApproval.url,
+      paypalApprovalUrlPath,
       login,
       machine:
         undefined as unknown as ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialFlowResult>,
@@ -342,8 +541,14 @@ export async function runChatGPTTeamTrial(
         login,
         url: result.url,
         title: result.title,
+        checkoutUrl,
+        billingAddressFilled: true,
+        subscribeClicked: true,
+        paypalBaTokenCaptured: true,
+        paypalApprovalUrl: paypalApproval.url,
+        paypalApprovalUrlPath,
         result,
-        lastMessage: 'ChatGPT Team trial claim flow completed',
+        lastMessage: 'ChatGPT Team trial checkout flow completed',
       },
     })
     result.machine = snapshot

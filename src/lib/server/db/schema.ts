@@ -574,6 +574,11 @@ export const managedWorkspaces = pgTable(
         onDelete: 'set null',
       },
     ),
+    teamTrialPaypalUrl: text('team_trial_paypal_url'),
+    teamTrialPaypalCapturedAt: timestamp('team_trial_paypal_captured_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'date',

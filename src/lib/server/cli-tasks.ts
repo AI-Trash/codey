@@ -4,6 +4,7 @@ import {
   createCliFlowTaskPayload,
   DEFAULT_CLI_FLOW_TASK_PARALLELISM,
   type CliFlowCommandId,
+  type CliFlowTaskMetadata,
   getCliFlowDefinition,
   MAX_CLI_FLOW_TASK_BATCH_SIZE,
   MAX_CLI_FLOW_TASK_PARALLELISM,
@@ -465,6 +466,7 @@ export async function dispatchCliFlowTasks(input: {
   count?: number | null;
   parallelism?: number | null;
   actor?: CliConnectionActorScope;
+  metadata?: CliFlowTaskMetadata;
 }) {
   const { connection, eligibleConnections, flowDefinition } =
     await resolveDispatchableCliFlow(input);
@@ -543,6 +545,7 @@ export async function dispatchCliFlowTasks(input: {
             : {}),
         },
         externalServices,
+        input.metadata,
       ),
     };
   });

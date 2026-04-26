@@ -126,6 +126,18 @@ export const Route = createFileRoute(
               config: {
                 email: ownerEmail,
               },
+              metadata: {
+                workspace: {
+                  recordId: workspace.id,
+                  ...(workspace.workspaceId
+                    ? { workspaceId: workspace.workspaceId }
+                    : {}),
+                  ...(workspace.label ? { label: workspace.label } : {}),
+                  ...(workspace.owner?.identityId
+                    ? { ownerIdentityId: workspace.owner.identityId }
+                    : {}),
+                },
+              },
             })
 
             return json({

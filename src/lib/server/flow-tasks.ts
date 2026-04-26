@@ -14,6 +14,7 @@ import {
   type FlowTaskStatus,
 } from './db/schema'
 import { createId } from './security'
+import { recordWorkspaceTeamTrialPaypalUrlFromFlowTask } from './workspaces'
 
 export const DEFAULT_FLOW_TASK_LEASE_MS = 30_000
 
@@ -237,6 +238,7 @@ export async function completeFlowTask(input: {
   status: FinalFlowTaskStatus
   error?: string | null
   message?: string | null
+  result?: Record<string, unknown> | null
 }): Promise<FlowTaskRow | null> {
   const connection = await getCliConnectionRow(input.connectionId)
   if (!connection) {
@@ -285,7 +287,20 @@ export async function completeFlowTask(input: {
         : input.status === 'CANCELED'
           ? 'Flow canceled'
           : 'Flow failed'),
+    ...(input.result ? { payload: { result: input.result } } : {}),
   })
+
+  if (input.status === 'SUCCEEDED' && input.result) {
+    try {
+      await recordWorkspaceTeamTrialPaypalUrlFromFlowTask({
+        payload: updated.payload,
+        result: input.result,
+        capturedAt: now,
+      })
+    } catch (error) {
+      console.error('Unable to persist flow task completion result', error)
+    }
+  }
 
   return updated
 }

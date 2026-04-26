@@ -1,4 +1,6 @@
 const REDACTED = '***redacted***'
+const CIRCULAR_REFERENCE = '[Circular]'
+const MAX_REDACTION_DEPTH = 50
 
 export function sanitizeText(value: string): string {
   return value
@@ -13,8 +15,7 @@ export function sanitizeText(value: string): string {
     )
     .replace(
       /(["']?)(code|state|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|secret|client[_-]?secret|api[_-]?key)(["']?\s*:\s*["']?)([^"'\s,}]+)/gi,
-      (_match, open, key, separator) =>
-        `${open}${key}${separator}${REDACTED}`,
+      (_match, open, key, separator) => `${open}${key}${separator}${REDACTED}`,
     )
 }
 
@@ -37,7 +38,12 @@ export function sanitizeSummaryString(value: string): string {
   return sanitizeText(value)
 }
 
-function sanitizeValue(key: string, current: unknown): unknown {
+function sanitizeValue(
+  key: string,
+  current: unknown,
+  ancestors: WeakSet<object> = new WeakSet(),
+  depth = 0,
+): unknown {
   if (
     /(?:secret|password|apiKey)s?$/i.test(key) ||
     /^(code|state|accessToken|refreshToken|idToken|token)$/i.test(key)
@@ -58,16 +64,44 @@ function sanitizeValue(key: string, current: unknown): unknown {
   }
 
   if (Array.isArray(current)) {
-    return current.map((entry) => sanitizeValue(key, entry))
+    if (depth >= MAX_REDACTION_DEPTH) {
+      return `[MaxDepth:${MAX_REDACTION_DEPTH}]`
+    }
+
+    if (ancestors.has(current)) {
+      return CIRCULAR_REFERENCE
+    }
+
+    ancestors.add(current)
+    try {
+      return current.map((entry) =>
+        sanitizeValue(key, entry, ancestors, depth + 1),
+      )
+    } finally {
+      ancestors.delete(current)
+    }
   }
 
   if (current && typeof current === 'object') {
-    return Object.fromEntries(
-      Object.entries(current).map(([entryKey, entryValue]) => [
-        entryKey,
-        sanitizeValue(entryKey, entryValue),
-      ]),
-    )
+    if (depth >= MAX_REDACTION_DEPTH) {
+      return `[MaxDepth:${MAX_REDACTION_DEPTH}]`
+    }
+
+    if (ancestors.has(current)) {
+      return CIRCULAR_REFERENCE
+    }
+
+    ancestors.add(current)
+    try {
+      return Object.fromEntries(
+        Object.entries(current).map(([entryKey, entryValue]) => [
+          entryKey,
+          sanitizeValue(entryKey, entryValue, ancestors, depth + 1),
+        ]),
+      )
+    } finally {
+      ancestors.delete(current)
+    }
   }
 
   return current

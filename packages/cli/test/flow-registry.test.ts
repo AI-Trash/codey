@@ -20,7 +20,18 @@ describe('flow registry', () => {
     expect(flowIds).not.toContain('chatgpt-purchase')
     expect(getCliFlowDefinition('chatgpt-team-trial')).toMatchObject({
       id: 'chatgpt-team-trial',
-      configKeys: ['identityId', 'email', 'restoreStorageState'],
+      configKeys: [
+        'identityId',
+        'email',
+        'restoreStorageState',
+        'billingName',
+        'billingCountry',
+        'billingAddressLine1',
+        'billingAddressLine2',
+        'billingCity',
+        'billingState',
+        'billingPostalCode',
+      ],
     })
     expect(normalizeCliFlowTaskPayload(payload)).toEqual(payload)
   })
@@ -43,9 +54,53 @@ describe('flow registry', () => {
           source: 'app',
         },
       },
+      {
+        workspace: {
+          recordId: 'workspace-record-1',
+          workspaceId: 'ws_alpha',
+          label: 'Alpha',
+          ownerIdentityId: 'identity-1',
+        },
+      },
     )
 
     expect(normalizeCliFlowTaskPayload(payload)).toEqual(payload)
+  })
+
+  it('normalizes workspace task metadata for app dispatch', () => {
+    expect(
+      normalizeCliFlowTaskPayload({
+        kind: 'flow_task',
+        flowId: 'chatgpt-team-trial',
+        config: {
+          email: 'owner@example.com',
+        },
+        metadata: {
+          workspace: {
+            recordId: ' workspace-record-1 ',
+            workspaceId: ' ws_alpha ',
+            label: ' Alpha ',
+            ownerIdentityId: ' identity-1 ',
+            ignored: 'drop me',
+          },
+          ignored: true,
+        },
+      }),
+    ).toEqual({
+      kind: 'flow_task',
+      flowId: 'chatgpt-team-trial',
+      config: {
+        email: 'owner@example.com',
+      },
+      metadata: {
+        workspace: {
+          recordId: 'workspace-record-1',
+          workspaceId: 'ws_alpha',
+          label: 'Alpha',
+          ownerIdentityId: 'identity-1',
+        },
+      },
+    })
   })
 
   it('drops unsupported external service metadata', () => {

@@ -52,6 +52,8 @@ export interface AdminManagedWorkspaceSummary {
   id: string
   workspaceId: string | null
   label: string | null
+  teamTrialPaypalUrl: string | null
+  teamTrialPaypalCapturedAt: string | null
   owner: AdminManagedWorkspaceIdentitySummary | null
   memberCount: number
   members: AdminManagedWorkspaceMemberSummary[]
@@ -105,6 +107,49 @@ function normalizeOptionalLabel(value?: string | null): string | null {
 function normalizeOptionalIdentityId(value?: string | null): string | null {
   const normalized = value?.trim()
   return normalized ? normalized : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function normalizeOptionalMetadataString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.trim()
+  return normalized || null
+}
+
+export function normalizeTeamTrialPaypalUrl(
+  value?: string | null,
+): string | null {
+  const normalized = value?.trim()
+  if (!normalized) {
+    return null
+  }
+
+  try {
+    const url = new URL(normalized)
+    const hostname = url.hostname.toLowerCase()
+    if (
+      url.protocol !== 'https:' ||
+      (hostname !== 'paypal.com' && !hostname.endsWith('.paypal.com'))
+    ) {
+      return null
+    }
+
+    const baToken =
+      url.searchParams.get('ba_token') || url.searchParams.get('token')
+    if (!baToken || !/^BA-[A-Za-z0-9]+$/.test(baToken)) {
+      return null
+    }
+
+    return url.toString()
+  } catch {
+    return null
+  }
 }
 
 function normalizeEmail(value: string): string {
@@ -376,6 +421,8 @@ function buildAdminManagedWorkspaceSummary(
     id: string
     workspaceId: string | null
     label: string | null
+    teamTrialPaypalUrl?: string | null
+    teamTrialPaypalCapturedAt?: Date | null
     ownerIdentity?: ManagedIdentityLookupRow | null
     createdAt: Date
     updatedAt: Date
@@ -416,6 +463,9 @@ function buildAdminManagedWorkspaceSummary(
     id: row.id,
     workspaceId: row.workspaceId,
     label: row.label,
+    teamTrialPaypalUrl: row.teamTrialPaypalUrl || null,
+    teamTrialPaypalCapturedAt:
+      row.teamTrialPaypalCapturedAt?.toISOString() || null,
     owner: buildManagedWorkspaceIdentitySummary(
       row.ownerIdentity,
       row.workspaceId,
@@ -896,6 +946,96 @@ export async function createManagedWorkspace(input: {
   }
 
   return summary
+}
+
+export async function recordManagedWorkspaceTeamTrialPaypalUrl(input: {
+  workspaceRecordId?: string | null
+  workspaceId?: string | null
+  ownerIdentityId?: string | null
+  paypalUrl: string
+  capturedAt?: Date
+}): Promise<AdminManagedWorkspaceSummary | null> {
+  const paypalUrl = normalizeTeamTrialPaypalUrl(input.paypalUrl)
+  if (!paypalUrl) {
+    return null
+  }
+
+  const workspaceRecordId = normalizeOptionalMetadataString(
+    input.workspaceRecordId,
+  )
+  const workspaceId = normalizeWorkspaceId(input.workspaceId)
+  const ownerIdentityId = normalizeOptionalIdentityId(input.ownerIdentityId)
+  const where =
+    workspaceRecordId !== null
+      ? eq(managedWorkspaces.id, workspaceRecordId)
+      : workspaceId !== null
+        ? eq(managedWorkspaces.workspaceId, workspaceId)
+        : ownerIdentityId !== null
+          ? eq(managedWorkspaces.ownerIdentityId, ownerIdentityId)
+          : null
+
+  if (!where) {
+    return null
+  }
+
+  const now = input.capturedAt || new Date()
+  const [record] = await getDb()
+    .update(managedWorkspaces)
+    .set({
+      teamTrialPaypalUrl: paypalUrl,
+      teamTrialPaypalCapturedAt: now,
+      updatedAt: now,
+    })
+    .where(where)
+    .returning({
+      id: managedWorkspaces.id,
+    })
+
+  if (!record) {
+    return null
+  }
+
+  return findAdminManagedWorkspaceSummary(record.id)
+}
+
+export async function recordWorkspaceTeamTrialPaypalUrlFromFlowTask(input: {
+  payload?: Record<string, unknown> | null
+  result?: Record<string, unknown> | null
+  capturedAt?: Date
+}): Promise<AdminManagedWorkspaceSummary | null> {
+  if (
+    !isRecord(input.payload) ||
+    input.payload.flowId !== 'chatgpt-team-trial'
+  ) {
+    return null
+  }
+
+  if (!isRecord(input.result)) {
+    return null
+  }
+
+  const paypalUrl = normalizeTeamTrialPaypalUrl(
+    normalizeOptionalMetadataString(input.result.paypalApprovalUrl),
+  )
+  if (!paypalUrl) {
+    return null
+  }
+
+  const metadata = isRecord(input.payload.metadata)
+    ? input.payload.metadata
+    : null
+  const workspace =
+    metadata && isRecord(metadata.workspace) ? metadata.workspace : null
+
+  return recordManagedWorkspaceTeamTrialPaypalUrl({
+    workspaceRecordId: normalizeOptionalMetadataString(workspace?.recordId),
+    workspaceId: normalizeOptionalMetadataString(workspace?.workspaceId),
+    ownerIdentityId: normalizeOptionalMetadataString(
+      workspace?.ownerIdentityId,
+    ),
+    paypalUrl,
+    capturedAt: input.capturedAt,
+  })
 }
 
 export async function updateManagedWorkspace(

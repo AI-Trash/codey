@@ -15,6 +15,9 @@ import {
   CODEX_WORKSPACE_SELECTORS,
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
+  CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
+  CHATGPT_CHECKOUT_ORIGIN,
+  CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
   CHATGPT_HOME_URL,
   CHATGPT_TEAM_PRICING_PROMO_URL,
   DEFAULT_EVENT_TIMEOUT_MS,
@@ -1044,6 +1047,18 @@ export function isChatGPTTeamPricingPromoUrl(url: string): boolean {
   return url.startsWith(CHATGPT_TEAM_PRICING_PROMO_URL)
 }
 
+export function isChatGPTCheckoutUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return (
+      parsed.origin === CHATGPT_CHECKOUT_ORIGIN &&
+      /^\/checkout\/[^/]+\/cs_[^/?#]+/i.test(parsed.pathname)
+    )
+  } catch {
+    return false
+  }
+}
+
 export async function waitForTeamPricingFreeTrialReady(
   page: Page,
   timeoutMs = 30000,
@@ -1052,6 +1067,52 @@ export async function waitForTeamPricingFreeTrialReady(
     page,
     TEAM_PRICING_FREE_TRIAL_SELECTORS,
     'visible',
+    timeoutMs,
+  )
+}
+
+export async function waitForChatGPTCheckoutReady(
+  page: Page,
+  timeoutMs = 30000,
+): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs)
+  const urlReady = await waitForUrlMatch(
+    page,
+    isChatGPTCheckoutUrl,
+    timeoutMs,
+  )
+  if (!urlReady) {
+    return false
+  }
+
+  do {
+    if (
+      await isAnySelectorVisible(
+        page,
+        CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
+      )
+    ) {
+      return true
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+    await sleep(Math.min(250, remainingMs))
+  } while (Date.now() <= deadline)
+
+  return isAnySelectorVisible(
+    page,
+    CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
+  )
+}
+
+export async function waitForChatGPTCheckoutSubscribeReady(
+  page: Page,
+  timeoutMs = 30000,
+): Promise<boolean> {
+  return waitForEnabledSelector(
+    page,
+    CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
     timeoutMs,
   )
 }

@@ -1,4 +1,4 @@
-import type { Page } from 'patchright'
+import type { Frame, Locator, Page, Request } from 'patchright'
 import { clickAny, clickIfPresent, typeIfPresent } from '../common/form-actions'
 import type {
   VerificationCodeUpdateEvent,
@@ -25,6 +25,8 @@ import {
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
+  CHATGPT_CHECKOUT_PAYPAL_SELECTORS,
+  CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
   CHATGPT_TEAM_PRICING_PROMO_URL,
   COMPLETE_ACCOUNT_SELECTORS,
   LOGIN_CONTINUE_SELECTORS,
@@ -51,6 +53,8 @@ import {
   isLocatorEnabled,
   throwIfChatGPTAccountDeactivated,
   waitForAnySelectorState,
+  waitForChatGPTCheckoutReady,
+  waitForChatGPTCheckoutSubscribeReady,
   waitForEnabledSelector,
   waitForEditableSelector,
   waitForLoginEmailFormReady,
@@ -67,6 +71,15 @@ const AUTH_INPUT_TYPING_OPTIONS = {
   settleMs: 500,
   strategy: 'sequential',
 } as const
+const STRIPE_ADDRESS_FRAME_URL_PATTERN = /elements-inner-address/i
+const STRIPE_ADDRESS_FIELD_SELECTORS = [
+  'input[name="addressLine1"]',
+  'input[name="line1"]',
+  'input[autocomplete*="address-line1" i]',
+  'select[name="country"]',
+] as const
+const PAYPAL_HOST_PATTERN = /(^|\.)paypal\.com$/i
+const PAYPAL_CAPTURE_POLL_MS = 250
 
 interface CodexWorkspaceSelectionResult {
   availableWorkspaces: number
@@ -86,6 +99,23 @@ interface NamedSelectionResult {
   availableOptions: number
   selectedOptionIndex: number
   status: 'selected' | 'out_of_range' | 'missing'
+}
+
+export interface ChatGPTTeamTrialBillingAddress {
+  name?: string
+  country: string
+  line1: string
+  line2?: string
+  city: string
+  state?: string
+  postalCode: string
+}
+
+export interface PaypalBillingAgreementLink {
+  url: string
+  baToken: string
+  tokenParam: 'ba_token' | 'token'
+  capturedAt: string
 }
 
 export async function clickSignupEntry(page: Page): Promise<void> {
@@ -109,11 +139,931 @@ export async function gotoTeamPricingPromo(page: Page): Promise<void> {
 export async function clickTeamPricingFreeTrial(page: Page): Promise<void> {
   const ready = await waitForTeamPricingFreeTrialReady(page, 30000)
   if (!ready) {
-    throw new Error('ChatGPT Team pricing free trial button did not become ready.')
+    throw new Error(
+      'ChatGPT Team pricing free trial button did not become ready.',
+    )
   }
 
   await clickAny(page, TEAM_PRICING_FREE_TRIAL_SELECTORS)
   await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+}
+
+export async function fillChatGPTCheckoutBillingAddress(
+  page: Page,
+  address: ChatGPTTeamTrialBillingAddress,
+): Promise<void> {
+  const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
+  if (!checkoutReady) {
+    throw new Error('ChatGPT Team trial checkout did not become ready.')
+  }
+
+  const frame = await waitForStripeBillingAddressFrame(page, 30000)
+  if (!frame) {
+    throw new Error('ChatGPT checkout billing address frame was not visible.')
+  }
+
+  const fillResult = await fillStripeBillingAddressFrame(frame, address)
+  const missingRequired = [
+    address.name && !fillResult.name ? 'billing name' : undefined,
+    fillResult.country ? undefined : 'country',
+    fillResult.line1 ? undefined : 'address line 1',
+    address.line2 && !fillResult.line2 ? 'address line 2' : undefined,
+    fillResult.city ? undefined : 'city',
+    fillResult.postalCode ? undefined : 'postal code',
+    isBillingStateRequired(address.country) && !fillResult.state
+      ? 'state/province'
+      : undefined,
+  ].filter((field): field is string => Boolean(field))
+
+  if (missingRequired.length > 0) {
+    throw new Error(
+      `ChatGPT checkout billing address could not fill: ${missingRequired.join(', ')}.`,
+    )
+  }
+
+  await sleep(500)
+}
+
+export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
+  page: Page,
+  options: {
+    timeoutMs?: number
+  } = {},
+): Promise<PaypalBillingAgreementLink> {
+  const timeoutMs = Math.max(1, options.timeoutMs ?? 90000)
+  const deadline = Date.now() + timeoutMs
+  const capture = createPaypalBillingAgreementLinkCapture(page)
+
+  try {
+    await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page)
+
+    let clickAttempt = 0
+    while (Date.now() < deadline) {
+      const existing = capture.get()
+      if (existing) {
+        return existing
+      }
+
+      const remainingMs = Math.max(1, deadline - Date.now())
+      const ready = await waitForChatGPTCheckoutSubscribeReady(
+        page,
+        Math.min(10000, remainingMs),
+      )
+      if (!ready) {
+        await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page)
+        const observed = await capture
+          .wait(Math.min(1500, Math.max(1, deadline - Date.now())))
+          .catch(() => undefined)
+        if (observed) return observed
+        continue
+      }
+
+      await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page)
+      clickAttempt += 1
+      await clickChatGPTCheckoutSubscribe(page).catch(() => undefined)
+      const observed = await capture
+        .wait(Math.min(5000, Math.max(1, deadline - Date.now())))
+        .catch(() => undefined)
+      if (observed) {
+        return observed
+      }
+
+      if (clickAttempt >= 5) {
+        await sleep(Math.min(1500, Math.max(1, deadline - Date.now())))
+      }
+    }
+  } finally {
+    capture.dispose()
+  }
+
+  throw new Error(
+    'PayPal billing agreement link with BA token was not captured.',
+  )
+}
+
+async function waitForStripeBillingAddressFrame(
+  page: Page,
+  timeoutMs: number,
+): Promise<Frame | null> {
+  const deadline = Date.now() + Math.max(0, timeoutMs)
+
+  do {
+    for (const frame of page.frames()) {
+      if (await isStripeBillingAddressFrameReady(frame)) {
+        return frame
+      }
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+    await sleep(Math.min(250, remainingMs))
+  } while (Date.now() <= deadline)
+
+  return null
+}
+
+async function isStripeBillingAddressFrameReady(
+  frame: Frame,
+): Promise<boolean> {
+  const frameUrl = frame.url()
+  const looksLikeAddressFrame = STRIPE_ADDRESS_FRAME_URL_PATTERN.test(frameUrl)
+  if (!looksLikeAddressFrame && frame.parentFrame() === null) {
+    return false
+  }
+
+  for (const selector of STRIPE_ADDRESS_FIELD_SELECTORS) {
+    const count = await frame
+      .locator(selector)
+      .count()
+      .catch(() => 0)
+    if (count > 0) {
+      return looksLikeAddressFrame || selector.includes('address')
+    }
+  }
+
+  return false
+}
+
+async function fillStripeBillingAddressFrame(
+  frame: Frame,
+  address: ChatGPTTeamTrialBillingAddress,
+): Promise<Record<keyof ChatGPTTeamTrialBillingAddress, boolean>> {
+  return frame.evaluate(async (input) => {
+    type BillingField =
+      | 'name'
+      | 'country'
+      | 'line1'
+      | 'line2'
+      | 'city'
+      | 'state'
+      | 'postalCode'
+
+    const FIELD_WAIT_MS = 3000
+    const SHORT_FIELD_WAIT_MS = 750
+    const FIELD_SETTLE_MS = 200
+    const FIELD_EXPAND_WAIT_MS = 600
+
+    const fieldSelectors: Record<BillingField, string[]> = {
+      name: [
+        'input[name="name"]',
+        'input[name="fullName"]',
+        'input[name="full_name"]',
+        'input[autocomplete*="name" i]',
+        'input[id*="name" i]',
+        'input[id*="fullName" i]',
+        'input[aria-label*="全名" i]',
+        'input[aria-label*="姓名" i]',
+        'input[aria-label*="full name" i]',
+        'input[placeholder*="全名" i]',
+        'input[placeholder*="姓名" i]',
+        'input[placeholder*="full name" i]',
+      ],
+      country: [
+        'select[name="country"]',
+        'select[id*="country" i]',
+        'select[autocomplete*="country" i]',
+        'input[name="country"]',
+        'input[autocomplete*="country" i]',
+        '[role="combobox"][aria-label*="country" i]',
+        '[role="combobox"][aria-label*="国家" i]',
+        '[role="combobox"][aria-label*="地区" i]',
+      ],
+      line1: [
+        'input[name="addressLine1"]',
+        'input[name="line1"]',
+        'input[name="address"]',
+        'input[name="street"]',
+        'input[autocomplete*="address-line1" i]',
+        'input[autocomplete*="street-address" i]',
+        'input[id*="addressLine1" i]',
+        'input[id*="line1" i]',
+        'input[aria-label*="地址第 1 行" i]',
+        'input[aria-label*="地址第1行" i]',
+        'input[aria-label*="address line 1" i]',
+        'input[aria-label*="地址" i]',
+        'input[aria-label*="address" i]',
+        'input[placeholder*="地址第 1 行" i]',
+        'input[placeholder*="地址第1行" i]',
+        'input[placeholder*="address line 1" i]',
+        'input[placeholder*="地址" i]',
+        'input[placeholder*="address" i]',
+        'textarea[aria-label*="地址" i]',
+        'textarea[aria-label*="address" i]',
+        'textarea[placeholder*="地址" i]',
+        'textarea[placeholder*="address" i]',
+      ],
+      line2: [
+        'input[name="addressLine2"]',
+        'input[name="line2"]',
+        'input[autocomplete*="address-line2" i]',
+        'input[id*="addressLine2" i]',
+        'input[id*="line2" i]',
+        'input[aria-label*="地址第 2 行" i]',
+        'input[aria-label*="地址第2行" i]',
+        'input[aria-label*="address line 2" i]',
+        'input[aria-label*="apt" i]',
+        'input[aria-label*="suite" i]',
+        'input[placeholder*="地址第 2 行" i]',
+        'input[placeholder*="地址第2行" i]',
+        'input[placeholder*="address line 2" i]',
+        'input[placeholder*="apt" i]',
+        'input[placeholder*="suite" i]',
+      ],
+      city: [
+        'input[name="locality"]',
+        'input[name="city"]',
+        'input[autocomplete*="address-level2" i]',
+        'input[id*="locality" i]',
+        'input[id*="city" i]',
+        'input[aria-label*="城市" i]',
+        'input[aria-label*="city" i]',
+        'input[placeholder*="城市" i]',
+        'input[placeholder*="city" i]',
+      ],
+      state: [
+        'input[name="administrativeArea"]',
+        'select[name="administrativeArea"]',
+        'input[name="state"]',
+        'select[name="state"]',
+        'input[autocomplete*="address-level1" i]',
+        'select[autocomplete*="address-level1" i]',
+        'input[id*="administrativeArea" i]',
+        'select[id*="administrativeArea" i]',
+        'input[id*="state" i]',
+        'select[id*="state" i]',
+        'input[aria-label*="州" i]',
+        'input[aria-label*="省" i]',
+        'input[aria-label*="state" i]',
+        'input[placeholder*="州" i]',
+        'input[placeholder*="省" i]',
+        'input[placeholder*="state" i]',
+      ],
+      postalCode: [
+        'input[name="postalCode"]',
+        'input[name="postal_code"]',
+        'input[name="zip"]',
+        'input[autocomplete*="postal-code" i]',
+        'input[id*="postalCode" i]',
+        'input[id*="postal" i]',
+        'input[id*="zip" i]',
+        'input[aria-label*="邮编" i]',
+        'input[aria-label*="邮政" i]',
+        'input[aria-label*="postal" i]',
+        'input[aria-label*="zip" i]',
+        'input[placeholder*="邮编" i]',
+        'input[placeholder*="邮政" i]',
+        'input[placeholder*="postal" i]',
+        'input[placeholder*="zip" i]',
+      ],
+    }
+
+    const labelPatterns: Record<BillingField, RegExp[]> = {
+      name: [/全名|姓名|名称|full name|name/i],
+      country: [/国家|地区|country|region/i],
+      line1: [/^地址$|地址.*1|address(?!.*2)|address line 1|street/i],
+      line2: [/地址.*2|address.*2|address line 2|apt|suite|unit|公寓/i],
+      city: [/城市|city|locality/i],
+      state: [/州|省|state|province|administrative/i],
+      postalCode: [/邮政|邮编|postal|zip/i],
+    }
+
+    const values: Record<BillingField, string | undefined> = {
+      name: input.name,
+      country: input.country,
+      line1: input.line1,
+      line2: input.line2,
+      city: input.city,
+      state: input.state,
+      postalCode: input.postalCode,
+    }
+
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      'value',
+    )?.set
+    const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype,
+      'value',
+    )?.set
+    const nativeSelectValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLSelectElement.prototype,
+      'value',
+    )?.set
+
+    function isVisible(element: Element | null): element is HTMLElement {
+      if (!(element instanceof HTMLElement)) return false
+      const style = window.getComputedStyle(element)
+      const rect = element.getBoundingClientRect()
+      return (
+        element.isConnected &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        Number(style.opacity || '1') > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      )
+    }
+
+    function sleepInFrame(ms: number): Promise<void> {
+      return new Promise((resolve) => {
+        window.setTimeout(resolve, ms)
+      })
+    }
+
+    function normalizeText(value: string | null | undefined): string {
+      return value?.replace(/\s+/g, ' ').trim() || ''
+    }
+
+    function getAssociatedText(element: HTMLElement): string {
+      const labelledBy = element.getAttribute('aria-labelledby')
+      const ariaText = labelledBy
+        ?.split(/\s+/)
+        .map((id) => document.getElementById(id)?.textContent)
+        .filter((text): text is string => Boolean(text))
+        .join(' ')
+
+      const explicitLabelText = element.id
+        ? Array.from(document.querySelectorAll('label'))
+            .filter((label) => label.getAttribute('for') === element.id)
+            .map((label) => label.textContent || '')
+            .join(' ')
+        : ''
+
+      return normalizeText(
+        [ariaText, explicitLabelText, element.closest('label')?.textContent]
+          .filter(Boolean)
+          .join(' '),
+      )
+    }
+
+    function getElementDescriptor(element: HTMLElement): string {
+      return normalizeText(
+        [
+          element.tagName,
+          element.getAttribute('name'),
+          element.id,
+          element.getAttribute('autocomplete'),
+          element.getAttribute('aria-label'),
+          element.getAttribute('placeholder'),
+          element.getAttribute('title'),
+          getAssociatedText(element),
+        ]
+          .filter(Boolean)
+          .join(' '),
+      )
+    }
+
+    function looksLikeLine2(text: string): boolean {
+      return /address[-_\s]*line[-_\s]*2|addressline2|address_line2|address-line2|line[-_\s]*2|line2|地址\s*第?\s*2\s*行|地址.*2|apt|apartment|suite|unit|公寓|套房/i.test(
+        text,
+      )
+    }
+
+    function looksLikeLine1(text: string): boolean {
+      return /address[-_\s]*line[-_\s]*1|addressline1|address_line1|address-line1|line[-_\s]*1|line1|地址\s*第?\s*1\s*行|地址.*1|street|street-address/i.test(
+        text,
+      )
+    }
+
+    function matchesFieldDescriptor(
+      field: BillingField,
+      element: HTMLElement,
+    ): boolean {
+      const descriptor = getElementDescriptor(element)
+
+      if (field === 'line1') {
+        return (
+          !looksLikeLine2(descriptor) &&
+          (looksLikeLine1(descriptor) ||
+            /(^|\s)(地址|address)(\s|$)/i.test(descriptor))
+        )
+      }
+
+      if (field === 'line2') {
+        return looksLikeLine2(descriptor)
+      }
+
+      if (field === 'postalCode') {
+        return /postal|zip|邮政|邮编/i.test(descriptor)
+      }
+
+      if (field === 'city') {
+        return /city|locality|town|address-level2|城市/i.test(descriptor)
+      }
+
+      if (field === 'state') {
+        return /administrative|address-level1|state|province|州|省/i.test(
+          descriptor,
+        )
+      }
+
+      if (field === 'country') {
+        return (
+          element instanceof HTMLSelectElement ||
+          /country|region|国家|地区/i.test(descriptor)
+        )
+      }
+
+      return /full[-_\s]*name|name|全名|姓名|名称/i.test(descriptor)
+    }
+
+    function getVisibleControls(root: ParentNode): HTMLElement[] {
+      return Array.from(
+        root.querySelectorAll(
+          'input, select, textarea, [role="combobox"], [contenteditable="true"]',
+        ),
+      ).filter(isVisible)
+    }
+
+    function pickFieldControl(
+      root: ParentNode,
+      field: BillingField,
+      allowSingleFallback = true,
+    ): HTMLElement | null {
+      const controls = getVisibleControls(root)
+      const matched = controls.find((control) =>
+        matchesFieldDescriptor(field, control),
+      )
+      if (matched) return matched
+      if (allowSingleFallback && controls.length === 1) return controls[0]
+      return null
+    }
+
+    function findByLabel(field: BillingField): HTMLElement | null {
+      const patterns = labelPatterns[field]
+      for (const label of Array.from(document.querySelectorAll('label'))) {
+        const labelText = normalizeText(label.textContent)
+        if (!patterns.some((pattern) => pattern.test(labelText))) {
+          continue
+        }
+
+        const targetId = label.getAttribute('for')
+        if (targetId) {
+          const target = document.getElementById(targetId)
+          if (isVisible(target) && matchesFieldDescriptor(field, target)) {
+            return target
+          }
+        }
+
+        const nested = pickFieldControl(label, field)
+        if (nested) return nested
+
+        const nearby = label.parentElement
+          ? pickFieldControl(label.parentElement, field, false)
+          : null
+        if (nearby) return nearby
+      }
+
+      return null
+    }
+
+    function findByNearbyText(field: BillingField): HTMLElement | null {
+      const patterns = labelPatterns[field]
+      const textElements = Array.from(
+        document.querySelectorAll('div, span, p'),
+      ).filter((element) => {
+        const text = normalizeText(element.textContent)
+        return text && patterns.some((pattern) => pattern.test(text))
+      })
+
+      for (const element of textElements) {
+        const containers = [
+          element,
+          element.parentElement,
+          element.closest('label'),
+          element.closest('div'),
+        ].filter((entry): entry is HTMLElement => Boolean(entry))
+
+        for (const container of containers) {
+          const nearby = pickFieldControl(container, field, false)
+          if (nearby) return nearby
+        }
+      }
+
+      return null
+    }
+
+    function findField(field: BillingField): HTMLElement | null {
+      for (const selector of fieldSelectors[field]) {
+        const elements = Array.from(document.querySelectorAll(selector)).filter(
+          isVisible,
+        )
+        const matched = elements.find((element) =>
+          matchesFieldDescriptor(field, element),
+        )
+        if (matched) return matched
+        if (
+          field !== 'line2' &&
+          elements.length === 1 &&
+          (field !== 'line1' ||
+            !looksLikeLine2(getElementDescriptor(elements[0])))
+        ) {
+          return elements[0]
+        }
+      }
+
+      return findByLabel(field) || findByNearbyText(field)
+    }
+
+    async function waitForField(
+      field: BillingField,
+      timeoutMs = FIELD_WAIT_MS,
+    ): Promise<HTMLElement | null> {
+      const deadline = Date.now() + timeoutMs
+
+      do {
+        const element = findField(field)
+        if (element) return element
+        const remainingMs = deadline - Date.now()
+        if (remainingMs <= 0) break
+        await sleepInFrame(Math.min(100, remainingMs))
+      } while (Date.now() <= deadline)
+
+      return findField(field)
+    }
+
+    function dispatchValueEvents(element: HTMLElement, value: string): void {
+      try {
+        element.dispatchEvent(
+          new InputEvent('beforeinput', {
+            bubbles: true,
+            cancelable: true,
+            data: value,
+            inputType: 'insertReplacementText',
+          }),
+        )
+      } catch {}
+      try {
+        element.dispatchEvent(
+          new InputEvent('input', {
+            bubbles: true,
+            data: value,
+            inputType: 'insertReplacementText',
+          }),
+        )
+      } catch {
+        element.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      element.dispatchEvent(new Event('change', { bubbles: true }))
+      element.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+      element.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
+    }
+
+    function elementValueMatches(element: HTMLElement, value: string): boolean {
+      if (
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLSelectElement
+      ) {
+        return element.value.trim() === value.trim()
+      }
+
+      if (element.isContentEditable) {
+        return normalizeText(element.textContent) === value.trim()
+      }
+
+      return element.getAttribute('value')?.trim() === value.trim()
+    }
+
+    function normalizeCountry(value: string): string {
+      return value.trim().toUpperCase()
+    }
+
+    function setElementValue(element: HTMLElement, value: string): boolean {
+      element.focus()
+
+      if (element instanceof HTMLSelectElement) {
+        const normalized = normalizeCountry(value)
+        const option =
+          Array.from(element.options).find(
+            (entry) => entry.value.toUpperCase() === normalized,
+          ) ||
+          Array.from(element.options).find((entry) =>
+            entry.textContent
+              ?.trim()
+              .toLowerCase()
+              .includes(value.toLowerCase()),
+          )
+
+        const nextValue = option?.value || value
+        nativeSelectValueSetter?.call(element, nextValue)
+        element.value = nextValue
+        dispatchValueEvents(element, nextValue)
+        element.blur()
+        return element.value === nextValue
+      }
+
+      if (element instanceof HTMLInputElement) {
+        nativeInputValueSetter?.call(element, value)
+        element.value = value
+        dispatchValueEvents(element, value)
+        element.blur()
+        return elementValueMatches(element, value)
+      }
+
+      if (element instanceof HTMLTextAreaElement) {
+        nativeTextAreaValueSetter?.call(element, value)
+        element.value = value
+        dispatchValueEvents(element, value)
+        element.blur()
+        return elementValueMatches(element, value)
+      }
+
+      if (element.isContentEditable) {
+        element.textContent = value
+        dispatchValueEvents(element, value)
+        element.blur()
+        return elementValueMatches(element, value)
+      }
+
+      element.setAttribute('value', value)
+      dispatchValueEvents(element, value)
+      element.blur()
+      return elementValueMatches(element, value)
+    }
+
+    async function setField(
+      field: BillingField,
+      timeoutMs = FIELD_WAIT_MS,
+    ): Promise<boolean> {
+      const value = values[field]
+      if (!value) {
+        return false
+      }
+
+      const element = await waitForField(field, timeoutMs)
+      if (!element || !setElementValue(element, value)) {
+        return false
+      }
+
+      await sleepInFrame(FIELD_SETTLE_MS)
+      return elementValueMatches(element, value)
+    }
+
+    const result: Record<BillingField, boolean> = {
+      name: false,
+      country: false,
+      line1: false,
+      line2: false,
+      city: false,
+      state: false,
+      postalCode: false,
+    }
+
+    result.country = await setField('country', SHORT_FIELD_WAIT_MS)
+    if (result.country) await sleepInFrame(FIELD_SETTLE_MS)
+
+    result.name = await setField('name', SHORT_FIELD_WAIT_MS)
+    result.line1 = await setField('line1', FIELD_WAIT_MS)
+    if (result.line1) await sleepInFrame(FIELD_EXPAND_WAIT_MS)
+
+    result.line2 = await setField(
+      'line2',
+      input.line2 ? FIELD_WAIT_MS : SHORT_FIELD_WAIT_MS,
+    )
+    result.postalCode = await setField('postalCode', FIELD_WAIT_MS)
+    result.city = await setField('city', FIELD_WAIT_MS)
+    result.state = await setField('state', SHORT_FIELD_WAIT_MS)
+
+    if (!result.postalCode || !result.city) {
+      await sleepInFrame(FIELD_SETTLE_MS)
+      result.postalCode ||= await setField('postalCode', SHORT_FIELD_WAIT_MS)
+      result.city ||= await setField('city', SHORT_FIELD_WAIT_MS)
+    }
+
+    if (input.line2 && !result.line2) {
+      result.line2 = await setField('line2', SHORT_FIELD_WAIT_MS)
+    }
+
+    result.line1 ||= await setField('line1', SHORT_FIELD_WAIT_MS)
+
+    return result
+  }, address)
+}
+
+function isBillingStateRequired(country: string): boolean {
+  return [
+    'AR',
+    'AU',
+    'BR',
+    'CA',
+    'CN',
+    'ES',
+    'HK',
+    'IN',
+    'JP',
+    'MX',
+    'US',
+  ].includes(country.trim().toUpperCase())
+}
+
+async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
+  page: Page,
+): Promise<boolean> {
+  if (await clickIfPresent(page, CHATGPT_CHECKOUT_PAYPAL_SELECTORS)) {
+    await sleep(500)
+    return true
+  }
+
+  for (const frame of page.frames()) {
+    if (
+      await clickPaypalLocatorIfPresent(
+        frame.getByRole('radio', { name: /paypal/i }),
+      )
+    ) {
+      await sleep(500)
+      return true
+    }
+
+    if (
+      await clickPaypalLocatorIfPresent(
+        frame.getByRole('button', { name: /paypal/i }),
+      )
+    ) {
+      await sleep(500)
+      return true
+    }
+
+    if (
+      await clickPaypalLocatorIfPresent(
+        frame.locator('label:has-text("PayPal")'),
+      )
+    ) {
+      await sleep(500)
+      return true
+    }
+  }
+
+  return false
+}
+
+async function clickPaypalLocatorIfPresent(locator: Locator): Promise<boolean> {
+  const count = await locator.count().catch(() => 0)
+  if (count < 1) {
+    return false
+  }
+
+  const candidate = locator.first()
+  const visible = await candidate.isVisible().catch(() => false)
+  if (!visible) {
+    return false
+  }
+
+  await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
+  return candidate
+    .click()
+    .then(() => true)
+    .catch(() => false)
+}
+
+async function clickChatGPTCheckoutSubscribe(page: Page): Promise<void> {
+  for (const selector of CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS) {
+    const locator = toLocator(page, selector).first()
+    const visible = await locator.isVisible().catch(() => false)
+    if (!visible) continue
+    const enabled = await isLocatorEnabled(locator).catch(() => true)
+    if (!enabled) continue
+
+    await locator.scrollIntoViewIfNeeded().catch(() => undefined)
+    await locator.click()
+    return
+  }
+
+  await clickAny(page, CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS)
+}
+
+interface PaypalBillingAgreementCapture {
+  get(): PaypalBillingAgreementLink | undefined
+  wait(timeoutMs: number): Promise<PaypalBillingAgreementLink>
+  dispose(): void
+}
+
+export function extractPaypalBillingAgreementLink(
+  value: string,
+): PaypalBillingAgreementLink | undefined {
+  try {
+    const parsed = new URL(value)
+    if (!PAYPAL_HOST_PATTERN.test(parsed.hostname)) {
+      return undefined
+    }
+
+    const baTokenParam = parsed.searchParams.get('ba_token')?.trim()
+    const tokenParam = parsed.searchParams.get('token')?.trim()
+    const baToken = baTokenParam || tokenParam
+    if (!baToken) {
+      return undefined
+    }
+    if (!/^BA-/i.test(baToken)) {
+      return undefined
+    }
+
+    return {
+      url: value,
+      baToken,
+      tokenParam: baTokenParam ? 'ba_token' : 'token',
+      capturedAt: new Date().toISOString(),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function createPaypalBillingAgreementLinkCapture(
+  page: Page,
+): PaypalBillingAgreementCapture {
+  const context = page.context()
+  let captured: PaypalBillingAgreementLink | undefined
+  const pending = new Set<(value: PaypalBillingAgreementLink) => void>()
+  const timers = new Set<ReturnType<typeof setTimeout>>()
+
+  const inspectUrl = (url: string | undefined) => {
+    if (captured || !url) {
+      return
+    }
+
+    const link = extractPaypalBillingAgreementLink(url)
+    if (!link) {
+      return
+    }
+
+    captured = link
+    for (const resolve of pending) {
+      resolve(link)
+    }
+    pending.clear()
+  }
+
+  const inspectExistingPages = () => {
+    for (const targetPage of context.pages()) {
+      inspectUrl(targetPage.url())
+      for (const frame of targetPage.frames()) {
+        inspectUrl(frame.url())
+      }
+    }
+  }
+
+  const handleRequest = (request: Request) => {
+    inspectUrl(request.url())
+  }
+  const handleFrameNavigated = (frame: Frame) => {
+    inspectUrl(frame.url())
+  }
+  const handlePage = (targetPage: Page) => {
+    inspectUrl(targetPage.url())
+    targetPage.on('framenavigated', handleFrameNavigated)
+  }
+
+  context.on('request', handleRequest)
+  context.on('page', handlePage)
+  for (const targetPage of context.pages()) {
+    targetPage.on('framenavigated', handleFrameNavigated)
+  }
+  inspectExistingPages()
+
+  return {
+    get() {
+      inspectExistingPages()
+      return captured
+    },
+    wait(timeoutMs: number) {
+      inspectExistingPages()
+      if (captured) {
+        return Promise.resolve(captured)
+      }
+
+      return new Promise<PaypalBillingAgreementLink>((resolve, reject) => {
+        const finish = (value: PaypalBillingAgreementLink) => {
+          clearTimeout(timer)
+          timers.delete(timer)
+          pending.delete(finish)
+          resolve(value)
+        }
+        const timer = setTimeout(
+          () => {
+            pending.delete(finish)
+            timers.delete(timer)
+            reject(new Error('Timed out waiting for PayPal BA token link.'))
+          },
+          Math.max(PAYPAL_CAPTURE_POLL_MS, timeoutMs),
+        )
+
+        timers.add(timer)
+        pending.add(finish)
+      })
+    },
+    dispose() {
+      context.off('request', handleRequest)
+      context.off('page', handlePage)
+      for (const targetPage of context.pages()) {
+        targetPage.off('framenavigated', handleFrameNavigated)
+      }
+      for (const timer of timers) {
+        clearTimeout(timer)
+      }
+      timers.clear()
+      pending.clear()
+    },
+  }
 }
 
 export async function clickLoginEntryIfPresent(page: Page): Promise<boolean> {
@@ -853,7 +1803,9 @@ export async function continueCodexWorkspaceSelection(
 
       if (radioInputs.length > 0) {
         const matchedIndex = normalizedPreferredId
-          ? radioInputs.findIndex((radio) => radio.value === normalizedPreferredId) + 1
+          ? radioInputs.findIndex(
+              (radio) => radio.value === normalizedPreferredId,
+            ) + 1
           : 0
         const selectedIndex = matchedIndex || requestedIndex
 
@@ -876,7 +1828,9 @@ export async function continueCodexWorkspaceSelection(
           availableWorkspaces: radioInputs.length,
           selectedWorkspaceIndex: selectedIndex,
           selectedWorkspaceId: radio.value || undefined,
-          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
+          selectionStrategy: matchedIndex
+            ? ('workspace_id' as const)
+            : ('index' as const),
           status: 'selected' as const,
         }
       }
@@ -910,7 +1864,9 @@ export async function continueCodexWorkspaceSelection(
           availableWorkspaces,
           selectedWorkspaceIndex: selectedIndex,
           selectedWorkspaceId: select.value || undefined,
-          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
+          selectionStrategy: matchedIndex
+            ? ('workspace_id' as const)
+            : ('index' as const),
           status: 'selected' as const,
         }
       }
@@ -920,14 +1876,18 @@ export async function continueCodexWorkspaceSelection(
       ) as HTMLInputElement | null
       if (hiddenInput?.value) {
         const matchedIndex =
-          normalizedPreferredId && hiddenInput.value === normalizedPreferredId ? 1 : 0
+          normalizedPreferredId && hiddenInput.value === normalizedPreferredId
+            ? 1
+            : 0
         const selectedIndex = matchedIndex || requestedIndex
 
         return {
           availableWorkspaces: 1,
           selectedWorkspaceIndex: selectedIndex === 1 ? 1 : 0,
           selectedWorkspaceId: hiddenInput.value || undefined,
-          selectionStrategy: matchedIndex ? ('workspace_id' as const) : ('index' as const),
+          selectionStrategy: matchedIndex
+            ? ('workspace_id' as const)
+            : ('index' as const),
           status:
             selectedIndex === 1
               ? ('selected' as const)

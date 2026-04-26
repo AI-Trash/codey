@@ -41,6 +41,13 @@ export interface FlowOptions extends CommonOptions {
   password?: string
   identityId?: string
   email?: string
+  billingName?: string
+  billingCountry?: string
+  billingAddressLine1?: string
+  billingAddressLine2?: string
+  billingCity?: string
+  billingState?: string
+  billingPostalCode?: string
   workspaceId?: string
   workspaceIndex?: number
   target?: string
@@ -366,6 +373,17 @@ export function formatFlowCompletionSummary(
       'invites',
       invites ? formatInviteCounts(invites) : undefined,
     )
+    appendSummaryLine(lines, 'page', record.url)
+    appendArtifactSummaryLines(lines, record)
+    return lines.join('\n')
+  }
+
+  if (pageName === 'chatgpt-team-trial') {
+    appendSummaryLine(lines, 'email', record.email)
+    appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))
+    appendSummaryLine(lines, 'checkout', record.checkoutUrl)
+    appendExactSummaryLine(lines, 'paypal url', record.paypalApprovalUrl)
+    appendSummaryLine(lines, 'paypal url file', record.paypalApprovalUrlPath)
     appendSummaryLine(lines, 'page', record.url)
     appendArtifactSummaryLines(lines, record)
     return lines.join('\n')

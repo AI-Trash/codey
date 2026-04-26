@@ -217,6 +217,41 @@ function formatRuntimeProgressMessage(
   return formatFlowProgressMessage(update)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function buildFlowTaskCompletionResult(
+  flowId: CliFlowCommandId,
+  result: unknown,
+): Record<string, unknown> | undefined {
+  if (flowId !== 'chatgpt-team-trial' || !isRecord(result)) {
+    return undefined
+  }
+
+  const paypalApprovalUrl =
+    typeof result.paypalApprovalUrl === 'string'
+      ? result.paypalApprovalUrl.trim()
+      : ''
+  if (!paypalApprovalUrl) {
+    return undefined
+  }
+
+  const paypalApprovalUrlPath =
+    typeof result.paypalApprovalUrlPath === 'string'
+      ? result.paypalApprovalUrlPath.trim()
+      : ''
+
+  return {
+    pageName: 'chatgpt-team-trial',
+    paypalApprovalUrl,
+    ...(paypalApprovalUrlPath ? { paypalApprovalUrlPath } : {}),
+    ...(typeof result.paypalBaTokenCaptured === 'boolean'
+      ? { paypalBaTokenCaptured: result.paypalBaTokenCaptured }
+      : {}),
+  }
+}
+
 async function executeFlowSubcommand(
   subcommand: CliFlowCommandId,
   options: FlowOptions,
@@ -270,6 +305,10 @@ async function executeFlowSubcommand(
               completedAt,
               config: redactForOutput(resolvedOptions),
               result: redactForOutput(result),
+              completionResult: buildFlowTaskCompletionResult(
+                subcommand,
+                result,
+              ),
             })
           } catch (error) {
             setObservabilityRuntimeState({
@@ -722,6 +761,9 @@ async function runDaemonCommand(
                     await task.leaseReporter.complete({
                       status: 'SUCCEEDED',
                       message: 'Flow completed',
+                      ...(execution.completionResult
+                        ? { result: execution.completionResult }
+                        : {}),
                     })
                   } catch (error) {
                     logTaskLeaseError(
@@ -1118,6 +1160,19 @@ withCommonOptions(
       '--restoreStorageState <bool>',
       'Load a matching local ChatGPT storage state before normal login',
     )
+    .option('--billingName <name>', 'Checkout billing name, if requested')
+    .option('--billingCountry <country>', 'Checkout billing country code')
+    .option(
+      '--billingAddressLine1 <line>',
+      'Checkout billing street address line 1',
+    )
+    .option(
+      '--billingAddressLine2 <line>',
+      'Checkout billing street address line 2',
+    )
+    .option('--billingCity <city>', 'Checkout billing city/locality')
+    .option('--billingState <state>', 'Checkout billing state/province')
+    .option('--billingPostalCode <code>', 'Checkout billing postal or ZIP code')
     .example('codey flow chatgpt-team-trial')
     .example('codey flow chatgpt-team-trial --email someone@example.com'),
 ).action((rawOptions: Record<string, unknown>) => {

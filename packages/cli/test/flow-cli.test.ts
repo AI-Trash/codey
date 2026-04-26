@@ -236,6 +236,28 @@ describe('flow cli helpers', () => {
     )
   })
 
+  it('prints the captured PayPal URL for ChatGPT Team trial', () => {
+    const paypalUrl =
+      'https://www.paypal.com/pay?ssrt=1777211592082&token=BA-5YL10191GX878080G&ul=1'
+    const summary = formatFlowCompletionSummary('flow:chatgpt-team-trial', {
+      pageName: 'chatgpt-team-trial',
+      url: 'https://www.paypal.com/pay?token=BA-5YL10191GX878080G',
+      email: 'person@example.com',
+      authenticated: true,
+      checkoutUrl: 'https://chatgpt.com/checkout/openai_ie/cs_live_123',
+      paypalApprovalUrl: paypalUrl,
+      paypalApprovalUrlPath: 'C:/tmp/paypal-link.txt',
+    })
+
+    expect(summary).toContain('flow:chatgpt-team-trial completed')
+    expect(summary).toContain('email: person@example.com')
+    expect(summary).toContain(
+      'checkout: https://chatgpt.com/checkout/openai_ie/cs_live_123',
+    )
+    expect(summary).toContain(`paypal url: ${paypalUrl}`)
+    expect(summary).toContain('paypal url file: C:/tmp/paypal-link.txt')
+  })
+
   it('formats live flow progress updates with state-machine transitions', () => {
     const progress = formatFlowProgressUpdate('flow:chatgpt-register', {
       status: 'running',

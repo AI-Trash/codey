@@ -363,4 +363,54 @@ describe('cli flow task dispatch', () => {
       'worker-c',
     ])
   })
+
+  it('attaches workspace metadata to dispatched Team trial tasks', async () => {
+    const anchorConnection = createCliConnectionSummary({
+      id: 'connection-a',
+      workerId: 'worker-a',
+      cliName: 'CLI A',
+      registeredFlows: ['chatgpt-team-trial'],
+    })
+    const { insertedTasks } = createTransactionRecorder()
+
+    mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
+    mocks.listAdminCliConnectionStateForActor.mockResolvedValue({
+      snapshotAt: '2026-04-24T00:00:06.000Z',
+      activeConnections: [anchorConnection],
+    })
+
+    await dispatchCliFlowTasks({
+      connectionId: anchorConnection.id,
+      flowId: 'chatgpt-team-trial',
+      config: {
+        email: 'owner@example.com',
+      },
+      metadata: {
+        workspace: {
+          recordId: 'workspace-record-1',
+          workspaceId: 'ws_alpha',
+          label: 'Alpha',
+          ownerIdentityId: 'identity-1',
+        },
+      },
+      actor: {
+        userId: 'user-1',
+      },
+    })
+
+    expect(insertedTasks).toHaveLength(1)
+    expect(insertedTasks[0]?.payload).toEqual(
+      expect.objectContaining({
+        flowId: 'chatgpt-team-trial',
+        metadata: {
+          workspace: {
+            recordId: 'workspace-record-1',
+            workspaceId: 'ws_alpha',
+            label: 'Alpha',
+            ownerIdentityId: 'identity-1',
+          },
+        },
+      }),
+    )
+  })
 })

@@ -17,12 +17,34 @@ import {
   createManagedWorkspace,
   deleteManagedWorkspace,
   listAdminManagedWorkspaceSummaries,
+  normalizeTeamTrialPaypalUrl,
   resetManagedWorkspaceAuthorizationStatuses,
 } from './workspaces'
 
 describe('managed workspace authorization summaries', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('normalizes PayPal Team trial approval URLs with BA tokens', () => {
+    expect(
+      normalizeTeamTrialPaypalUrl(
+        ' https://www.paypal.com/pay?ssrt=1777211592082&token=BA-5YL10191GX878080G&ul=1 ',
+      ),
+    ).toBe(
+      'https://www.paypal.com/pay?ssrt=1777211592082&token=BA-5YL10191GX878080G&ul=1',
+    )
+    expect(
+      normalizeTeamTrialPaypalUrl(
+        'https://www.paypal.com/checkoutnow?ba_token=BA-123ABC',
+      ),
+    ).toBe('https://www.paypal.com/checkoutnow?ba_token=BA-123ABC')
+    expect(
+      normalizeTeamTrialPaypalUrl('https://example.com/pay?token=BA-123ABC'),
+    ).toBeNull()
+    expect(
+      normalizeTeamTrialPaypalUrl('https://www.paypal.com/pay?token=no'),
+    ).toBeNull()
   })
 
   it('creates a managed workspace without an OpenAI workspace ID', async () => {

@@ -5,6 +5,7 @@ import { createServerFn } from '@tanstack/react-start'
 import {
   CalendarIcon,
   DownloadIcon,
+  ExternalLinkIcon,
   EyeIcon,
   PencilIcon,
   PlusIcon,
@@ -158,6 +159,8 @@ type WorkspaceSummary = {
   id: string
   workspaceId: string | null
   label?: string | null
+  teamTrialPaypalUrl?: string | null
+  teamTrialPaypalCapturedAt?: string | null
   owner?: WorkspaceIdentitySummary | null
   memberCount: number
   members: WorkspaceMemberSummary[]
@@ -1710,6 +1713,7 @@ function WorkspaceDetailDialog(props: {
     authorizationResetPending
   const canStartTeamTrial =
     props.canDispatchFlows && Boolean(props.workspace?.owner?.email)
+  const teamTrialPaypalUrl = props.workspace?.teamTrialPaypalUrl?.trim() || null
   const canAuthorizeMembers =
     props.canDispatchFlows && Boolean(inviteableMembers.length)
   const canInviteAll =
@@ -1804,19 +1808,37 @@ function WorkspaceDetailDialog(props: {
                       </CardDescription>
                       <CardTitle>{m.admin_workspace_owner_label()}</CardTitle>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!canStartTeamTrial || isMutating}
-                      onClick={() => {
-                        void handleTeamTrial()
-                      }}
-                    >
-                      <SparklesIcon />
-                      {teamTrialPending
-                        ? m.admin_workspace_team_trial_running()
-                        : m.admin_workspace_team_trial_button()}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {teamTrialPaypalUrl ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            window.open(
+                              teamTrialPaypalUrl,
+                              '_blank',
+                              'noopener,noreferrer',
+                            )
+                          }}
+                        >
+                          <ExternalLinkIcon />
+                          {m.admin_workspace_team_trial_paypal_button()}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!canStartTeamTrial || isMutating}
+                        onClick={() => {
+                          void handleTeamTrial()
+                        }}
+                      >
+                        <SparklesIcon />
+                        {teamTrialPending
+                          ? m.admin_workspace_team_trial_running()
+                          : m.admin_workspace_team_trial_button()}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">

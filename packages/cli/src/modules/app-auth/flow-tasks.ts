@@ -21,6 +21,7 @@ interface FlowTaskStatusPayload {
   status: FlowTaskLeaseStatus | FinalFlowTaskStatus
   error?: string | null
   message?: string | null
+  result?: Record<string, unknown> | null
 }
 
 async function postJson<T>(input: {
@@ -63,6 +64,7 @@ export async function updateCliFlowTaskStatus(input: {
   status: FlowTaskLeaseStatus | FinalFlowTaskStatus
   error?: string | null
   message?: string | null
+  result?: Record<string, unknown> | null
 }): Promise<void> {
   await postJson<{ ok: boolean }>({
     authState: input.authState,
@@ -71,6 +73,7 @@ export async function updateCliFlowTaskStatus(input: {
       status: input.status,
       ...(input.error !== undefined ? { error: input.error } : {}),
       ...(input.message !== undefined ? { message: input.message } : {}),
+      ...(input.result !== undefined ? { result: input.result } : {}),
     },
   })
 }
@@ -123,7 +126,9 @@ export class CliFlowTaskLeaseReporter {
     this.queueStatus(
       {
         status: 'RUNNING',
-        ...(normalizedMessage !== undefined ? { message: normalizedMessage } : {}),
+        ...(normalizedMessage !== undefined
+          ? { message: normalizedMessage }
+          : {}),
       },
       true,
     )
@@ -156,6 +161,7 @@ export class CliFlowTaskLeaseReporter {
     status: FinalFlowTaskStatus
     error?: string | null
     message?: string | null
+    result?: Record<string, unknown> | null
   }): Promise<void> {
     if (this.completed) {
       return
@@ -176,6 +182,7 @@ export class CliFlowTaskLeaseReporter {
           : this.currentMessage !== undefined
             ? { message: this.currentMessage }
             : {}),
+        ...(input.result !== undefined ? { result: input.result } : {}),
       },
       false,
     )
@@ -196,6 +203,7 @@ export class CliFlowTaskLeaseReporter {
             status: payload.status,
             error: payload.error,
             message: payload.message,
+            ...(payload.result !== undefined ? { result: payload.result } : {}),
           })
         } catch (error) {
           const sanitized = sanitizeErrorForOutput(error)

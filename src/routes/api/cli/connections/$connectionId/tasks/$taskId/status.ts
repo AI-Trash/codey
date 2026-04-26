@@ -26,6 +26,20 @@ function parseOptionalString(value: unknown): string | null | undefined {
   return normalized || null
 }
 
+function parseOptionalRecord(
+  value: unknown,
+): Record<string, unknown> | null | undefined {
+  if (value === null) {
+    return null
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+
+  return value as Record<string, unknown>
+}
+
 export const Route = createFileRoute(
   '/api/cli/connections/$connectionId/tasks/$taskId/status',
 )({
@@ -96,6 +110,11 @@ export const Route = createFileRoute(
           return text('message must be a string or null', 400)
         }
 
+        const result = parseOptionalRecord(body?.result)
+        if ('result' in (body || {}) && result === undefined) {
+          return text('result must be an object or null', 400)
+        }
+
         try {
           const task =
             status === 'LEASED' || status === 'RUNNING'
@@ -111,6 +130,7 @@ export const Route = createFileRoute(
                   status,
                   error,
                   message,
+                  ...(result !== undefined ? { result } : {}),
                 })
 
           if (!task) {
