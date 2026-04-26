@@ -102,7 +102,7 @@ If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MA
 
 Managed ChatGPT identities and captured session snapshots are now stored directly in Postgres so they can be shared across Codey app users and CLI runs. ChatGPT passwords are encrypted at rest with `OAUTH_CLIENT_SECRET_ENCRYPTION_KEY`. `flow chatgpt-login` and `flow codex-oauth` now resolve the latest shared identity from the app when `--identityId` / `--email` is omitted.
 
-Invited OpenAI workspace memberships are also stored in Postgres. `flow chatgpt-login-invite` now syncs the invited workspace ID together with the invited email addresses into Codey, and `/admin/workspaces` lets you review or edit those associations.
+Invited OpenAI workspace memberships are also stored in Postgres. `flow chatgpt-invite` syncs the invited workspace ID together with the invited email addresses into Codey, and `/admin/workspaces` lets you review or edit those associations.
 
 OIDC signing keys are now managed in Postgres. The app auto-generates an initial signing key on first boot, caches the published JWKS set in memory, and rotates keys automatically. Optional tuning:
 

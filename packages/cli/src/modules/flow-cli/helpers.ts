@@ -57,6 +57,7 @@ export interface FlowOptions extends CommonOptions {
   chatgptStorageStatePath?: string
   chatgptStorageStateIdentityId?: string
   chatgptStorageStateEmail?: string
+  autoSelectFirstWorkspace?: boolean
 }
 
 export interface AuthOptions extends CommonOptions {
@@ -363,10 +364,11 @@ export function formatFlowCompletionSummary(
     return lines.join('\n')
   }
 
-  if (pageName === 'chatgpt-login-invite') {
+  if (pageName === 'chatgpt-invite') {
     const invites = asRecord(record.invites)
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))
+    appendSummaryLine(lines, 'workspace', record.workspaceId)
     appendSummaryLine(lines, 'strategy', invites?.strategy)
     appendSummaryLine(
       lines,

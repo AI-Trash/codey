@@ -32,7 +32,7 @@ const flowDescriptionById: Record<CliFlowCommandId, string> = {
   'chatgpt-login': 'Sign in with a previously shared ChatGPT identity.',
   'chatgpt-team-trial':
     'Sign in and claim the ChatGPT Team pricing free trial.',
-  'chatgpt-login-invite':
+  'chatgpt-invite':
     'Sign in with a shared ChatGPT identity and invite workspace members.',
   'codex-oauth': 'Complete Codex OAuth and store the shared session in Codey.',
   noop: 'Open an empty browser page for manual inspection.',

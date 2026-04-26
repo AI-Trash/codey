@@ -175,14 +175,14 @@ export const Route = createFileRoute(
               (
                 await listAdminCliConnectionStateForActor(actor)
               ).activeConnections.filter((connection) =>
-                connection.registeredFlows.includes('chatgpt-login-invite'),
+                connection.registeredFlows.includes('chatgpt-invite'),
               ),
             )[0]?.id
 
           if (connectionId) {
             const result = await dispatchCliFlowTasks({
               connectionId,
-              flowId: 'chatgpt-login-invite',
+              flowId: 'chatgpt-invite',
               actor,
               config: {
                 identityId: workspace.owner.identityId,
@@ -203,7 +203,7 @@ export const Route = createFileRoute(
 
           const flowRequest = await createFlowAppRequest({
             appName: workspace.label || workspace.workspaceId || 'Workspace',
-            flowType: 'chatgpt-login-invite',
+            flowType: 'chatgpt-invite',
             requestedBy:
               admin.user.githubLogin ||
               admin.user.email ||

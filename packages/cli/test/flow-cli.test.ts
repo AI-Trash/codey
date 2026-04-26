@@ -154,25 +154,23 @@ describe('flow cli helpers', () => {
         email: 'person@example.com',
       },
     })
-    const inviteSummary = formatFlowCompletionSummary(
-      'flow:chatgpt-login-invite',
-      {
-        pageName: 'chatgpt-login-invite',
-        url: 'https://chatgpt.com/admin?token=secret',
-        email: 'person@example.com',
-        authenticated: true,
-        invites: {
-          strategy: 'api',
-          requestedEmails: ['a@example.com', 'b@example.com'],
-          invitedEmails: ['a@example.com'],
-          skippedEmails: ['b@example.com'],
-          erroredEmails: [],
-        },
-        inviteInputs: {
-          inviteFilePath: 'C:/tmp/members.csv',
-        },
+    const inviteSummary = formatFlowCompletionSummary('flow:chatgpt-invite', {
+      pageName: 'chatgpt-invite',
+      url: 'https://chatgpt.com/admin?token=secret',
+      email: 'person@example.com',
+      workspaceId: 'workspace-123',
+      authenticated: true,
+      invites: {
+        strategy: 'api',
+        requestedEmails: ['a@example.com', 'b@example.com'],
+        invitedEmails: ['a@example.com'],
+        skippedEmails: ['b@example.com'],
+        erroredEmails: [],
       },
-    )
+      inviteInputs: {
+        inviteFilePath: 'C:/tmp/members.csv',
+      },
+    })
 
     const oauthSummary = formatFlowCompletionSummary('flow:codex-oauth', {
       pageName: 'codex-oauth',
@@ -200,6 +198,7 @@ describe('flow cli helpers', () => {
     expect(loginSummary).not.toContain('token=secret')
 
     expect(inviteSummary).toContain('strategy: api')
+    expect(inviteSummary).toContain('workspace: workspace-123')
     expect(inviteSummary).toContain(
       'invites: requested 2, invited 1, skipped 1, errored 0',
     )

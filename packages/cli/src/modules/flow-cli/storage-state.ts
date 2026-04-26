@@ -1,4 +1,7 @@
-import type { CliFlowCommandId } from './flow-registry'
+import {
+  normalizeCliFlowCommandId,
+  type CliFlowCommandId,
+} from './flow-registry'
 import { parseBooleanFlag, type FlowOptions } from './helpers'
 import {
   resolveStoredChatGPTIdentity,
@@ -21,7 +24,7 @@ export function shouldLoadChatGPTStorageState(
   return (
     flowId === 'chatgpt-login' ||
     flowId === 'chatgpt-team-trial' ||
-    flowId === 'chatgpt-login-invite'
+    flowId === 'chatgpt-invite'
   )
 }
 
@@ -31,19 +34,7 @@ export function flowCommandToId(command: string): CliFlowCommandId | undefined {
     return undefined
   }
 
-  const flowId = normalized.slice('flow:'.length)
-  if (
-    flowId === 'chatgpt-register' ||
-    flowId === 'chatgpt-login' ||
-    flowId === 'chatgpt-team-trial' ||
-    flowId === 'chatgpt-login-invite' ||
-    flowId === 'codex-oauth' ||
-    flowId === 'noop'
-  ) {
-    return flowId
-  }
-
-  return undefined
+  return normalizeCliFlowCommandId(normalized.slice('flow:'.length))
 }
 
 export async function prepareFlowStorageState(input: {

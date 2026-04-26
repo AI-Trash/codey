@@ -1277,19 +1277,36 @@ export async function syncManagedWorkspaceInvite(input: {
   }
 
   const seenAt = new Date()
-  const existing = await getDb().query.managedWorkspaces.findFirst({
+  const requestedOwnerIdentityId =
+    input.ownerIdentityId === undefined
+      ? undefined
+      : normalizeOptionalIdentityId(input.ownerIdentityId)
+  let existing = await getDb().query.managedWorkspaces.findFirst({
     where: eq(managedWorkspaces.workspaceId, workspaceId),
     columns: {
       id: true,
+      workspaceId: true,
       label: true,
       ownerIdentityId: true,
     },
   })
 
+  if (!existing && requestedOwnerIdentityId) {
+    existing = await getDb().query.managedWorkspaces.findFirst({
+      where: eq(managedWorkspaces.ownerIdentityId, requestedOwnerIdentityId),
+      columns: {
+        id: true,
+        workspaceId: true,
+        label: true,
+        ownerIdentityId: true,
+      },
+    })
+  }
+
   const ownerIdentityId =
     input.ownerIdentityId === undefined
       ? existing?.ownerIdentityId || null
-      : normalizeOptionalIdentityId(input.ownerIdentityId)
+      : requestedOwnerIdentityId
   const ownerIdentity = await resolveManagedWorkspaceOwner(ownerIdentityId)
   const incomingMemberInputs = await resolveWorkspaceMemberInputs({
     memberIdentityIds: input.memberIdentityIds,
@@ -1318,6 +1335,7 @@ export async function syncManagedWorkspaceInvite(input: {
         label:
           normalizeOptionalLabel(input.label) ??
           normalizeOptionalLabel(existing.label),
+        workspaceId,
         ownerIdentityId,
         updatedAt: seenAt,
       })

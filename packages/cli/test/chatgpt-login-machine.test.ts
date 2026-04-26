@@ -80,6 +80,38 @@ describe('chatgpt login machine', () => {
     })
   })
 
+  it('tracks post-login workspace selection before completion', async () => {
+    const machine = createChatGPTLoginMachine()
+
+    machine.start({
+      email: 'owner@example.com',
+    })
+
+    await machine.send('chatgpt.workspace.ready', {
+      target: 'workspace-selection',
+      patch: {
+        email: 'owner@example.com',
+        lastMessage: 'OpenAI workspace selection ready',
+      },
+    })
+    await machine.send('chatgpt.workspace.selected', {
+      target: 'workspace-selection',
+      patch: {
+        selectedWorkspaceId: 'workspace-selected',
+        lastMessage: 'Selected OpenAI workspace workspace-selected',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'workspace-selection',
+      context: {
+        email: 'owner@example.com',
+        selectedWorkspaceId: 'workspace-selected',
+        lastMessage: 'Selected OpenAI workspace workspace-selected',
+      },
+    })
+  })
+
   it('moves into the add-phone failure state from any step', async () => {
     const machine = createChatGPTLoginMachine()
 

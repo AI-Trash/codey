@@ -312,8 +312,8 @@ function selectDispatchTargetForConfig(input: {
 
 function supportsEmailBatchDispatch(
   flowId: CliFlowCommandId,
-): flowId is "chatgpt-login-invite" | "codex-oauth" {
-  return flowId === "chatgpt-login-invite" || flowId === "codex-oauth";
+): flowId is "chatgpt-invite" | "codex-oauth" {
+  return flowId === "chatgpt-invite" || flowId === "codex-oauth";
 }
 
 function validateBatchedCliFlowConfigs<TFlowId extends CliFlowCommandId>(input: {

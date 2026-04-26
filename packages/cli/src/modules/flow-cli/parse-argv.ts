@@ -146,12 +146,14 @@ export function normalizeFlowCliArgs(
   return {
     ...normalizeCommonCliArgs(input),
     ...normalizeCliFlowConfig('chatgpt-register', input),
-    ...normalizeCliFlowConfig('chatgpt-login-invite', input),
+    ...normalizeCliFlowConfig('chatgpt-invite', input),
     ...normalizeCliFlowConfig('codex-oauth', input),
   }
 }
 
-export function normalizeFlowCliArgsForCommand<TFlowId extends CliFlowCommandId>(
+export function normalizeFlowCliArgsForCommand<
+  TFlowId extends CliFlowCommandId,
+>(
   flowId: TFlowId,
   input: Record<string, unknown> | null | undefined,
 ): FlowOptions {

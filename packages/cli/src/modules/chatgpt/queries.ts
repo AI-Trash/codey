@@ -63,6 +63,8 @@ export type ChatGPTCodexOAuthSurface =
   | 'organization'
   | 'consent'
 
+export type ChatGPTPostLoginCompletionSurface = 'authenticated' | 'workspace'
+
 export type ChatGPTRegistrationEntrySurface =
   | 'authenticated'
   | 'email'
@@ -1076,11 +1078,7 @@ export async function waitForChatGPTCheckoutReady(
   timeoutMs = 30000,
 ): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
-  const urlReady = await waitForUrlMatch(
-    page,
-    isChatGPTCheckoutUrl,
-    timeoutMs,
-  )
+  const urlReady = await waitForUrlMatch(page, isChatGPTCheckoutUrl, timeoutMs)
   if (!urlReady) {
     return false
   }
@@ -1276,6 +1274,25 @@ export async function getLoginEntryCandidates(
   return candidates
 }
 
+export async function isOpenAIWorkspacePickerReady(
+  page: Page,
+): Promise<boolean> {
+  const hasWorkspaceIdControl = await page
+    .evaluate(() =>
+      Boolean(
+        document.querySelector(
+          'input[name="workspace_id"], select[name="workspace_id"]',
+        ),
+      ),
+    )
+    .catch(() => false)
+
+  return (
+    hasWorkspaceIdControl ||
+    (await isAnySelectorVisible(page, CODEX_WORKSPACE_SELECTORS))
+  )
+}
+
 export async function isCodexWorkspacePickerReady(
   page: Page,
 ): Promise<boolean> {
@@ -1311,6 +1328,21 @@ export async function isCodexConsentReady(page: Page): Promise<boolean> {
     (await hasEnabledSelector(page, CODEX_CONSENT_SUBMIT_SELECTORS)) ||
     (await isAnySelectorVisible(page, CODEX_CONSENT_SUBMIT_SELECTORS))
   )
+}
+
+export async function getPostLoginCompletionCandidates(
+  page: Page,
+): Promise<ChatGPTPostLoginCompletionSurface[]> {
+  const candidates: ChatGPTPostLoginCompletionSurface[] = []
+
+  if (await isOpenAIWorkspacePickerReady(page)) {
+    pushUniqueCandidate(candidates, 'workspace')
+  }
+  if (await waitForAuthenticatedSession(page, 500)) {
+    pushUniqueCandidate(candidates, 'authenticated')
+  }
+
+  return candidates
 }
 
 export async function getCodexOAuthSurfaceCandidates(
@@ -1372,6 +1404,22 @@ export async function waitForCodexOAuthSurfaceCandidates(
   }
 
   return getCodexOAuthSurfaceCandidates(page)
+}
+
+export async function waitForPostLoginCompletionCandidates(
+  page: Page,
+  timeoutMs = 30000,
+): Promise<ChatGPTPostLoginCompletionSurface[]> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const candidates = await getPostLoginCompletionCandidates(page)
+    if (candidates.length > 0) {
+      return candidates
+    }
+    await sleep(250)
+  }
+
+  return getPostLoginCompletionCandidates(page)
 }
 
 export async function waitForCodexOAuthSurface(

@@ -64,9 +64,9 @@ import {
 } from '#/components/ui/table'
 import type { RandomWorkspaceMemberConflict } from '#/lib/admin/workspace-editor-random'
 import {
+  getLatestWorkspaceOwnerIdentity,
   getOtherWorkspaceOwnerWorkspace,
   getRandomWorkspaceMemberSelection,
-  getRandomWorkspaceOwnerIdentity,
   hasOtherWorkspaceAssociations,
   isWorkspaceSelectableIdentity,
 } from '#/lib/admin/workspace-editor-random'
@@ -126,6 +126,7 @@ type IdentitySummary = {
   label: string
   account?: string | null
   status?: string | null
+  createdAt?: string | null
 }
 
 type WorkspaceIdentitySummary = {
@@ -875,7 +876,7 @@ function WorkspaceEditorDialog(props: {
     : null
   const memberCapReached =
     props.editor.memberIdentityIds.length >= MAX_WORKSPACE_MEMBER_COUNT
-  const canRandomizeOwner =
+  const canChooseLatestOwner =
     !props.editor.id && ownerPickerIdentities.length > 0
   const canRandomizeMembers =
     !props.editor.id &&
@@ -925,8 +926,8 @@ function WorkspaceEditorDialog(props: {
     })
   }
 
-  function randomizeOwner() {
-    const nextOwner = getRandomWorkspaceOwnerIdentity({
+  function chooseLatestOwner() {
+    const nextOwner = getLatestWorkspaceOwnerIdentity({
       identities: ownerPickerIdentities,
       ownerWorkspaceByIdentityId,
       memberWorkspacesByIdentityId,
@@ -1041,10 +1042,10 @@ function WorkspaceEditorDialog(props: {
                   variant="outline"
                   size="sm"
                   className="w-full sm:w-auto"
-                  disabled={!canRandomizeOwner}
-                  onClick={randomizeOwner}
+                  disabled={!canChooseLatestOwner}
+                  onClick={chooseLatestOwner}
                 >
-                  <RefreshCcwIcon className="size-4" />
+                  <CalendarIcon className="size-4" />
                   {m.admin_workspace_owner_random_button()}
                 </Button>
               ) : null}

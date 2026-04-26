@@ -1157,8 +1157,8 @@ function supportsRepeatedDispatch(
 
 function supportsEmailListDispatch(
   flowId: CliFlowCommandId | '',
-): flowId is 'chatgpt-login-invite' | 'codex-oauth' {
-  return flowId === 'chatgpt-login-invite' || flowId === 'codex-oauth'
+): flowId is 'chatgpt-invite' | 'codex-oauth' {
+  return flowId === 'chatgpt-invite' || flowId === 'codex-oauth'
 }
 
 function isEmailBatchDispatchOption(
@@ -1430,7 +1430,7 @@ const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
   chatgptRegister: () => m.admin_cli_flow_chatgpt_register_name(),
   chatgptLogin: () => m.admin_cli_flow_chatgpt_login_name(),
   chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_name(),
-  chatgptLoginInvite: () => m.admin_cli_flow_chatgpt_login_invite_name(),
+  chatgptInvite: () => m.admin_cli_flow_chatgpt_invite_name(),
   codexOauth: () => m.admin_cli_flow_codex_oauth_name(),
   noop: () => m.admin_cli_flow_noop_name(),
 }
@@ -1439,7 +1439,7 @@ const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
   chatgptRegister: () => m.admin_cli_flow_chatgpt_register_description(),
   chatgptLogin: () => m.admin_cli_flow_chatgpt_login_description(),
   chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_description(),
-  chatgptLoginInvite: () => m.admin_cli_flow_chatgpt_login_invite_description(),
+  chatgptInvite: () => m.admin_cli_flow_chatgpt_invite_description(),
   codexOauth: () => m.admin_cli_flow_codex_oauth_description(),
   noop: () => m.admin_cli_flow_noop_description(),
 }

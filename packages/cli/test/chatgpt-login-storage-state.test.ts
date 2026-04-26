@@ -8,12 +8,14 @@ const createChatGPTSessionCapture = vi.fn()
 const saveLocalChatGPTStorageState = vi.fn()
 const clickLoginEntryIfPresent = vi.fn()
 const completePasswordOrVerificationLoginFallback = vi.fn()
+const continueOpenAIWorkspaceSelection = vi.fn()
 const gotoLoginEntry = vi.fn()
 const logStep = vi.fn()
 const submitLoginEmail = vi.fn()
 const waitForAuthenticatedSession = vi.fn()
 const waitForLoginSurface = vi.fn()
 const waitForPasswordInputReady = vi.fn()
+const waitForPostLoginCompletionCandidates = vi.fn()
 const waitForPostEmailLoginCandidates = vi.fn()
 const createChatGPTBackendMeSessionProbe = vi.fn()
 const waitForBackendMeSession = vi.fn()
@@ -50,6 +52,7 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   CHATGPT_HOME_URL: 'https://chatgpt.com/',
   clickLoginEntryIfPresent,
   completePasswordOrVerificationLoginFallback,
+  continueOpenAIWorkspaceSelection,
   createChatGPTBackendMeSessionProbe,
   gotoLoginEntry,
   logStep,
@@ -57,6 +60,7 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   waitForAuthenticatedSession,
   waitForLoginSurface,
   waitForPasswordInputReady,
+  waitForPostLoginCompletionCandidates,
   waitForPostEmailLoginCandidates,
   waitForVerificationCodeInputReady,
 }))
@@ -135,6 +139,7 @@ describe('loginChatGPT local storage-state restore', () => {
     submitLoginEmail.mockResolvedValue(undefined)
     waitForLoginSurface.mockResolvedValue('email')
     waitForPasswordInputReady.mockResolvedValue(true)
+    waitForPostLoginCompletionCandidates.mockResolvedValue(['authenticated'])
     waitForPostEmailLoginCandidates.mockResolvedValue(['password'])
     waitForBackendMeSession.mockResolvedValue(false)
     disposeBackendMeSessionProbe.mockReturnValue(undefined)
@@ -252,5 +257,30 @@ describe('loginChatGPT local storage-state restore', () => {
     })
     expect(gotoLoginEntry).not.toHaveBeenCalled()
     expect(result.method).toBe('restored')
+  })
+
+  it('auto-selects the first OpenAI workspace when requested after login', async () => {
+    waitForAuthenticatedSession
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+    waitForPostLoginCompletionCandidates.mockResolvedValueOnce(['workspace'])
+    continueOpenAIWorkspaceSelection.mockResolvedValueOnce({
+      availableWorkspaces: 2,
+      selectedWorkspaceIndex: 1,
+      selectedWorkspaceId: 'workspace-selected',
+      selectionStrategy: 'index',
+    })
+
+    const page = createPage()
+    const { loginChatGPT } = await import('../src/flows/chatgpt-login')
+
+    const result = await loginChatGPT(page as never, {
+      email: 'person@example.com',
+      autoSelectFirstWorkspace: true,
+    })
+
+    expect(continueOpenAIWorkspaceSelection).toHaveBeenCalledWith(page, 1)
+    expect(result.selectedWorkspaceId).toBe('workspace-selected')
   })
 })

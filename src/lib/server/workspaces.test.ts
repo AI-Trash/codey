@@ -19,6 +19,7 @@ import {
   listAdminManagedWorkspaceSummaries,
   normalizeTeamTrialPaypalUrl,
   resetManagedWorkspaceAuthorizationStatuses,
+  syncManagedWorkspaceInvite,
 } from './workspaces'
 
 describe('managed workspace authorization summaries', () => {
@@ -174,6 +175,88 @@ describe('managed workspace authorization summaries', () => {
 
     expect(findMemberWorkspace).toHaveBeenCalledTimes(1)
     expect(insertRecord).not.toHaveBeenCalled()
+  })
+
+  it('fills an existing owner workspace with the synced OpenAI workspace ID', async () => {
+    const now = new Date('2026-04-23T00:00:00.000Z')
+    const ownerIdentity = {
+      identityId: 'identity-1',
+      email: 'owner@example.com',
+      label: 'Owner',
+    }
+    const existingWorkspace = {
+      id: 'workspace-record-1',
+      workspaceId: null,
+      label: 'Alpha',
+      ownerIdentityId: 'identity-1',
+    }
+    const findFirstWorkspace = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(existingWorkspace)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        ...existingWorkspace,
+        workspaceId: 'ws_alpha',
+        ownerIdentity,
+        createdAt: now,
+        updatedAt: now,
+        members: [],
+      })
+    const updateSet = vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue(undefined),
+    })
+    const deleteMemberWhere = vi.fn().mockResolvedValue(undefined)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedIdentities: {
+          findFirst: vi.fn().mockResolvedValue(ownerIdentity),
+        },
+        managedWorkspaces: {
+          findFirst: findFirstWorkspace,
+        },
+        managedWorkspaceMembers: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+        managedIdentitySessions: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      },
+      update: vi.fn().mockReturnValue({
+        set: updateSet,
+      }),
+      delete: vi.fn((table: unknown) => {
+        if (table === managedWorkspaceMembers) {
+          return {
+            where: deleteMemberWhere,
+          }
+        }
+
+        throw new Error('Unexpected delete table')
+      }),
+    })
+
+    await expect(
+      syncManagedWorkspaceInvite({
+        workspaceId: 'ws_alpha',
+        ownerIdentityId: 'identity-1',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'workspace-record-1',
+        workspaceId: 'ws_alpha',
+      }),
+    )
+
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 'ws_alpha',
+        ownerIdentityId: 'identity-1',
+      }),
+    )
+    expect(deleteMemberWhere).toHaveBeenCalledTimes(1)
   })
 
   it('keeps authorization state scoped to the matching workspace', async () => {

@@ -314,14 +314,14 @@ describe('cli flow task dispatch', () => {
       id: 'connection-a',
       workerId: 'worker-a',
       cliName: 'CLI A',
-      registeredFlows: ['chatgpt-login-invite'],
+      registeredFlows: ['chatgpt-invite'],
       lastSeenAt: '2026-04-24T00:00:07.000Z',
     })
     const alphaConnection = createCliConnectionSummary({
       id: 'connection-b',
       workerId: 'worker-b',
       cliName: 'CLI B',
-      registeredFlows: ['chatgpt-login-invite'],
+      registeredFlows: ['chatgpt-invite'],
       storageStateEmails: ['alpha@example.com'],
       lastSeenAt: '2026-04-24T00:00:05.000Z',
     })
@@ -329,7 +329,7 @@ describe('cli flow task dispatch', () => {
       id: 'connection-c',
       workerId: 'worker-c',
       cliName: 'CLI C',
-      registeredFlows: ['chatgpt-login-invite'],
+      registeredFlows: ['chatgpt-invite'],
       storageStateEmails: ['beta@example.com'],
       lastSeenAt: '2026-04-24T00:00:04.000Z',
     })
@@ -343,7 +343,7 @@ describe('cli flow task dispatch', () => {
 
     const result = await dispatchCliFlowTasks({
       connectionId: anchorConnection.id,
-      flowId: 'chatgpt-login-invite',
+      flowId: 'chatgpt-invite',
       configs: [
         { email: 'alpha@example.com' },
         { email: 'beta@example.com' },

@@ -3,6 +3,7 @@ export type RandomizableIdentity = {
   label: string
   account?: string | null
   status?: string | null
+  createdAt?: string | null
 }
 
 export type RandomizableWorkspace = {
@@ -30,6 +31,14 @@ function shuffleItems<T>(items: T[]): T[] {
   }
 
   return next
+}
+
+function getIdentityCreatedAtTime(identity: RandomizableIdentity) {
+  const time = identity.createdAt
+    ? new Date(identity.createdAt).getTime()
+    : Number.NEGATIVE_INFINITY
+
+  return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY
 }
 
 export function getOtherWorkspaceOwnerWorkspace(
@@ -109,7 +118,7 @@ export function hasOtherWorkspaceAssociations(
   )
 }
 
-export function getRandomWorkspaceOwnerIdentity(input: {
+export function getLatestWorkspaceOwnerIdentity(input: {
   identities: RandomizableIdentity[]
   ownerWorkspaceByIdentityId: ReadonlyMap<string, RandomizableWorkspace>
   memberWorkspacesByIdentityId: ReadonlyMap<
@@ -129,7 +138,16 @@ export function getRandomWorkspaceOwnerIdentity(input: {
       ),
   )
 
-  return shuffleItems(eligibleIdentities)[0]
+  return eligibleIdentities.sort((left, right) => {
+    const createdAtDelta =
+      getIdentityCreatedAtTime(right) - getIdentityCreatedAtTime(left)
+
+    if (createdAtDelta !== 0) {
+      return createdAtDelta
+    }
+
+    return right.id.localeCompare(left.id)
+  })[0]
 }
 
 export function getRandomWorkspaceMemberSelection(input: {

@@ -9,9 +9,10 @@ export {
   createChatGPTLoginMachine,
 } from './flows/chatgpt-login'
 export {
+  inviteChatGPTWorkspaceMembers,
   loginChatGPTAndInviteMembers,
-  chatgptLoginInviteFlow,
-} from './flows/chatgpt-login-invite'
+  chatgptInviteFlow,
+} from './flows/chatgpt-invite'
 export {
   runChatGPTTeamTrial,
   chatgptTeamTrialFlow,
@@ -21,7 +22,7 @@ export { runCodexOAuthFlow, codexOAuthFlow } from './flows/codex-oauth'
 export { openNoopFlow, noopFlow } from './flows/noop'
 export type * from './flows/chatgpt-register'
 export type * from './flows/chatgpt-login'
-export type * from './flows/chatgpt-login-invite'
+export type * from './flows/chatgpt-invite'
 export type * from './flows/chatgpt-team-trial'
 export type * from './flows/codex-oauth'
 export type * from './flows/noop'

@@ -51,6 +51,7 @@ import {
   isCodexOrganizationPickerReady,
   isCodexWorkspacePickerReady,
   isLocatorEnabled,
+  isOpenAIWorkspacePickerReady,
   throwIfChatGPTAccountDeactivated,
   waitForAnySelectorState,
   waitForChatGPTCheckoutReady,
@@ -81,12 +82,14 @@ const STRIPE_ADDRESS_FIELD_SELECTORS = [
 const PAYPAL_HOST_PATTERN = /(^|\.)paypal\.com$/i
 const PAYPAL_CAPTURE_POLL_MS = 250
 
-interface CodexWorkspaceSelectionResult {
+export interface OpenAIWorkspaceSelectionResult {
   availableWorkspaces: number
   selectedWorkspaceIndex: number
   selectedWorkspaceId?: string
   selectionStrategy: 'index' | 'workspace_id'
 }
+
+type CodexWorkspaceSelectionResult = OpenAIWorkspaceSelectionResult
 
 interface CodexOrganizationSelectionResult {
   availableOrganizations: number
@@ -1777,29 +1780,21 @@ export async function completePasswordOrVerificationLoginFallback(
   throw new Error('Password submission timed out repeatedly.')
 }
 
-export async function continueCodexWorkspaceSelection(
+async function selectOpenAIWorkspaceIdControl(
   page: Page,
-  workspaceIndex = 1,
+  workspaceIndex: number,
   preferredWorkspaceId?: string,
-): Promise<CodexWorkspaceSelectionResult> {
-  if (!Number.isInteger(workspaceIndex) || workspaceIndex < 1) {
-    throw new Error(
-      'Codex workspace selection requires a positive 1-based workspace index.',
-    )
-  }
-
-  if (!(await isCodexWorkspacePickerReady(page))) {
-    throw new Error('Codex workspace picker was not ready.')
-  }
-
-  const selected = await page.evaluate(
+) {
+  return page.evaluate(
     ({ requestedIndex, preferredWorkspaceId: preferredId }) => {
       const normalizedPreferredId =
         typeof preferredId === 'string' ? preferredId.trim() : ''
 
-      const radioInputs = Array.from(
-        document.querySelectorAll('input[type="radio"][name="workspace_id"]'),
-      ) as HTMLInputElement[]
+      const radioInputs = (
+        Array.from(
+          document.querySelectorAll('input[type="radio"][name="workspace_id"]'),
+        ) as HTMLInputElement[]
+      ).filter((radio) => !radio.disabled && radio.value.trim())
 
       if (radioInputs.length > 0) {
         const matchedIndex = normalizedPreferredId
@@ -1839,9 +1834,12 @@ export async function continueCodexWorkspaceSelection(
         'select[name="workspace_id"]',
       ) as HTMLSelectElement | null
       if (select) {
-        const availableWorkspaces = select.options.length
+        const options = Array.from(select.options).filter(
+          (option) => !option.disabled && option.value.trim(),
+        )
+        const availableWorkspaces = options.length
         const matchedIndex = normalizedPreferredId
-          ? Array.from(select.options).findIndex(
+          ? options.findIndex(
               (option) => option.value === normalizedPreferredId,
             ) + 1
           : 0
@@ -1856,7 +1854,7 @@ export async function continueCodexWorkspaceSelection(
           }
         }
 
-        select.value = select.options[selectedIndex - 1]?.value || ''
+        select.value = options[selectedIndex - 1]?.value || ''
         select.dispatchEvent(new Event('input', { bubbles: true }))
         select.dispatchEvent(new Event('change', { bubbles: true }))
 
@@ -1907,11 +1905,40 @@ export async function continueCodexWorkspaceSelection(
       preferredWorkspaceId,
     },
   )
+}
+
+async function continueWorkspaceSelection(
+  page: Page,
+  workspaceIndex: number,
+  preferredWorkspaceId: string | undefined,
+  labels: {
+    name: string
+    indexError: string
+    notReadyError: string
+    missingInputError: string
+    submitNotReadyError: string
+  },
+): Promise<OpenAIWorkspaceSelectionResult> {
+  if (!Number.isInteger(workspaceIndex) || workspaceIndex < 1) {
+    throw new Error(labels.indexError)
+  }
+
+  const ready =
+    labels.name === 'Codex'
+      ? await isCodexWorkspacePickerReady(page)
+      : await isOpenAIWorkspacePickerReady(page)
+  if (!ready) {
+    throw new Error(labels.notReadyError)
+  }
+
+  const selected = await selectOpenAIWorkspaceIdControl(
+    page,
+    workspaceIndex,
+    preferredWorkspaceId,
+  )
 
   if (selected.status === 'missing') {
-    throw new Error(
-      'Codex workspace picker did not expose a workspace_id input.',
-    )
+    throw new Error(labels.missingInputError)
   }
 
   if (selected.status === 'out_of_range') {
@@ -1926,7 +1953,7 @@ export async function continueCodexWorkspaceSelection(
     5000,
   )
   if (!submitReady) {
-    throw new Error('Codex workspace submit button did not become enabled.')
+    throw new Error(labels.submitNotReadyError)
   }
 
   await clickAny(page, CODEX_WORKSPACE_SUBMIT_SELECTORS)
@@ -1937,6 +1964,50 @@ export async function continueCodexWorkspaceSelection(
     selectedWorkspaceId: selected.selectedWorkspaceId,
     selectionStrategy: selected.selectionStrategy,
   }
+}
+
+export async function continueOpenAIWorkspaceSelection(
+  page: Page,
+  workspaceIndex = 1,
+  preferredWorkspaceId?: string,
+): Promise<OpenAIWorkspaceSelectionResult> {
+  return continueWorkspaceSelection(
+    page,
+    workspaceIndex,
+    preferredWorkspaceId,
+    {
+      name: 'OpenAI',
+      indexError:
+        'OpenAI workspace selection requires a positive 1-based workspace index.',
+      notReadyError: 'OpenAI workspace picker was not ready.',
+      missingInputError:
+        'OpenAI workspace picker did not expose a workspace_id input.',
+      submitNotReadyError:
+        'OpenAI workspace submit button did not become enabled.',
+    },
+  )
+}
+
+export async function continueCodexWorkspaceSelection(
+  page: Page,
+  workspaceIndex = 1,
+  preferredWorkspaceId?: string,
+): Promise<CodexWorkspaceSelectionResult> {
+  return continueWorkspaceSelection(
+    page,
+    workspaceIndex,
+    preferredWorkspaceId,
+    {
+      name: 'Codex',
+      indexError:
+        'Codex workspace selection requires a positive 1-based workspace index.',
+      notReadyError: 'Codex workspace picker was not ready.',
+      missingInputError:
+        'Codex workspace picker did not expose a workspace_id input.',
+      submitNotReadyError:
+        'Codex workspace submit button did not become enabled.',
+    },
+  )
 }
 
 async function setNamedCodexSelection(

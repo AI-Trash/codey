@@ -2,7 +2,7 @@ export type CliFlowCommandId =
   | 'chatgpt-register'
   | 'chatgpt-login'
   | 'chatgpt-team-trial'
-  | 'chatgpt-login-invite'
+  | 'chatgpt-invite'
   | 'codex-oauth'
   | 'noop'
 
@@ -16,7 +16,7 @@ export type CliFlowDisplayNameKey =
   | 'chatgptRegister'
   | 'chatgptLogin'
   | 'chatgptTeamTrial'
-  | 'chatgptLoginInvite'
+  | 'chatgptInvite'
   | 'codexOauth'
   | 'noop'
 
@@ -24,7 +24,7 @@ export type CliFlowDescriptionKey =
   | 'chatgptRegister'
   | 'chatgptLogin'
   | 'chatgptTeamTrial'
-  | 'chatgptLoginInvite'
+  | 'chatgptInvite'
   | 'codexOauth'
   | 'noop'
 
@@ -244,7 +244,7 @@ export interface ChatGPTTeamTrialFlowConfig extends ChatGPTLoginFlowConfig {
 /**
  * Configuration for signing in and inviting ChatGPT workspace members.
  */
-export interface ChatGPTLoginInviteFlowConfig extends ChatGPTLoginFlowConfig {
+export interface ChatGPTInviteFlowConfig extends ChatGPTLoginFlowConfig {
   /**
    * Invite one or more email addresses after login succeeds.
    */
@@ -314,7 +314,7 @@ export interface CliFlowConfigById {
   'chatgpt-register': ChatGPTRegisterFlowConfig
   'chatgpt-login': ChatGPTLoginFlowConfig
   'chatgpt-team-trial': ChatGPTTeamTrialFlowConfig
-  'chatgpt-login-invite': ChatGPTLoginInviteFlowConfig
+  'chatgpt-invite': ChatGPTInviteFlowConfig
   'codex-oauth': CodexOAuthFlowConfig
   noop: NoopFlowConfig
 }
@@ -594,9 +594,9 @@ export const cliFlowDefinitions = [
     ],
   },
   {
-    id: 'chatgpt-login-invite',
-    displayNameKey: 'chatgptLoginInvite',
-    descriptionKey: 'chatgptLoginInvite',
+    id: 'chatgpt-invite',
+    displayNameKey: 'chatgptInvite',
+    descriptionKey: 'chatgptInvite',
     configKeys: [
       'identityId',
       'email',
@@ -645,6 +645,20 @@ const cliFlowConfigFieldDefinitionsByFlag = new Map(
     definition,
   ]),
 )
+
+export function normalizeCliFlowCommandId(
+  flowId: string,
+): CliFlowCommandId | undefined {
+  const normalized = flowId.trim()
+  const canonical =
+    normalized === 'chatgpt-login-invite' ? 'chatgpt-invite' : normalized
+
+  if (cliFlowDefinitionsById.has(canonical as CliFlowCommandId)) {
+    return canonical as CliFlowCommandId
+  }
+
+  return undefined
+}
 
 function normalizeBoolean(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') {
@@ -845,7 +859,8 @@ export function listCliFlowCommandIds(): CliFlowCommandId[] {
 export function getCliFlowDefinition(
   flowId: string,
 ): CliFlowDefinition | undefined {
-  return cliFlowDefinitionsById.get(flowId as CliFlowCommandId)
+  const normalized = normalizeCliFlowCommandId(flowId)
+  return normalized ? cliFlowDefinitionsById.get(normalized) : undefined
 }
 
 export function getCliFlowConfigFieldDefinition(

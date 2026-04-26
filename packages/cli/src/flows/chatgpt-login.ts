@@ -34,15 +34,18 @@ import type {
 import {
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_HOME_URL,
+  type ChatGPTPostLoginCompletionSurface,
   type ChatGPTPostEmailLoginStep,
   logStep,
   waitForAuthenticatedSession,
   waitForLoginSurface,
   clickLoginEntryIfPresent,
+  continueOpenAIWorkspaceSelection,
   completePasswordOrVerificationLoginFallback,
   gotoLoginEntry,
   submitLoginEmail,
   waitForPasswordInputReady,
+  waitForPostLoginCompletionCandidates,
   waitForPostEmailLoginCandidates,
   createChatGPTBackendMeSessionProbe,
   waitForVerificationCodeInputReady,
@@ -74,6 +77,7 @@ export type ChatGPTLoginFlowState =
   | 'password-step'
   | 'verification-polling'
   | 'verification-code-entry'
+  | 'workspace-selection'
   | 'age-gate'
   | 'post-signup-home'
   | 'security-settings'
@@ -96,6 +100,8 @@ export type ChatGPTLoginFlowEvent =
   | 'chatgpt.verification.polling'
   | 'chatgpt.verification.code-found'
   | 'chatgpt.verification.submitted'
+  | 'chatgpt.workspace.ready'
+  | 'chatgpt.workspace.selected'
   | 'chatgpt.age-gate.started'
   | 'chatgpt.age-gate.completed'
   | 'chatgpt.home.waiting'
@@ -118,6 +124,7 @@ export interface ChatGPTLoginFlowContext<Result = unknown> {
   postEmailStep?: ChatGPTPostEmailLoginStep
   verificationCode?: string
   method?: 'password' | 'verification' | 'restored'
+  selectedWorkspaceId?: string
   storedIdentity?: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
   retryCount?: number
@@ -152,6 +159,7 @@ export interface ChatGPTLoginFlowResult {
   title: string
   email: string
   method: 'password' | 'verification' | 'restored'
+  selectedWorkspaceId?: string
   authenticated: boolean
   storedIdentity: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
@@ -207,6 +215,8 @@ const chatgptLoginEventTargets = {
   'chatgpt.verification.polling': 'verification-polling',
   'chatgpt.verification.code-found': 'verification-code-entry',
   'chatgpt.verification.submitted': 'verification-code-entry',
+  'chatgpt.workspace.ready': 'workspace-selection',
+  'chatgpt.workspace.selected': 'workspace-selection',
   'chatgpt.age-gate.started': 'age-gate',
   'chatgpt.age-gate.completed': 'age-gate',
   'chatgpt.home.waiting': 'post-signup-home',
@@ -232,6 +242,8 @@ const chatgptLoginAddPhoneGuardEvents = [
   'chatgpt.verification.polling',
   'chatgpt.verification.code-found',
   'chatgpt.verification.submitted',
+  'chatgpt.workspace.ready',
+  'chatgpt.workspace.selected',
   'chatgpt.age-gate.started',
   'chatgpt.age-gate.completed',
   'chatgpt.home.waiting',
@@ -251,6 +263,7 @@ const chatgptLoginStates = [
   'password-step',
   'verification-polling',
   'verification-code-entry',
+  'workspace-selection',
   'age-gate',
   'post-signup-home',
   'security-settings',
@@ -724,6 +737,119 @@ export async function performStoredLogin(
   }
 }
 
+interface ChatGPTLoginCompletionResult {
+  authenticated: boolean
+  selectedWorkspaceId?: string
+}
+
+async function completeChatGPTPostLoginSurface(
+  page: Page,
+  machine: ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult>,
+  options: FlowOptions,
+): Promise<ChatGPTLoginCompletionResult> {
+  if (!options.autoSelectFirstWorkspace) {
+    return {
+      authenticated: await waitForAuthenticatedSession(page, 30000),
+    }
+  }
+
+  const candidates = await waitForPostLoginCompletionCandidates(page, 30000)
+  if (!candidates.length) {
+    return { authenticated: false }
+  }
+
+  return (
+    await runGuardedBranches<
+      ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
+      {
+        candidates: ChatGPTPostLoginCompletionSurface[]
+      },
+      ChatGPTLoginCompletionResult,
+      'workspace' | 'authenticated'
+    >(
+      [
+        {
+          branch: 'workspace' as const,
+          priority: 60,
+          guard: ({ input }) => input.candidates.includes('workspace'),
+          run: async () => {
+            await sendLoginMachine(
+              machine,
+              'workspace-selection',
+              'chatgpt.workspace.ready',
+              {
+                url: page.url(),
+                lastMessage:
+                  'OpenAI workspace selection ready; selecting the first workspace',
+              },
+            )
+
+            try {
+              const selection = await continueOpenAIWorkspaceSelection(page, 1)
+              await sendLoginMachine(
+                machine,
+                'workspace-selection',
+                'chatgpt.workspace.selected',
+                {
+                  url: page.url(),
+                  selectedWorkspaceId: selection.selectedWorkspaceId,
+                  lastMessage: selection.selectedWorkspaceId
+                    ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
+                    : `Selected OpenAI workspace #${selection.selectedWorkspaceIndex}`,
+                },
+              )
+              options.progressReporter?.({
+                message: selection.selectedWorkspaceId
+                  ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
+                  : `Selected OpenAI workspace #${selection.selectedWorkspaceIndex}`,
+              })
+
+              return {
+                authenticated: await waitForAuthenticatedSession(page, 30000),
+                selectedWorkspaceId: selection.selectedWorkspaceId,
+              }
+            } catch (error) {
+              throw new GuardedBranchError(
+                'workspace',
+                error instanceof Error ? error.message : String(error),
+                {
+                  cause: error,
+                  recoverable: true,
+                },
+              )
+            }
+          },
+        },
+        {
+          branch: 'authenticated' as const,
+          priority: 50,
+          guard: ({ input }) => input.candidates.includes('authenticated'),
+          run: async () => ({
+            authenticated: true,
+          }),
+        },
+      ],
+      {
+        context: machine.getSnapshot().context,
+        input: {
+          candidates,
+        },
+        onFallback: async ({ error }) => {
+          await machine.send('chatgpt.retry.requested', {
+            reason: 'workspace-selection',
+            message:
+              'Retrying ChatGPT login completion after workspace selection failed',
+            patch: {
+              url: page.url(),
+              lastMessage: error.message,
+            },
+          })
+        },
+      },
+    )
+  ).result
+}
+
 // Continue an already-open ChatGPT/OpenAI login challenge without navigating away.
 export async function continueChatGPTLoginWithStoredIdentity(
   page: Page,
@@ -964,8 +1090,12 @@ export async function loginChatGPT(
       },
     )
 
-    const authenticated = await waitForAuthenticatedSession(page, 30000)
-    if (!authenticated) {
+    const completion = await completeChatGPTPostLoginSurface(
+      page,
+      machine,
+      options,
+    )
+    if (!completion.authenticated) {
       throw new Error(
         `ChatGPT login did not reach an authenticated session for ${stored.identity.email}.`,
       )
@@ -986,6 +1116,7 @@ export async function loginChatGPT(
       title,
       email: stored.identity.email,
       method: login.method,
+      selectedWorkspaceId: completion.selectedWorkspaceId,
       authenticated: true,
       storedIdentity: stored.summary,
       storedSession,
@@ -999,6 +1130,7 @@ export async function loginChatGPT(
         method: login.method,
         storedIdentity: stored.summary,
         storedSession,
+        selectedWorkspaceId: completion.selectedWorkspaceId,
         url: result.url,
         title: result.title,
         lastMessage:

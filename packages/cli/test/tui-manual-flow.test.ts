@@ -23,7 +23,7 @@ describe('tui manual flow helpers', () => {
   })
 
   it('includes both common and flow-specific options for local start', () => {
-    const choices = buildManualFlowOptionChoices('chatgpt-login-invite')
+    const choices = buildManualFlowOptionChoices('chatgpt-invite')
 
     expect(choices.some((entry) => entry.name === 'record')).toBe(true)
     expect(choices.some((entry) => entry.name === 'recordPageContent')).toBe(
@@ -33,7 +33,7 @@ describe('tui manual flow helpers', () => {
   })
 
   it('normalizes prompt answers into flow options', () => {
-    const options = normalizeManualFlowAnswers('chatgpt-login-invite', {
+    const options = normalizeManualFlowAnswers('chatgpt-invite', {
       record: false,
       recordPageContent: true,
       slowMo: '250',

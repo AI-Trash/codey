@@ -7,7 +7,7 @@ loadWorkspaceEnv()
 
 import { setRuntimeConfig } from './config'
 import {
-  loginChatGPTAndInviteMembers,
+  inviteChatGPTWorkspaceMembers,
   loginChatGPT,
   openNoopFlow,
   runChatGPTTeamTrial,
@@ -137,8 +137,8 @@ async function runFlowCommand(
         return
       }
 
-      if (subcommand === 'chatgpt-login-invite') {
-        result = await loginChatGPTAndInviteMembers(
+      if (subcommand === 'chatgpt-invite') {
+        result = await inviteChatGPTWorkspaceMembers(
           session.page,
           runtimeOptions,
         )
@@ -1190,7 +1190,7 @@ withCommonOptions(
 withCommonOptions(
   flowCli
     .command(
-      'chatgpt-login-invite',
+      'chatgpt-invite',
       'Sign in with a shared ChatGPT identity and invite workspace members',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
@@ -1223,22 +1223,19 @@ withCommonOptions(
       'CSV or JSON file containing invite email addresses',
     )
     .example(
-      'codey flow chatgpt-login-invite --inviteEmail a@example.com --inviteEmail b@example.com',
+      'codey flow chatgpt-invite --inviteEmail a@example.com --inviteEmail b@example.com',
     )
     .example(
-      'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
+      'codey flow chatgpt-invite --inviteEmail a@example.com,b@example.com',
     )
     .example(
-      'codey flow chatgpt-login-invite --inviteFile ./members.csv --record true',
+      'codey flow chatgpt-invite --inviteFile ./members.csv --record true',
     ),
 ).action((rawOptions: Record<string, unknown>) => {
   execute(
     (async () => {
-      const options = normalizeFlowCommandOptions(
-        'chatgpt-login-invite',
-        rawOptions,
-      )
-      await executeFlowSubcommandWithReporting('chatgpt-login-invite', options)
+      const options = normalizeFlowCommandOptions('chatgpt-invite', rawOptions)
+      await executeFlowSubcommandWithReporting('chatgpt-invite', options)
     })(),
   )
 })
@@ -1456,7 +1453,7 @@ cli
   .example('codey flow chatgpt-register --verificationTimeoutMs 180000')
   .example('codey flow chatgpt-login --email someone@example.com')
   .example(
-    'codey flow chatgpt-login-invite --inviteEmail a@example.com,b@example.com',
+    'codey flow chatgpt-invite --inviteEmail a@example.com,b@example.com',
   )
   .example('codey flow codex-oauth --workspaceIndex 2')
   .action(() => {

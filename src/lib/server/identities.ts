@@ -16,6 +16,7 @@ export interface AdminIdentitySummary {
   label: string
   account: string
   lastSeenAt: string
+  createdAt: string
   status: string
 }
 
@@ -89,12 +90,14 @@ function buildManagedIdentitySummary(row: {
   label: string | null
   status: string
   lastSeenAt: Date
+  createdAt: Date
 }): AdminIdentitySummary {
   return {
     id: row.identityId,
     label: row.label || row.email,
     account: row.email,
     lastSeenAt: row.lastSeenAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
     status: mapManagedStatus(row.status),
   } satisfies AdminIdentitySummary
 }

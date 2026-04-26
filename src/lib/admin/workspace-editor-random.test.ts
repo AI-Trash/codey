@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  getLatestWorkspaceOwnerIdentity,
   getRandomWorkspaceMemberSelection,
-  getRandomWorkspaceOwnerIdentity,
 } from './workspace-editor-random'
 
-describe('workspace owner random selection', () => {
+describe('workspace owner selection', () => {
   it('ignores archived and banned identities', () => {
-    const selection = getRandomWorkspaceOwnerIdentity({
+    const selection = getLatestWorkspaceOwnerIdentity({
       identities: [
         {
           id: 'owner-archived',
@@ -33,7 +33,7 @@ describe('workspace owner random selection', () => {
   })
 
   it('only selects identities without other workspace ownership or membership', () => {
-    const selection = getRandomWorkspaceOwnerIdentity({
+    const selection = getLatestWorkspaceOwnerIdentity({
       identities: [
         {
           id: 'owner-other-workspace',
@@ -73,8 +73,34 @@ describe('workspace owner random selection', () => {
     expect(selection?.id).toBe('owner-clean')
   })
 
+  it('selects the newest created eligible identity', () => {
+    const selection = getLatestWorkspaceOwnerIdentity({
+      identities: [
+        {
+          id: 'owner-older',
+          label: 'Older Owner',
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'owner-newest',
+          label: 'Newest Owner',
+          createdAt: '2026-01-03T00:00:00.000Z',
+        },
+        {
+          id: 'owner-newer',
+          label: 'Newer Owner',
+          createdAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+      ownerWorkspaceByIdentityId: new Map(),
+      memberWorkspacesByIdentityId: new Map(),
+    })
+
+    expect(selection?.id).toBe('owner-newest')
+  })
+
   it('does not fall back to identities that are members elsewhere', () => {
-    const selection = getRandomWorkspaceOwnerIdentity({
+    const selection = getLatestWorkspaceOwnerIdentity({
       identities: [
         {
           id: 'member-other-workspace',

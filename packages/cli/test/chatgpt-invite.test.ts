@@ -18,7 +18,7 @@ vi.mock('../src/modules/app-auth/workspaces', () => ({
   syncManagedWorkspaceToCodeyApp,
 }))
 
-describe('loginChatGPTAndInviteMembers', () => {
+describe('inviteChatGPTWorkspaceMembers', () => {
   beforeEach(() => {
     vi.resetAllMocks()
 
@@ -63,19 +63,71 @@ describe('loginChatGPTAndInviteMembers', () => {
       title: vi.fn(async () => 'ChatGPT Admin'),
     } as never
 
-    const { loginChatGPTAndInviteMembers } = await import(
-      '../src/flows/chatgpt-login-invite'
-    )
+    const { inviteChatGPTWorkspaceMembers } =
+      await import('../src/flows/chatgpt-invite')
 
-    const result = await loginChatGPTAndInviteMembers(page, {
+    const result = await inviteChatGPTWorkspaceMembers(page, {
       inviteEmail: ['a@example.com', 'b@example.com'],
     })
 
+    expect(loginChatGPT).toHaveBeenCalledWith(
+      page,
+      expect.objectContaining({
+        autoSelectFirstWorkspace: true,
+      }),
+    )
     expect(syncManagedWorkspaceToCodeyApp).toHaveBeenCalledWith({
       workspaceId: 'workspace-123',
       ownerIdentityId: 'identity-123',
       memberEmails: ['a@example.com'],
     })
     expect(result.invites.accountId).toBe('workspace-123')
+  })
+
+  it('reports a selected workspace id before the invite API finishes resolving account id', async () => {
+    loginChatGPT.mockResolvedValueOnce({
+      pageName: 'chatgpt-login',
+      url: 'https://chatgpt.com',
+      title: 'ChatGPT',
+      email: 'owner@example.com',
+      authenticated: true,
+      method: 'password',
+      selectedWorkspaceId: 'workspace-selected',
+      storedIdentity: {
+        id: 'identity-123',
+        email: 'owner@example.com',
+      },
+    })
+    inviteWorkspaceMembers.mockResolvedValueOnce({
+      strategy: 'api',
+      requestedEmails: ['a@example.com', 'b@example.com'],
+      invitedEmails: ['a@example.com', 'b@example.com'],
+      skippedEmails: [],
+      erroredEmails: [],
+    })
+
+    const page = {
+      url: vi.fn(() => 'https://chatgpt.com/admin'),
+      title: vi.fn(async () => 'ChatGPT Admin'),
+    } as never
+
+    const { inviteChatGPTWorkspaceMembers } =
+      await import('../src/flows/chatgpt-invite')
+
+    const result = await inviteChatGPTWorkspaceMembers(page, {
+      inviteEmail: ['a@example.com', 'b@example.com'],
+    })
+
+    expect(syncManagedWorkspaceToCodeyApp).toHaveBeenNthCalledWith(1, {
+      workspaceId: 'workspace-selected',
+      ownerIdentityId: 'identity-123',
+      memberEmails: [],
+    })
+    expect(syncManagedWorkspaceToCodeyApp).toHaveBeenNthCalledWith(2, {
+      workspaceId: 'workspace-selected',
+      ownerIdentityId: 'identity-123',
+      memberEmails: ['a@example.com', 'b@example.com'],
+    })
+    expect(result.workspaceId).toBe('workspace-selected')
   })
 })

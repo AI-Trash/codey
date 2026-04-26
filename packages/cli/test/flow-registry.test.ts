@@ -36,6 +36,36 @@ describe('flow registry', () => {
     expect(normalizeCliFlowTaskPayload(payload)).toEqual(payload)
   })
 
+  it('registers the renamed ChatGPT invite flow and normalizes legacy payloads', () => {
+    expect(listCliFlowCommandIds()).toContain('chatgpt-invite')
+    expect(getCliFlowDefinition('chatgpt-invite')).toMatchObject({
+      id: 'chatgpt-invite',
+      configKeys: [
+        'identityId',
+        'email',
+        'restoreStorageState',
+        'inviteEmail',
+        'inviteFile',
+      ],
+    })
+
+    expect(
+      normalizeCliFlowTaskPayload({
+        kind: 'flow_task',
+        flowId: 'chatgpt-login-invite',
+        config: {
+          inviteEmail: ['member@example.com'],
+        },
+      }),
+    ).toEqual({
+      kind: 'flow_task',
+      flowId: 'chatgpt-invite',
+      config: {
+        inviteEmail: ['member@example.com'],
+      },
+    })
+  })
+
   it('preserves app-managed Sub2API task metadata', () => {
     const payload = createCliFlowTaskPayload(
       'codex-oauth',
