@@ -1,6 +1,6 @@
 {
-  "id": "177d9252-a5bb-42fd-8e75-0ff8663ddcef",
-  "prevId": "e4b9eb00-7aa0-4fe1-8b69-d302745a1e50",
+  "id": "11de90f3-295c-42e2-bec7-21fb16a316e8",
+  "prevId": "177d9252-a5bb-42fd-8e75-0ff8663ddcef",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1578,6 +1578,26 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "invite_status": {
+          "name": "invite_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'NOT_INVITED'"
+        },
+        "invited_at": {
+          "name": "invited_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invite_status_updated_at": {
+          "name": "invite_status_updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         },
         "created_at": {
           "name": "created_at",

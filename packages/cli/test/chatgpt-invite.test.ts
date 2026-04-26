@@ -80,6 +80,8 @@ describe('inviteChatGPTWorkspaceMembers', () => {
       workspaceId: 'workspace-123',
       ownerIdentityId: 'identity-123',
       memberEmails: ['a@example.com'],
+      confirmedInviteEmails: ['a@example.com'],
+      failedInviteEmails: ['b@example.com'],
     })
     expect(result.invites.accountId).toBe('workspace-123')
   })
@@ -122,11 +124,15 @@ describe('inviteChatGPTWorkspaceMembers', () => {
       workspaceId: 'workspace-selected',
       ownerIdentityId: 'identity-123',
       memberEmails: [],
+      confirmedInviteEmails: [],
+      failedInviteEmails: [],
     })
     expect(syncManagedWorkspaceToCodeyApp).toHaveBeenNthCalledWith(2, {
       workspaceId: 'workspace-selected',
       ownerIdentityId: 'identity-123',
       memberEmails: ['a@example.com', 'b@example.com'],
+      confirmedInviteEmails: ['a@example.com', 'b@example.com'],
+      failedInviteEmails: [],
     })
     expect(result.workspaceId).toBe('workspace-selected')
   })

@@ -9,7 +9,10 @@ import { dispatchCliFlowTasks } from '../../../../../lib/server/cli-tasks'
 import { createFlowAppRequest } from '../../../../../lib/server/admin'
 import { json, text } from '../../../../../lib/server/http'
 import { readJsonBody } from '../../../../../lib/server/request'
-import { findAdminManagedWorkspaceSummary } from '../../../../../lib/server/workspaces'
+import {
+  findAdminManagedWorkspaceSummary,
+  markManagedWorkspaceMemberInviteStatus,
+} from '../../../../../lib/server/workspaces'
 
 interface InviteWorkspaceMembersBody {
   memberIds?: string[] | string
@@ -188,6 +191,19 @@ export const Route = createFileRoute(
                 identityId: workspace.owner.identityId,
                 inviteEmail: memberEmails,
               },
+              metadata: {
+                workspace: {
+                  recordId: workspace.id,
+                  workspaceId: workspace.workspaceId || undefined,
+                  label: workspace.label || undefined,
+                  ownerIdentityId: workspace.owner.identityId,
+                },
+              },
+            })
+            await markManagedWorkspaceMemberInviteStatus({
+              workspaceRecordId: workspace.id,
+              emails: memberEmails,
+              status: 'PENDING',
             })
 
             return json({
@@ -216,6 +232,11 @@ export const Route = createFileRoute(
               ownerIdentityId: workspace.owner.identityId,
               memberEmails,
             }),
+          })
+          await markManagedWorkspaceMemberInviteStatus({
+            workspaceRecordId: workspace.id,
+            emails: memberEmails,
+            status: 'PENDING',
           })
 
           return json(

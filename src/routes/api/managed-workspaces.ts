@@ -14,6 +14,8 @@ interface ManagedWorkspaceSyncBody {
   ownerIdentityId?: string | null
   memberIdentityIds?: string[]
   memberEmails?: string[]
+  confirmedInviteEmails?: string[]
+  failedInviteEmails?: string[]
 }
 
 function readStringArray(value: unknown): string[] | null | undefined {
@@ -95,6 +97,10 @@ export const Route = createFileRoute('/api/managed-workspaces')({
         const ownerIdentityId = readOptionalIdentityId(body.ownerIdentityId)
         const memberIdentityIds = readStringArray(body.memberIdentityIds)
         const memberEmails = readStringArray(body.memberEmails)
+        const confirmedInviteEmails = readStringArray(
+          body.confirmedInviteEmails,
+        )
+        const failedInviteEmails = readStringArray(body.failedInviteEmails)
 
         if (!workspaceId) {
           return text('workspaceId is required', 400)
@@ -105,6 +111,12 @@ export const Route = createFileRoute('/api/managed-workspaces')({
         if (memberEmails === null) {
           return text('memberEmails must be a string array', 400)
         }
+        if (confirmedInviteEmails === null) {
+          return text('confirmedInviteEmails must be a string array', 400)
+        }
+        if (failedInviteEmails === null) {
+          return text('failedInviteEmails must be a string array', 400)
+        }
 
         const workspace = await syncManagedWorkspaceInvite({
           workspaceId,
@@ -112,6 +124,8 @@ export const Route = createFileRoute('/api/managed-workspaces')({
           ownerIdentityId,
           memberIdentityIds,
           memberEmails: memberEmails ?? [],
+          confirmedInviteEmails: confirmedInviteEmails ?? [],
+          failedInviteEmails: failedInviteEmails ?? [],
         })
 
         return json({

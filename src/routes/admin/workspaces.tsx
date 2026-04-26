@@ -7,6 +7,7 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   EyeIcon,
+  KeyRoundIcon,
   PencilIcon,
   PlusIcon,
   RefreshCcwIcon,
@@ -142,7 +143,12 @@ type WorkspaceMemberSummary = {
   identityId?: string | null
   identityLabel?: string | null
   authorization: WorkspaceAuthorizationSummary
+  inviteStatus?: WorkspaceInviteStatus
+  invitedAt?: string | null
+  inviteStatusUpdatedAt?: string | null
 }
+
+type WorkspaceInviteStatus = 'NOT_INVITED' | 'PENDING' | 'INVITED' | 'FAILED'
 
 type WorkspaceAuthorizationState =
   | 'authorized'
@@ -422,6 +428,64 @@ function WorkspaceAuthorizationBadge(props: {
       {getWorkspaceAuthorizationLabel(props.authorization)}
     </Badge>
   )
+}
+
+function getWorkspaceInviteStatusLabel(status?: WorkspaceInviteStatus | null) {
+  if (status === 'INVITED') {
+    return m.admin_workspace_invitation_invited()
+  }
+
+  if (status === 'PENDING') {
+    return m.admin_workspace_invitation_pending()
+  }
+
+  if (status === 'FAILED') {
+    return m.admin_workspace_invitation_failed()
+  }
+
+  return m.admin_workspace_invitation_not_invited()
+}
+
+function getWorkspaceInviteStatusBadgeClassName(
+  status?: WorkspaceInviteStatus | null,
+) {
+  if (status === 'INVITED') {
+    return 'border-sky-500/30 bg-sky-500/10 text-sky-700'
+  }
+
+  if (status === 'PENDING') {
+    return 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+  }
+
+  if (status === 'FAILED') {
+    return 'border-rose-500/30 bg-rose-500/10 text-rose-700'
+  }
+
+  return 'border-muted-foreground/20 bg-muted/40 text-muted-foreground'
+}
+
+function WorkspaceInviteStatusBadge(props: {
+  status?: WorkspaceInviteStatus | null
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'border px-2.5 py-1 text-xs font-medium',
+        getWorkspaceInviteStatusBadgeClassName(props.status),
+      )}
+    >
+      {getWorkspaceInviteStatusLabel(props.status)}
+    </Badge>
+  )
+}
+
+function isWorkspaceInviteable(member: WorkspaceMemberSummary) {
+  if (isWorkspaceAuthorized(member.authorization)) {
+    return false
+  }
+
+  return member.inviteStatus !== 'INVITED' && member.inviteStatus !== 'PENDING'
 }
 
 function escapeCsvValue(value: string) {
@@ -1552,18 +1616,13 @@ function WorkspaceDetailDialog(props: {
     }
   }
 
-  async function handleAuthorizeMembers(memberIds?: string[]) {
+  async function handleAuthorizeWorkspace(memberIds?: string[]) {
     if (!props.workspace) {
       return
     }
 
-    const requestedMemberIds = memberIds?.length
-      ? memberIds
-      : props.workspace.members
-          .filter((member) => !isWorkspaceAuthorized(member.authorization))
-          .map((member) => member.id)
-
-    if (!requestedMemberIds.length) {
+    const requestedMemberIds = memberIds?.length ? memberIds : undefined
+    if (memberIds?.length === 0) {
       return
     }
 
@@ -1691,9 +1750,22 @@ function WorkspaceDetailDialog(props: {
   const memberEmails = normalizeDownloadEmails(
     props.workspace?.members.map((member) => member.email) || [],
   )
-  const inviteableMembers =
+  const unauthorizedMembers =
     props.workspace?.members.filter(
       (member) => !isWorkspaceAuthorized(member.authorization),
+    ) || []
+  const unauthorizedOwner =
+    props.workspace?.owner &&
+    !isWorkspaceAuthorized(props.workspace.owner.authorization)
+      ? props.workspace.owner
+      : null
+  const pendingWorkspaceAuthorizationCount =
+    unauthorizedMembers.length + (unauthorizedOwner ? 1 : 0)
+  const workspaceAuthorizationIdentityCount =
+    (props.workspace?.owner ? 1 : 0) + (props.workspace?.members.length || 0)
+  const inviteableMembers =
+    props.workspace?.members.filter((member) =>
+      isWorkspaceInviteable(member),
     ) || []
   const hasResettableOwnerAuthorization = canResetWorkspaceAuthorization(
     props.workspace?.owner?.authorization,
@@ -1713,8 +1785,8 @@ function WorkspaceDetailDialog(props: {
   const canStartTeamTrial =
     props.canDispatchFlows && Boolean(props.workspace?.owner?.email)
   const teamTrialPaypalUrl = props.workspace?.teamTrialPaypalUrl?.trim() || null
-  const canAuthorizeMembers =
-    props.canDispatchFlows && Boolean(inviteableMembers.length)
+  const canAuthorizeWorkspace =
+    props.canDispatchFlows && Boolean(pendingWorkspaceAuthorizationCount)
   const canInviteAll =
     props.canDispatchFlows &&
     Boolean(props.workspace?.owner?.identityId) &&
@@ -1749,11 +1821,53 @@ function WorkspaceDetailDialog(props: {
 
             <div className="grid gap-4 md:grid-cols-2">
               <Card>
-                <CardHeader className="pb-3">
-                  <CardDescription>
-                    {m.admin_workspace_detail_meta_kicker()}
-                  </CardDescription>
-                  <CardTitle>{m.admin_workspace_detail_meta_title()}</CardTitle>
+                <CardHeader className="gap-3 pb-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <CardDescription>
+                        {m.admin_workspace_detail_meta_kicker()}
+                      </CardDescription>
+                      <CardTitle>
+                        {m.admin_workspace_detail_meta_title()}
+                      </CardTitle>
+                    </div>
+                    <Button
+                      type="button"
+                      disabled={!canAuthorizeWorkspace || isMutating}
+                      onClick={() => {
+                        void handleAuthorizeWorkspace()
+                      }}
+                    >
+                      <KeyRoundIcon />
+                      {authorizationPending
+                        ? m.admin_workspace_authorize_running()
+                        : pendingWorkspaceAuthorizationCount === 0
+                          ? m.admin_workspace_authorize_all_authorized_button()
+                          : pendingWorkspaceAuthorizationCount ===
+                              workspaceAuthorizationIdentityCount
+                            ? m.admin_workspace_authorize_all_button()
+                            : m.admin_workspace_authorize_remaining_button()}
+                    </Button>
+                  </div>
+                  {!props.canDispatchFlows ? (
+                    <p className="text-sm text-muted-foreground">
+                      {m.admin_workspace_authorize_requires_cli_permission()}
+                    </p>
+                  ) : !workspaceAuthorizationIdentityCount ? (
+                    <p className="text-sm text-muted-foreground">
+                      {m.admin_workspace_authorize_requires_members()}
+                    </p>
+                  ) : !pendingWorkspaceAuthorizationCount ? (
+                    <p className="text-sm text-muted-foreground">
+                      {m.admin_workspace_authorize_all_authorized_hint()}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {props.workspace.workspaceId
+                        ? m.admin_workspace_authorize_dispatch_hint()
+                        : m.admin_workspace_authorize_dispatch_default_workspace_hint()}
+                    </p>
+                  )}
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="space-y-1">
@@ -1928,22 +2042,6 @@ function WorkspaceDetailDialog(props: {
                     </Button>
                     <Button
                       type="button"
-                      disabled={!canAuthorizeMembers || isMutating}
-                      onClick={() => {
-                        void handleAuthorizeMembers()
-                      }}
-                    >
-                      {authorizationPending
-                        ? m.admin_workspace_authorize_running()
-                        : inviteableMembers.length === 0
-                          ? m.admin_workspace_authorize_all_authorized_button()
-                          : inviteableMembers.length ===
-                              (props.workspace?.members.length || 0)
-                            ? m.admin_workspace_authorize_all_button()
-                            : m.admin_workspace_authorize_remaining_button()}
-                    </Button>
-                    <Button
-                      type="button"
                       variant="outline"
                       disabled={!canInviteAll || isMutating}
                       onClick={() => {
@@ -1953,7 +2051,7 @@ function WorkspaceDetailDialog(props: {
                       {inviteActionKey === 'all'
                         ? m.admin_workspace_invite_running()
                         : inviteableMembers.length === 0
-                          ? m.admin_workspace_invite_all_authorized_button()
+                          ? m.admin_workspace_invite_all_done_button()
                           : inviteableMembers.length ===
                               (props.workspace?.members.length || 0)
                             ? m.admin_workspace_invite_all_button()
@@ -1963,30 +2061,25 @@ function WorkspaceDetailDialog(props: {
                 </div>
                 {!props.canDispatchFlows ? (
                   <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_authorize_requires_cli_permission()}
+                    {m.admin_workspace_invite_requires_cli_permission()}
                   </p>
                 ) : !props.workspace.members.length ? (
                   <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_authorize_requires_members()}
+                    {m.admin_workspace_invite_requires_members()}
                   </p>
-                ) : !inviteableMembers.length ? (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_authorize_all_authorized_hint()}
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {props.workspace.workspaceId
-                      ? m.admin_workspace_authorize_dispatch_hint()
-                      : m.admin_workspace_authorize_dispatch_default_workspace_hint()}
-                  </p>
-                )}
-                {props.canDispatchFlows &&
-                props.workspace.members.length &&
-                !props.workspace.owner ? (
+                ) : !props.workspace.owner ? (
                   <p className="text-sm text-muted-foreground">
                     {m.admin_workspace_invite_requires_owner()}
                   </p>
-                ) : null}
+                ) : !inviteableMembers.length ? (
+                  <p className="text-sm text-muted-foreground">
+                    {m.admin_workspace_invite_all_done_hint()}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {m.admin_workspace_invite_dispatch_hint()}
+                  </p>
+                )}
               </CardHeader>
               <CardContent>
                 {props.workspace.members.length ? (
@@ -2003,6 +2096,9 @@ function WorkspaceDetailDialog(props: {
                             </div>
                             <WorkspaceAuthorizationBadge
                               authorization={member.authorization}
+                            />
+                            <WorkspaceInviteStatusBadge
+                              status={member.inviteStatus}
                             />
                           </div>
                           <div className="text-sm text-muted-foreground">
@@ -2026,11 +2122,26 @@ function WorkspaceDetailDialog(props: {
                               })}
                             </div>
                           ) : null}
+                          {member.invitedAt ? (
+                            <div className="text-xs text-muted-foreground">
+                              {m.admin_workspace_invitation_last_confirmed({
+                                time:
+                                  formatAdminDate(member.invitedAt) ||
+                                  member.invitedAt,
+                              })}
+                            </div>
+                          ) : null}
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           {isWorkspaceAuthorized(member.authorization) ? (
                             <Button type="button" variant="secondary" disabled>
                               {m.admin_workspace_authorization_authorized_button()}
+                            </Button>
+                          ) : !isWorkspaceInviteable(member) ? (
+                            <Button type="button" variant="secondary" disabled>
+                              {member.inviteStatus === 'PENDING'
+                                ? m.admin_workspace_invite_pending_button()
+                                : m.admin_workspace_invite_invited_button()}
                             </Button>
                           ) : (
                             <Button

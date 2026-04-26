@@ -14,6 +14,8 @@ const WORKSPACE_USER_ROUTE_TEMPLATE =
   '/backend-api/accounts/:accountId/users/:userId'
 const ACCOUNTS_CHECK_ROUTE_TEMPLATE = '/backend-api/accounts/check/:version'
 const MAX_WORKSPACE_MEMBER_COUNT = 10
+const PENDING_INVITES_PAGE_LIMIT = 100
+const PENDING_INVITES_SCAN_LIMIT = 250
 const WORKSPACE_USERS_PAGE_LIMIT = 25
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
 
@@ -49,6 +51,9 @@ export interface ChatGPTWorkspaceInviteApiResponse {
 
 export interface ChatGPTWorkspaceInvitesListResponse {
   account_invites?: ChatGPTInviteRecord[]
+  limit?: number
+  offset?: number
+  total?: number
 }
 
 export interface ChatGPTWorkspaceUserRecord {
@@ -594,7 +599,70 @@ async function listPendingInvites(
   accountId: string,
   requestHeaders?: Record<string, string>,
 ): Promise<BrowserApiResponse<ChatGPTWorkspaceInvitesListResponse>> {
-  const requestPath = `/backend-api/accounts/${accountId}/invites?offset=0&limit=250&query=`
+  const collectedInvites: ChatGPTInviteRecord[] = []
+  let offset = 0
+  let total: number | undefined
+  let lastResponse:
+    | BrowserApiResponse<ChatGPTWorkspaceInvitesListResponse>
+    | undefined
+
+  while (offset < PENDING_INVITES_SCAN_LIMIT) {
+    const limit = Math.min(
+      PENDING_INVITES_PAGE_LIMIT,
+      PENDING_INVITES_SCAN_LIMIT - offset,
+    )
+    const response = await listPendingInvitesPage(
+      page,
+      accountId,
+      offset,
+      limit,
+      requestHeaders,
+    )
+
+    if (!response.ok) {
+      return response
+    }
+
+    const pageInvites = response.data?.account_invites || []
+    collectedInvites.push(...pageInvites)
+    total = readNonNegativeInteger(response.data?.total) ?? total
+    lastResponse = response
+
+    if (pageInvites.length < limit) {
+      break
+    }
+
+    offset += limit
+    if (total != null && offset >= total) {
+      break
+    }
+  }
+
+  return {
+    ok: lastResponse?.ok ?? true,
+    status: lastResponse?.status ?? 200,
+    url: lastResponse?.url ?? '',
+    text: lastResponse?.text ?? '',
+    data: {
+      ...lastResponse?.data,
+      account_invites: collectedInvites,
+      limit: collectedInvites.length,
+      offset: 0,
+      total,
+    },
+  }
+}
+
+async function listPendingInvitesPage(
+  page: Page,
+  accountId: string,
+  offset: number,
+  limit: number,
+  requestHeaders?: Record<string, string>,
+): Promise<BrowserApiResponse<ChatGPTWorkspaceInvitesListResponse>> {
+  const requestPath =
+    `/backend-api/accounts/${accountId}/invites` +
+    `?offset=${offset}&limit=${limit}&query=`
   return fetchChatGPTJsonApi<ChatGPTWorkspaceInvitesListResponse>(
     page,
     `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
@@ -885,6 +953,12 @@ function readSortableTimestamp(value: string | null | undefined): number {
 
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY
+}
+
+function readNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : undefined
 }
 
 function buildWorkspaceCapacityError(input: {

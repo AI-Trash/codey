@@ -1647,6 +1647,20 @@ export const OPENAI_ADD_PHONE_URL = 'https://auth.openai.com/add-phone'
 export const OPENAI_ADD_PHONE_ERROR_MESSAGE =
   'OpenAI required adding a phone number, which this flow does not support.'
 
+export function isOpenAIAddPhoneRequiredError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : ''
+
+  return (
+    message.includes(OPENAI_ADD_PHONE_ERROR_MESSAGE) ||
+    message.includes(OPENAI_ADD_PHONE_URL)
+  )
+}
+
 export function createUrlGuardFailureFragment<
   State extends string,
   Context extends object & UrlTrackingStateMachineContext,

@@ -124,6 +124,9 @@ export interface AppManagedWorkspaceMemberRecord {
   email: string
   identityId: string | null
   identityLabel: string | null
+  inviteStatus?: 'NOT_INVITED' | 'PENDING' | 'INVITED' | 'FAILED'
+  invitedAt?: string | null
+  inviteStatusUpdatedAt?: string | null
 }
 
 export interface AppManagedWorkspaceIdentityRecord {
@@ -634,6 +637,8 @@ export class AppVerificationProviderClient {
     label?: string
     ownerIdentityId?: string
     memberEmails?: string[]
+    confirmedInviteEmails?: string[]
+    failedInviteEmails?: string[]
   }): Promise<AppManagedWorkspaceRecord> {
     const response = await this.getJson<AppManagedWorkspaceSyncResponse>(
       this.buildUrl('/api/managed-workspaces'),
@@ -647,6 +652,8 @@ export class AppVerificationProviderClient {
           label: input.label,
           ownerIdentityId: input.ownerIdentityId,
           memberEmails: input.memberEmails,
+          confirmedInviteEmails: input.confirmedInviteEmails,
+          failedInviteEmails: input.failedInviteEmails,
         }),
       },
       [VERIFICATION_RESERVE_SCOPE],

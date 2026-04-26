@@ -16,6 +16,7 @@ import {
   managedIdentitySessions,
   managedWorkspaceMembers,
   managedWorkspaces,
+  type ManagedWorkspaceMemberInviteStatus,
 } from './db/schema'
 import { createId } from './security'
 
@@ -46,6 +47,9 @@ export interface AdminManagedWorkspaceMemberSummary {
   identityId: string | null
   identityLabel: string | null
   authorization: ManagedWorkspaceAuthorizationSummary
+  inviteStatus: ManagedWorkspaceMemberInviteStatus
+  invitedAt: string | null
+  inviteStatusUpdatedAt: string | null
 }
 
 export interface AdminManagedWorkspaceSummary {
@@ -72,6 +76,9 @@ interface ManagedIdentityLookupRow {
 interface WorkspaceMemberInput {
   identityId: string | null
   email: string
+  inviteStatus?: ManagedWorkspaceMemberInviteStatus
+  invitedAt?: Date | null
+  inviteStatusUpdatedAt?: Date | null
 }
 
 interface ManagedWorkspaceAuthorizationInput {
@@ -93,6 +100,8 @@ const DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY: ManagedWorkspaceAuthorizationSumm
     expiresAt: null,
     lastSeenAt: null,
   }
+const DEFAULT_WORKSPACE_MEMBER_INVITE_STATUS: ManagedWorkspaceMemberInviteStatus =
+  'NOT_INVITED'
 
 function normalizeWorkspaceId(value?: string | null): string | null {
   const normalized = value?.trim()
@@ -430,6 +439,9 @@ function buildAdminManagedWorkspaceSummary(
       id: string
       email: string
       identityId: string | null
+      inviteStatus?: ManagedWorkspaceMemberInviteStatus | null
+      invitedAt?: Date | null
+      inviteStatusUpdatedAt?: Date | null
       identity?: ManagedIdentityLookupRow | null
     }>
   },
@@ -456,6 +468,11 @@ function buildAdminManagedWorkspaceSummary(
         (authorizationKey
           ? authorizationsByWorkspaceIdentity.get(authorizationKey)
           : null) || DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY,
+      inviteStatus:
+        member.inviteStatus || DEFAULT_WORKSPACE_MEMBER_INVITE_STATUS,
+      invitedAt: member.invitedAt?.toISOString() || null,
+      inviteStatusUpdatedAt:
+        member.inviteStatusUpdatedAt?.toISOString() || null,
     }
   })
 
@@ -494,6 +511,7 @@ function normalizeWorkspaceMemberInputs(
     if (identityId) {
       deduped.delete(`email:${email}`)
       deduped.set(`identity:${identityId}`, {
+        ...readWorkspaceMemberInviteState(value),
         identityId,
         email,
       })
@@ -502,6 +520,7 @@ function normalizeWorkspaceMemberInputs(
 
     if (!deduped.has(`email:${email}`)) {
       deduped.set(`email:${email}`, {
+        ...readWorkspaceMemberInviteState(value),
         identityId: null,
         email,
       })
@@ -522,6 +541,40 @@ function normalizeWorkspaceMemberInputs(
   }
 
   return normalized
+}
+
+function readWorkspaceMemberInviteState(
+  member: WorkspaceMemberInput,
+): Pick<
+  WorkspaceMemberInput,
+  'inviteStatus' | 'invitedAt' | 'inviteStatusUpdatedAt'
+> {
+  return {
+    inviteStatus: member.inviteStatus,
+    invitedAt: member.invitedAt,
+    inviteStatusUpdatedAt: member.inviteStatusUpdatedAt,
+  }
+}
+
+function preserveWorkspaceMemberInviteStates(
+  members: WorkspaceMemberInput[],
+  existingMembers: WorkspaceMemberInput[],
+): WorkspaceMemberInput[] {
+  if (!members.length || !existingMembers.length) {
+    return members
+  }
+
+  const existingByEmail = new Map(
+    existingMembers.map((member) => [
+      normalizeEmail(member.email),
+      readWorkspaceMemberInviteState(member),
+    ]),
+  )
+
+  return members.map((member) => ({
+    ...existingByEmail.get(normalizeEmail(member.email)),
+    ...member,
+  }))
 }
 
 async function resolveIdentityIdsByEmail(
@@ -675,6 +728,9 @@ async function listWorkspaceMemberInputs(
     columns: {
       identityId: true,
       email: true,
+      inviteStatus: true,
+      invitedAt: true,
+      inviteStatusUpdatedAt: true,
     },
   })
 
@@ -682,6 +738,9 @@ async function listWorkspaceMemberInputs(
     rows.map((row) => ({
       identityId: row.identityId,
       email: row.email,
+      inviteStatus: row.inviteStatus,
+      invitedAt: row.invitedAt,
+      inviteStatusUpdatedAt: row.inviteStatusUpdatedAt,
     })),
   )
 }
@@ -708,6 +767,10 @@ async function replaceWorkspaceMembers(
       managedWorkspaceId,
       identityId: member.identityId,
       email: member.email,
+      inviteStatus:
+        member.inviteStatus || DEFAULT_WORKSPACE_MEMBER_INVITE_STATUS,
+      invitedAt: member.invitedAt || null,
+      inviteStatusUpdatedAt: member.inviteStatusUpdatedAt || seenAt,
       createdAt: seenAt,
       updatedAt: seenAt,
     })),
@@ -1038,6 +1101,96 @@ export async function recordWorkspaceTeamTrialPaypalUrlFromFlowTask(input: {
   })
 }
 
+function readResultStringArray(
+  source: Record<string, unknown>,
+  key: string,
+): string[] {
+  const value = source[key]
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => typeof entry === 'string')
+  ) {
+    return []
+  }
+
+  return value
+}
+
+export async function recordWorkspaceInvitesFromFlowTask(input: {
+  payload?: Record<string, unknown> | null
+  result?: Record<string, unknown> | null
+  capturedAt?: Date
+}): Promise<AdminManagedWorkspaceSummary | null> {
+  if (!isRecord(input.payload) || input.payload.flowId !== 'chatgpt-invite') {
+    return null
+  }
+
+  if (!isRecord(input.result)) {
+    return null
+  }
+
+  const invites = isRecord(input.result.invites)
+    ? input.result.invites
+    : input.result
+  const confirmedInviteEmails = normalizeWorkspaceMemberEmails(
+    readResultStringArray(invites, 'invitedEmails'),
+  )
+  const failedInviteEmails = normalizeWorkspaceMemberEmails(
+    readResultStringArray(invites, 'erroredEmails'),
+  ).filter((email) => !confirmedInviteEmails.includes(email))
+  if (!confirmedInviteEmails.length && !failedInviteEmails.length) {
+    return null
+  }
+
+  const metadata = isRecord(input.payload.metadata)
+    ? input.payload.metadata
+    : null
+  const metadataWorkspace =
+    metadata && isRecord(metadata.workspace) ? metadata.workspace : null
+  const workspaceRecordId = normalizeOptionalMetadataString(
+    metadataWorkspace?.recordId,
+  )
+  const workspaceId =
+    normalizeOptionalMetadataString(input.result.workspaceId) ||
+    normalizeOptionalMetadataString(invites.accountId) ||
+    normalizeOptionalMetadataString(metadataWorkspace?.workspaceId)
+  const where =
+    workspaceRecordId !== null
+      ? eq(managedWorkspaces.id, workspaceRecordId)
+      : workspaceId !== null
+        ? eq(managedWorkspaces.workspaceId, workspaceId)
+        : null
+  if (!where) {
+    return null
+  }
+
+  const workspace = await getDb().query.managedWorkspaces.findFirst({
+    where,
+    columns: {
+      id: true,
+    },
+  })
+  if (!workspace) {
+    return null
+  }
+
+  const capturedAt = input.capturedAt || new Date()
+  await markManagedWorkspaceMemberInviteStatus({
+    workspaceRecordId: workspace.id,
+    emails: failedInviteEmails,
+    status: 'FAILED',
+    seenAt: capturedAt,
+  })
+  await markManagedWorkspaceMemberInviteStatus({
+    workspaceRecordId: workspace.id,
+    emails: confirmedInviteEmails,
+    status: 'INVITED',
+    seenAt: capturedAt,
+  })
+
+  return findAdminManagedWorkspaceSummary(workspace.id)
+}
+
 export async function updateManagedWorkspace(
   id: string,
   input: {
@@ -1085,13 +1238,17 @@ export async function updateManagedWorkspace(
       ? existing.ownerIdentityId
       : normalizeOptionalIdentityId(input.ownerIdentityId)
   const ownerIdentity = await resolveManagedWorkspaceOwner(ownerIdentityId)
+  const currentMemberInputs = await listWorkspaceMemberInputs(existing.id)
   const nextMemberInputs =
     input.memberIdentityIds !== undefined || input.memberEmails !== undefined
-      ? await resolveWorkspaceMemberInputs({
-          memberIdentityIds: input.memberIdentityIds,
-          memberEmails: input.memberEmails,
-        })
-      : await listWorkspaceMemberInputs(existing.id)
+      ? preserveWorkspaceMemberInviteStates(
+          await resolveWorkspaceMemberInputs({
+            memberIdentityIds: input.memberIdentityIds,
+            memberEmails: input.memberEmails,
+          }),
+          currentMemberInputs,
+        )
+      : currentMemberInputs
 
   await assertWorkspaceOwnerAvailability(ownerIdentity, id)
   validateManagedWorkspaceMembership({
@@ -1264,12 +1421,48 @@ export async function resetManagedWorkspaceAuthorizationStatuses(input: {
   }
 }
 
+export async function markManagedWorkspaceMemberInviteStatus(input: {
+  workspaceRecordId: string
+  emails: string[]
+  status: ManagedWorkspaceMemberInviteStatus
+  seenAt?: Date
+}): Promise<void> {
+  const workspaceRecordId = input.workspaceRecordId.trim()
+  const emails = normalizeWorkspaceMemberEmails(input.emails)
+  if (!workspaceRecordId || !emails.length) {
+    return
+  }
+
+  const seenAt = input.seenAt || new Date()
+  const patch = {
+    inviteStatus: input.status,
+    inviteStatusUpdatedAt: seenAt,
+    updatedAt: seenAt,
+    ...(input.status === 'INVITED' ? { invitedAt: seenAt } : {}),
+  }
+  const baseWhere = and(
+    eq(managedWorkspaceMembers.managedWorkspaceId, workspaceRecordId),
+    inArray(managedWorkspaceMembers.email, emails),
+  )
+  const where =
+    input.status === 'PENDING' || input.status === 'FAILED'
+      ? and(
+          baseWhere,
+          notInArray(managedWorkspaceMembers.inviteStatus, ['INVITED']),
+        )
+      : baseWhere
+
+  await getDb().update(managedWorkspaceMembers).set(patch).where(where)
+}
+
 export async function syncManagedWorkspaceInvite(input: {
   workspaceId: string
   label?: string | null
   ownerIdentityId?: string | null
   memberIdentityIds?: string[]
   memberEmails?: string[]
+  confirmedInviteEmails?: string[]
+  failedInviteEmails?: string[]
 }): Promise<AdminManagedWorkspaceSummary> {
   const workspaceId = normalizeWorkspaceId(input.workspaceId)
   if (!workspaceId) {
@@ -1277,6 +1470,12 @@ export async function syncManagedWorkspaceInvite(input: {
   }
 
   const seenAt = new Date()
+  const confirmedInviteEmails = normalizeWorkspaceMemberEmails(
+    input.confirmedInviteEmails || [],
+  )
+  const failedInviteEmails = normalizeWorkspaceMemberEmails(
+    input.failedInviteEmails || [],
+  ).filter((email) => !confirmedInviteEmails.includes(email))
   const requestedOwnerIdentityId =
     input.ownerIdentityId === undefined
       ? undefined
@@ -1308,13 +1507,20 @@ export async function syncManagedWorkspaceInvite(input: {
       ? existing?.ownerIdentityId || null
       : requestedOwnerIdentityId
   const ownerIdentity = await resolveManagedWorkspaceOwner(ownerIdentityId)
-  const incomingMemberInputs = await resolveWorkspaceMemberInputs({
-    memberIdentityIds: input.memberIdentityIds,
-    memberEmails: input.memberEmails,
-  })
   const currentMemberInputs = existing
     ? await listWorkspaceMemberInputs(existing.id)
     : []
+  const incomingMemberInputs = preserveWorkspaceMemberInviteStates(
+    await resolveWorkspaceMemberInputs({
+      memberIdentityIds: input.memberIdentityIds,
+      memberEmails: [
+        ...(input.memberEmails || []),
+        ...confirmedInviteEmails,
+        ...failedInviteEmails,
+      ],
+    }),
+    currentMemberInputs,
+  )
   const mergedMemberInputs = normalizeWorkspaceMemberInputs([
     ...currentMemberInputs,
     ...incomingMemberInputs,
@@ -1354,6 +1560,18 @@ export async function syncManagedWorkspaceInvite(input: {
   }
 
   await replaceWorkspaceMembers(managedWorkspaceId, mergedMemberInputs)
+  await markManagedWorkspaceMemberInviteStatus({
+    workspaceRecordId: managedWorkspaceId,
+    emails: failedInviteEmails,
+    status: 'FAILED',
+    seenAt,
+  })
+  await markManagedWorkspaceMemberInviteStatus({
+    workspaceRecordId: managedWorkspaceId,
+    emails: confirmedInviteEmails,
+    status: 'INVITED',
+    seenAt,
+  })
 
   const summary = await findAdminManagedWorkspaceSummary(managedWorkspaceId)
   if (!summary) {

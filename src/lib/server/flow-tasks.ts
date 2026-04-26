@@ -14,9 +14,13 @@ import {
   type FlowTaskStatus,
 } from './db/schema'
 import { createId } from './security'
-import { recordWorkspaceTeamTrialPaypalUrlFromFlowTask } from './workspaces'
+import {
+  recordWorkspaceInvitesFromFlowTask,
+  recordWorkspaceTeamTrialPaypalUrlFromFlowTask,
+} from './workspaces'
 
 export const DEFAULT_FLOW_TASK_LEASE_MS = 30_000
+const DEFAULT_FLOW_TASK_RETRY_MAX_ATTEMPTS = 2
 
 type ActiveFlowTaskStatus = Extract<FlowTaskStatus, 'LEASED' | 'RUNNING'>
 type FinalFlowTaskStatus = Extract<
@@ -36,6 +40,14 @@ function normalizeWorkerId(value: string | null | undefined): string | null {
 function normalizeTaskText(value: string | null | undefined): string | null {
   const normalized = normalizeWorkerId(value)
   return normalized ? sanitizeSummaryString(normalized) : null
+}
+
+function normalizeRetryMaxAttempts(value?: number | null): number {
+  if (!Number.isInteger(value) || !value || value < 1) {
+    return DEFAULT_FLOW_TASK_RETRY_MAX_ATTEMPTS
+  }
+
+  return Math.min(value, 10)
 }
 
 async function appendFlowTaskEvent(input: {
@@ -307,10 +319,108 @@ export async function completeFlowTask(input: {
         result: input.result,
         capturedAt: now,
       })
+      await recordWorkspaceInvitesFromFlowTask({
+        payload: updated.payload,
+        result: input.result,
+        capturedAt: now,
+      })
     } catch (error) {
       console.error('Unable to persist flow task completion result', error)
     }
   }
+
+  return updated
+}
+
+export async function retryFlowTask(input: {
+  connectionId: string
+  taskId: string
+  error?: string | null
+  message?: string | null
+  retryReason: string
+  retryMessage?: string | null
+  maxAttempts?: number | null
+}): Promise<FlowTaskRow | null> {
+  const connection = await getCliConnectionRow(input.connectionId)
+  if (!connection) {
+    throw new Error('CLI connection not found.')
+  }
+
+  const workerId = getCliConnectionTaskWorkerId(connection)
+  const current = await getDb().query.flowTasks.findFirst({
+    where: and(
+      eq(flowTasks.id, input.taskId),
+      eq(flowTasks.workerId, workerId),
+      or(eq(flowTasks.status, 'LEASED'), eq(flowTasks.status, 'RUNNING')),
+    ),
+  })
+
+  if (!current) {
+    return null
+  }
+
+  const maxAttempts = normalizeRetryMaxAttempts(input.maxAttempts)
+  if (current.attemptCount >= maxAttempts) {
+    return completeFlowTask({
+      connectionId: input.connectionId,
+      taskId: input.taskId,
+      status: 'FAILED',
+      error: input.error,
+      message: input.message,
+    })
+  }
+
+  const now = new Date()
+  const retryReason =
+    normalizeTaskText(input.retryReason) || 'Recoverable flow failure'
+  const normalizedError = normalizeTaskText(input.error)
+  const retryMessage =
+    normalizeTaskText(input.retryMessage) ||
+    `Retrying flow task after ${retryReason} (attempt ${current.attemptCount + 1} of ${maxAttempts})`
+
+  const [updated] = await getDb()
+    .update(flowTasks)
+    .set({
+      status: 'QUEUED',
+      cliConnectionId: null,
+      leaseClaimedAt: null,
+      leaseExpiresAt: null,
+      startedAt: null,
+      completedAt: null,
+      lastMessage: retryMessage,
+      lastError: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(flowTasks.id, input.taskId),
+        eq(flowTasks.workerId, workerId),
+        or(eq(flowTasks.status, 'LEASED'), eq(flowTasks.status, 'RUNNING')),
+      ),
+    )
+    .returning()
+
+  if (!updated) {
+    return null
+  }
+
+  await appendFlowTaskEvent({
+    taskId: updated.id,
+    cliConnectionId: connection.id,
+    type: 'QUEUED',
+    status: 'QUEUED',
+    message: retryMessage,
+    payload: {
+      retry: {
+        reason: retryReason,
+        previousStatus: current.status,
+        previousAttempt: current.attemptCount,
+        nextAttempt: current.attemptCount + 1,
+        maxAttempts,
+        ...(normalizedError ? { error: normalizedError } : {}),
+      },
+    },
+  })
 
   return updated
 }

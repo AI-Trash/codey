@@ -7,6 +7,9 @@ import {
   createStateMachine,
   defineStateMachineFragment,
   GuardedBranchError,
+  isOpenAIAddPhoneRequiredError,
+  OPENAI_ADD_PHONE_ERROR_MESSAGE,
+  OPENAI_ADD_PHONE_URL,
   runGuardedBranches,
   type StateMachineRaisedErrorArgs,
 } from '../src/state-machine'
@@ -314,5 +317,17 @@ describe('state machine', () => {
         url: 'https://auth.openai.com/add-phone',
       },
     })
+  })
+
+  it('identifies add-phone failures for task-level retry decisions', () => {
+    expect(
+      isOpenAIAddPhoneRequiredError(new Error(OPENAI_ADD_PHONE_ERROR_MESSAGE)),
+    ).toBe(true)
+    expect(
+      isOpenAIAddPhoneRequiredError(`redirected to ${OPENAI_ADD_PHONE_URL}`),
+    ).toBe(true)
+    expect(isOpenAIAddPhoneRequiredError(new Error('different failure'))).toBe(
+      false,
+    )
   })
 })

@@ -78,13 +78,13 @@ function sortCodexOAuthCapableConnections(
 function buildWorkspaceCodexOAuthNotes(input: {
   workspaceId?: string | null
   workspaceLabel?: string | null
-  memberEmails: string[]
+  targetEmails: string[]
 }) {
   return [
     `Workspace: ${input.workspaceLabel || input.workspaceId || 'Workspace'}`,
     ...(input.workspaceId ? [`Workspace ID: ${input.workspaceId}`] : []),
-    'Authorize members with Codex OAuth:',
-    ...input.memberEmails.map((email) => `- ${email}`),
+    'Authorize workspace owner and members with Codex OAuth:',
+    ...input.targetEmails.map((email) => `- ${email}`),
     input.workspaceId
       ? 'Codey will pass this workspace ID into each Codex OAuth flow.'
       : 'Codey will let Codex OAuth use the default workspace selection.',
@@ -123,12 +123,9 @@ export const Route = createFileRoute(
           )
         }
 
-        const requestedConnectionId = String(body.connectionId || '').trim()
         const selectedMembers = memberIds?.length
           ? workspace.members.filter((member) => memberIds.includes(member.id))
-          : workspace.members.filter(
-              (member) => member.authorization.state !== 'authorized',
-            )
+          : workspace.members
 
         if (
           memberIds?.length &&
@@ -137,25 +134,41 @@ export const Route = createFileRoute(
           return text('Some requested workspace members were not found', 404)
         }
 
-        const pendingMembers = selectedMembers.filter(
-          (member) => member.authorization.state !== 'authorized',
+        const selectedTargets = [
+          ...(!memberIds?.length && workspace.owner
+            ? [
+                {
+                  email: workspace.owner.email,
+                  identityId: workspace.owner.identityId,
+                  authorization: workspace.owner.authorization,
+                },
+              ]
+            : []),
+          ...selectedMembers.map((member) => ({
+            email: member.email,
+            identityId: member.identityId,
+            authorization: member.authorization,
+          })),
+        ]
+        const pendingTargets = selectedTargets.filter(
+          (target) => target.authorization.state !== 'authorized',
         )
-        if (!pendingMembers.length) {
+        if (!pendingTargets.length) {
           return text(
-            'All requested workspace members are already authorized',
+            'All requested workspace identities are already authorized',
             400,
           )
         }
 
-        const memberEmails = Array.from(
+        const targetEmails = Array.from(
           new Set(
-            pendingMembers
-              .map((member) => member.email.trim().toLowerCase())
+            pendingTargets
+              .map((target) => target.email.trim().toLowerCase())
               .filter(Boolean),
           ),
         )
-        if (!memberEmails.length) {
-          return text('No workspace members are available to authorize', 400)
+        if (!targetEmails.length) {
+          return text('No workspace identities are available to authorize', 400)
         }
 
         const actor = {
@@ -163,6 +176,7 @@ export const Route = createFileRoute(
           githubLogin: admin.user.githubLogin,
           email: admin.user.email,
         }
+        const requestedConnectionId = String(body.connectionId || '').trim()
 
         try {
           const connectionId =
@@ -181,9 +195,9 @@ export const Route = createFileRoute(
               flowId: 'codex-oauth',
               actor,
               parallelism: getWorkspaceCodexOAuthParallelism(
-                memberEmails.length,
+                targetEmails.length,
               ),
-              configs: memberEmails.map((email) => ({
+              configs: targetEmails.map((email) => ({
                 email,
                 ...(workspace.workspaceId
                   ? { workspaceId: workspace.workspaceId }
@@ -196,7 +210,7 @@ export const Route = createFileRoute(
               mode: 'dispatch' as const,
               queuedCount: result.tasks.length,
               assignedCliCount: result.assignedCliCount,
-              memberEmails,
+              memberEmails: targetEmails,
               connectionId: result.connection.id,
               connectionLabel: getConnectionLabel(result.connection),
             })
@@ -211,13 +225,13 @@ export const Route = createFileRoute(
               admin.user.name ||
               undefined,
             requestedIdentity:
-              pendingMembers.length === 1
-                ? pendingMembers[0]?.identityId || undefined
+              pendingTargets.length === 1
+                ? pendingTargets[0]?.identityId || undefined
                 : undefined,
             notes: buildWorkspaceCodexOAuthNotes({
               workspaceId: workspace.workspaceId,
               workspaceLabel: workspace.label,
-              memberEmails,
+              targetEmails,
             }),
           })
 
@@ -226,7 +240,7 @@ export const Route = createFileRoute(
               ok: true,
               mode: 'request' as const,
               requestId: flowRequest.id,
-              memberEmails,
+              memberEmails: targetEmails,
             },
             201,
           )

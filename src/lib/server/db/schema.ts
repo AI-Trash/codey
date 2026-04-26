@@ -62,6 +62,11 @@ export const oauthClientAuthMethodEnum = pgEnum('oauth_client_auth_method', [
   'client_secret_basic',
   'client_secret_post',
 ])
+export type ManagedWorkspaceMemberInviteStatus =
+  | 'NOT_INVITED'
+  | 'PENDING'
+  | 'INVITED'
+  | 'FAILED'
 export const externalServiceKindEnum = pgEnum('external_service_kind', [
   'sub2api',
 ])
@@ -624,6 +629,20 @@ export const managedWorkspaceMembers = pgTable(
       },
     ),
     email: text('email').notNull(),
+    inviteStatus: text('invite_status')
+      .$type<ManagedWorkspaceMemberInviteStatus>()
+      .default('NOT_INVITED')
+      .notNull(),
+    invitedAt: timestamp('invited_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    inviteStatusUpdatedAt: timestamp('invite_status_updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
     createdAt: timestamp('created_at', {
       withTimezone: true,
       mode: 'date',

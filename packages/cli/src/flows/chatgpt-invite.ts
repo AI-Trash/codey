@@ -33,6 +33,8 @@ async function reportWorkspaceToCodeyApp(input: {
   workspaceId?: string
   ownerIdentityId?: string
   memberEmails?: string[]
+  confirmedInviteEmails?: string[]
+  failedInviteEmails?: string[]
   progressReporter?: FlowOptions['progressReporter']
 }): Promise<void> {
   const workspaceId = input.workspaceId?.trim()
@@ -45,6 +47,8 @@ async function reportWorkspaceToCodeyApp(input: {
       workspaceId,
       ownerIdentityId: input.ownerIdentityId,
       memberEmails: input.memberEmails || [],
+      confirmedInviteEmails: input.confirmedInviteEmails || [],
+      failedInviteEmails: input.failedInviteEmails || [],
     })
     input.progressReporter?.({
       message: syncedWorkspace
@@ -95,6 +99,8 @@ export async function inviteChatGPTWorkspaceMembers(
     workspaceId,
     ownerIdentityId: login.storedIdentity?.id,
     memberEmails: linkedEmails,
+    confirmedInviteEmails: invites.invitedEmails,
+    failedInviteEmails: invites.erroredEmails,
     progressReporter: options.progressReporter,
   })
   options.progressReporter?.({

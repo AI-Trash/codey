@@ -8,6 +8,7 @@ import {
 import {
   completeFlowTask,
   refreshFlowTaskLease,
+  retryFlowTask,
 } from '../../../../../../../lib/server/flow-tasks'
 import { json, text } from '../../../../../../../lib/server/http'
 import { NOTIFICATIONS_READ_SCOPE } from '../../../../../../../lib/server/oauth-scopes'
@@ -38,6 +39,57 @@ function parseOptionalRecord(
   }
 
   return value as Record<string, unknown>
+}
+
+function parseOptionalPositiveInteger(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    return undefined
+  }
+
+  return value
+}
+
+function parseOptionalRetryRequest(value: unknown):
+  | {
+      reason: string
+      message?: string | null
+      maxAttempts?: number
+    }
+  | null
+  | undefined {
+  if (value === undefined || value === null) {
+    return null
+  }
+
+  const retry = parseOptionalRecord(value)
+  if (!retry) {
+    return undefined
+  }
+
+  const reason = parseOptionalString(retry.reason)
+  if (!reason) {
+    return undefined
+  }
+
+  const message = parseOptionalString(retry.message)
+  if ('message' in retry && message === undefined) {
+    return undefined
+  }
+
+  const maxAttempts = parseOptionalPositiveInteger(retry.maxAttempts)
+  if ('maxAttempts' in retry && maxAttempts === undefined) {
+    return undefined
+  }
+
+  return {
+    reason,
+    ...(message !== undefined ? { message } : {}),
+    ...(maxAttempts !== undefined ? { maxAttempts } : {}),
+  }
 }
 
 export const Route = createFileRoute(
@@ -120,6 +172,18 @@ export const Route = createFileRoute(
           return text('result must be an object or null', 400)
         }
 
+        const retry = parseOptionalRetryRequest(body?.retry)
+        if ('retry' in (body || {}) && retry === undefined) {
+          return text(
+            'retry must include reason and optional message/maxAttempts',
+            400,
+          )
+        }
+
+        if (retry && status !== 'FAILED') {
+          return text('retry can only be provided with FAILED status', 400)
+        }
+
         try {
           const task =
             status === 'LEASED' || status === 'RUNNING'
@@ -129,14 +193,24 @@ export const Route = createFileRoute(
                   status,
                   message,
                 })
-              : await completeFlowTask({
-                  connectionId: params.connectionId,
-                  taskId: params.taskId,
-                  status,
-                  error,
-                  message,
-                  ...(result !== undefined ? { result } : {}),
-                })
+              : retry
+                ? await retryFlowTask({
+                    connectionId: params.connectionId,
+                    taskId: params.taskId,
+                    error,
+                    message,
+                    retryReason: retry.reason,
+                    retryMessage: retry.message,
+                    maxAttempts: retry.maxAttempts,
+                  })
+                : await completeFlowTask({
+                    connectionId: params.connectionId,
+                    taskId: params.taskId,
+                    status,
+                    error,
+                    message,
+                    ...(result !== undefined ? { result } : {}),
+                  })
 
           if (!task) {
             return text('Flow task lease is no longer active.', 409)

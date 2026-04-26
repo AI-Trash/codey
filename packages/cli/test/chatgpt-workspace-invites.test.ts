@@ -6,6 +6,7 @@ import { parseFlowCliArgs } from '../src/modules/flow-cli/parse-argv'
 import {
   extractInviteEmailsFromCsv,
   extractInviteEmailsFromJson,
+  inviteWorkspaceMembers,
   planWorkspaceMemberRemovals,
   resolveInviteEmails,
   selectInviteCapableAccount,
@@ -18,6 +19,79 @@ afterEach(() => {
     fs.rmSync(tempPath, { force: true })
   }
 })
+
+class FakeInvitePage {
+  readonly fetchCalls: Array<{
+    url: string
+    method: string
+    headers: Record<string, string>
+    body?: string
+  }> = []
+
+  readonly responses: Array<{
+    ok: boolean
+    status: number
+    url: string
+    text: string
+  }> = []
+
+  context(): {
+    cookies: () => Promise<Array<{ name: string; value: string }>>
+  } {
+    return {
+      cookies: async () => [
+        {
+          name: '_account',
+          value: 'workspace-123',
+        },
+      ],
+    }
+  }
+
+  async evaluate(
+    _fn: unknown,
+    input?: {
+      url: string
+      method?: string
+      headers?: Record<string, string>
+      body?: string
+    },
+  ): Promise<unknown> {
+    if (!input) {
+      return 0
+    }
+
+    this.fetchCalls.push({
+      url: input.url,
+      method: input.method || 'GET',
+      headers: input.headers || {},
+      body: input.body,
+    })
+
+    return (
+      this.responses.shift() || {
+        ok: false,
+        status: 500,
+        url: input.url,
+        text: '',
+      }
+    )
+  }
+}
+
+function jsonApiResponse(data: unknown): {
+  ok: boolean
+  status: number
+  url: string
+  text: string
+} {
+  return {
+    ok: true,
+    status: 200,
+    url: 'https://chatgpt.com/backend-api/test',
+    text: JSON.stringify(data),
+  }
+}
 
 describe('workspace invite helpers', () => {
   it('collects repeated inviteEmail flags from single-file argv parsing', () => {
@@ -187,5 +261,84 @@ describe('workspace invite helpers', () => {
         ],
       }).map((member) => member.id),
     ).toEqual(['deactivated-old', 'deactivated-new', 'member-old'])
+  })
+
+  it('lists pending invites with page sizes accepted by the ChatGPT API', async () => {
+    const page = new FakeInvitePage()
+    const firstPendingInvitePage = Array.from({ length: 100 }, (_, index) => ({
+      email_address: `pending-${index}@example.com`,
+    }))
+
+    page.responses.push(
+      jsonApiResponse({
+        account_ordering: ['workspace-123'],
+        accounts: {
+          'workspace-123': {
+            account: {
+              account_id: 'workspace-123',
+              structure: 'workspace',
+              plan_type: 'team',
+            },
+            can_access_with_session: true,
+          },
+        },
+      }),
+      jsonApiResponse({
+        items: [],
+      }),
+      jsonApiResponse({
+        account_invites: firstPendingInvitePage,
+        total: 101,
+      }),
+      jsonApiResponse({
+        account_invites: [
+          {
+            email_address: 'repeat@example.com',
+          },
+        ],
+        total: 101,
+      }),
+      jsonApiResponse({
+        account_invites: [
+          {
+            email_address: 'new@example.com',
+          },
+        ],
+        errored_emails: [],
+      }),
+    )
+
+    const result = await inviteWorkspaceMembers(page as never, [
+      'new@example.com',
+      'repeat@example.com',
+    ])
+
+    const inviteListCalls = page.fetchCalls.filter((call) =>
+      call.url.includes('/invites?'),
+    )
+    const invitePostCall = page.fetchCalls.find(
+      (call) => call.url.endsWith('/invites') && call.method === 'POST',
+    )
+
+    expect(
+      inviteListCalls.map((call) =>
+        new URL(call.url).searchParams.get('limit'),
+      ),
+    ).toEqual(['100', '100'])
+    expect(
+      inviteListCalls.map((call) =>
+        new URL(call.url).searchParams.get('offset'),
+      ),
+    ).toEqual(['0', '100'])
+    expect(
+      inviteListCalls.every(
+        (call) => Number(new URL(call.url).searchParams.get('limit')) <= 100,
+      ),
+    ).toBe(true)
+    expect(JSON.parse(invitePostCall?.body || '{}')).toMatchObject({
+      email_addresses: ['new@example.com'],
+    })
+    expect(result.invitedEmails).toEqual(['new@example.com'])
+    expect(result.skippedEmails).toEqual(['repeat@example.com'])
   })
 })

@@ -17,11 +17,18 @@ type FinalFlowTaskStatus = 'SUCCEEDED' | 'FAILED' | 'CANCELED'
 
 const FLOW_TASK_HEARTBEAT_MS = 10_000
 
+export interface FlowTaskRetryRequest {
+  reason: string
+  message?: string | null
+  maxAttempts?: number
+}
+
 interface FlowTaskStatusPayload {
   status: FlowTaskLeaseStatus | FinalFlowTaskStatus
   error?: string | null
   message?: string | null
   result?: Record<string, unknown> | null
+  retry?: FlowTaskRetryRequest | null
 }
 
 async function postJson<T>(input: {
@@ -65,6 +72,7 @@ export async function updateCliFlowTaskStatus(input: {
   error?: string | null
   message?: string | null
   result?: Record<string, unknown> | null
+  retry?: FlowTaskRetryRequest | null
 }): Promise<void> {
   await postJson<{ ok: boolean }>({
     authState: input.authState,
@@ -74,6 +82,7 @@ export async function updateCliFlowTaskStatus(input: {
       ...(input.error !== undefined ? { error: input.error } : {}),
       ...(input.message !== undefined ? { message: input.message } : {}),
       ...(input.result !== undefined ? { result: input.result } : {}),
+      ...(input.retry !== undefined ? { retry: input.retry } : {}),
     },
   })
 }
@@ -162,6 +171,7 @@ export class CliFlowTaskLeaseReporter {
     error?: string | null
     message?: string | null
     result?: Record<string, unknown> | null
+    retry?: FlowTaskRetryRequest | null
   }): Promise<void> {
     if (this.completed) {
       return
@@ -183,6 +193,7 @@ export class CliFlowTaskLeaseReporter {
             ? { message: this.currentMessage }
             : {}),
         ...(input.result !== undefined ? { result: input.result } : {}),
+        ...(input.retry !== undefined ? { retry: input.retry } : {}),
       },
       false,
     )
@@ -204,6 +215,7 @@ export class CliFlowTaskLeaseReporter {
             error: payload.error,
             message: payload.message,
             ...(payload.result !== undefined ? { result: payload.result } : {}),
+            ...(payload.retry !== undefined ? { retry: payload.retry } : {}),
           })
         } catch (error) {
           const sanitized = sanitizeErrorForOutput(error)
