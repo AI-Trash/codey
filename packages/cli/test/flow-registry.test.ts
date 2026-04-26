@@ -12,6 +12,7 @@ describe('flow registry', () => {
     const flowIds = listCliFlowCommandIds()
     const payload = createCliFlowTaskPayload('chatgpt-team-trial', {
       email: 'person@example.com',
+      recordPageContent: true,
     })
 
     expect(flowIds).toContain('chatgpt-team-trial')

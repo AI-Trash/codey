@@ -424,6 +424,8 @@
   "admin_cli_option_slow_mo_description": "Delay each browser action by a fixed number of milliseconds.",
   "admin_cli_option_har_name": "Record HAR",
   "admin_cli_option_har_description": "Record a HAR file for this run.",
+  "admin_cli_option_record_page_content_name": "Record page HTML",
+  "admin_cli_option_record_page_content_description": "Save page.content() after the final page settles into the artifacts directory.",
   "admin_cli_option_record_name": "Keep browser open",
   "admin_cli_option_record_description": "Keep the browser session open after the flow finishes.",
   "admin_cli_option_password_name": "Password",

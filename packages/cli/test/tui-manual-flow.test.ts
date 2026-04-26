@@ -26,12 +26,16 @@ describe('tui manual flow helpers', () => {
     const choices = buildManualFlowOptionChoices('chatgpt-login-invite')
 
     expect(choices.some((entry) => entry.name === 'record')).toBe(true)
+    expect(choices.some((entry) => entry.name === 'recordPageContent')).toBe(
+      true,
+    )
     expect(choices.some((entry) => entry.name === 'inviteEmail')).toBe(true)
   })
 
   it('normalizes prompt answers into flow options', () => {
     const options = normalizeManualFlowAnswers('chatgpt-login-invite', {
       record: false,
+      recordPageContent: true,
       slowMo: '250',
       inviteEmail: 'a@example.com,\nb@example.com',
       email: 'person@example.com',
@@ -39,6 +43,7 @@ describe('tui manual flow helpers', () => {
 
     expect(options).toEqual({
       record: false,
+      recordPageContent: true,
       slowMo: 250,
       inviteEmail: ['a@example.com', 'b@example.com'],
       email: 'person@example.com',

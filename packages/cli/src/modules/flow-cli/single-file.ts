@@ -9,6 +9,7 @@ import {
   printFlowCompletionSummary,
   prepareRuntimeConfig,
   reportError,
+  shouldRecordPageContent,
   type CommonOptions,
   shouldKeepFlowOpen,
 } from './helpers'
@@ -69,6 +70,7 @@ export async function runSingleFileFlow<
         async () => {
           let result!: TResult
           let browserHarPath: string | undefined
+          let pageContentPath: string | undefined
           const flowId = flowCommandToId(definition.command)
           const preparedStorageState = flowId
             ? await prepareFlowStorageState({
@@ -101,10 +103,20 @@ export async function runSingleFileFlow<
               browserHarPath = session.harPath
               result = await definition.run(session.page, flowOptions)
             },
-            { closeOnComplete: !shouldKeepFlowOpen(flowOptions) },
+            {
+              closeOnComplete: !shouldKeepFlowOpen(flowOptions),
+              pageContent: {
+                enabled: shouldRecordPageContent(flowOptions),
+                artifactName: definition.command,
+                onPath(path) {
+                  pageContentPath = path
+                },
+              },
+            },
           )
           result = attachFlowArtifactPaths(result, {
             harPath: browserHarPath,
+            pageContentPath,
           })
           printFlowCompletionSummary(definition.command, result)
           if (shouldKeepFlowOpen(flowOptions)) {

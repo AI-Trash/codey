@@ -1452,6 +1452,7 @@ const optionDisplayNameMap: Record<
   headless: () => m.admin_cli_option_headless_name(),
   slowMo: () => m.admin_cli_option_slow_mo_name(),
   har: () => m.admin_cli_option_har_name(),
+  recordPageContent: () => m.admin_cli_option_record_page_content_name(),
   record: () => m.admin_cli_option_record_name(),
   password: () => m.admin_cli_option_password_name(),
   verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
@@ -1475,6 +1476,8 @@ const optionDescriptionMap: Record<
   headless: () => m.admin_cli_option_headless_description(),
   slowMo: () => m.admin_cli_option_slow_mo_description(),
   har: () => m.admin_cli_option_har_description(),
+  recordPageContent: () =>
+    m.admin_cli_option_record_page_content_description(),
   record: () => m.admin_cli_option_record_description(),
   password: () => m.admin_cli_option_password_description(),
   verificationTimeoutMs: () =>

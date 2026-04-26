@@ -8,6 +8,7 @@ import {
   formatFlowCompletionSummary,
   keepBrowserOpenForHarWhenUnspecified,
   printFlowCompletionSummary,
+  shouldRecordPageContent,
   shouldKeepFlowOpen,
   type FlowOptions,
 } from '../src/modules/flow-cli/helpers'
@@ -62,6 +63,13 @@ describe('flow cli helpers', () => {
     expect(shouldKeepFlowOpen({ record: 'false' })).toBe(false)
   })
 
+  it('treats recordPageContent as the stable HTML capture switch', () => {
+    expect(shouldRecordPageContent({})).toBe(false)
+    expect(shouldRecordPageContent({ recordPageContent: true })).toBe(true)
+    expect(shouldRecordPageContent({ recordPageContent: 'true' })).toBe(true)
+    expect(shouldRecordPageContent({ recordPageContent: 'false' })).toBe(false)
+  })
+
   it('defaults record to true when HAR is enabled and record is unspecified', () => {
     expect(keepBrowserOpenForHarWhenUnspecified({ har: true })).toMatchObject({
       har: true,
@@ -93,6 +101,7 @@ describe('flow cli helpers', () => {
       email: 'person@example.com',
       verified: true,
       harPath: 'C:/tmp/flow-chatgpt-register.har',
+      pageContentPath: 'C:/tmp/flow-chatgpt-register-page-content.html',
       storedIdentity: {
         id: 'identity-123',
         email: 'person@example.com',
@@ -108,6 +117,9 @@ describe('flow cli helpers', () => {
     expect(summary).toContain('verified: yes')
     expect(summary).toContain('identity: identity-123')
     expect(summary).toContain('har: C:/tmp/flow-chatgpt-register.har')
+    expect(summary).toContain(
+      'page content: C:/tmp/flow-chatgpt-register-page-content.html',
+    )
     expect(summary).not.toContain('machine')
     expect(summary).not.toContain('storePath')
     expect(summary).not.toContain('mfa_token')

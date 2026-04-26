@@ -43,6 +43,7 @@ const flowOptionLabelByKey: Record<string, string> = {
   headless: 'Run browser headless',
   slowMo: 'Slow motion delay',
   har: 'Record HAR file',
+  recordPageContent: 'Record stable page HTML',
   record: 'Keep browser open after completion',
   password: 'Password override',
   verificationTimeoutMs: 'Verification timeout',
@@ -63,6 +64,8 @@ const flowOptionDescriptionByKey: Record<string, string> = {
   headless: 'Run the browser without a visible window.',
   slowMo: 'Apply a delay in milliseconds between browser actions.',
   har: 'Write a HAR file for this run.',
+  recordPageContent:
+    'Save page.content() after the final page settles into the artifacts directory.',
   record: 'Keep the browser session open after the flow finishes.',
   password: 'Override the password used by the flow.',
   verificationTimeoutMs:

@@ -26,6 +26,7 @@ export interface CommonOptions {
   headless?: string | boolean
   slowMo?: string | number | boolean
   har?: string | boolean
+  recordPageContent?: string | boolean
   progressReporter?: FlowProgressReporter
   runtimeConfigOverrides?: RuntimeConfigOverrides
 }
@@ -76,6 +77,7 @@ export type FlowProgressReporter = (update: FlowProgressUpdate) => void
 export interface FlowArtifactPaths {
   harPath?: string
   apiHarPath?: string
+  pageContentPath?: string
 }
 
 function normalizeProgressField(value: string | undefined): string | undefined {
@@ -161,6 +163,12 @@ export function shouldKeepFlowOpen(options: {
   record?: string | boolean
 }): boolean {
   return parseBooleanFlag(options.record, false) ?? false
+}
+
+export function shouldRecordPageContent(options: {
+  recordPageContent?: string | boolean
+}): boolean {
+  return parseBooleanFlag(options.recordPageContent, false) ?? false
 }
 
 export function buildRuntimeConfig(
@@ -278,6 +286,7 @@ function appendArtifactSummaryLines(
 ): void {
   appendSummaryLine(lines, 'har', artifacts.harPath)
   appendSummaryLine(lines, 'api har', artifacts.apiHarPath)
+  appendSummaryLine(lines, 'page content', artifacts.pageContentPath)
 }
 
 function formatInviteCounts(

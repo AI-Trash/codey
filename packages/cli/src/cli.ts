@@ -43,6 +43,7 @@ import {
   printFlowCompletionSummary,
   redactForOutput,
   sanitizeErrorForOutput,
+  shouldRecordPageContent,
   shouldKeepFlowOpen,
   type AuthOptions,
   type CommonOptions,
@@ -111,6 +112,7 @@ async function runFlowCommand(
   }
   let result: unknown
   let browserHarPath: string | undefined
+  let pageContentPath: string | undefined
 
   await runWithSession(
     {
@@ -158,11 +160,19 @@ async function runFlowCommand(
     {
       closeOnComplete: !shouldKeepFlowOpen(runtimeOptions),
       abortSignal: runtime.abortSignal,
+      pageContent: {
+        enabled: shouldRecordPageContent(runtimeOptions),
+        artifactName: subcommand,
+        onPath(path) {
+          pageContentPath = path
+        },
+      },
     },
   )
 
   result = attachFlowArtifactPaths(result, {
     harPath: browserHarPath,
+    pageContentPath,
   })
   printFlowCompletionSummary(`flow:${subcommand}`, result)
   if (shouldKeepFlowOpen(runtimeOptions)) {
@@ -1019,6 +1029,10 @@ withCommonOptions(
       'Whether to keep the browser session open after the flow completes',
     )
     .option(
+      '--recordPageContent <bool>',
+      'Whether to save page.content() after the final page settles',
+    )
+    .option(
       '--verificationTimeoutMs <ms>',
       'How long to wait for the verification email',
     )
@@ -1051,6 +1065,10 @@ withCommonOptions(
       'Whether to keep the browser session open after the flow completes',
     )
     .option(
+      '--recordPageContent <bool>',
+      'Whether to save page.content() after the final page settles',
+    )
+    .option(
       '--identityId <id>',
       'Shared identity id from a previous chatgpt-register run',
     )
@@ -1079,6 +1097,10 @@ withCommonOptions(
     .option(
       '--record <bool>',
       'Whether to keep the browser session open after the flow completes',
+    )
+    .option(
+      '--recordPageContent <bool>',
+      'Whether to save page.content() after the final page settles',
     )
     .option(
       '--identityId <id>',
@@ -1112,6 +1134,10 @@ withCommonOptions(
     .option(
       '--record <bool>',
       'Whether to keep the browser session open after the flow completes',
+    )
+    .option(
+      '--recordPageContent <bool>',
+      'Whether to save page.content() after the final page settles',
     )
     .option(
       '--identityId <id>',
@@ -1159,6 +1185,10 @@ withCommonOptions(
       'Whether to keep the browser session open after the flow completes',
     )
     .option(
+      '--recordPageContent <bool>',
+      'Whether to save page.content() after the final page settles',
+    )
+    .option(
       '--identityId <id>',
       'Shared identity id to use if the OpenAI login flow needs credentials',
     )
@@ -1203,6 +1233,10 @@ withCommonOptions(
     .option(
       '--record <bool>',
       'Whether to keep the browser session open after the flow completes',
+    )
+    .option(
+      '--recordPageContent <bool>',
+      'Whether to save page.content() after the final page settles',
     )
     .example('codey flow noop')
     .example('codey flow noop --record false --har false'),

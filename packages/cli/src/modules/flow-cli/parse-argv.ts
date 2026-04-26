@@ -132,6 +132,7 @@ export function normalizeCommonCliArgs(
     headless: normalizeBoolean(input.headless),
     slowMo: normalizeNumber(input.slowMo),
     har: normalizeBoolean(input.har),
+    recordPageContent: normalizeBoolean(input.recordPageContent),
   }
 }
 

@@ -2,6 +2,7 @@ import { getRuntimeConfig } from '../../config'
 import { newSession } from '../../core/browser'
 import type { Session } from '../../types'
 import { printFlowArtifactPath } from './helpers'
+import { saveStablePageContent } from './page-content'
 
 const FINAL_PAGE_CLOSE_GRACE_MS = 250
 
@@ -14,6 +15,16 @@ export class FlowInterruptedError extends Error {
 
 export function isFlowInterruptedError(error: unknown): boolean {
   return error instanceof Error && error.name === 'FlowInterruptedError'
+}
+
+export interface RunWithSessionRuntime {
+  closeOnComplete?: boolean
+  abortSignal?: AbortSignal
+  pageContent?: {
+    enabled?: boolean
+    artifactName?: string
+    onPath?: (path: string) => void
+  }
 }
 
 function toFlowInterruptedError(reason: unknown): Error {
@@ -64,6 +75,35 @@ async function runAbortable<TResult>(
   })
 
   return Promise.race([taskWithCleanup, abortPromise])
+}
+
+async function capturePageContentArtifact(
+  session: Session,
+  runtime: RunWithSessionRuntime,
+): Promise<void> {
+  if (!runtime.pageContent?.enabled) {
+    return
+  }
+
+  const pageContentPath = await saveStablePageContent(session.page, {
+    artifactName: runtime.pageContent.artifactName,
+  })
+  printFlowArtifactPath(
+    'page content',
+    pageContentPath,
+    getRuntimeConfig().command,
+  )
+  runtime.pageContent.onPath?.(pageContentPath)
+}
+
+async function runSessionTask<TResult>(
+  session: Session,
+  runner: (session: Session) => Promise<TResult>,
+  runtime: RunWithSessionRuntime,
+): Promise<TResult> {
+  const result = await runner(session)
+  await capturePageContentArtifact(session, runtime)
+  return result
 }
 
 function keepSessionAlive(session: Session): {
@@ -173,10 +213,7 @@ function keepSessionAlive(session: Session): {
 export async function runWithSession<TResult>(
   options: Parameters<typeof newSession>[0],
   runner: (session: Awaited<ReturnType<typeof newSession>>) => Promise<TResult>,
-  runtime: {
-    closeOnComplete?: boolean
-    abortSignal?: AbortSignal
-  } = {},
+  runtime: RunWithSessionRuntime = {},
 ): Promise<TResult> {
   const session = await newSession(options)
   printFlowArtifactPath(
@@ -189,7 +226,7 @@ export async function runWithSession<TResult>(
     const keepAlive = keepSessionAlive(session)
     try {
       const result = await runAbortable(
-        runner(session),
+        runSessionTask(session, runner, runtime),
         runtime.abortSignal,
         keepAlive.closeNow,
       )
@@ -202,8 +239,10 @@ export async function runWithSession<TResult>(
   }
 
   try {
-    return await runAbortable(runner(session), runtime.abortSignal, () =>
-      session.close(),
+    return await runAbortable(
+      runSessionTask(session, runner, runtime),
+      runtime.abortSignal,
+      () => session.close(),
     )
   } finally {
     await session.close()

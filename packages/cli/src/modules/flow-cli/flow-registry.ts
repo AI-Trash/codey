@@ -33,6 +33,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'headless'
   | 'slowMo'
   | 'har'
+  | 'recordPageContent'
   | 'record'
   | 'password'
   | 'verificationTimeoutMs'
@@ -51,6 +52,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'headless'
   | 'slowMo'
   | 'har'
+  | 'recordPageContent'
   | 'record'
   | 'password'
   | 'verificationTimeoutMs'
@@ -69,6 +71,7 @@ export type CliFlowConfigFieldKey =
   | 'headless'
   | 'slowMo'
   | 'har'
+  | 'recordPageContent'
   | 'record'
   | 'password'
   | 'verificationTimeoutMs'
@@ -122,6 +125,11 @@ export interface CommonFlowConfig {
    * Capture a browser HAR for this run.
    */
   har?: boolean
+
+  /**
+   * Save the settled final page.content() HTML into the artifacts directory.
+   */
+  recordPageContent?: boolean
 
   /**
    * Keep the browser open after the flow finishes.
@@ -320,6 +328,14 @@ export const cliFlowCommonConfigFieldDefinitions = [
     type: 'boolean',
     displayNameKey: 'har',
     descriptionKey: 'har',
+    common: true,
+  },
+  {
+    key: 'recordPageContent',
+    cliFlag: '--recordPageContent',
+    type: 'boolean',
+    displayNameKey: 'recordPageContent',
+    descriptionKey: 'recordPageContent',
     common: true,
   },
   {

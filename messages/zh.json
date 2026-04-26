@@ -429,6 +429,8 @@
   "admin_cli_option_slow_mo_description": "为每个浏览器动作增加固定毫秒级延迟。",
   "admin_cli_option_har_name": "录制 HAR",
   "admin_cli_option_har_description": "为这次运行记录 HAR 文件。",
+  "admin_cli_option_record_page_content_name": "录制页面 HTML",
+  "admin_cli_option_record_page_content_description": "在最终页面稳定后，将 page.content() 保存到 artifacts 目录。",
   "admin_cli_option_record_name": "执行后保持浏览器打开",
   "admin_cli_option_record_description": "流程结束后继续保留浏览器会话。",
   "admin_cli_option_password_name": "密码",

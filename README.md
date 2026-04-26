@@ -172,6 +172,8 @@ pnpm flow codex-oauth --workspaceIndex 2
 
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
 
+Pass `--recordPageContent true` on any flow to save the final settled `page.content()` HTML under `artifacts/` as a `*-page-content.html` file. This is intended for developing new page branches after upstream UI changes.
+
 ### CLI logs
 
 Every CLI run now writes two log files under `.codey/logs`:
