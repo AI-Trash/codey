@@ -52,11 +52,13 @@ interface Sub2ApiAccountRecord {
 
 interface Sub2ApiPaginatedData<T> {
   items?: T[]
+  pages?: number
 }
 
 const DEFAULT_SUB2API_LOGIN_PATH = '/api/v1/auth/login'
 const DEFAULT_SUB2API_REFRESH_TOKEN_PATH = '/api/v1/admin/openai/refresh-token'
 const DEFAULT_SUB2API_ACCOUNTS_PATH = '/api/v1/admin/accounts'
+const SUB2API_ACCOUNTS_PAGE_SIZE = 1000
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -161,7 +163,7 @@ async function requestSub2ApiJson<T>(
   config: Sub2ApiConfig,
   authHeaders: HeadersInit,
   input: {
-    method: 'GET' | 'POST' | 'PUT'
+    method: 'DELETE' | 'GET' | 'POST' | 'PUT'
     pathname: string
     searchParams?: URLSearchParams
     body?: Record<string, unknown>
@@ -388,41 +390,62 @@ function buildSub2ApiAccountModelMapping(
   return buildSub2ApiOpenAiRelatedModelMapping()
 }
 
-function findMatchingSub2ApiAccount(
+function findDuplicateSub2ApiAccounts(
   accounts: Sub2ApiAccountRecord[],
   input: {
     email: string
     workspaceId?: string
   },
-): Sub2ApiAccountRecord | undefined {
+): Sub2ApiAccountRecord[] {
   const normalizedEmail = normalizeEmail(input.email)
   const normalizedWorkspaceId = normalizeWorkspaceId(input.workspaceId)
 
-  const metadataMatch = accounts.find((account) => {
+  return accounts.filter((account) => {
     const metadata = parseSub2ApiAccountNotes(account.notes)
     return metadata
       ? metadata.email === normalizedEmail &&
           normalizeWorkspaceId(metadata.workspaceId) === normalizedWorkspaceId
       : false
   })
+}
 
-  if (metadataMatch) {
-    return metadataMatch
-  }
+async function listSub2ApiOpenAiOAuthAccounts(
+  config: Sub2ApiConfig,
+  authHeaders: HeadersInit,
+  accountsPath: string,
+): Promise<Sub2ApiAccountRecord[]> {
+  const accounts: Sub2ApiAccountRecord[] = []
+  let page = 1
 
-  const legacyEmailMatches = accounts.filter((account) => {
-    if (parseSub2ApiAccountNotes(account.notes)) {
-      return false
+  while (true) {
+    const searchParams = new URLSearchParams({
+      page: String(page),
+      page_size: String(SUB2API_ACCOUNTS_PAGE_SIZE),
+      platform: 'openai',
+      type: 'oauth',
+    })
+    const result = await requestSub2ApiJson<
+      Sub2ApiPaginatedData<Sub2ApiAccountRecord>
+    >(config, authHeaders, {
+      method: 'GET',
+      pathname: accountsPath,
+      searchParams,
+    })
+    const items = Array.isArray(result.items) ? result.items : []
+    accounts.push(...items)
+
+    const pages =
+      typeof result.pages === 'number' && Number.isFinite(result.pages)
+        ? Math.max(1, Math.trunc(result.pages))
+        : undefined
+    if (pages ? page >= pages : items.length < SUB2API_ACCOUNTS_PAGE_SIZE) {
+      break
     }
 
-    const credentials = asRecord(account.credentials)
-    const credentialEmail = asNonEmptyString(credentials?.email)
-    return credentialEmail
-      ? normalizeEmail(credentialEmail) === normalizedEmail
-      : false
-  })
+    page += 1
+  }
 
-  return legacyEmailMatches.length === 1 ? legacyEmailMatches[0] : undefined
+  return accounts
 }
 
 export async function syncManagedCodexOAuthSessionToSub2Api(input: {
@@ -493,48 +516,21 @@ export async function syncManagedCodexOAuthSessionToSub2Api(input: {
     email: accountEmail,
   })
 
-  const searchParams = new URLSearchParams({
-    page: '1',
-    page_size: '1000',
-    platform: 'openai',
-    type: 'oauth',
-    search: accountEmail,
-  })
-  const existingAccounts = await requestSub2ApiJson<
-    Sub2ApiPaginatedData<Sub2ApiAccountRecord>
-  >(config, authHeaders, {
-    method: 'GET',
-    pathname: accountsPath,
-    searchParams,
-  })
-  const existing = findMatchingSub2ApiAccount(
-    Array.isArray(existingAccounts.items) ? existingAccounts.items : [],
-    {
-      email: accountEmail,
-      workspaceId: normalizedWorkspaceId,
-    },
+  const existingAccounts = await listSub2ApiOpenAiOAuthAccounts(
+    config,
+    authHeaders,
+    accountsPath,
   )
+  const duplicateAccounts = findDuplicateSub2ApiAccounts(existingAccounts, {
+    email: accountEmail,
+    workspaceId: normalizedWorkspaceId,
+  })
 
-  if (existing) {
-    const updated = await requestSub2ApiJson<Sub2ApiAccountRecord>(
-      config,
-      authHeaders,
-      {
-        method: 'PUT',
-        pathname: `${accountsPath.replace(/\/+$/, '')}/${existing.id}`,
-        body: {
-          name: accountName,
-          notes,
-          credentials,
-        },
-      },
-    )
-
-    return {
-      accountId: updated.id || existing.id,
-      action: 'updated',
-      email: accountEmail,
-    }
+  for (const duplicate of duplicateAccounts) {
+    await requestSub2ApiJson<Record<string, unknown>>(config, authHeaders, {
+      method: 'DELETE',
+      pathname: `${accountsPath.replace(/\/+$/, '')}/${duplicate.id}`,
+    })
   }
 
   const created = await requestSub2ApiJson<Sub2ApiAccountRecord>(

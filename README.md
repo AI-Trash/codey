@@ -262,7 +262,7 @@ CODEX_SCOPE=openid profile email offline_access
 
 If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
 
-When the Sub2API integration is enabled in Codey Web, `flow codex-oauth` saves the captured Codex OAuth session back to the app and Codey Web performs the Sub2API refresh-token sync server-side. Codey writes JSON metadata into the Sub2API account `notes` field with the OpenAI workspace ID and email address, then matches existing accounts by that metadata (with a legacy credentials-email fallback when older accounts do not have notes yet). New accounts still use the email address as the Sub2API account name.
+When the Sub2API integration is enabled in Codey Web, `flow codex-oauth` saves the captured Codex OAuth session back to the app and Codey Web performs the Sub2API refresh-token sync server-side. Codey writes JSON metadata into the Sub2API account `notes` field with the OpenAI workspace ID and email address, then removes any existing OpenAI OAuth accounts whose `notes` metadata has the same email and workspace ID before creating a fresh account. Accounts without that JSON metadata are not treated as duplicates. New accounts use the email address, plus the workspace ID when present, as the Sub2API account name.
 
 When Codey creates a new Sub2API account, you can also pass default scheduler fields such as proxy, concurrency, priority, group IDs, mixed-channel confirmation, and an optional "auto-fill related models" whitelist that mirrors Sub2API's OpenAI model presets.
 

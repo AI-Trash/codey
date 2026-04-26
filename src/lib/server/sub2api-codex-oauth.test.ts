@@ -150,7 +150,7 @@ describe('syncManagedCodexOAuthSessionToSub2Api', () => {
     )
   })
 
-  it('updates an existing Sub2API account matched by notes metadata', async () => {
+  it('removes duplicate Sub2API accounts matched by notes metadata before creating a fresh account', async () => {
     mocks.hasEnabledSub2ApiServiceConfig.mockResolvedValue(true)
     mocks.getCliSub2ApiConfig.mockResolvedValue({
       baseUrl: 'https://sub2api.example.com',
@@ -191,6 +191,22 @@ describe('syncManagedCodexOAuthSessionToSub2Api', () => {
                     email: 'person@example.com',
                   }),
                 },
+                {
+                  id: 102,
+                  name: 'Second duplicate',
+                  notes: JSON.stringify({
+                    workspaceId: 'ws-primary',
+                    email: 'PERSON@example.com',
+                  }),
+                },
+                {
+                  id: 103,
+                  name: 'Different workspace',
+                  notes: JSON.stringify({
+                    workspaceId: 'ws-secondary',
+                    email: 'person@example.com',
+                  }),
+                },
               ],
             },
           }),
@@ -206,7 +222,37 @@ describe('syncManagedCodexOAuthSessionToSub2Api', () => {
             code: 0,
             message: 'success',
             data: {
-              id: 101,
+              message: 'Account deleted successfully',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              message: 'Account deleted successfully',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              id: 202,
               name: 'person@example.com + ws-primary',
             },
           }),
@@ -234,28 +280,57 @@ describe('syncManagedCodexOAuthSessionToSub2Api', () => {
         },
       }),
     ).resolves.toEqual({
-      accountId: 101,
-      action: 'updated',
+      accountId: 202,
+      action: 'created',
       email: 'person@example.com',
     })
 
     expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://sub2api.example.com/api/v1/admin/accounts?page=1&page_size=1000&platform=openai&type=oauth',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
       3,
       'https://sub2api.example.com/api/v1/admin/accounts/101',
       expect.objectContaining({
-        method: 'PUT',
+        method: 'DELETE',
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      'https://sub2api.example.com/api/v1/admin/accounts/102',
+      expect.objectContaining({
+        method: 'DELETE',
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      'https://sub2api.example.com/api/v1/admin/accounts',
+      expect.objectContaining({
+        method: 'POST',
         body: JSON.stringify({
           name: 'person@example.com + ws-primary',
           notes: JSON.stringify({
             workspaceId: 'ws-primary',
             email: 'person@example.com',
           }),
+          platform: 'openai',
+          type: 'oauth',
           credentials: {
             access_token: 'fresh-access-token',
             refresh_token: 'codex-refresh-token',
             email: 'person@example.com',
             client_id: 'codex-client-id',
+            model_mapping: buildSub2ApiOpenAiRelatedModelMapping(),
           },
+          extra: {
+            email: 'person@example.com',
+          },
+          concurrency: 0,
+          priority: 0,
         }),
       }),
     )
