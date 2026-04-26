@@ -1281,7 +1281,7 @@ export async function isOpenAIWorkspacePickerReady(
     .evaluate(() =>
       Boolean(
         document.querySelector(
-          'input[name="workspace_id"], select[name="workspace_id"]',
+          'button[name="workspace_id"][value], input[name="workspace_id"], select[name="workspace_id"]',
         ),
       ),
     )

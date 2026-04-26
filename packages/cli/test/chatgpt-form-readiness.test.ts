@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getCodexOAuthSurfaceCandidates,
   getLoginEntryCandidates,
+  isOpenAIWorkspacePickerReady,
   waitForEnabledSelector,
   waitForEditableSelector,
   waitForLoginEmailFormReady,
@@ -38,6 +39,10 @@ class FakeLocator {
 
   async count(): Promise<number> {
     return this.options.count ?? ((this.options.visible ?? false) ? 1 : 0)
+  }
+
+  configuredVisible(): boolean {
+    return this.options.visible ?? false
   }
 
   async evaluate(): Promise<boolean> {
@@ -99,6 +104,19 @@ class FakePage {
 
   getByTestId(): FakeLocator {
     return this.semanticLocators.testId ?? this.hiddenLocator
+  }
+
+  async evaluate(fn?: unknown): Promise<boolean> {
+    const source = typeof fn === 'function' ? String(fn) : ''
+    if (source.includes('button[name="workspace_id"][value]')) {
+      return (
+        this.locators[
+          'button[name="workspace_id"][value]'
+        ]?.configuredVisible() ?? false
+      )
+    }
+
+    return false
   }
 }
 
@@ -204,5 +222,22 @@ describe('waitForEditableSelector', () => {
     await expect(
       getCodexOAuthSurfaceCandidates(page as never),
     ).resolves.toContain('organization')
+  })
+
+  it('detects the OpenAI workspace picker when workspaces are submit buttons', async () => {
+    const workspaceButton = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const page = new FakePage(
+      {
+        'button[name="workspace_id"][value]': workspaceButton,
+      },
+      'https://auth.openai.com/workspace',
+    )
+
+    await expect(isOpenAIWorkspacePickerReady(page as never)).resolves.toBe(
+      true,
+    )
   })
 })

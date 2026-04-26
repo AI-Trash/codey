@@ -314,14 +314,19 @@ export const LOGIN_ENTRY_SELECTORS: SelectorTarget[] = [
   { text: /^登录$|^log in$|^login$/i },
 ]
 export const CODEX_WORKSPACE_SELECTORS: SelectorTarget[] = [
+  'button[name="workspace_id"][value]',
   'input[type="radio"][name="workspace_id"]',
   'input[type="hidden"][name="workspace_id"]',
   'select[name="workspace_id"]',
   {
     role: 'heading',
-    options: { name: /选择工作区|select a workspace/i },
+    options: {
+      name: /选择(?:一个)?工作(?:区|空间)|select a workspace|choose a workspace/i,
+    },
   },
-  { text: /选择工作区|select a workspace/i },
+  {
+    text: /选择(?:一个)?工作(?:区|空间)|select a workspace|choose a workspace/i,
+  },
 ]
 export const CODEX_WORKSPACE_SUBMIT_SELECTORS: SelectorTarget[] = [
   'form button[type="submit"]',

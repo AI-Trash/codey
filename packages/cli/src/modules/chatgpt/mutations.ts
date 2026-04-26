@@ -89,6 +89,11 @@ export interface OpenAIWorkspaceSelectionResult {
   selectionStrategy: 'index' | 'workspace_id'
 }
 
+interface WorkspaceIdControlSelection extends OpenAIWorkspaceSelectionResult {
+  status: 'selected' | 'out_of_range' | 'missing'
+  submitKind?: 'selected-button'
+}
+
 type CodexWorkspaceSelectionResult = OpenAIWorkspaceSelectionResult
 
 interface CodexOrganizationSelectionResult {
@@ -1869,6 +1874,47 @@ async function selectOpenAIWorkspaceIdControl(
         }
       }
 
+      const workspaceButtons = (
+        Array.from(
+          document.querySelectorAll('button[name="workspace_id"][value]'),
+        ) as HTMLButtonElement[]
+      ).filter(
+        (button) =>
+          !button.disabled &&
+          button.getAttribute('aria-disabled') !== 'true' &&
+          button.value.trim(),
+      )
+
+      if (workspaceButtons.length > 0) {
+        const matchedIndex = normalizedPreferredId
+          ? workspaceButtons.findIndex(
+              (button) => button.value === normalizedPreferredId,
+            ) + 1
+          : 0
+        const selectedIndex = matchedIndex || requestedIndex
+
+        if (selectedIndex > workspaceButtons.length) {
+          return {
+            availableWorkspaces: workspaceButtons.length,
+            selectedWorkspaceIndex: 0,
+            selectionStrategy: 'index' as const,
+            status: 'out_of_range' as const,
+          }
+        }
+
+        const button = workspaceButtons[selectedIndex - 1]
+        return {
+          availableWorkspaces: workspaceButtons.length,
+          selectedWorkspaceIndex: selectedIndex,
+          selectedWorkspaceId: button.value || undefined,
+          selectionStrategy: matchedIndex
+            ? ('workspace_id' as const)
+            : ('index' as const),
+          status: 'selected' as const,
+          submitKind: 'selected-button' as const,
+        }
+      }
+
       const hiddenInput = document.querySelector(
         'input[name="workspace_id"]',
       ) as HTMLInputElement | null
@@ -1904,7 +1950,22 @@ async function selectOpenAIWorkspaceIdControl(
       requestedIndex: workspaceIndex,
       preferredWorkspaceId,
     },
-  )
+  ) as Promise<WorkspaceIdControlSelection>
+}
+
+function escapeCssAttributeValue(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\d ')
+    .replace(/\n/g, '\\a ')
+    .replace(/\f/g, '\\c ')
+}
+
+function buildWorkspaceButtonSelector(workspaceId: string): string {
+  return `button[name="workspace_id"][value="${escapeCssAttributeValue(
+    workspaceId,
+  )}"]`
 }
 
 async function continueWorkspaceSelection(
@@ -1945,6 +2006,33 @@ async function continueWorkspaceSelection(
     throw new Error(
       `Requested workspace #${workspaceIndex}, but only ${selected.availableWorkspaces} workspaces were available.`,
     )
+  }
+
+  if (selected.submitKind === 'selected-button') {
+    if (!selected.selectedWorkspaceId) {
+      throw new Error(labels.missingInputError)
+    }
+
+    const workspaceButtonSelector = buildWorkspaceButtonSelector(
+      selected.selectedWorkspaceId,
+    )
+    const buttonReady = await waitForEnabledSelector(
+      page,
+      [workspaceButtonSelector],
+      5000,
+    )
+    if (!buttonReady) {
+      throw new Error(labels.submitNotReadyError)
+    }
+
+    await clickAny(page, [workspaceButtonSelector])
+
+    return {
+      availableWorkspaces: selected.availableWorkspaces,
+      selectedWorkspaceIndex: selected.selectedWorkspaceIndex,
+      selectedWorkspaceId: selected.selectedWorkspaceId,
+      selectionStrategy: selected.selectionStrategy,
+    }
   }
 
   const submitReady = await waitForEnabledSelector(
