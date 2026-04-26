@@ -33,6 +33,7 @@ export interface CommonOptions {
 
 export interface FlowOptions extends CommonOptions {
   record?: boolean
+  restoreStorageState?: string | boolean
   waitMs?: number
   verificationTimeoutMs?: number
   pollIntervalMs?: number
@@ -46,6 +47,9 @@ export interface FlowOptions extends CommonOptions {
   redirectPort?: number
   inviteEmail?: string[]
   inviteFile?: string
+  chatgptStorageStatePath?: string
+  chatgptStorageStateIdentityId?: string
+  chatgptStorageStateEmail?: string
 }
 
 export interface AuthOptions extends CommonOptions {

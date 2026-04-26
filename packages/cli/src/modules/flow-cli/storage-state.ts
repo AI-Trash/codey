@@ -1,5 +1,5 @@
 import type { CliFlowCommandId } from './flow-registry'
-import type { FlowOptions } from './helpers'
+import { parseBooleanFlag, type FlowOptions } from './helpers'
 import {
   resolveStoredChatGPTIdentity,
   type StoredChatGPTIdentitySummary,
@@ -60,16 +60,24 @@ export async function prepareFlowStorageState(input: {
     id: input.options.identityId,
     email: input.options.email,
   })
-  const storageState = resolveLocalChatGPTStorageState({
-    identityId: stored.summary.id,
-    email: stored.summary.email,
-  })
+  const restoreStorageState =
+    parseBooleanFlag(input.options.restoreStorageState, false) ?? false
+  const storageState = restoreStorageState
+    ? resolveLocalChatGPTStorageState({
+        identityId: stored.summary.id,
+        email: stored.summary.email,
+      })
+    : undefined
 
   return {
     options: {
       ...input.options,
       identityId: stored.summary.id,
       email: stored.summary.email,
+      restoreStorageState,
+      chatgptStorageStatePath: storageState?.storageStatePath,
+      chatgptStorageStateIdentityId: storageState?.identityId,
+      chatgptStorageStateEmail: storageState?.email,
     },
     storedIdentity: stored.summary,
     storageState,

@@ -45,6 +45,7 @@ const flowOptionLabelByKey: Record<string, string> = {
   har: 'Record HAR file',
   recordPageContent: 'Record stable page HTML',
   record: 'Keep browser open after completion',
+  restoreStorageState: 'Restore local ChatGPT storage state',
   password: 'Password override',
   verificationTimeoutMs: 'Verification timeout',
   pollIntervalMs: 'Verification poll interval',
@@ -67,6 +68,8 @@ const flowOptionDescriptionByKey: Record<string, string> = {
   recordPageContent:
     'Save page.content() after the final page settles into the artifacts directory.',
   record: 'Keep the browser session open after the flow finishes.',
+  restoreStorageState:
+    'Load a matching local ChatGPT storage state before normal login.',
   password: 'Override the password used by the flow.',
   verificationTimeoutMs:
     'How long to wait for a verification email or approval, in milliseconds.',
@@ -116,13 +119,13 @@ export function describeManualFlowOption(optionKey: string): string {
   return flowOptionDescriptionByKey[optionKey] || humanizeKey(optionKey)
 }
 
-export function supportsManualFlowBatching(
-  flowId: CliFlowCommandId,
-): boolean {
+export function supportsManualFlowBatching(flowId: CliFlowCommandId): boolean {
   return flowId === 'chatgpt-register'
 }
 
-function formatManualFlowChoice(definition: CliFlowDefinition): ManualFlowChoice {
+function formatManualFlowChoice(
+  definition: CliFlowDefinition,
+): ManualFlowChoice {
   return {
     name: definition.id,
     message: definition.id,
@@ -348,10 +351,7 @@ async function promptForOptionValue(
         return 'A value is required.'
       }
 
-      if (
-        definition.type === 'number' &&
-        !Number.isFinite(Number(current))
-      ) {
+      if (definition.type === 'number' && !Number.isFinite(Number(current))) {
         return 'Enter a valid number.'
       }
 

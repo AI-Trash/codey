@@ -35,6 +35,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'har'
   | 'recordPageContent'
   | 'record'
+  | 'restoreStorageState'
   | 'password'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
@@ -54,6 +55,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'har'
   | 'recordPageContent'
   | 'record'
+  | 'restoreStorageState'
   | 'password'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
@@ -73,6 +75,7 @@ export type CliFlowConfigFieldKey =
   | 'har'
   | 'recordPageContent'
   | 'record'
+  | 'restoreStorageState'
   | 'password'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
@@ -170,13 +173,17 @@ export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
    * Resolve a shared ChatGPT identity by email address.
    */
   email?: string
+
+  /**
+   * Load a matching local ChatGPT storage state before normal login.
+   */
+  restoreStorageState?: boolean
 }
 
 /**
  * Configuration for signing in and inviting ChatGPT workspace members.
  */
-export interface ChatGPTLoginInviteFlowConfig
-  extends ChatGPTLoginFlowConfig {
+export interface ChatGPTLoginInviteFlowConfig extends ChatGPTLoginFlowConfig {
   /**
    * Invite one or more email addresses after login succeeds.
    */
@@ -281,8 +288,7 @@ export type CliFlowTaskRequestById = {
   }
 }
 
-export type CliFlowTaskRequest =
-  CliFlowTaskRequestById[CliFlowCommandId]
+export type CliFlowTaskRequest = CliFlowTaskRequestById[CliFlowCommandId]
 
 export type CliFlowTaskPayloadById = {
   [FlowId in CliFlowCommandId]: {
@@ -294,8 +300,7 @@ export type CliFlowTaskPayloadById = {
   }
 }
 
-export type CliFlowTaskPayload =
-  CliFlowTaskPayloadById[CliFlowCommandId]
+export type CliFlowTaskPayload = CliFlowTaskPayloadById[CliFlowCommandId]
 
 export const cliFlowCommonConfigFieldDefinitions = [
   {
@@ -386,6 +391,13 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'email',
   },
   {
+    key: 'restoreStorageState',
+    cliFlag: '--restoreStorageState',
+    type: 'boolean',
+    displayNameKey: 'restoreStorageState',
+    descriptionKey: 'restoreStorageState',
+  },
+  {
     key: 'inviteEmail',
     cliFlag: '--inviteEmail',
     type: 'stringList',
@@ -440,19 +452,25 @@ export const cliFlowDefinitions = [
     id: 'chatgpt-login',
     displayNameKey: 'chatgptLogin',
     descriptionKey: 'chatgptLogin',
-    configKeys: ['identityId', 'email'],
+    configKeys: ['identityId', 'email', 'restoreStorageState'],
   },
   {
     id: 'chatgpt-team-trial',
     displayNameKey: 'chatgptTeamTrial',
     descriptionKey: 'chatgptTeamTrial',
-    configKeys: ['identityId', 'email'],
+    configKeys: ['identityId', 'email', 'restoreStorageState'],
   },
   {
     id: 'chatgpt-login-invite',
     displayNameKey: 'chatgptLoginInvite',
     descriptionKey: 'chatgptLoginInvite',
-    configKeys: ['identityId', 'email', 'inviteEmail', 'inviteFile'],
+    configKeys: [
+      'identityId',
+      'email',
+      'restoreStorageState',
+      'inviteEmail',
+      'inviteFile',
+    ],
   },
   {
     id: 'codex-oauth',
@@ -482,11 +500,17 @@ const cliFlowDefinitionsById = new Map(
 )
 
 const cliFlowConfigFieldDefinitionsByKey = new Map(
-  cliFlowConfigFieldDefinitions.map((definition) => [definition.key, definition]),
+  cliFlowConfigFieldDefinitions.map((definition) => [
+    definition.key,
+    definition,
+  ]),
 )
 
 const cliFlowConfigFieldDefinitionsByFlag = new Map(
-  cliFlowConfigFieldDefinitions.map((definition) => [definition.cliFlag, definition]),
+  cliFlowConfigFieldDefinitions.map((definition) => [
+    definition.cliFlag,
+    definition,
+  ]),
 )
 
 function normalizeBoolean(value: unknown): boolean | undefined {
@@ -731,10 +755,7 @@ export function normalizeCliFlowConfig<TFlowId extends CliFlowCommandId>(
   }
 
   for (const field of allowedFields) {
-    const normalized = normalizeCliFlowConfigFieldValue(
-      field,
-      input[field.key],
-    )
+    const normalized = normalizeCliFlowConfigFieldValue(field, input[field.key])
 
     if (normalized !== undefined) {
       output[field.key] = normalized
@@ -796,8 +817,7 @@ export function normalizeCliFlowTaskPayload(
     return undefined
   }
 
-  const flowId =
-    typeof value.flowId === 'string' ? value.flowId.trim() : ''
+  const flowId = typeof value.flowId === 'string' ? value.flowId.trim() : ''
   const flowDefinition = getCliFlowDefinition(flowId)
   if (!flowDefinition) {
     return undefined

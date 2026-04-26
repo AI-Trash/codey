@@ -1076,6 +1076,10 @@ withCommonOptions(
       '--email <email>',
       'Shared identity email; defaults to the latest shared identity',
     )
+    .option(
+      '--restoreStorageState <bool>',
+      'Load a matching local ChatGPT storage state before normal login',
+    )
     .example('codey flow chatgpt-login')
     .example('codey flow chatgpt-login --email someone@example.com'),
 ).action((rawOptions: Record<string, unknown>) => {
@@ -1109,6 +1113,10 @@ withCommonOptions(
     .option(
       '--email <email>',
       'Shared identity email; defaults to the latest shared identity',
+    )
+    .option(
+      '--restoreStorageState <bool>',
+      'Load a matching local ChatGPT storage state before normal login',
     )
     .example('codey flow chatgpt-team-trial')
     .example('codey flow chatgpt-team-trial --email someone@example.com'),
@@ -1146,6 +1154,10 @@ withCommonOptions(
     .option(
       '--email <email>',
       'Shared identity email; defaults to the latest shared identity',
+    )
+    .option(
+      '--restoreStorageState <bool>',
+      'Load a matching local ChatGPT storage state before normal login',
     )
     .option(
       '--inviteEmail <email>',

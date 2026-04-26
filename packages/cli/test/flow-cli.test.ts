@@ -12,6 +12,7 @@ import {
   shouldKeepFlowOpen,
   type FlowOptions,
 } from '../src/modules/flow-cli/helpers'
+import { parseFlowCliArgsForCommand } from '../src/modules/flow-cli/parse-argv'
 import { assignContext, createStateMachine } from '../src/state-machine'
 import { withCliOutput } from '../src/utils/cli-output'
 
@@ -68,6 +69,20 @@ describe('flow cli helpers', () => {
     expect(shouldRecordPageContent({ recordPageContent: true })).toBe(true)
     expect(shouldRecordPageContent({ recordPageContent: 'true' })).toBe(true)
     expect(shouldRecordPageContent({ recordPageContent: 'false' })).toBe(false)
+  })
+
+  it('parses restoreStorageState for ChatGPT login flows', () => {
+    expect(
+      parseFlowCliArgsForCommand('chatgpt-login', [
+        '--email',
+        'person@example.com',
+        '--restoreStorageState',
+        'true',
+      ]),
+    ).toMatchObject({
+      email: 'person@example.com',
+      restoreStorageState: true,
+    })
   })
 
   it('defaults record to true when HAR is enabled and record is unspecified', () => {

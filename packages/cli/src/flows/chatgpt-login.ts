@@ -44,6 +44,7 @@ import {
   submitLoginEmail,
   waitForPasswordInputReady,
   waitForPostEmailLoginCandidates,
+  waitForProfileReady,
   waitForVerificationCodeInputReady,
 } from '../modules/chatgpt/shared'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
@@ -57,6 +58,7 @@ import {
 } from '../modules/flow-cli/single-file'
 import {
   attachStateMachineProgressReporter,
+  parseBooleanFlag,
   sanitizeErrorForOutput,
 } from '../modules/flow-cli/helpers'
 import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
@@ -440,7 +442,15 @@ async function waitForRestoredChatGPTSession(page: Page): Promise<boolean> {
     .waitFor({ state: 'visible' })
     .catch(() => undefined)
   await page.waitForLoadState('networkidle').catch(() => undefined)
-  return waitForAuthenticatedSession(page, 8000)
+  return waitForProfileReady(page, 8000)
+}
+
+function shouldAttemptLocalStorageStateRestore(options: FlowOptions): boolean {
+  return Boolean(options.chatgptStorageStatePath?.trim())
+}
+
+function wasLocalStorageStateRestoreRequested(options: FlowOptions): boolean {
+  return parseBooleanFlag(options.restoreStorageState, false) ?? false
 }
 
 async function persistLoginSessionArtifacts(input: {
@@ -762,68 +772,78 @@ export async function loginChatGPT(
       },
     )
 
-    await sendLoginMachine(
-      machine,
-      'restoring-session',
-      'chatgpt.session.restoring',
-      {
-        email: stored.identity.email,
-        storedIdentity: stored.summary,
-        url: CHATGPT_HOME_URL,
-        lastMessage:
-          'Checking whether local ChatGPT session state restores login',
-      },
-    )
-    const sessionRestored = await waitForRestoredChatGPTSession(page)
-    if (sessionRestored) {
+    if (shouldAttemptLocalStorageStateRestore(options)) {
       await sendLoginMachine(
         machine,
-        'authenticated',
-        'chatgpt.authenticated',
+        'restoring-session',
+        'chatgpt.session.restoring',
         {
           email: stored.identity.email,
-          method: 'restored',
           storedIdentity: stored.summary,
-          url: page.url(),
+          url: CHATGPT_HOME_URL,
           lastMessage:
-            'Authenticated ChatGPT session restored from local storage state',
+            'Checking whether local ChatGPT session state restores login',
         },
       )
+      const sessionRestored = await waitForRestoredChatGPTSession(page)
+      if (sessionRestored) {
+        await sendLoginMachine(
+          machine,
+          'authenticated',
+          'chatgpt.authenticated',
+          {
+            email: stored.identity.email,
+            method: 'restored',
+            storedIdentity: stored.summary,
+            url: page.url(),
+            lastMessage:
+              'Authenticated ChatGPT session restored from local storage state',
+          },
+        )
 
-      const title = await page.title()
-      const storedSession = await persistLoginSessionArtifacts({
-        page,
-        sessionCapture,
-        storedIdentity: stored.summary,
-        flowType: 'chatgpt-login',
-        progressReporter: options.progressReporter,
-      })
-      const result = {
-        pageName: 'chatgpt-login' as const,
-        url: page.url(),
-        title,
-        email: stored.identity.email,
-        method: 'restored' as const,
-        authenticated: true,
-        storedIdentity: stored.summary,
-        storedSession,
-        machine:
-          undefined as unknown as ChatGPTLoginFlowSnapshot<ChatGPTLoginFlowResult>,
-      }
-      const snapshot = machine.succeed('completed', {
-        event: 'chatgpt.completed',
-        patch: {
+        const title = await page.title()
+        const storedSession = await persistLoginSessionArtifacts({
+          page,
+          sessionCapture,
+          storedIdentity: stored.summary,
+          flowType: 'chatgpt-login',
+          progressReporter: options.progressReporter,
+        })
+        const result = {
+          pageName: 'chatgpt-login' as const,
+          url: page.url(),
+          title,
           email: stored.identity.email,
-          method: 'restored',
+          method: 'restored' as const,
+          authenticated: true,
           storedIdentity: stored.summary,
           storedSession,
-          url: result.url,
-          title: result.title,
-          lastMessage: 'ChatGPT login completed from restored session',
-        },
+          machine:
+            undefined as unknown as ChatGPTLoginFlowSnapshot<ChatGPTLoginFlowResult>,
+        }
+        const snapshot = machine.succeed('completed', {
+          event: 'chatgpt.completed',
+          patch: {
+            email: stored.identity.email,
+            method: 'restored',
+            storedIdentity: stored.summary,
+            storedSession,
+            url: result.url,
+            title: result.title,
+            lastMessage: 'ChatGPT login completed from restored session',
+          },
+        })
+        result.machine = snapshot
+        return result
+      }
+
+      options.progressReporter?.({
+        message: `Local ChatGPT storage state did not restore login for ${stored.identity.email}; continuing with normal login`,
       })
-      result.machine = snapshot
-      return result
+    } else if (wasLocalStorageStateRestoreRequested(options)) {
+      options.progressReporter?.({
+        message: `No matching local ChatGPT storage state for ${stored.identity.email}; continuing with normal login`,
+      })
     }
 
     await sendLoginMachine(machine, 'opening-entry', 'chatgpt.entry.opened', {

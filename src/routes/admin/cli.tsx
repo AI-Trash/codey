@@ -1454,6 +1454,7 @@ const optionDisplayNameMap: Record<
   har: () => m.admin_cli_option_har_name(),
   recordPageContent: () => m.admin_cli_option_record_page_content_name(),
   record: () => m.admin_cli_option_record_name(),
+  restoreStorageState: () => m.admin_cli_option_restore_storage_state_name(),
   password: () => m.admin_cli_option_password_name(),
   verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
@@ -1479,6 +1480,8 @@ const optionDescriptionMap: Record<
   recordPageContent: () =>
     m.admin_cli_option_record_page_content_description(),
   record: () => m.admin_cli_option_record_description(),
+  restoreStorageState: () =>
+    m.admin_cli_option_restore_storage_state_description(),
   password: () => m.admin_cli_option_password_description(),
   verificationTimeoutMs: () =>
     m.admin_cli_option_verification_timeout_description(),

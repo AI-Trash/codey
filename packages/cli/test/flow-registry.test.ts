@@ -13,13 +13,14 @@ describe('flow registry', () => {
     const payload = createCliFlowTaskPayload('chatgpt-team-trial', {
       email: 'person@example.com',
       recordPageContent: true,
+      restoreStorageState: true,
     })
 
     expect(flowIds).toContain('chatgpt-team-trial')
     expect(flowIds).not.toContain('chatgpt-purchase')
     expect(getCliFlowDefinition('chatgpt-team-trial')).toMatchObject({
       id: 'chatgpt-team-trial',
-      configKeys: ['identityId', 'email'],
+      configKeys: ['identityId', 'email', 'restoreStorageState'],
     })
     expect(normalizeCliFlowTaskPayload(payload)).toEqual(payload)
   })

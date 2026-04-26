@@ -433,6 +433,8 @@
   "admin_cli_option_record_page_content_description": "在最终页面稳定后，将 page.content() 保存到 artifacts 目录。",
   "admin_cli_option_record_name": "执行后保持浏览器打开",
   "admin_cli_option_record_description": "流程结束后继续保留浏览器会话。",
+  "admin_cli_option_restore_storage_state_name": "恢复本地登录状态",
+  "admin_cli_option_restore_storage_state_description": "在正常登录前加载匹配的本地 ChatGPT storage state。",
   "admin_cli_option_password_name": "密码",
   "admin_cli_option_password_description": "覆盖注册流程默认使用的密码。",
   "admin_cli_option_verification_timeout_name": "验证码超时（毫秒）",
