@@ -20,7 +20,9 @@ export interface FlowTaskSchedulerSnapshot {
   parallelism: number
 }
 
-interface FlowTaskSchedulerEntry<TResult> extends FlowTaskSchedulerTask<TResult> {
+interface FlowTaskSchedulerEntry<
+  TResult,
+> extends FlowTaskSchedulerTask<TResult> {
   order: number
   batchId: string
   parallelism: number

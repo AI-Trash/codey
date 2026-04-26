@@ -1,44 +1,46 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { requireAdminPermission } from "../../../lib/server/auth";
-import { json, redirect, text } from "../../../lib/server/http";
-import { createManualVerificationCode } from "../../../lib/server/verification";
+import { createFileRoute } from '@tanstack/react-router'
+import { requireAdminPermission } from '../../../lib/server/auth'
+import { json, redirect, text } from '../../../lib/server/http'
+import { createManualVerificationCode } from '../../../lib/server/verification'
 
-export const Route = createFileRoute("/api/admin/verification-codes")({
+export const Route = createFileRoute('/api/admin/verification-codes')({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "MAIL_INBOX");
+          await requireAdminPermission(request, 'MAIL_INBOX')
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : "Unauthorized",
+            error instanceof Error ? error.message : 'Unauthorized',
             401,
-          );
+          )
         }
 
-        const form = await request.formData();
-        const email = String(form.get("email") || "");
-        const code = String(form.get("code") || "");
+        const form = await request.formData()
+        const email = String(form.get('email') || '')
+        const code = String(form.get('code') || '')
         if (!email || !code) {
-          return text("email and code are required", 400);
+          return text('email and code are required', 400)
         }
 
-        let record;
+        let record
         try {
-          record = await createManualVerificationCode({ email, code });
+          record = await createManualVerificationCode({ email, code })
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : "Invalid verification code",
+            error instanceof Error
+              ? error.message
+              : 'Invalid verification code',
             400,
-          );
+          )
         }
-        const accept = request.headers.get("accept") || "";
-        if (accept.includes("application/json")) {
-          return json({ ok: true, id: record.id }, 201);
+        const accept = request.headers.get('accept') || ''
+        if (accept.includes('application/json')) {
+          return json({ ok: true, id: record.id }, 201)
         }
 
-        return redirect("/admin");
+        return redirect('/admin')
       },
     },
   },
-});
+})

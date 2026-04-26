@@ -1,10 +1,10 @@
-import { defineNitroConfig } from "nitro/config";
+import { defineNitroConfig } from 'nitro/config'
 
 export default defineNitroConfig({
   handlers: [
     {
-      route: "/oidc/**",
-      handler: "./server/handlers/oidc.ts",
+      route: '/oidc/**',
+      handler: './server/handlers/oidc.ts',
     },
   ],
-});
+})

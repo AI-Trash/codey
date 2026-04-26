@@ -65,10 +65,7 @@ export const Route = createFileRoute('/api/admin/flows')({
         }
 
         const mode = readClearMode(request)
-        if (
-          readOptionalQueryParam(request, 'mode') !== undefined &&
-          !mode
-        ) {
+        if (readOptionalQueryParam(request, 'mode') !== undefined && !mode) {
           return text('mode must be "completed" or "all"', 400)
         }
 

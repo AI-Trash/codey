@@ -5,8 +5,8 @@ on:
     branches:
       - main
     paths:
-      - "packages/cloudflare-email-worker/**"
-      - ".github/workflows/deploy-cloudflare-email-worker.yml"
+      - 'packages/cloudflare-email-worker/**'
+      - '.github/workflows/deploy-cloudflare-email-worker.yml'
   workflow_dispatch:
 
 permissions:

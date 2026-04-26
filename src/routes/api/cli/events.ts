@@ -114,12 +114,12 @@ export const Route = createFileRoute('/api/cli/events')({
 
             send({
               event: 'cli_connection',
-                data: {
-                  connectionId: connection.id,
-                  workerId: connection.workerId || undefined,
-                  cliName,
-                  target,
-                  connectedAt: connection.connectedAt.toISOString(),
+              data: {
+                connectionId: connection.id,
+                workerId: connection.workerId || undefined,
+                cliName,
+                target,
+                connectedAt: connection.connectedAt.toISOString(),
               },
             })
 

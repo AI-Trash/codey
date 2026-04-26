@@ -21,7 +21,10 @@ function readStringArray(value: unknown): string[] | null | undefined {
     return undefined
   }
 
-  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+  if (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === 'string')
+  ) {
     return value
   }
 

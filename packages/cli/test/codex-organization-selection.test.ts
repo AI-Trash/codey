@@ -112,11 +112,14 @@ class FakePage {
       fieldName?: 'organization_id' | 'project_id'
       requestedIndex?: number
     },
-  ): Promise<{
-    availableOptions: number
-    selectedOptionIndex: number
-    status: 'selected' | 'out_of_range' | 'missing'
-  } | boolean> {
+  ): Promise<
+    | {
+        availableOptions: number
+        selectedOptionIndex: number
+        status: 'selected' | 'out_of_range' | 'missing'
+      }
+    | boolean
+  > {
     if (arg?.fieldName === 'organization_id') {
       return {
         availableOptions: 1,

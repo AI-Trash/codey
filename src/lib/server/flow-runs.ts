@@ -2,9 +2,7 @@ import '@tanstack/react-start/server-only'
 
 import { desc, eq, inArray, or } from 'drizzle-orm'
 
-import type {
-  CliFlowTaskBatchMetadata,
-} from '../../../packages/cli/src/modules/flow-cli/flow-registry'
+import type { CliFlowTaskBatchMetadata } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { normalizeCliFlowTaskPayload } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { redactForOutput } from '../../../packages/cli/src/utils/redaction'
 import {
@@ -13,11 +11,7 @@ import {
   type CliConnectionActorScope,
 } from './cli-connections'
 import { getDb } from './db/client'
-import {
-  flowTaskEvents,
-  flowTasks,
-  type FlowTaskRow,
-} from './db/schema'
+import { flowTaskEvents, flowTasks, type FlowTaskRow } from './db/schema'
 
 type FlowRunConnectionSummary = {
   id: string
@@ -86,7 +80,11 @@ export type ClearAdminFlowRunsResult = {
 
 export type ClearAdminFlowRunsMode = 'completed' | 'all'
 
-const CLEARABLE_FLOW_TASK_STATUSES = new Set(['SUCCEEDED', 'FAILED', 'CANCELED'])
+const CLEARABLE_FLOW_TASK_STATUSES = new Set([
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELED',
+])
 
 type VisibleConnectionMaps = {
   connections: AdminCliConnectionSummary[]
@@ -94,7 +92,9 @@ type VisibleConnectionMaps = {
   byWorkerId: Map<string, FlowRunConnectionSummary>
 }
 
-function normalizeOptionalText(value: string | null | undefined): string | null {
+function normalizeOptionalText(
+  value: string | null | undefined,
+): string | null {
   if (typeof value !== 'string') {
     return null
   }
@@ -160,7 +160,7 @@ function isVisibleTask(
 ) {
   return Boolean(
     (task.cliConnectionId && connections.byId.has(task.cliConnectionId)) ||
-      connections.byWorkerId.has(task.workerId),
+    connections.byWorkerId.has(task.workerId),
   )
 }
 
@@ -260,7 +260,8 @@ export async function getAdminFlowTaskDetailForActor(input: {
       message: event.message || null,
       createdAt: event.createdAt.toISOString(),
       connection:
-        (event.cliConnectionId && visibleConnections.byId.get(event.cliConnectionId)) ||
+        (event.cliConnectionId &&
+          visibleConnections.byId.get(event.cliConnectionId)) ||
         summary.connection,
     })),
   }

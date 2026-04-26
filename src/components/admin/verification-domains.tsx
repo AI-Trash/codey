@@ -21,10 +21,7 @@ import {
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
-import {
-  EmptyState,
-  formatAdminDate,
-} from '#/components/admin/layout'
+import { EmptyState, formatAdminDate } from '#/components/admin/layout'
 import { m } from '#/paraglide/messages'
 
 export type ManagedVerificationDomain = {
@@ -64,7 +61,9 @@ export function VerificationDomainsPageContent({
     }
 
     setDomains((current) =>
-      sortDomains(mergeUpdatedDomain([createdDomain, ...current], createdDomain)),
+      sortDomains(
+        mergeUpdatedDomain([createdDomain, ...current], createdDomain),
+      ),
     )
   }, [createdDomain])
 
@@ -296,7 +295,9 @@ function VerificationDomainCard({
       )
     } catch (saveError) {
       setError(
-        saveError instanceof Error ? saveError.message : m.domain_update_error(),
+        saveError instanceof Error
+          ? saveError.message
+          : m.domain_update_error(),
       )
     } finally {
       setSaving(false)
@@ -314,9 +315,7 @@ function VerificationDomainCard({
                 <Badge>{m.domain_badge_default()}</Badge>
               ) : null}
               <Badge variant="outline">
-                {domain.enabled
-                  ? m.status_enabled()
-                  : m.status_disabled()}
+                {domain.enabled ? m.status_enabled() : m.status_disabled()}
               </Badge>
             </div>
             <CardDescription>

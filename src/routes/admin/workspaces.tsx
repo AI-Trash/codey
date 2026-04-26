@@ -802,28 +802,26 @@ function WorkspaceEditorDialog(props: {
     return entries
   }, [props.workspaces])
   const ownerPickerIdentities = useMemo(() => {
-    return selectableIdentities.filter(
-      (identity) => {
-        const hasOtherIdentityAssociation = hasOtherWorkspaceAssociations(
-          identity.id,
-          ownerWorkspaceByIdentityId,
-          memberWorkspacesByIdentityId,
-          props.editor.id,
-        )
-        if (hasOtherIdentityAssociation) {
-          return false
-        }
+    return selectableIdentities.filter((identity) => {
+      const hasOtherIdentityAssociation = hasOtherWorkspaceAssociations(
+        identity.id,
+        ownerWorkspaceByIdentityId,
+        memberWorkspacesByIdentityId,
+        props.editor.id,
+      )
+      if (hasOtherIdentityAssociation) {
+        return false
+      }
 
-        const account = normalizeIdentityAccount(identity.account)
-        const otherAccountMemberWorkspaces = account
-          ? memberWorkspacesByAccount
-              .get(account)
-              ?.some((workspace) => workspace.id !== props.editor.id)
-          : false
+      const account = normalizeIdentityAccount(identity.account)
+      const otherAccountMemberWorkspaces = account
+        ? memberWorkspacesByAccount
+            .get(account)
+            ?.some((workspace) => workspace.id !== props.editor.id)
+        : false
 
-        return !otherAccountMemberWorkspaces
-      },
-    )
+      return !otherAccountMemberWorkspaces
+    })
   }, [
     memberWorkspacesByAccount,
     memberWorkspacesByIdentityId,

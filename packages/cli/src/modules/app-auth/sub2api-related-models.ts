@@ -43,7 +43,10 @@ const sub2ApiOpenAiRelatedModels = [
   'gpt-image-2',
 ] as const
 
-export function buildSub2ApiOpenAiRelatedModelMapping(): Record<string, string> {
+export function buildSub2ApiOpenAiRelatedModelMapping(): Record<
+  string,
+  string
+> {
   return Object.fromEntries(
     Array.from(new Set(sub2ApiOpenAiRelatedModels)).map((model) => [
       model,

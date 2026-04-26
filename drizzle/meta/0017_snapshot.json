@@ -71,12 +71,8 @@
           "name": "admin_notifications_cli_connection_id_cli_connections_id_fk",
           "tableFrom": "admin_notifications",
           "tableTo": "cli_connections",
-          "columnsFrom": [
-            "cli_connection_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["cli_connection_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -291,12 +287,8 @@
           "name": "cli_connections_user_id_users_id_fk",
           "tableFrom": "cli_connections",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -454,12 +446,8 @@
           "name": "device_challenges_user_id_users_id_fk",
           "tableFrom": "device_challenges",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -571,12 +559,8 @@
           "name": "email_ingest_records_reservation_id_verification_email_reservations_id_fk",
           "tableFrom": "email_ingest_records",
           "tableTo": "verification_email_reservations",
-          "columnsFrom": [
-            "reservation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["reservation_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -760,12 +744,8 @@
           "name": "external_service_configs_updated_by_user_id_users_id_fk",
           "tableFrom": "external_service_configs",
           "tableTo": "users",
-          "columnsFrom": [
-            "updated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1246,12 +1226,8 @@
           "name": "managed_identity_sessions_identity_id_managed_identities_identity_id_fk",
           "tableFrom": "managed_identity_sessions",
           "tableTo": "managed_identities",
-          "columnsFrom": [
-            "identity_id"
-          ],
-          "columnsTo": [
-            "identity_id"
-          ],
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["identity_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1363,12 +1339,8 @@
           "name": "managed_workspace_members_managed_workspace_id_managed_workspaces_id_fk",
           "tableFrom": "managed_workspace_members",
           "tableTo": "managed_workspaces",
-          "columnsFrom": [
-            "managed_workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["managed_workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1376,12 +1348,8 @@
           "name": "managed_workspace_members_identity_id_managed_identities_identity_id_fk",
           "tableFrom": "managed_workspace_members",
           "tableTo": "managed_identities",
-          "columnsFrom": [
-            "identity_id"
-          ],
-          "columnsTo": [
-            "identity_id"
-          ],
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["identity_id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1487,12 +1455,8 @@
           "name": "managed_workspaces_owner_identity_id_managed_identities_identity_id_fk",
           "tableFrom": "managed_workspaces",
           "tableTo": "managed_identities",
-          "columnsFrom": [
-            "owner_identity_id"
-          ],
-          "columnsTo": [
-            "identity_id"
-          ],
+          "columnsFrom": ["owner_identity_id"],
+          "columnsTo": ["identity_id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1677,12 +1641,8 @@
           "name": "oauth_clients_verification_domain_id_verification_domains_id_fk",
           "tableFrom": "oauth_clients",
           "tableTo": "verification_domains",
-          "columnsFrom": [
-            "verification_domain_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["verification_domain_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1690,12 +1650,8 @@
           "name": "oauth_clients_created_by_user_id_users_id_fk",
           "tableFrom": "oauth_clients",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1703,12 +1659,8 @@
           "name": "oauth_clients_updated_by_user_id_users_id_fk",
           "tableFrom": "oauth_clients",
           "tableTo": "users",
-          "columnsFrom": [
-            "updated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2108,12 +2060,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2344,12 +2292,8 @@
           "name": "verification_codes_reservation_id_verification_email_reservations_id_fk",
           "tableFrom": "verification_codes",
           "tableTo": "verification_email_reservations",
-          "columnsFrom": [
-            "reservation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["reservation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2548,12 +2492,8 @@
           "name": "verification_email_reservations_identity_id_managed_identities_identity_id_fk",
           "tableFrom": "verification_email_reservations",
           "tableTo": "managed_identities",
-          "columnsFrom": [
-            "identity_id"
-          ],
-          "columnsTo": [
-            "identity_id"
-          ],
+          "columnsFrom": ["identity_id"],
+          "columnsTo": ["identity_id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2569,97 +2509,57 @@
     "public.device_challenge_status": {
       "name": "device_challenge_status",
       "schema": "public",
-      "values": [
-        "PENDING",
-        "APPROVED",
-        "DENIED",
-        "EXPIRED",
-        "CONSUMED"
-      ]
+      "values": ["PENDING", "APPROVED", "DENIED", "EXPIRED", "CONSUMED"]
     },
     "public.external_service_auth_mode": {
       "name": "external_service_auth_mode",
       "schema": "public",
-      "values": [
-        "bearer_token",
-        "password"
-      ]
+      "values": ["bearer_token", "password"]
     },
     "public.external_service_kind": {
       "name": "external_service_kind",
       "schema": "public",
-      "values": [
-        "sub2api"
-      ]
+      "values": ["sub2api"]
     },
     "public.flow_app_request_status": {
       "name": "flow_app_request_status",
       "schema": "public",
-      "values": [
-        "PENDING",
-        "IN_REVIEW",
-        "FULFILLED",
-        "REJECTED"
-      ]
+      "values": ["PENDING", "IN_REVIEW", "FULFILLED", "REJECTED"]
     },
     "public.managed_identity_plan": {
       "name": "managed_identity_plan",
       "schema": "public",
-      "values": [
-        "free",
-        "plus",
-        "team"
-      ]
+      "values": ["free", "plus", "team"]
     },
     "public.managed_identity_session_status": {
       "name": "managed_identity_session_status",
       "schema": "public",
-      "values": [
-        "ACTIVE",
-        "REVOKED"
-      ]
+      "values": ["ACTIVE", "REVOKED"]
     },
     "public.managed_identity_status": {
       "name": "managed_identity_status",
       "schema": "public",
-      "values": [
-        "ACTIVE",
-        "REVIEW",
-        "ARCHIVED",
-        "BANNED"
-      ]
+      "values": ["ACTIVE", "REVIEW", "ARCHIVED", "BANNED"]
     },
     "public.oauth_client_auth_method": {
       "name": "oauth_client_auth_method",
       "schema": "public",
-      "values": [
-        "client_secret_basic",
-        "client_secret_post"
-      ]
+      "values": ["client_secret_basic", "client_secret_post"]
     },
     "public.session_kind": {
       "name": "session_kind",
       "schema": "public",
-      "values": [
-        "BROWSER",
-        "CLI"
-      ]
+      "values": ["BROWSER", "CLI"]
     },
     "public.user_role": {
       "name": "user_role",
       "schema": "public",
-      "values": [
-        "ADMIN",
-        "USER"
-      ]
+      "values": ["ADMIN", "USER"]
     },
     "public.verification_code_source": {
       "name": "verification_code_source",
       "schema": "public",
-      "values": [
-        "MANUAL",
-        "CLOUDFLARE_EMAIL"
-      ]
+      "values": ["MANUAL", "CLOUDFLARE_EMAIL"]
     }
   },
   "schemas": {},

@@ -1,37 +1,37 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { normalizeAdminPermissions } from "../../../lib/admin-access";
-import { requireAdminPermission } from "../../../lib/server/auth";
-import { json, redirect, text } from "../../../lib/server/http";
-import { updateAdminUserPermissions } from "../../../lib/server/users";
+import { createFileRoute } from '@tanstack/react-router'
+import { normalizeAdminPermissions } from '../../../lib/admin-access'
+import { requireAdminPermission } from '../../../lib/server/auth'
+import { json, redirect, text } from '../../../lib/server/http'
+import { updateAdminUserPermissions } from '../../../lib/server/users'
 
 function readRedirectTo(value: FormDataEntryValue | null): string | undefined {
-  const redirectTo = String(value || "").trim();
-  if (!redirectTo || !redirectTo.startsWith("/admin")) {
-    return undefined;
+  const redirectTo = String(value || '').trim()
+  if (!redirectTo || !redirectTo.startsWith('/admin')) {
+    return undefined
   }
 
-  return redirectTo;
+  return redirectTo
 }
 
-export const Route = createFileRoute("/api/admin/users")({
+export const Route = createFileRoute('/api/admin/users')({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        let admin;
+        let admin
         try {
-          admin = await requireAdminPermission(request, "USER_ACCESS");
+          admin = await requireAdminPermission(request, 'USER_ACCESS')
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : "Unauthorized",
+            error instanceof Error ? error.message : 'Unauthorized',
             401,
-          );
+          )
         }
 
-        const form = await request.formData();
-        const userId = String(form.get("userId") || "").trim();
+        const form = await request.formData()
+        const userId = String(form.get('userId') || '').trim()
 
         if (!userId) {
-          return text("userId is required", 400);
+          return text('userId is required', 400)
         }
 
         try {
@@ -39,30 +39,32 @@ export const Route = createFileRoute("/api/admin/users")({
             actorUserId: admin.user.id,
             targetUserId: userId,
             permissions: normalizeAdminPermissions(
-              form.getAll("permissions").map((value) => String(value)),
+              form.getAll('permissions').map((value) => String(value)),
             ),
-          });
+          })
 
-          const accept = request.headers.get("accept") || "";
-          if (accept.includes("application/json")) {
+          const accept = request.headers.get('accept') || ''
+          if (accept.includes('application/json')) {
             return json({
               ok: true,
               user: result.user,
               policy: result.policy,
               updatedSelf: result.updatedSelf,
-            });
+            })
           }
 
-          return redirect(readRedirectTo(form.get("redirectTo")) || "/admin/users");
+          return redirect(
+            readRedirectTo(form.get('redirectTo')) || '/admin/users',
+          )
         } catch (error) {
           return text(
             error instanceof Error
               ? error.message
-              : "Unable to update user permissions",
+              : 'Unable to update user permissions',
             400,
-          );
+          )
         }
       },
     },
   },
-});
+})

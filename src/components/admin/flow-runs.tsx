@@ -111,7 +111,9 @@ export function FlowDetailPanel(props: {
             />
             <FlowMetaItem
               label={m.admin_flow_meta_log_count()}
-              value={isDetail ? String(props.task.events.length) : m.oauth_none()}
+              value={
+                isDetail ? String(props.task.events.length) : m.oauth_none()
+              }
             />
             <FlowMetaItem
               label={m.admin_dashboard_table_target()}
@@ -119,12 +121,15 @@ export function FlowDetailPanel(props: {
             />
             <FlowMetaItem
               label={m.admin_cli_table_cli()}
-              value={props.task.connection?.cliName || m.admin_cli_unknown_cli()}
+              value={
+                props.task.connection?.cliName || m.admin_cli_unknown_cli()
+              }
             />
             <FlowMetaItem
               label={m.admin_cli_table_operator()}
               value={
-                props.task.connection?.userLabel || m.admin_dashboard_unknown_user()
+                props.task.connection?.userLabel ||
+                m.admin_dashboard_unknown_user()
               }
             />
             <FlowMetaItem
@@ -142,7 +147,9 @@ export function FlowDetailPanel(props: {
             />
             <FlowMetaItem
               label={m.admin_flow_meta_claimed()}
-              value={formatAdminDate(props.task.leaseClaimedAt) || m.oauth_none()}
+              value={
+                formatAdminDate(props.task.leaseClaimedAt) || m.oauth_none()
+              }
             />
             <FlowMetaItem
               label={m.admin_flow_meta_started()}
@@ -195,7 +202,9 @@ export function FlowDetailPanel(props: {
                         </span>
                       </div>
                       <p className="text-sm leading-6 text-foreground">
-                        {event.message || props.task.lastMessage || m.oauth_none()}
+                        {event.message ||
+                          props.task.lastMessage ||
+                          m.oauth_none()}
                       </p>
                     </div>
                   ))}
@@ -214,7 +223,9 @@ export function FlowDetailPanel(props: {
       <Card>
         <CardHeader>
           <CardTitle>{m.admin_flow_payload_title()}</CardTitle>
-          <CardDescription>{m.admin_flow_payload_description()}</CardDescription>
+          <CardDescription>
+            {m.admin_flow_payload_description()}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {payload ? (
@@ -234,11 +245,7 @@ export function FlowDetailPanel(props: {
   )
 }
 
-function FlowMetaItem(props: {
-  label: string
-  value: string
-  mono?: boolean
-}) {
+function FlowMetaItem(props: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="rounded-xl border bg-muted/20 p-3">
       <p className="text-xs font-medium tracking-[0.14em] text-muted-foreground uppercase">

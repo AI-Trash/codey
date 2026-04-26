@@ -10,7 +10,9 @@ import { json, text } from '../../../../../../lib/server/http'
 import { NOTIFICATIONS_READ_SCOPE } from '../../../../../../lib/server/oauth-scopes'
 import { getBearerTokenContext } from '../../../../../../lib/server/oauth-resource'
 
-export const Route = createFileRoute('/api/cli/connections/$connectionId/tasks/claim')({
+export const Route = createFileRoute(
+  '/api/cli/connections/$connectionId/tasks/claim',
+)({
   server: {
     handlers: {
       POST: async ({ request, params }) => {
@@ -24,7 +26,9 @@ export const Route = createFileRoute('/api/cli/connections/$connectionId/tasks/c
           return text('CLI authentication required', 401)
         }
 
-        const connection = await getAdminCliConnectionSummaryById(params.connectionId)
+        const connection = await getAdminCliConnectionSummaryById(
+          params.connectionId,
+        )
         if (!connection) {
           return text('CLI connection not found', 404)
         }
@@ -38,8 +42,8 @@ export const Route = createFileRoute('/api/cli/connections/$connectionId/tasks/c
           : false
         const clientAuthorized = Boolean(
           serviceClientAuthorized &&
-            bearerContext?.clientId &&
-            connection.authClientId === bearerContext.clientId,
+          bearerContext?.clientId &&
+          connection.authClientId === bearerContext.clientId,
         )
 
         if (!actorAuthorized && !clientAuthorized) {
@@ -67,7 +71,9 @@ export const Route = createFileRoute('/api/cli/connections/$connectionId/tasks/c
           })
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : 'Unable to claim flow task',
+            error instanceof Error
+              ? error.message
+              : 'Unable to claim flow task',
             400,
           )
         }

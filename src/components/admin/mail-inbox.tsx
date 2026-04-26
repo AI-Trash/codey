@@ -409,8 +409,8 @@ export function AdminMailInbox(props: {
                 {query.isError || liveStatus === 'offline' ? (
                   <RefreshCwOffIcon className="size-4" />
                 ) : query.isFetching ||
-                    liveStatus === 'connecting' ||
-                    liveStatus === 'reconnecting' ? (
+                  liveStatus === 'connecting' ||
+                  liveStatus === 'reconnecting' ? (
                   <RefreshCwIcon className="size-4 animate-spin" />
                 ) : (
                   <RefreshCcwIcon className="size-4" />
@@ -751,8 +751,7 @@ function MessageDetailsDialog(props: {
                             <CopyableValue
                               value={email.managedIdentityAccount}
                               title={m.clipboard_copy_value({
-                                label:
-                                  m.admin_dashboard_account_email_label(),
+                                label: m.admin_dashboard_account_email_label(),
                               })}
                               className="max-w-full text-sm text-muted-foreground"
                               contentClassName="break-all"
@@ -864,7 +863,9 @@ type ArchiveManagedIdentityButtonProps = {
   compact?: boolean
 }
 
-function ArchiveManagedIdentityButton(props: ArchiveManagedIdentityButtonProps) {
+function ArchiveManagedIdentityButton(
+  props: ArchiveManagedIdentityButtonProps,
+) {
   const [status, setStatus] = useState<
     'idle' | 'submitting' | 'success' | 'error'
   >('idle')
@@ -953,9 +954,7 @@ function ArchiveManagedIdentityButton(props: ArchiveManagedIdentityButtonProps) 
           <p
             className={cn(
               'text-xs',
-              status === 'error'
-                ? 'text-destructive'
-                : 'text-emerald-600',
+              status === 'error' ? 'text-destructive' : 'text-emerald-600',
             )}
           >
             {message}
@@ -1439,9 +1438,7 @@ function buildHtmlPreviewDocument(html: string) {
 </html>`
 }
 
-function resolveEmailContent(
-  email: AdminMailInboxEmail,
-): ResolvedEmailContent {
+function resolveEmailContent(email: AdminMailInboxEmail): ResolvedEmailContent {
   const parsedContent = extractEmailContentFromRaw(email)
   const storedHtml = normalizeEmailContent(email.htmlBody)
   const storedText = normalizeEmailContent(email.textBody)
@@ -1498,8 +1495,7 @@ function isLikelyRawEmailSource(value: string | null | undefined) {
   }
 
   const headerBlock = value.split(/\r?\n\r?\n/, 1)[0]
-  const headerCount =
-    headerBlock.match(/^[A-Za-z0-9-]+:\s.*$/gm)?.length ?? 0
+  const headerCount = headerBlock.match(/^[A-Za-z0-9-]+:\s.*$/gm)?.length ?? 0
 
   return headerCount >= 2
 }

@@ -1,36 +1,36 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { createAdminNotification } from "../../../lib/server/admin";
-import { requireAdminPermission } from "../../../lib/server/auth";
-import { json, redirect, text } from "../../../lib/server/http";
+import { createFileRoute } from '@tanstack/react-router'
+import { createAdminNotification } from '../../../lib/server/admin'
+import { requireAdminPermission } from '../../../lib/server/auth'
+import { json, redirect, text } from '../../../lib/server/http'
 
-export const Route = createFileRoute("/api/admin/notifications")({
+export const Route = createFileRoute('/api/admin/notifications')({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "CLI_OPERATIONS");
+          await requireAdminPermission(request, 'CLI_OPERATIONS')
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : "Unauthorized",
+            error instanceof Error ? error.message : 'Unauthorized',
             401,
-          );
+          )
         }
 
-        const form = await request.formData();
+        const form = await request.formData()
         await createAdminNotification({
-          title: String(form.get("title") || ""),
-          body: String(form.get("body") || ""),
-          flowType: String(form.get("flowType") || "") || undefined,
-          target: String(form.get("target") || "") || undefined,
-        });
+          title: String(form.get('title') || ''),
+          body: String(form.get('body') || ''),
+          flowType: String(form.get('flowType') || '') || undefined,
+          target: String(form.get('target') || '') || undefined,
+        })
 
-        const accept = request.headers.get("accept") || "";
-        if (accept.includes("application/json")) {
-          return json({ ok: true }, 201);
+        const accept = request.headers.get('accept') || ''
+        if (accept.includes('application/json')) {
+          return json({ ok: true }, 201)
         }
 
-        return redirect("/admin");
+        return redirect('/admin')
       },
     },
   },
-});
+})

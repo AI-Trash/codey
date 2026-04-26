@@ -225,7 +225,9 @@ export async function registerCliConnection(input: {
       target: toOptionalString(input.target),
       userAgent: toOptionalString(input.userAgent),
       registeredFlows: normalizeStringList(input.registeredFlows),
-      storageStateIdentityIds: normalizeStringList(input.storageStateIdentityIds),
+      storageStateIdentityIds: normalizeStringList(
+        input.storageStateIdentityIds,
+      ),
       storageStateEmails: normalizeEmailList(input.storageStateEmails),
       connectionPath: input.connectionPath,
     })

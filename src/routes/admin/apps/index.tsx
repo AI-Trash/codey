@@ -4,9 +4,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { hasAdminPermission } from '#/lib/admin-access'
 
-import {
-  AdminPageHeader,
-} from '../../../components/admin/layout'
+import { AdminPageHeader } from '../../../components/admin/layout'
 import {
   AdminAuthRequired,
   CreateOAuthClientDialog,
@@ -54,10 +52,7 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
         : DEFAULT_OAUTH_SUPPORTED_SCOPES,
       verificationDomains:
         (await listEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
-      canManageDomains: hasAdminPermission(
-        admin.user,
-        'VERIFICATION_DOMAINS',
-      ),
+      canManageDomains: hasAdminPermission(admin.user, 'VERIFICATION_DOMAINS'),
     }
   } catch {
     return {
@@ -87,7 +82,9 @@ function AdminAppsListPage() {
   const data = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const [clients, setClients] = useState<ManagedOAuthClient[]>(() => data.clients)
+  const [clients, setClients] = useState<ManagedOAuthClient[]>(
+    () => data.clients,
+  )
 
   useEffect(() => {
     setClients(data.clients)

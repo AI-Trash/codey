@@ -16,9 +16,7 @@ export class PromptShell {
   private disposed = false
   private readonly bufferedLines: string[] = []
 
-  constructor(
-    private readonly promptLabel = 'codey> ',
-  ) {}
+  constructor(private readonly promptLabel = 'codey> ') {}
 
   private writeConsoleLine(line: string): void {
     writeCliStdoutLine(line, consoleCliOutput)

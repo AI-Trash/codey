@@ -326,9 +326,12 @@ export const flowTasks = pgTable(
     body: text('body').notNull(),
     flowType: text('flow_type').notNull(),
     target: text('target'),
-    cliConnectionId: text('cli_connection_id').references(() => cliConnections.id, {
-      onDelete: 'set null',
-    }),
+    cliConnectionId: text('cli_connection_id').references(
+      () => cliConnections.id,
+      {
+        onDelete: 'set null',
+      },
+    ),
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     status: flowTaskStatusEnum('status').default('QUEUED').notNull(),
     attemptCount: integer('attempt_count').default(0).notNull(),
@@ -390,9 +393,12 @@ export const flowTaskEvents = pgTable(
       .references(() => flowTasks.id, {
         onDelete: 'cascade',
       }),
-    cliConnectionId: text('cli_connection_id').references(() => cliConnections.id, {
-      onDelete: 'set null',
-    }),
+    cliConnectionId: text('cli_connection_id').references(
+      () => cliConnections.id,
+      {
+        onDelete: 'set null',
+      },
+    ),
     type: flowTaskEventTypeEnum('type').notNull(),
     status: flowTaskStatusEnum('status'),
     message: text('message'),
@@ -413,7 +419,10 @@ export const flowTaskEvents = pgTable(
       table.cliConnectionId,
       table.createdAt,
     ),
-    index('flow_task_events_type_created_at_idx').on(table.type, table.createdAt),
+    index('flow_task_events_type_created_at_idx').on(
+      table.type,
+      table.createdAt,
+    ),
   ],
 )
 
@@ -541,11 +550,9 @@ export const managedIdentitySessions = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex('managed_identity_sessions_identity_client_workspace_unique').on(
-      table.identityId,
-      table.clientId,
-      table.workspaceId,
-    ),
+    uniqueIndex(
+      'managed_identity_sessions_identity_client_workspace_unique',
+    ).on(table.identityId, table.clientId, table.workspaceId),
     index('managed_identity_sessions_status_last_seen_at_idx').on(
       table.status,
       table.lastSeenAt,

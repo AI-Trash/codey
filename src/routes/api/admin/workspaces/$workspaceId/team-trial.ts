@@ -18,8 +18,8 @@ interface StartWorkspaceTeamTrialBody {
 function isConnectionBusy(connection: AdminCliConnectionSummary) {
   return Boolean(
     connection.runtimeFlowId &&
-      !connection.runtimeFlowCompletedAt &&
-      connection.runtimeFlowStatus !== 'completed',
+    !connection.runtimeFlowCompletedAt &&
+    connection.runtimeFlowStatus !== 'completed',
   )
 }
 

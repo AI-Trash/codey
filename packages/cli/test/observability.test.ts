@@ -129,21 +129,13 @@ describe('cli observability', () => {
     })
     expect(outputRecord).toBeTruthy()
     const outputData = outputRecord!.data as Record<string, unknown>
-    expect(outputData.line).toContain(
-      'state=***redacted***',
-    )
+    expect(outputData.line).toContain('state=***redacted***')
     expect(outputData.line).toContain(
       'scope=openid+profile+email+offline_access',
     )
-    expect(outputData.line).toContain(
-      'code_challenge=test-challenge',
-    )
-    expect(outputData.line).toContain(
-      'codex_cli_simplified_flow=true',
-    )
-    expect(outputData.line).toContain(
-      'allowedWorkspaceId=ws_test',
-    )
+    expect(outputData.line).toContain('code_challenge=test-challenge')
+    expect(outputData.line).toContain('codex_cli_simplified_flow=true')
+    expect(outputData.line).toContain('allowedWorkspaceId=ws_test')
   })
 
   it('writes a fatal snapshot with sanitized error details and runtime state', () => {

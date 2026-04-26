@@ -14,11 +14,11 @@
     "codey": "pnpm --filter ./packages/cli exec jiti src/cli.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "fmt": "pnpm --filter ./packages/cli run fmt",
-    "fmt:check": "pnpm --filter ./packages/cli run fmt:check",
+    "fmt": "oxfmt -c ./.oxfmtrc.json .",
+    "fmt:check": "oxfmt -c ./.oxfmtrc.json --check .",
     "flow": "pnpm --filter ./packages/cli exec jiti src/cli.ts flow",
-    "lint": "pnpm --filter ./packages/cli run lint",
-    "lint:fix": "pnpm --filter ./packages/cli run lint:fix",
+    "lint": "oxlint --config ./.oxlintrc.json .",
+    "lint:fix": "oxlint --config ./.oxlintrc.json . --fix",
     "test": "pnpm --filter ./packages/cli run test"
   },
   "dependencies": {

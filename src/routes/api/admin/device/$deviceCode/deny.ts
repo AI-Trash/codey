@@ -1,33 +1,33 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { denyDeviceChallenge } from "../../../../../lib/server/device-auth";
-import { requireAdminPermission } from "../../../../../lib/server/auth";
-import { json, redirect, text } from "../../../../../lib/server/http";
+import { createFileRoute } from '@tanstack/react-router'
+import { denyDeviceChallenge } from '../../../../../lib/server/device-auth'
+import { requireAdminPermission } from '../../../../../lib/server/auth'
+import { json, redirect, text } from '../../../../../lib/server/http'
 
-export const Route = createFileRoute("/api/admin/device/$deviceCode/deny")({
+export const Route = createFileRoute('/api/admin/device/$deviceCode/deny')({
   server: {
     handlers: {
       POST: async ({ request, params }) => {
         try {
-          await requireAdminPermission(request, "CLI_OPERATIONS");
+          await requireAdminPermission(request, 'CLI_OPERATIONS')
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : "Unauthorized",
+            error instanceof Error ? error.message : 'Unauthorized',
             401,
-          );
+          )
         }
 
-        const form = await request.formData();
+        const form = await request.formData()
         const approvalMessage =
-          String(form.get("approvalMessage") || "") || undefined;
-        await denyDeviceChallenge(params.deviceCode, approvalMessage);
+          String(form.get('approvalMessage') || '') || undefined
+        await denyDeviceChallenge(params.deviceCode, approvalMessage)
 
-        const accept = request.headers.get("accept") || "";
-        if (accept.includes("application/json")) {
-          return json({ ok: true });
+        const accept = request.headers.get('accept') || ''
+        if (accept.includes('application/json')) {
+          return json({ ok: true })
         }
 
-        return redirect("/admin");
+        return redirect('/admin')
       },
     },
   },
-});
+})

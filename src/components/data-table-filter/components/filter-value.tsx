@@ -169,7 +169,7 @@ export function FilterValueDisplay<TData, TType extends ColumnDataType>({
 export function FilterValueOptionDisplay<TData>({
   filter,
   column,
-  actions,
+  actions: _actions,
   locale = 'en',
 }: FilterValueDisplayProps<TData, 'option'>) {
   const options = useMemo(() => column.getOptions(), [column])
@@ -220,7 +220,7 @@ export function FilterValueOptionDisplay<TData>({
 export function FilterValueMultiOptionDisplay<TData>({
   filter,
   column,
-  actions,
+  actions: _actions,
   locale = 'en',
 }: FilterValueDisplayProps<TData, 'multiOption'>) {
   const options = useMemo(() => column.getOptions(), [column])
@@ -266,8 +266,8 @@ export function FilterValueMultiOptionDisplay<TData>({
 
 export function FilterValueDateDisplay<TData>({
   filter,
-  column,
-  actions,
+  column: _column,
+  actions: _actions,
   locale = 'en',
 }: FilterValueDisplayProps<TData, 'date'>) {
   if (!filter) return null
@@ -278,15 +278,17 @@ export function FilterValueDateDisplay<TData>({
   }
 
   return (
-    <span>{formatDateRangeValue(filter.values[0], filter.values[1], locale)}</span>
+    <span>
+      {formatDateRangeValue(filter.values[0], filter.values[1], locale)}
+    </span>
   )
 }
 
 export function FilterValueTextDisplay<TData>({
   filter,
-  column,
-  actions,
-  locale = 'en',
+  column: _column,
+  actions: _actions,
+  locale: _locale = 'en',
 }: FilterValueDisplayProps<TData, 'text'>) {
   if (!filter) return null
   if (filter.values.length === 0 || filter.values[0].trim() === '')
@@ -299,8 +301,8 @@ export function FilterValueTextDisplay<TData>({
 
 export function FilterValueNumberDisplay<TData>({
   filter,
-  column,
-  actions,
+  column: _column,
+  actions: _actions,
   locale = 'en',
 }: FilterValueDisplayProps<TData, 'number'>) {
   if (!filter || !filter.values || filter.values.length === 0) return null

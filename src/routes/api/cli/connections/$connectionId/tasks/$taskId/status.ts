@@ -56,7 +56,9 @@ export const Route = createFileRoute(
           return text('CLI authentication required', 401)
         }
 
-        const connection = await getAdminCliConnectionSummaryById(params.connectionId)
+        const connection = await getAdminCliConnectionSummaryById(
+          params.connectionId,
+        )
         if (!connection) {
           return text('CLI connection not found', 404)
         }
@@ -70,8 +72,8 @@ export const Route = createFileRoute(
           : false
         const clientAuthorized = Boolean(
           serviceClientAuthorized &&
-            bearerContext?.clientId &&
-            connection.authClientId === bearerContext.clientId,
+          bearerContext?.clientId &&
+          connection.authClientId === bearerContext.clientId,
         )
 
         if (!actorAuthorized && !clientAuthorized) {
@@ -97,7 +99,10 @@ export const Route = createFileRoute(
           status !== 'FAILED' &&
           status !== 'CANCELED'
         ) {
-          return text('status must be one of LEASED, RUNNING, SUCCEEDED, FAILED, or CANCELED', 400)
+          return text(
+            'status must be one of LEASED, RUNNING, SUCCEEDED, FAILED, or CANCELED',
+            400,
+          )
         }
 
         const error = parseOptionalString(body?.error)
@@ -140,7 +145,9 @@ export const Route = createFileRoute(
           return json({ ok: true })
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : 'Unable to update flow task',
+            error instanceof Error
+              ? error.message
+              : 'Unable to update flow task',
             400,
           )
         }

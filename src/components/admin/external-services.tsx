@@ -68,7 +68,9 @@ export function ExternalServicesPageContent(props: {
   initialSub2Api: ManagedSub2ApiService
 }) {
   const [service, setService] = useState(props.initialSub2Api)
-  const [form, setForm] = useState(() => toSub2ApiFormValues(props.initialSub2Api))
+  const [form, setForm] = useState(() =>
+    toSub2ApiFormValues(props.initialSub2Api),
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -148,11 +150,15 @@ export function ExternalServicesPageContent(props: {
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle>{m.external_services_sub2api_title()}</CardTitle>
               <StatusBadge
-                value={service.enabled ? m.status_enabled() : m.status_disabled()}
+                value={
+                  service.enabled ? m.status_enabled() : m.status_disabled()
+                }
               />
               <StatusBadge
                 value={
-                  service.configured ? m.status_configured() : m.status_missing()
+                  service.configured
+                    ? m.status_configured()
+                    : m.status_missing()
                 }
               />
             </div>
@@ -169,7 +175,9 @@ export function ExternalServicesPageContent(props: {
 
       <CardContent className="grid gap-4">
         <Alert>
-          <AlertTitle>{m.external_services_sub2api_dispatch_hint_title()}</AlertTitle>
+          <AlertTitle>
+            {m.external_services_sub2api_dispatch_hint_title()}
+          </AlertTitle>
           <AlertDescription>
             {m.external_services_sub2api_dispatch_hint()}
           </AlertDescription>
@@ -330,7 +338,10 @@ export function ExternalServicesPageContent(props: {
                 value={form.accountsPath}
                 onChange={(event) => {
                   const nextValue = event.target.value
-                  setForm((current) => ({ ...current, accountsPath: nextValue }))
+                  setForm((current) => ({
+                    ...current,
+                    accountsPath: nextValue,
+                  }))
                 }}
                 placeholder="/api/v1/admin/accounts"
               />
@@ -408,7 +419,8 @@ export function ExternalServicesPageContent(props: {
               <NativeSelect
                 value={form.openaiOAuthResponsesWebSocketV2Mode}
                 onChange={(event) => {
-                  const nextValue = event.target.value as Sub2ApiFormValues['openaiOAuthResponsesWebSocketV2Mode']
+                  const nextValue = event.target
+                    .value as Sub2ApiFormValues['openaiOAuthResponsesWebSocketV2Mode']
                   setForm((current) => ({
                     ...current,
                     openaiOAuthResponsesWebSocketV2Mode: nextValue,
@@ -501,7 +513,9 @@ function Field(props: {
       <span className="text-sm font-medium text-foreground">{props.label}</span>
       {props.children}
       {props.description ? (
-        <span className="text-sm text-muted-foreground">{props.description}</span>
+        <span className="text-sm text-muted-foreground">
+          {props.description}
+        </span>
       ) : null}
     </label>
   )

@@ -230,7 +230,10 @@ function AdminUsersPage() {
               <Table className="min-w-[1380px]">
                 <TableHeader>
                   <TableRow>
-                    <AdminTableSelectionHead rows={rows} selection={selection} />
+                    <AdminTableSelectionHead
+                      rows={rows}
+                      selection={selection}
+                    />
                     <TableHead>{m.admin_users_table_user()}</TableHead>
                     <TableHead>{m.admin_users_table_role()}</TableHead>
                     <TableHead>{m.admin_users_table_access()}</TableHead>
@@ -245,7 +248,10 @@ function AdminUsersPage() {
                       key={user.id}
                       data-selected={selection.isSelected(user) || undefined}
                     >
-                      <AdminTableSelectionCell row={user} selection={selection} />
+                      <AdminTableSelectionCell
+                        row={user}
+                        selection={selection}
+                      />
                       <TableCell className="align-top">
                         <div className="flex items-start gap-3">
                           <Avatar className="mt-0.5" size="sm">

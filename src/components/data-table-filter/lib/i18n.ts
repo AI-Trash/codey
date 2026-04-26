@@ -26,11 +26,7 @@ export function formatDateValue(value: Date, locale: Locale) {
   })
 }
 
-export function formatDateRangeValue(
-  start: Date,
-  end: Date,
-  locale: Locale,
-) {
+export function formatDateRangeValue(start: Date, end: Date, locale: Locale) {
   return `${formatDateValue(start, locale)} - ${formatDateValue(end, locale)}`
 }
 

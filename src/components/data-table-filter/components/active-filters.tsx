@@ -104,7 +104,9 @@ export function ActiveFilter<TData, TType extends ColumnDataType>({
 
 export function ActiveFiltersMobileContainer({
   children,
-}: { children: React.ReactNode }) {
+}: {
+  children: React.ReactNode
+}) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [showLeftBlur, setShowLeftBlur] = useState(false)
   const [showRightBlur, setShowRightBlur] = useState(true)

@@ -89,12 +89,15 @@ type FlowPageFlash = {
 const loadAdminFlowRuns = createServerFn({ method: 'GET' })
   .inputValidator((data: { taskId?: string }) => data)
   .handler(async ({ data }) => {
-    const [{ getRequest }, { requireAdminPermission }, { getAdminFlowRunSnapshotForActor }] =
-      await Promise.all([
-        import('@tanstack/react-start/server'),
-        import('../../../lib/server/auth'),
-        import('../../../lib/server/flow-runs'),
-      ])
+    const [
+      { getRequest },
+      { requireAdminPermission },
+      { getAdminFlowRunSnapshotForActor },
+    ] = await Promise.all([
+      import('@tanstack/react-start/server'),
+      import('../../../lib/server/auth'),
+      import('../../../lib/server/flow-runs'),
+    ])
 
     const request = getRequest()
 
@@ -155,12 +158,11 @@ function AdminFlowsPage() {
     setSnapshot(authorizedSnapshot)
   }, [authorizedSnapshot])
   const activeTaskId = search.taskId
-  const activeTask =
-    !activeTaskId
-      ? null
-      : snapshot.selectedTask?.id === activeTaskId
-        ? snapshot.selectedTask
-        : snapshot.tasks.find((task) => task.id === activeTaskId) || null
+  const activeTask = !activeTaskId
+    ? null
+    : snapshot.selectedTask?.id === activeTaskId
+      ? snapshot.selectedTask
+      : snapshot.tasks.find((task) => task.id === activeTaskId) || null
 
   async function refreshSnapshot(taskId = activeTaskId) {
     setIsRefreshing(true)
@@ -221,7 +223,9 @@ function AdminFlowsPage() {
       const nextTasks =
         mode === 'all'
           ? []
-          : snapshot.tasks.filter((task) => !isClearableFlowTaskStatus(task.status))
+          : snapshot.tasks.filter(
+              (task) => !isClearableFlowTaskStatus(task.status),
+            )
       startTransition(() => {
         setSnapshot((current) => ({
           ...current,
@@ -236,10 +240,7 @@ function AdminFlowsPage() {
       })
       setClearMode(null)
 
-      if (
-        activeTaskId &&
-        !nextTasks.some((task) => task.id === activeTaskId)
-      ) {
+      if (activeTaskId && !nextTasks.some((task) => task.id === activeTaskId)) {
         setDetailsOpen(undefined, true)
       }
 
@@ -324,11 +325,14 @@ function AdminFlowsPage() {
 
       setIsRefreshing(true)
       try {
-        const response = await fetch(buildAdminFlowSnapshotApiHref(activeTaskId), {
-          headers: {
-            Accept: 'application/json',
+        const response = await fetch(
+          buildAdminFlowSnapshotApiHref(activeTaskId),
+          {
+            headers: {
+              Accept: 'application/json',
+            },
           },
-        })
+        )
 
         if (!response.ok || !active) {
           return
@@ -380,7 +384,9 @@ function AdminFlowsPage() {
       dtf
         .text()
         .id('cli')
-        .accessor((task) => task.connection?.cliName || m.admin_cli_unknown_cli())
+        .accessor(
+          (task) => task.connection?.cliName || m.admin_cli_unknown_cli(),
+        )
         .displayName(m.admin_cli_table_cli())
         .icon(BotIcon)
         .build(),
@@ -388,7 +394,8 @@ function AdminFlowsPage() {
         .text()
         .id('operator')
         .accessor(
-          (task) => task.connection?.userLabel || m.admin_dashboard_unknown_user(),
+          (task) =>
+            task.connection?.userLabel || m.admin_dashboard_unknown_user(),
         )
         .displayName(m.admin_cli_table_operator())
         .icon(UserRoundIcon)
@@ -438,8 +445,7 @@ function AdminFlowsPage() {
         meta={
           <p className="text-sm text-muted-foreground">
             {m.admin_flow_snapshot({
-              time:
-                formatAdminDate(snapshot.snapshotAt) || snapshot.snapshotAt,
+              time: formatAdminDate(snapshot.snapshotAt) || snapshot.snapshotAt,
             })}
           </p>
         }
@@ -521,7 +527,10 @@ function AdminFlowsPage() {
               <Table className="min-w-[1320px]">
                 <TableHeader>
                   <TableRow>
-                    <AdminTableSelectionHead rows={rows} selection={selection} />
+                    <AdminTableSelectionHead
+                      rows={rows}
+                      selection={selection}
+                    />
                     <TableHead>{m.admin_session_table_flow()}</TableHead>
                     <TableHead>{m.admin_cli_table_cli()}</TableHead>
                     <TableHead>{m.admin_cli_table_operator()}</TableHead>
@@ -537,7 +546,10 @@ function AdminFlowsPage() {
                       key={task.id}
                       data-selected={selection.isSelected(task) || undefined}
                     >
-                      <AdminTableSelectionCell row={task} selection={selection} />
+                      <AdminTableSelectionCell
+                        row={task}
+                        selection={selection}
+                      />
                       <TableCell className="align-top">
                         <div className="max-w-[360px] space-y-2">
                           <div className="flex flex-wrap items-center gap-2">
@@ -570,7 +582,8 @@ function AdminFlowsPage() {
                       <TableCell className="align-top">
                         <div className="max-w-[240px] space-y-1">
                           <div className="font-medium text-foreground">
-                            {task.connection?.cliName || m.admin_cli_unknown_cli()}
+                            {task.connection?.cliName ||
+                              m.admin_cli_unknown_cli()}
                           </div>
                           <p className="text-sm text-muted-foreground">
                             {task.connection?.id || m.oauth_none()}
@@ -713,8 +726,7 @@ function AdminFlowsPage() {
               <p>
                 {m.admin_flow_snapshot({
                   time:
-                    formatAdminDate(snapshot.snapshotAt) ||
-                    snapshot.snapshotAt,
+                    formatAdminDate(snapshot.snapshotAt) || snapshot.snapshotAt,
                 })}
               </p>
             </div>

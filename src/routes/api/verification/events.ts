@@ -106,12 +106,13 @@ export const Route = createFileRoute('/api/verification/events')({
 
             try {
               while (true) {
-                const backlogEvents = await listVerificationCodeEventsAfterCursor({
-                  email,
-                  startedAt: normalizedStartedAt,
-                  cursor,
-                  limit: VERIFICATION_CODE_BACKLOG_BATCH_SIZE,
-                })
+                const backlogEvents =
+                  await listVerificationCodeEventsAfterCursor({
+                    email,
+                    startedAt: normalizedStartedAt,
+                    cursor,
+                    limit: VERIFICATION_CODE_BACKLOG_BATCH_SIZE,
+                  })
 
                 if (!backlogEvents.length) {
                   break

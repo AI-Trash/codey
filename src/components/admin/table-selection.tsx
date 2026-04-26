@@ -44,8 +44,7 @@ export function useAdminTableSelection<TData>(params: {
   }, [rowIdSet])
 
   const selectedRows = useMemo(
-    () =>
-      params.rows.filter((row) => selectedIdSet.has(params.getRowId(row))),
+    () => params.rows.filter((row) => selectedIdSet.has(params.getRowId(row))),
     [params.getRowId, params.rows, selectedIdSet],
   )
 

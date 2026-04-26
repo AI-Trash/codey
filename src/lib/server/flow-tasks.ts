@@ -46,15 +46,17 @@ async function appendFlowTaskEvent(input: {
   message?: string | null
   payload?: Record<string, unknown> | null
 }) {
-  await getDb().insert(flowTaskEvents).values({
-    id: createId(),
-    taskId: input.taskId,
-    cliConnectionId: normalizeWorkerId(input.cliConnectionId),
-    type: input.type,
-    status: input.status || null,
-    message: normalizeTaskText(input.message),
-    payload: input.payload || null,
-  })
+  await getDb()
+    .insert(flowTaskEvents)
+    .values({
+      id: createId(),
+      taskId: input.taskId,
+      cliConnectionId: normalizeWorkerId(input.cliConnectionId),
+      type: input.type,
+      status: input.status || null,
+      message: normalizeTaskText(input.message),
+      payload: input.payload || null,
+    })
 }
 
 export function getCliConnectionTaskWorkerId(
@@ -124,7 +126,12 @@ export async function claimNextFlowTaskForConnection(input: {
         lastError: null,
         updatedAt: now,
       })
-      .where(and(eq(flowTasks.id, candidate.id), buildClaimableTaskFilter({ workerId, now })))
+      .where(
+        and(
+          eq(flowTasks.id, candidate.id),
+          buildClaimableTaskFilter({ workerId, now }),
+        ),
+      )
       .returning()
 
     if (claimed) {
@@ -258,7 +265,10 @@ export async function completeFlowTask(input: {
       leaseExpiresAt: null,
       completedAt: now,
       lastMessage: normalizedMessage || normalizedError,
-      lastError: input.status === 'FAILED' ? normalizedError || 'Flow task failed.' : null,
+      lastError:
+        input.status === 'FAILED'
+          ? normalizedError || 'Flow task failed.'
+          : null,
       updatedAt: now,
     })
     .where(

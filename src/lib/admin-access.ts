@@ -10,16 +10,17 @@ export const adminPermissionValues = [
 
 export type AdminPermission = (typeof adminPermissionValues)[number]
 
-const legacyAdminPermissionAliases: Record<string, readonly AdminPermission[]> = {
-  OPERATIONS: [
-    'MAIL_INBOX',
-    'MANAGED_IDENTITIES',
-    'CLI_OPERATIONS',
-    'MANAGED_SESSIONS',
-  ],
-  OAUTH_APPS: ['OAUTH_CLIENTS', 'VERIFICATION_DOMAINS'],
-  USERS: ['USER_ACCESS'],
-}
+const legacyAdminPermissionAliases: Record<string, readonly AdminPermission[]> =
+  {
+    OPERATIONS: [
+      'MAIL_INBOX',
+      'MANAGED_IDENTITIES',
+      'CLI_OPERATIONS',
+      'MANAGED_SESSIONS',
+    ],
+    OAUTH_APPS: ['OAUTH_CLIENTS', 'VERIFICATION_DOMAINS'],
+    USERS: ['USER_ACCESS'],
+  }
 
 const adminPermissionSet = new Set<string>(adminPermissionValues)
 

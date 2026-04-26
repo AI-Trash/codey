@@ -13,7 +13,10 @@ interface StoredCliWorkerId {
   createdAt: string
 }
 
-function normalizeScopeSegment(value: string | undefined, fallback: string): string {
+function normalizeScopeSegment(
+  value: string | undefined,
+  fallback: string,
+): string {
   const normalized = value?.trim().toLowerCase() || fallback
   const slug = normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
   return slug || fallback
@@ -23,7 +26,12 @@ function getStorePath(input: { cliName: string; target?: string }): string {
   const config = getRuntimeConfig()
   const cliName = normalizeScopeSegment(input.cliName, 'codey')
   const target = normalizeScopeSegment(input.target, 'shared')
-  return path.join(config.rootDir, '.codey', 'workers', `${cliName}__${target}.json`)
+  return path.join(
+    config.rootDir,
+    '.codey',
+    'workers',
+    `${cliName}__${target}.json`,
+  )
 }
 
 function createStoredCliWorkerId(input: {
@@ -45,7 +53,9 @@ function readStoredCliWorkerId(storePath: string): StoredCliWorkerId | null {
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(storePath, 'utf8')) as Partial<StoredCliWorkerId>
+    const parsed = JSON.parse(
+      fs.readFileSync(storePath, 'utf8'),
+    ) as Partial<StoredCliWorkerId>
     if (
       parsed?.version === 1 &&
       typeof parsed.workerId === 'string' &&
@@ -54,9 +64,10 @@ function readStoredCliWorkerId(storePath: string): StoredCliWorkerId | null {
       return {
         version: 1,
         workerId: parsed.workerId.trim(),
-        cliName: typeof parsed.cliName === 'string' && parsed.cliName.trim()
-          ? parsed.cliName.trim()
-          : 'codey',
+        cliName:
+          typeof parsed.cliName === 'string' && parsed.cliName.trim()
+            ? parsed.cliName.trim()
+            : 'codey',
         target:
           typeof parsed.target === 'string' && parsed.target.trim()
             ? parsed.target.trim()

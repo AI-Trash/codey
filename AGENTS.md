@@ -14,8 +14,10 @@
 - `pnpm dev` runs the app on port 3000.
 - `pnpm build` validates the web app build.
 - `pnpm db:generate` and `pnpm db:migrate` manage Drizzle migrations.
-- `pnpm test`, `pnpm lint`, `pnpm fmt`, and `pnpm fmt:check` are scoped to `packages/cli`.
-- If you change app code outside `packages/cli`, use `pnpm build` plus editor diagnostics; there is no separate root lint task for the app.
+- `pnpm fmt` and `pnpm fmt:check` run `oxfmt` across the repository, respecting ignore files.
+- `pnpm lint` and `pnpm lint:fix` run `oxlint` across the repository.
+- `pnpm test` is scoped to `packages/cli`.
+- If you change app code outside `packages/cli`, use `pnpm build` in addition to linting.
 
 ## Flow state machines
 

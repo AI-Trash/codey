@@ -21,7 +21,8 @@ vi.mock('./cli-connections', () => ({
   getAdminCliConnectionSummaryById: mocks.getAdminCliConnectionSummaryById,
   isCliConnectionOwnedByActor: mocks.isCliConnectionOwnedByActor,
   isSharedCliConnection: mocks.isSharedCliConnection,
-  listAdminCliConnectionStateForActor: mocks.listAdminCliConnectionStateForActor,
+  listAdminCliConnectionStateForActor:
+    mocks.listAdminCliConnectionStateForActor,
 }))
 
 import { dispatchCliFlowTasks } from './cli-tasks'
@@ -108,8 +109,9 @@ function createTransactionRecorder() {
     .mockImplementationOnce(() => ({
       values: eventValues,
     }))
-  const transaction = vi.fn(async (callback: (tx: { insert: typeof insert }) => unknown) =>
-    callback({ insert }),
+  const transaction = vi.fn(
+    async (callback: (tx: { insert: typeof insert }) => unknown) =>
+      callback({ insert }),
   )
 
   mocks.getDb.mockReturnValue({
@@ -181,11 +183,9 @@ describe('cli flow task dispatch', () => {
     })
 
     expect(result.assignedCliCount).toBe(3)
-    expect(result.assignedConnections.map((connection) => connection.id)).toEqual([
-      'connection-a',
-      'connection-b',
-      'connection-c',
-    ])
+    expect(
+      result.assignedConnections.map((connection) => connection.id),
+    ).toEqual(['connection-a', 'connection-b', 'connection-c'])
     expect(insertedTasks.map((task) => task.workerId)).toEqual([
       'worker-a',
       'worker-b',
@@ -303,9 +303,9 @@ describe('cli flow task dispatch', () => {
       },
     })
 
-    expect(result.assignedConnections.map((connection) => connection.id)).toEqual([
-      'connection-b',
-    ])
+    expect(
+      result.assignedConnections.map((connection) => connection.id),
+    ).toEqual(['connection-b'])
     expect(insertedTasks.map((task) => task.workerId)).toEqual(['worker-b'])
   })
 
@@ -344,20 +344,16 @@ describe('cli flow task dispatch', () => {
     const result = await dispatchCliFlowTasks({
       connectionId: anchorConnection.id,
       flowId: 'chatgpt-invite',
-      configs: [
-        { email: 'alpha@example.com' },
-        { email: 'beta@example.com' },
-      ],
+      configs: [{ email: 'alpha@example.com' }, { email: 'beta@example.com' }],
       parallelism: 2,
       actor: {
         userId: 'user-1',
       },
     })
 
-    expect(result.assignedConnections.map((connection) => connection.id)).toEqual([
-      'connection-b',
-      'connection-c',
-    ])
+    expect(
+      result.assignedConnections.map((connection) => connection.id),
+    ).toEqual(['connection-b', 'connection-c'])
     expect(insertedTasks.map((task) => task.workerId)).toEqual([
       'worker-b',
       'worker-c',

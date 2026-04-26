@@ -138,7 +138,9 @@ export function filterDataTableRows<TData>(
 
   return data.filter((row) =>
     filters.every((filter) => {
-      const column = columns.find((candidate) => candidate.id === filter.columnId)
+      const column = columns.find(
+        (candidate) => candidate.id === filter.columnId,
+      )
       if (!column) {
         return true
       }

@@ -97,6 +97,8 @@ export function debounce<T extends (...args: any[]) => any>(
     const isInvoking = shouldInvoke(time)
 
     lastArgs = args
+    // Preserve caller context for trailing invocations.
+    // oxlint-disable-next-line typescript-eslint/no-this-alias
     lastThis = this
     lastCallTime = time
 

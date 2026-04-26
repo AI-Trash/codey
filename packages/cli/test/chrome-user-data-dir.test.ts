@@ -30,7 +30,10 @@ describe('chrome user data dir cloning', () => {
     writeFixture(path.join('source', 'Profile 1', 'Preferences'), '{}')
     writeFixture(path.join('source', 'Default', 'Preferences'), '{"ok":true}')
     writeFixture(path.join('source', 'Default', 'Network', 'Cookies'), 'cookie')
-    writeFixture(path.join('source', 'Default', 'Extension State', 'state'), '1')
+    writeFixture(
+      path.join('source', 'Default', 'Extension State', 'state'),
+      '1',
+    )
     writeFixture(path.join('source', 'Default', 'Web Data'), 'web-data')
     writeFixture(path.join('source', 'Default', 'Accounts', 'token'), 'token')
     writeFixture(path.join('source', 'Default', 'Cache', 'cache.bin'), 'cache')
@@ -54,15 +57,15 @@ describe('chrome user data dir cloning', () => {
           'utf8',
         ),
       ).toBe('cookie')
-      expect(
-        fs.existsSync(path.join(cloned.userDataDir, 'Profile 1')),
-      ).toBe(false)
+      expect(fs.existsSync(path.join(cloned.userDataDir, 'Profile 1'))).toBe(
+        false,
+      )
       expect(
         fs.readFileSync(path.join(cloned.userDataDir, 'Local State'), 'utf8'),
       ).toContain('"browser"')
-      expect(
-        fs.existsSync(path.join(cloned.userDataDir, 'Variations')),
-      ).toBe(false)
+      expect(fs.existsSync(path.join(cloned.userDataDir, 'Variations'))).toBe(
+        false,
+      )
       expect(
         fs.existsSync(
           path.join(cloned.userDataDir, 'Default', 'Cache', 'cache.bin'),
@@ -92,7 +95,10 @@ describe('chrome user data dir cloning', () => {
   it('keeps cookies and extension state while skipping transient Chrome entries', () => {
     expect(shouldCopyChromeUserDataEntry('Local State', 'Default')).toBe(true)
     expect(
-      shouldCopyChromeUserDataEntry(path.join('Default', 'Network', 'Cookies'), 'Default'),
+      shouldCopyChromeUserDataEntry(
+        path.join('Default', 'Network', 'Cookies'),
+        'Default',
+      ),
     ).toBe(true)
     expect(
       shouldCopyChromeUserDataEntry(
@@ -101,7 +107,10 @@ describe('chrome user data dir cloning', () => {
       ),
     ).toBe(true)
     expect(
-      shouldCopyChromeUserDataEntry(path.join('Default', 'Web Data'), 'Default'),
+      shouldCopyChromeUserDataEntry(
+        path.join('Default', 'Web Data'),
+        'Default',
+      ),
     ).toBe(false)
     expect(
       shouldCopyChromeUserDataEntry(
@@ -110,7 +119,10 @@ describe('chrome user data dir cloning', () => {
       ),
     ).toBe(false)
     expect(
-      shouldCopyChromeUserDataEntry(path.join('Default', 'Cache', 'data.bin'), 'Default'),
+      shouldCopyChromeUserDataEntry(
+        path.join('Default', 'Cache', 'data.bin'),
+        'Default',
+      ),
     ).toBe(false)
     expect(
       shouldCopyChromeUserDataEntry(path.join('Default', 'LOCK'), 'Default'),
@@ -119,7 +131,10 @@ describe('chrome user data dir cloning', () => {
       false,
     )
     expect(
-      shouldCopyChromeUserDataEntry(path.join('Profile 1', 'Preferences'), 'Default'),
+      shouldCopyChromeUserDataEntry(
+        path.join('Profile 1', 'Preferences'),
+        'Default',
+      ),
     ).toBe(false)
   })
 })

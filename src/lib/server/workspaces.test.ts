@@ -549,7 +549,9 @@ describe('managed workspace authorization summaries', () => {
           lastSeenAt: later,
         },
       ])
-    const deleteReturning = vi.fn().mockResolvedValue([{ id: 'session-member' }])
+    const deleteReturning = vi
+      .fn()
+      .mockResolvedValue([{ id: 'session-member' }])
 
     mocks.getDb.mockReturnValue({
       query: {

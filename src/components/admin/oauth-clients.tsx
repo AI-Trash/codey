@@ -219,9 +219,7 @@ export function OAuthClientsList({
   return (
     <div
       className={cn(
-        fillHeight
-          ? 'flex min-h-0 flex-1 flex-col gap-4'
-          : 'space-y-4',
+        fillHeight ? 'flex min-h-0 flex-1 flex-col gap-4' : 'space-y-4',
       )}
     >
       <div className="flex flex-wrap gap-2">
@@ -273,10 +271,7 @@ export function OAuthClientsList({
                   key={client.id}
                   data-selected={selection.isSelected(client) || undefined}
                 >
-                  <AdminTableSelectionCell
-                    row={client}
-                    selection={selection}
-                  />
+                  <AdminTableSelectionCell row={client} selection={selection} />
                   <TableCell className="whitespace-normal align-top">
                     <div className="space-y-1">
                       <div className="font-medium text-foreground">
@@ -397,7 +392,9 @@ export function CreateOAuthClientDialog({
       return
     }
 
-    setForm(createNewOAuthClientFormValues(supportedScopes, verificationDomains))
+    setForm(
+      createNewOAuthClientFormValues(supportedScopes, verificationDomains),
+    )
     setSubmitting(false)
     setError(null)
     setCreated(null)
@@ -461,7 +458,9 @@ export function CreateOAuthClientDialog({
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
             <Card>
               <CardHeader>
-                <CardDescription>{m.oauth_new_registration_kicker()}</CardDescription>
+                <CardDescription>
+                  {m.oauth_new_registration_kicker()}
+                </CardDescription>
                 <div className="flex items-start gap-2">
                   <CardTitle>{m.oauth_new_title()}</CardTitle>
                   <InfoTooltip
@@ -1263,14 +1262,6 @@ function getVerificationDomainLabel(
   client: Pick<ManagedOAuthClient, 'verificationDomain'>,
 ) {
   return client.verificationDomain || m.oauth_domain_uses_default()
-}
-
-function formatVerificationDomainOption(
-  domain: ManagedVerificationDomainOption,
-) {
-  return domain.isDefault
-    ? `${domain.domain} (${m.oauth_domain_default_badge()})`
-    : domain.domain
 }
 
 function normalizeDate(value: string | Date | null | undefined) {

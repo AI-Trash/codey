@@ -1,3 +1,3 @@
-import "@tanstack/react-start/server-only";
+import '@tanstack/react-start/server-only'
 
-export { getOidcConfiguration, getOidcProvider } from "./config";
+export { getOidcConfiguration, getOidcProvider } from './config'

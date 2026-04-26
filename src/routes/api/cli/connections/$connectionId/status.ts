@@ -166,7 +166,10 @@ export const Route = createFileRoute(
           'storageStateIdentityIds' in (body || {}) &&
           storageStateIdentityIds === undefined
         ) {
-          return text('storageStateIdentityIds must be a string array or null', 400)
+          return text(
+            'storageStateIdentityIds must be a string array or null',
+            400,
+          )
         }
 
         const storageStateEmails = parseOptionalStringArray(

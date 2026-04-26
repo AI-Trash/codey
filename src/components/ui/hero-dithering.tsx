@@ -1,10 +1,10 @@
-import * as React from "react"
-import type { SVGProps } from "react"
-import { Dithering } from "@paper-design/shaders-react"
+import * as React from 'react'
+import type { SVGProps } from 'react'
+import { Dithering } from '@paper-design/shaders-react'
 
-import { cn } from "#/lib/utils"
-import { Badge } from "#/components/ui/badge"
-import { Button } from "#/components/ui/button"
+import { cn } from '#/lib/utils'
+import { Badge } from '#/components/ui/badge'
+import { Button } from '#/components/ui/button'
 
 const MemoizedDithering = React.memo(Dithering)
 
@@ -27,8 +27,10 @@ export interface HeroDitheringCTAProps {
   buttonClassName?: string
 }
 
-export interface HeroDitheringRootProps
-  extends Omit<React.ComponentPropsWithoutRef<"section">, "title"> {
+export interface HeroDitheringRootProps extends Omit<
+  React.ComponentPropsWithoutRef<'section'>,
+  'title'
+> {
   srTitle?: string
   title?: React.ReactNode
   subtitle?: React.ReactNode
@@ -41,51 +43,48 @@ export interface HeroDitheringRootProps
   renderBadge?: (
     tech: HeroDitheringTechItem,
     index: number,
-    defaultBadge: React.ReactNode
+    defaultBadge: React.ReactNode,
   ) => React.ReactNode
   desktopShaderProps?: Partial<DitheringProps>
   mobileShaderProps?: Partial<DitheringProps>
 }
 
-export interface HeroDitheringHeadingProps
-  extends Omit<React.ComponentPropsWithoutRef<"div">, "title"> {
+export interface HeroDitheringHeadingProps extends Omit<
+  React.ComponentPropsWithoutRef<'div'>,
+  'title'
+> {
   title?: React.ReactNode
   subtitle?: React.ReactNode
   headingClassName?: string
 }
 
-export interface HeroDitheringDescriptionProps
-  extends React.ComponentPropsWithoutRef<"div"> {
+export interface HeroDitheringDescriptionProps extends React.ComponentPropsWithoutRef<'div'> {
   description?: React.ReactNode
   descriptionClassName?: string
 }
 
-export interface HeroDitheringActionsProps
-  extends React.ComponentPropsWithoutRef<"div"> {
+export interface HeroDitheringActionsProps extends React.ComponentPropsWithoutRef<'div'> {
   showCta?: boolean
   ctaProps?: Partial<HeroDitheringCTAProps>
   renderCta?: (defaultCta: React.ReactNode) => React.ReactNode
 }
 
-export interface HeroDitheringBadgesProps
-  extends React.ComponentPropsWithoutRef<"div"> {
+export interface HeroDitheringBadgesProps extends React.ComponentPropsWithoutRef<'div'> {
   showBadges?: boolean
   techStack?: HeroDitheringTechItem[]
   renderBadge?: (
     tech: HeroDitheringTechItem,
     index: number,
-    defaultBadge: React.ReactNode
+    defaultBadge: React.ReactNode,
   ) => React.ReactNode
 }
 
-export interface HeroDitheringVisualProps
-  extends React.ComponentPropsWithoutRef<"div"> {
+export interface HeroDitheringVisualProps extends React.ComponentPropsWithoutRef<'div'> {
   desktopShaderProps?: Partial<DitheringProps>
   desktopClassName?: string
 }
 
-export interface HeroDitheringMobileVisualProps
-  extends React.ComponentPropsWithoutRef<"div"> {
+export interface HeroDitheringMobileVisualProps extends React.ComponentPropsWithoutRef<'div'> {
   mobileShaderProps?: Partial<DitheringProps>
 }
 
@@ -112,7 +111,7 @@ interface HeroDitheringContextValue {
   renderCta?: (defaultCta: React.ReactNode) => React.ReactNode
   showBadges: boolean
   techStack: HeroDitheringTechItem[]
-  renderBadge?: HeroDitheringBadgesProps["renderBadge"]
+  renderBadge?: HeroDitheringBadgesProps['renderBadge']
   mergedDesktopShaderProps: Partial<DitheringProps>
   mergedMobileShaderProps: Partial<DitheringProps>
 }
@@ -120,38 +119,38 @@ interface HeroDitheringContextValue {
 const defaultDesktopShaderProps: Partial<DitheringProps> = {
   width: 1280,
   height: 720,
-  colorBack: "#000000",
-  colorFront: "#00b3ff",
-  shape: "swirl",
-  type: "4x4",
+  colorBack: '#000000',
+  colorFront: '#00b3ff',
+  shape: 'swirl',
+  type: '4x4',
   size: 2,
   speed: 1,
   scale: 0.6,
 }
 
 const defaultMobileShaderProps: Partial<DitheringProps> = {
-  colorBack: "#00000000",
-  colorFront: "#00b3ff",
-  shape: "swirl",
+  colorBack: '#00000000',
+  colorFront: '#00b3ff',
+  shape: 'swirl',
   size: 2,
   speed: 0.85,
   scale: 0.52,
-  type: "4x4",
-  style: { height: "100%", width: "100%" },
+  type: '4x4',
+  style: { height: '100%', width: '100%' },
 }
 
 const defaultCtaProps: HeroDitheringCTAProps = {
-  label: "Check it out today ",
-  href: "https://aisdkagents.com",
-  target: "_blank",
-  rel: "noopener noreferrer",
+  label: 'Check it out today ',
+  href: 'https://aisdkagents.com',
+  target: '_blank',
+  rel: 'noopener noreferrer',
 }
 
 const defaultDescription = (
   <>
     Full-stack vercel ai sdk patterns for workflows, tool calling, and agent
-    orchestration. Built with{" "}
-    <span className="font-medium tracking-tight">ai sdk v6</span> and{" "}
+    orchestration. Built with{' '}
+    <span className="font-medium tracking-tight">ai sdk v6</span> and{' '}
     <span className="font-medium tracking-tight">shadcn/ui</span>.
     <span className="hidden sm:inline"> Headless, themable, practical.</span>
   </>
@@ -159,13 +158,13 @@ const defaultDescription = (
 
 const defaultTechStack: HeroDitheringTechItem[] = [
   {
-    name: "Next.js",
-    version: "v16",
+    name: 'Next.js',
+    version: 'v16',
     icon: NextjsIcon,
   },
   {
-    name: "AI SDK",
-    version: "v6",
+    name: 'AI SDK',
+    version: 'v6',
     icon: AISDKIcon,
   },
 ]
@@ -178,7 +177,7 @@ function useHeroDitheringContext() {
   const context = React.useContext(HeroDitheringContext)
   if (!context) {
     throw new Error(
-      "HeroDithering components must be used within HeroDitheringRoot"
+      'HeroDithering components must be used within HeroDitheringRoot',
     )
   }
   return context
@@ -196,9 +195,9 @@ export const HeroDitheringRoot = React.forwardRef<
     {
       className,
       children,
-      srTitle = "AI SDK Agents",
+      srTitle = 'AI SDK Agents',
       title = <span className="font-pixel-square">AI SDK Agents</span>,
-      subtitle = "Copy and Paste",
+      subtitle = 'Copy and Paste',
       description = defaultDescription,
       showCta = true,
       ctaProps,
@@ -210,14 +209,14 @@ export const HeroDitheringRoot = React.forwardRef<
       mobileShaderProps,
       ...props
     },
-    ref
+    ref,
   ) => {
     const mergedCtaProps = React.useMemo(
       () => ({
         ...defaultCtaProps,
         ...ctaProps,
       }),
-      [ctaProps]
+      [ctaProps],
     )
 
     const mergedDesktopShaderProps = React.useMemo(
@@ -225,7 +224,7 @@ export const HeroDitheringRoot = React.forwardRef<
         ...defaultDesktopShaderProps,
         ...desktopShaderProps,
       }),
-      [desktopShaderProps]
+      [desktopShaderProps],
     )
 
     const mergedMobileShaderProps = React.useMemo(
@@ -237,7 +236,7 @@ export const HeroDitheringRoot = React.forwardRef<
           ...(mobileShaderProps?.style as React.CSSProperties | undefined),
         },
       }),
-      [mobileShaderProps]
+      [mobileShaderProps],
     )
 
     const contextValue = React.useMemo<HeroDitheringContextValue>(
@@ -268,13 +267,13 @@ export const HeroDitheringRoot = React.forwardRef<
         renderBadge,
         mergedDesktopShaderProps,
         mergedMobileShaderProps,
-      ]
+      ],
     )
 
     return (
       <HeroDitheringContext.Provider value={contextValue}>
         <section
-          className={cn("relative h-full w-full overflow-hidden", className)}
+          className={cn('relative h-full w-full overflow-hidden', className)}
           data-slot="hero-dithering-root"
           ref={ref}
           {...props}
@@ -284,19 +283,19 @@ export const HeroDitheringRoot = React.forwardRef<
         </section>
       </HeroDitheringContext.Provider>
     )
-  }
+  },
 )
-HeroDitheringRoot.displayName = "HeroDitheringRoot"
+HeroDitheringRoot.displayName = 'HeroDitheringRoot'
 
 export function HeroDitheringContainer({
   className,
   ...props
-}: React.ComponentPropsWithoutRef<"div">) {
+}: React.ComponentPropsWithoutRef<'div'>) {
   return (
     <div
       className={cn(
-        "container relative z-10 grid gap-6 pb-16 sm:gap-8 sm:pb-20 lg:grid-cols-[1fr_minmax(300px,500px)] lg:items-center lg:gap-12 lg:pb-24 xl:grid-cols-[1fr_1fr]",
-        className
+        'container relative z-10 grid gap-6 pb-16 sm:gap-8 sm:pb-20 lg:grid-cols-[1fr_minmax(300px,500px)] lg:items-center lg:gap-12 lg:pb-24 xl:grid-cols-[1fr_1fr]',
+        className,
       )}
       data-slot="hero-dithering-container"
       {...props}
@@ -307,12 +306,12 @@ export function HeroDitheringContainer({
 export function HeroDitheringContent({
   className,
   ...props
-}: React.ComponentPropsWithoutRef<"div">) {
+}: React.ComponentPropsWithoutRef<'div'>) {
   return (
     <div
       className={cn(
-        "flex flex-col justify-center gap-4 text-balance sm:gap-5 sm:px-4 md:px-8 lg:gap-6 lg:pr-0 lg:pl-4 xl:pl-8 2xl:pl-0",
-        className
+        'flex flex-col justify-center gap-4 text-balance sm:gap-5 sm:px-4 md:px-8 lg:gap-6 lg:pr-0 lg:pl-4 xl:pl-8 2xl:pl-0',
+        className,
       )}
       data-slot="hero-dithering-content"
       {...props}
@@ -334,7 +333,7 @@ export function HeroDitheringHeading({
 
   return (
     <div
-      className={cn("pt-4 text-center sm:pt-6 lg:pt-0 lg:text-left", className)}
+      className={cn('pt-4 text-center sm:pt-6 lg:pt-0 lg:text-left', className)}
       data-slot="hero-dithering-heading-wrap"
       {...props}
     >
@@ -342,8 +341,8 @@ export function HeroDitheringHeading({
         <div className="relative">
           <h2
             className={cn(
-              "relative mb-0 text-balance font-medium font-pixel-circle text-3xl tracking-[-0.04em] sm:text-4xl md:text-5xl lg:tracking-[-0.06em] xl:text-6xl 2xl:text-7xl",
-              headingClassName
+              'relative mb-0 text-balance font-medium font-pixel-circle text-3xl tracking-[-0.04em] sm:text-4xl md:text-5xl lg:tracking-[-0.06em] xl:text-6xl 2xl:text-7xl',
+              headingClassName,
             )}
             data-slot="hero-dithering-heading"
           >
@@ -369,8 +368,8 @@ export function HeroDitheringDescription({
   return (
     <div
       className={cn(
-        "mx-auto max-w-xl pb-2 text-center sm:pb-4 lg:mx-0 lg:max-w-none lg:pb-0 lg:text-left",
-        className
+        'mx-auto max-w-xl pb-2 text-center sm:pb-4 lg:mx-0 lg:max-w-none lg:pb-0 lg:text-left',
+        className,
       )}
       data-slot="hero-dithering-description-wrap"
       {...props}
@@ -378,8 +377,8 @@ export function HeroDitheringDescription({
       {children ?? (
         <p
           className={cn(
-            "mt-0 mb-0 font-sans text-foreground/70 text-sm sm:text-base md:text-foreground/80 lg:text-lg xl:text-xl",
-            descriptionClassName
+            'mt-0 mb-0 font-sans text-foreground/70 text-sm sm:text-base md:text-foreground/80 lg:text-lg xl:text-xl',
+            descriptionClassName,
           )}
           data-slot="hero-dithering-description"
         >
@@ -411,7 +410,7 @@ export function HeroDitheringActions({
 
   return (
     <div
-      className={cn("flex justify-center lg:justify-start", className)}
+      className={cn('flex justify-center lg:justify-start', className)}
       data-slot="hero-dithering-cta-wrap"
       {...props}
     >
@@ -433,14 +432,14 @@ export function HeroDitheringCTA({
   return (
     <div
       className={cn(
-        "flex items-center justify-center gap-4 pb-4 md:pb-0",
-        className
+        'flex items-center justify-center gap-4 pb-4 md:pb-0',
+        className,
       )}
       data-slot="hero-dithering-cta"
     >
       <Button
         asChild
-        className={cn("font-pixel-square", buttonClassName)}
+        className={cn('font-pixel-square', buttonClassName)}
         size="lg"
       >
         <a href={href} onClick={onClick} rel={rel} target={target}>
@@ -470,8 +469,8 @@ export function HeroDitheringBadges({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center justify-center gap-2.5",
-        className
+        'flex flex-wrap items-center justify-center gap-2.5',
+        className,
       )}
       data-slot="hero-dithering-badges"
       {...props}
@@ -481,10 +480,10 @@ export function HeroDitheringBadges({
         const defaultBadge = (
           <Badge
             className={cn(
-              "group relative px-3.5 py-1.5 font-medium transition-all duration-150",
-              "border border-border/50 bg-card text-card-foreground",
-              "shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.3)]",
-              "hover:-translate-y-px hover:shadow-[0_2px_8px_rgba(0,0,0,0.12)] dark:hover:shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
+              'group relative px-3.5 py-1.5 font-medium transition-all duration-150',
+              'border border-border/50 bg-card text-card-foreground',
+              'shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.3)]',
+              'hover:-translate-y-px hover:shadow-[0_2px_8px_rgba(0,0,0,0.12)] dark:hover:shadow-[0_2px_8px_rgba(0,0,0,0.4)]',
             )}
             data-slot="hero-dithering-badge"
             key={tech.name}
@@ -529,16 +528,16 @@ export function HeroDitheringVisual({
   return (
     <div
       className={cn(
-        "relative hidden h-[350px] lg:block lg:h-[400px] xl:h-[500px]",
-        className
+        'relative hidden h-[350px] lg:block lg:h-[400px] xl:h-[500px]',
+        className,
       )}
       data-slot="hero-dithering-visual"
       {...props}
     >
       <div
         className={cn(
-          "absolute inset-0 flex items-center justify-center overflow-hidden rounded-full",
-          desktopClassName
+          'absolute inset-0 flex items-center justify-center overflow-hidden rounded-full',
+          desktopClassName,
         )}
         data-slot="hero-dithering-desktop"
       >
@@ -566,8 +565,8 @@ export function HeroDitheringMobileVisual({
   return (
     <div
       className={cn(
-        "pointer-events-none absolute inset-x-0 -bottom-24 -z-10 h-[360px] overflow-hidden lg:hidden",
-        className
+        'pointer-events-none absolute inset-x-0 -bottom-24 -z-10 h-[360px] overflow-hidden lg:hidden',
+        className,
       )}
       data-slot="hero-dithering-mobile"
       {...props}
@@ -606,8 +605,8 @@ export function HeroDithering({
           <HeroDitheringActions className={ctaWrapClassName} />
           <div
             className={cn(
-              "flex justify-center lg:justify-start",
-              badgesWrapClassName
+              'flex justify-center lg:justify-start',
+              badgesWrapClassName,
             )}
             data-slot="hero-dithering-badges-wrap"
           >
@@ -662,7 +661,7 @@ export function NextjsIcon(props: SVGProps<SVGSVGElement>) {
         id={maskId}
         maskUnits="userSpaceOnUse"
         style={{
-          maskType: "alpha",
+          maskType: 'alpha',
         }}
         width={180}
         x={0}

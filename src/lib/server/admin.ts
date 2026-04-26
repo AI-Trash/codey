@@ -1,63 +1,64 @@
-import "@tanstack/react-start/server-only";
-import { and, count, eq, gte, isNull, or, desc, asc } from "drizzle-orm";
-import { getAppEnv } from "./env";
+import '@tanstack/react-start/server-only'
+import { and, count, eq, gte, isNull, or, desc, asc } from 'drizzle-orm'
+import { getAppEnv } from './env'
 import {
   adminNotifications,
   flowAppRequests as flowAppRequestsTable,
   users,
-} from "./db/schema";
-import { getDb } from "./db/client";
-import { listRecentDeviceChallenges } from "./device-auth";
-import { listAdminIdentitySummaries } from "./identities";
-import { getOidcSigningKeyStatus } from "./oidc/jwks";
-import { listRecentVerificationActivity } from "./verification";
-import { createId } from "./security";
-import { m } from "#/paraglide/messages";
+} from './db/schema'
+import { getDb } from './db/client'
+import { listRecentDeviceChallenges } from './device-auth'
+import { listAdminIdentitySummaries } from './identities'
+import { getOidcSigningKeyStatus } from './oidc/jwks'
+import { listRecentVerificationActivity } from './verification'
+import { createId } from './security'
+import { m } from '#/paraglide/messages'
 
 interface ConfigStatusItem {
-  id: string;
-  key: string;
-  label: string;
-  description?: string;
-  status: string;
-  detail: string;
+  id: string
+  key: string
+  label: string
+  description?: string
+  status: string
+  detail: string
 }
 
-function boolStatus(value: boolean, success = "configured") {
-  return value ? success : "missing";
+function boolStatus(value: boolean, success = 'configured') {
+  return value ? success : 'missing'
 }
 
 async function listConfigStatus(): Promise<ConfigStatusItem[]> {
-  const env = getAppEnv();
-  const db = getDb();
-  const [userCountResult, adminCountResult, oidcSigningKeyStatus] = await Promise.all([
-    db.select({ count: count() }).from(users),
-    db.select({ count: count() }).from(users).where(eq(users.role, "ADMIN")),
-    getOidcSigningKeyStatus(),
-  ]);
-  const userCount = Number(userCountResult[0]?.count ?? 0);
-  const adminCount = Number(adminCountResult[0]?.count ?? 0);
+  const env = getAppEnv()
+  const db = getDb()
+  const [userCountResult, adminCountResult, oidcSigningKeyStatus] =
+    await Promise.all([
+      db.select({ count: count() }).from(users),
+      db.select({ count: count() }).from(users).where(eq(users.role, 'ADMIN')),
+      getOidcSigningKeyStatus(),
+    ])
+  const userCount = Number(userCountResult[0]?.count ?? 0)
+  const adminCount = Number(adminCountResult[0]?.count ?? 0)
 
   const exchangeConfigured = Boolean(
     process.env.EXCHANGE_TENANT_ID &&
-      process.env.EXCHANGE_CLIENT_ID &&
-      process.env.EXCHANGE_CLIENT_SECRET,
-  );
+    process.env.EXCHANGE_CLIENT_ID &&
+    process.env.EXCHANGE_CLIENT_SECRET,
+  )
   const codexEnvOverridesConfigured = Boolean(
     process.env.CODEX_AUTHORIZE_URL ||
-      process.env.CODEX_TOKEN_URL ||
-      process.env.CODEX_CLIENT_ID ||
-      process.env.CODEX_CLIENT_SECRET ||
-      process.env.CODEX_SCOPE ||
-      process.env.CODEX_REDIRECT_HOST ||
-      process.env.CODEX_REDIRECT_PORT ||
-      process.env.CODEX_REDIRECT_PATH,
-  );
+    process.env.CODEX_TOKEN_URL ||
+    process.env.CODEX_CLIENT_ID ||
+    process.env.CODEX_CLIENT_SECRET ||
+    process.env.CODEX_SCOPE ||
+    process.env.CODEX_REDIRECT_HOST ||
+    process.env.CODEX_REDIRECT_PORT ||
+    process.env.CODEX_REDIRECT_PATH,
+  )
 
   return [
     {
-      id: "github-browser-oauth",
-      key: "githubBrowserOAuth",
+      id: 'github-browser-oauth',
+      key: 'githubBrowserOAuth',
       label: m.server_config_github_oauth_label(),
       status: boolStatus(Boolean(env.githubClientId && env.githubClientSecret)),
       detail:
@@ -66,15 +67,15 @@ async function listConfigStatus(): Promise<ConfigStatusItem[]> {
           : m.server_config_github_oauth_missing(),
     },
     {
-      id: "admin-policy",
-      key: "adminPolicy",
+      id: 'admin-policy',
+      key: 'adminPolicy',
       label: m.server_config_admin_policy_label(),
       status:
         env.adminGitHubLogins.length > 0
-          ? "configured"
+          ? 'configured'
           : adminCount > 0
-            ? "bootstrap"
-            : "missing",
+            ? 'bootstrap'
+            : 'missing',
       detail:
         env.adminGitHubLogins.length > 0
           ? m.server_config_admin_policy_allowlist({
@@ -89,8 +90,8 @@ async function listConfigStatus(): Promise<ConfigStatusItem[]> {
               }),
     },
     {
-      id: "exchange-client-credentials",
-      key: "exchangeClientCredentials",
+      id: 'exchange-client-credentials',
+      key: 'exchangeClientCredentials',
       label: m.server_config_exchange_label(),
       description: m.server_config_exchange_description(),
       status: boolStatus(exchangeConfigured),
@@ -99,31 +100,31 @@ async function listConfigStatus(): Promise<ConfigStatusItem[]> {
         : m.server_config_exchange_missing(),
     },
     {
-      id: "codex-oauth",
-      key: "codexOAuth",
+      id: 'codex-oauth',
+      key: 'codexOAuth',
       label: m.server_config_codex_label(),
       description: m.server_config_codex_description(),
-      status: "ready",
+      status: 'ready',
       detail: codexEnvOverridesConfigured
         ? m.server_config_codex_overrides()
         : m.server_config_codex_defaults(),
     },
     {
-      id: "oidc-signing-keys",
-      key: "oidcSigningKeys",
+      id: 'oidc-signing-keys',
+      key: 'oidcSigningKeys',
       label: m.server_config_oidc_label(),
       description: m.server_config_oidc_description(),
       status: oidcSigningKeyStatus.status,
       detail: oidcSigningKeyStatus.detail,
     },
     {
-      id: "flow-app-request-queue",
-      key: "flowAppRequestQueue",
+      id: 'flow-app-request-queue',
+      key: 'flowAppRequestQueue',
       label: m.server_config_flow_requests_label(),
-      status: "ready",
+      status: 'ready',
       detail: m.server_config_flow_requests_detail(),
     },
-  ];
+  ]
 }
 
 export async function listAdminDashboardData() {
@@ -145,9 +146,9 @@ export async function listAdminDashboardData() {
       orderBy: [desc(flowAppRequestsTable.createdAt)],
       limit: 20,
     }),
-  ]);
+  ])
 
-  const configStatus = await listConfigStatus();
+  const configStatus = await listConfigStatus()
 
   return {
     notifications,
@@ -165,17 +166,17 @@ export async function listAdminDashboardData() {
     identitySummaries,
     flowAppRequests,
     configStatus,
-  };
+  }
 }
 
 export async function createAdminNotification(params: {
-  title: string;
-  body: string;
-  kind?: string;
-  flowType?: string;
-  target?: string;
-  cliConnectionId?: string;
-  payload?: Record<string, unknown>;
+  title: string
+  body: string
+  kind?: string
+  flowType?: string
+  target?: string
+  cliConnectionId?: string
+  payload?: Record<string, unknown>
 }) {
   const [notification] = await getDb()
     .insert(adminNotifications)
@@ -183,23 +184,23 @@ export async function createAdminNotification(params: {
       id: createId(),
       title: params.title,
       body: params.body,
-      kind: params.kind || "message",
+      kind: params.kind || 'message',
       flowType: params.flowType,
       target: params.target,
       cliConnectionId: params.cliConnectionId,
       payload: params.payload,
     })
-    .returning();
+    .returning()
 
-  return notification;
+  return notification
 }
 
 export async function createFlowAppRequest(params: {
-  appName: string;
-  flowType?: string;
-  requestedBy?: string;
-  requestedIdentity?: string;
-  notes?: string;
+  appName: string
+  flowType?: string
+  requestedBy?: string
+  requestedIdentity?: string
+  notes?: string
 }) {
   const [request] = await getDb()
     .insert(flowAppRequestsTable)
@@ -211,34 +212,34 @@ export async function createFlowAppRequest(params: {
       requestedIdentity: params.requestedIdentity,
       notes: params.notes,
     })
-    .returning();
+    .returning()
 
-  return request;
+  return request
 }
 
 export async function listCliNotifications(params: {
-  target?: string;
-  connectionId?: string;
-  after?: Date;
-  limit?: number;
-  offset?: number;
+  target?: string
+  connectionId?: string
+  after?: Date
+  limit?: number
+  offset?: number
 }) {
   const targetFilter = params.target
     ? or(
         isNull(adminNotifications.target),
-        eq(adminNotifications.target, "all"),
+        eq(adminNotifications.target, 'all'),
         eq(adminNotifications.target, params.target),
       )
     : or(
         isNull(adminNotifications.target),
-        eq(adminNotifications.target, "all"),
-      );
+        eq(adminNotifications.target, 'all'),
+      )
   const connectionFilter = params.connectionId
     ? or(
         isNull(adminNotifications.cliConnectionId),
         eq(adminNotifications.cliConnectionId, params.connectionId),
       )
-    : isNull(adminNotifications.cliConnectionId);
+    : isNull(adminNotifications.cliConnectionId)
 
   return getDb().query.adminNotifications.findMany({
     where: params.after
@@ -251,5 +252,5 @@ export async function listCliNotifications(params: {
     orderBy: [asc(adminNotifications.createdAt), asc(adminNotifications.id)],
     limit: params.limit ?? 50,
     offset: params.offset,
-  });
+  })
 }

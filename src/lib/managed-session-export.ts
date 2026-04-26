@@ -54,7 +54,9 @@ function asTrimmedString(value: unknown): string | undefined {
   return normalized || undefined
 }
 
-function normalizeScalar(value: ManagedSessionJsonValue): ManagedSessionJsonValue {
+function normalizeScalar(
+  value: ManagedSessionJsonValue,
+): ManagedSessionJsonValue {
   if (typeof value === 'string') {
     return value.trim() || null
   }
@@ -130,7 +132,7 @@ export function buildManagedSessionAuthJson(
     OPENAI_API_KEY:
       sessionData.OPENAI_API_KEY === null
         ? null
-        : asTrimmedString(sessionData.OPENAI_API_KEY) ?? null,
+        : (asTrimmedString(sessionData.OPENAI_API_KEY) ?? null),
     client_id: asTrimmedString(sessionData.client_id) ?? session.clientId,
     provider:
       asTrimmedString(sessionData.provider) ??

@@ -81,7 +81,9 @@ export function extractVerificationCodeFromText(
     return tailCode
   }
 
-  const trailingCode = normalizeCandidate(compact.match(TRAILING_CODE_PATTERN)?.[1])
+  const trailingCode = normalizeCandidate(
+    compact.match(TRAILING_CODE_PATTERN)?.[1],
+  )
   if (trailingCode) {
     return trailingCode
   }

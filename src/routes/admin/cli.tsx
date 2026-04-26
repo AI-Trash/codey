@@ -425,7 +425,8 @@ function CliConnectionsTableCard(props: {
                             <div className="flex min-w-0 flex-col gap-1">
                               <span className="inline-flex items-center gap-2 font-medium">
                                 <BotIcon className="size-4 text-muted-foreground" />
-                                {connection.cliName || m.admin_cli_unknown_cli()}
+                                {connection.cliName ||
+                                  m.admin_cli_unknown_cli()}
                               </span>
                               <span className="truncate text-xs text-muted-foreground">
                                 {connection.connectionPath}
@@ -526,8 +527,7 @@ function CliTaskDialog(props: {
   }, [props.connection?.id, availableFlows])
 
   const batchState = useMemo(
-    () =>
-      resolveDispatchBatchState(selectedFlowId, draftValues, dispatchCount),
+    () => resolveDispatchBatchState(selectedFlowId, draftValues, dispatchCount),
     [dispatchCount, draftValues, selectedFlowId],
   )
   const batchingEnabled = batchState.mode !== 'none'
@@ -567,10 +567,7 @@ function CliTaskDialog(props: {
             Accept: 'application/json',
           },
           body: JSON.stringify({
-            ...createCliFlowTaskRequest(
-              selectedFlowId,
-              submission.config,
-            ),
+            ...createCliFlowTaskRequest(selectedFlowId, submission.config),
             ...(submission.configs ? { configs: submission.configs } : {}),
             repeatCount: submission.repeatCount,
             parallelism: submission.parallelism,
@@ -587,21 +584,17 @@ function CliTaskDialog(props: {
         assignedCliCount?: number
       }
 
-      props.onDispatched(
-        selectedFlowId,
-        props.connection,
-        {
-          queuedCount:
-            typeof result.queuedCount === 'number' && result.queuedCount > 0
-              ? result.queuedCount
-              : submission.repeatCount,
-          assignedCliCount:
-            typeof result.assignedCliCount === 'number' &&
-            result.assignedCliCount > 0
-              ? result.assignedCliCount
-              : 1,
-        },
-      )
+      props.onDispatched(selectedFlowId, props.connection, {
+        queuedCount:
+          typeof result.queuedCount === 'number' && result.queuedCount > 0
+            ? result.queuedCount
+            : submission.repeatCount,
+        assignedCliCount:
+          typeof result.assignedCliCount === 'number' &&
+          result.assignedCliCount > 0
+            ? result.assignedCliCount
+            : 1,
+      })
     } catch (error) {
       setSubmitError(
         error instanceof Error
@@ -720,9 +713,11 @@ function CliTaskDialog(props: {
                             readOnly
                           />
                           <FieldDescription>
-                            {m.admin_cli_dispatch_email_batch_count_description({
-                              count: String(batchState.count),
-                            })}
+                            {m.admin_cli_dispatch_email_batch_count_description(
+                              {
+                                count: String(batchState.count),
+                              },
+                            )}
                           </FieldDescription>
                         </Field>
                       ) : null}
@@ -1484,8 +1479,7 @@ const optionDescriptionMap: Record<
   headless: () => m.admin_cli_option_headless_description(),
   slowMo: () => m.admin_cli_option_slow_mo_description(),
   har: () => m.admin_cli_option_har_description(),
-  recordPageContent: () =>
-    m.admin_cli_option_record_page_content_description(),
+  recordPageContent: () => m.admin_cli_option_record_page_content_description(),
   record: () => m.admin_cli_option_record_description(),
   restoreStorageState: () =>
     m.admin_cli_option_restore_storage_state_description(),
@@ -1503,8 +1497,7 @@ const optionDescriptionMap: Record<
     m.admin_cli_option_billing_address_line2_description(),
   billingCity: () => m.admin_cli_option_billing_city_description(),
   billingState: () => m.admin_cli_option_billing_state_description(),
-  billingPostalCode: () =>
-    m.admin_cli_option_billing_postal_code_description(),
+  billingPostalCode: () => m.admin_cli_option_billing_postal_code_description(),
   inviteEmail: () => m.admin_cli_option_invite_email_description(),
   inviteFile: () => m.admin_cli_option_invite_file_description(),
   workspaceId: () => m.admin_cli_option_workspace_id_description(),

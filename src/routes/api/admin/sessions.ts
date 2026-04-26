@@ -1,68 +1,70 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { requireAdminPermission } from "../../../lib/server/auth";
-import { json, redirect, text } from "../../../lib/server/http";
+import { createFileRoute } from '@tanstack/react-router'
+import { requireAdminPermission } from '../../../lib/server/auth'
+import { json, redirect, text } from '../../../lib/server/http'
 import {
   deleteManagedSession,
   findAdminManagedSessionSummary,
-} from "../../../lib/server/managed-sessions";
+} from '../../../lib/server/managed-sessions'
 
 function readRedirectTo(value: FormDataEntryValue | null): string | undefined {
-  const redirectTo = String(value || "").trim();
-  if (!redirectTo || !redirectTo.startsWith("/admin")) {
-    return undefined;
+  const redirectTo = String(value || '').trim()
+  if (!redirectTo || !redirectTo.startsWith('/admin')) {
+    return undefined
   }
 
-  return redirectTo;
+  return redirectTo
 }
 
 function readIntent(value: FormDataEntryValue | null) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase()
 }
 
-export const Route = createFileRoute("/api/admin/sessions")({
+export const Route = createFileRoute('/api/admin/sessions')({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
-          await requireAdminPermission(request, "MANAGED_SESSIONS");
+          await requireAdminPermission(request, 'MANAGED_SESSIONS')
         } catch (error) {
           return text(
-            error instanceof Error ? error.message : "Unauthorized",
+            error instanceof Error ? error.message : 'Unauthorized',
             401,
-          );
+          )
         }
 
-        const form = await request.formData();
-        const id = String(form.get("id") || "").trim();
-        const intent = readIntent(form.get("intent"));
+        const form = await request.formData()
+        const id = String(form.get('id') || '').trim()
+        const intent = readIntent(form.get('intent'))
 
         if (!id) {
-          return text("id is required", 400);
+          return text('id is required', 400)
         }
 
-        const knownSession = await findAdminManagedSessionSummary(id);
+        const knownSession = await findAdminManagedSessionSummary(id)
         if (!knownSession) {
-          return text("Unknown session id", 400);
+          return text('Unknown session id', 400)
         }
 
-        if (intent === "delete") {
-          const record = await deleteManagedSession(id);
+        if (intent === 'delete') {
+          const record = await deleteManagedSession(id)
           if (!record) {
-            return text("Unknown session id", 400);
+            return text('Unknown session id', 400)
           }
 
-          const accept = request.headers.get("accept") || "";
-          if (accept.includes("application/json")) {
-            return json({ ok: true, id: record.id });
+          const accept = request.headers.get('accept') || ''
+          if (accept.includes('application/json')) {
+            return json({ ok: true, id: record.id })
           }
 
           return redirect(
-            readRedirectTo(form.get("redirectTo")) || "/admin/sessions",
-          );
+            readRedirectTo(form.get('redirectTo')) || '/admin/sessions',
+          )
         }
 
-        return text("Unsupported session action", 400);
+        return text('Unsupported session action', 400)
       },
     },
   },
-});
+})

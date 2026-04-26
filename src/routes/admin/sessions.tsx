@@ -1,9 +1,4 @@
-import {
-  type ComponentProps,
-  type ReactNode,
-  useMemo,
-  useState,
-} from 'react'
+import { type ComponentProps, type ReactNode, useMemo, useState } from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
@@ -86,12 +81,15 @@ import { getLocale } from '#/paraglide/runtime'
 
 const loadAdminSessions = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const [{ getRequest }, { requireAdminPermission }, { listAdminManagedSessionSummaries }] =
-      await Promise.all([
-        import('@tanstack/react-start/server'),
-        import('../../lib/server/auth'),
-        import('../../lib/server/managed-sessions'),
-      ])
+    const [
+      { getRequest },
+      { requireAdminPermission },
+      { listAdminManagedSessionSummaries },
+    ] = await Promise.all([
+      import('@tanstack/react-start/server'),
+      import('../../lib/server/auth'),
+      import('../../lib/server/managed-sessions'),
+    ])
 
     const request = getRequest()
 
@@ -285,14 +283,19 @@ function AdminSessionsPage() {
               <Table className="min-w-[1540px]">
                 <TableHeader>
                   <TableRow>
-                    <AdminTableSelectionHead rows={rows} selection={selection} />
+                    <AdminTableSelectionHead
+                      rows={rows}
+                      selection={selection}
+                    />
                     <TableHead>{m.admin_dashboard_table_identity()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_account()}</TableHead>
                     <TableHead>{m.admin_session_table_flow()}</TableHead>
                     <TableHead>{m.admin_session_table_client_id()}</TableHead>
                     <TableHead>{m.admin_session_table_account_id()}</TableHead>
                     <TableHead>{m.admin_session_table_session_id()}</TableHead>
-                    <TableHead>{m.admin_session_table_last_refresh()}</TableHead>
+                    <TableHead>
+                      {m.admin_session_table_last_refresh()}
+                    </TableHead>
                     <TableHead>{m.admin_session_table_expires_at()}</TableHead>
                     <TableHead>{m.oauth_clients_table_status()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_manage()}</TableHead>

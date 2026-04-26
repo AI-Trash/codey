@@ -201,12 +201,8 @@
           "name": "device_challenges_user_id_users_id_fk",
           "tableFrom": "device_challenges",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -318,12 +314,8 @@
           "name": "email_ingest_records_reservation_id_verification_email_reservations_id_fk",
           "tableFrom": "email_ingest_records",
           "tableTo": "verification_email_reservations",
-          "columnsFrom": [
-            "reservation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["reservation_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -735,12 +727,8 @@
           "name": "oauth_clients_created_by_user_id_users_id_fk",
           "tableFrom": "oauth_clients",
           "tableTo": "users",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -748,12 +736,8 @@
           "name": "oauth_clients_updated_by_user_id_users_id_fk",
           "tableFrom": "oauth_clients",
           "tableTo": "users",
-          "columnsFrom": [
-            "updated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["updated_by_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1153,12 +1137,8 @@
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1382,12 +1362,8 @@
           "name": "verification_codes_reservation_id_verification_email_reservations_id_fk",
           "tableFrom": "verification_codes",
           "tableTo": "verification_email_reservations",
-          "columnsFrom": [
-            "reservation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["reservation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1476,64 +1452,37 @@
     "public.device_challenge_status": {
       "name": "device_challenge_status",
       "schema": "public",
-      "values": [
-        "PENDING",
-        "APPROVED",
-        "DENIED",
-        "EXPIRED",
-        "CONSUMED"
-      ]
+      "values": ["PENDING", "APPROVED", "DENIED", "EXPIRED", "CONSUMED"]
     },
     "public.flow_app_request_status": {
       "name": "flow_app_request_status",
       "schema": "public",
-      "values": [
-        "PENDING",
-        "IN_REVIEW",
-        "FULFILLED",
-        "REJECTED"
-      ]
+      "values": ["PENDING", "IN_REVIEW", "FULFILLED", "REJECTED"]
     },
     "public.managed_identity_status": {
       "name": "managed_identity_status",
       "schema": "public",
-      "values": [
-        "ACTIVE",
-        "REVIEW",
-        "ARCHIVED"
-      ]
+      "values": ["ACTIVE", "REVIEW", "ARCHIVED"]
     },
     "public.oauth_client_auth_method": {
       "name": "oauth_client_auth_method",
       "schema": "public",
-      "values": [
-        "client_secret_basic",
-        "client_secret_post"
-      ]
+      "values": ["client_secret_basic", "client_secret_post"]
     },
     "public.session_kind": {
       "name": "session_kind",
       "schema": "public",
-      "values": [
-        "BROWSER",
-        "CLI"
-      ]
+      "values": ["BROWSER", "CLI"]
     },
     "public.user_role": {
       "name": "user_role",
       "schema": "public",
-      "values": [
-        "ADMIN",
-        "USER"
-      ]
+      "values": ["ADMIN", "USER"]
     },
     "public.verification_code_source": {
       "name": "verification_code_source",
       "schema": "public",
-      "values": [
-        "MANUAL",
-        "CLOUDFLARE_EMAIL"
-      ]
+      "values": ["MANUAL", "CLOUDFLARE_EMAIL"]
     }
   },
   "schemas": {},

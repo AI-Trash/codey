@@ -16,10 +16,7 @@ export interface PromptSession {
     allowBlank?: boolean
     validate?: (value: string) => true | string
   }): Promise<string>
-  confirm(input: {
-    message: string
-    initial?: boolean
-  }): Promise<boolean>
+  confirm(input: { message: string; initial?: boolean }): Promise<boolean>
   select<TValue extends string>(input: {
     message: string
     choices: readonly PromptChoice<TValue>[]
@@ -119,10 +116,7 @@ class ReadlinePromptSession implements PromptSession {
     this.output.write(`${line}\n`)
   }
 
-  private async ask(
-    message: string,
-    initial?: string,
-  ): Promise<string> {
+  private async ask(message: string, initial?: string): Promise<string> {
     const suffix =
       typeof initial === 'string' && initial.trim()
         ? ` [default: ${initial}]`
@@ -235,17 +229,16 @@ class ReadlinePromptSession implements PromptSession {
         this.writeLine(formatChoiceLine(choice, index))
       })
 
-      const initial =
-        input.initial?.length
-          ? input.initial
-              .map((value) => {
-                const index = input.choices.findIndex(
-                  (choice) => choice.value === value,
-                )
-                return index >= 0 ? String(index + 1) : value
-              })
-              .join(', ')
-          : undefined
+      const initial = input.initial?.length
+        ? input.initial
+            .map((value) => {
+              const index = input.choices.findIndex(
+                (choice) => choice.value === value,
+              )
+              return index >= 0 ? String(index + 1) : value
+            })
+            .join(', ')
+        : undefined
       const answer = await this.ask(
         input.allowEmpty
           ? 'Choose zero or more options as comma-separated numbers or values'
@@ -296,9 +289,6 @@ export async function withPromptSession<T>(
   }
 }
 
-export function buildChoiceHint(
-  choice: PromptChoice,
-  index: number,
-): string {
+export function buildChoiceHint(choice: PromptChoice, index: number): string {
   return formatChoiceLine(choice, index)
 }

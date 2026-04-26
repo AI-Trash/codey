@@ -2,10 +2,7 @@ import { useState } from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
-import {
-  getDefaultAdminRoute,
-  hasAdminPermission,
-} from '#/lib/admin-access'
+import { getDefaultAdminRoute, hasAdminPermission } from '#/lib/admin-access'
 import {
   CreateVerificationDomainDialog,
   type ManagedVerificationDomain,
@@ -18,12 +15,15 @@ import { m } from '#/paraglide/messages'
 
 const loadVerificationDomains = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const [{ getRequest }, { requireAdminPermission }, { listVerificationDomains }] =
-      await Promise.all([
-        import('@tanstack/react-start/server'),
-        import('../../lib/server/auth'),
-        import('../../lib/server/verification-domains'),
-      ])
+    const [
+      { getRequest },
+      { requireAdminPermission },
+      { listVerificationDomains },
+    ] = await Promise.all([
+      import('@tanstack/react-start/server'),
+      import('../../lib/server/auth'),
+      import('../../lib/server/verification-domains'),
+    ])
     const request = getRequest()
 
     try {
@@ -34,7 +34,8 @@ const loadVerificationDomains = createServerFn({ method: 'GET' }).handler(
 
       return {
         authorized: true as const,
-        domains: (await listVerificationDomains()) as ManagedVerificationDomain[],
+        domains:
+          (await listVerificationDomains()) as ManagedVerificationDomain[],
         canManageApps: hasAdminPermission(admin.user, 'OAUTH_CLIENTS'),
         defaultRoute: getDefaultAdminRoute(admin.user),
       }

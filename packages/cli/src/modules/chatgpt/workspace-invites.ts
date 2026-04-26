@@ -378,9 +378,7 @@ async function inviteMembersViaApi(
 
   const existingMembers = workspaceMembers.data?.items || []
   const existingMemberEmails = new Set(
-    normalizeInviteEmails(
-      existingMembers.map((member) => member.email || ''),
-    ),
+    normalizeInviteEmails(existingMembers.map((member) => member.email || '')),
   )
   const alreadyPending = new Set(
     normalizeInviteEmails(
@@ -822,7 +820,9 @@ function isInviteCapableAccount(
   return entry?.can_access_with_session !== false
 }
 
-function isRemovableWorkspaceMember(member: ChatGPTWorkspaceUserRecord): boolean {
+function isRemovableWorkspaceMember(
+  member: ChatGPTWorkspaceUserRecord,
+): boolean {
   const userId = typeof member.id === 'string' ? member.id.trim() : ''
   if (!userId) {
     return false
@@ -843,7 +843,8 @@ function compareWorkspaceRemovalCandidates(
     return deactivatedDelta
   }
 
-  const roleDelta = readWorkspaceRemovalRolePriority(left.role) -
+  const roleDelta =
+    readWorkspaceRemovalRolePriority(left.role) -
     readWorkspaceRemovalRolePriority(right.role)
   if (roleDelta !== 0) {
     return roleDelta
@@ -856,10 +857,14 @@ function compareWorkspaceRemovalCandidates(
     return createdDelta
   }
 
-  return (left.email || left.id || '').localeCompare(right.email || right.id || '')
+  return (left.email || left.id || '').localeCompare(
+    right.email || right.id || '',
+  )
 }
 
-function readWorkspaceRemovalRolePriority(role: string | null | undefined): number {
+function readWorkspaceRemovalRolePriority(
+  role: string | null | undefined,
+): number {
   const normalized = role?.trim().toLowerCase() || ''
   if (!normalized) {
     return 10

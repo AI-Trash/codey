@@ -20,7 +20,10 @@ function readStringList(value: unknown): string[] | null | undefined {
       .filter(Boolean)
   }
 
-  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+  if (
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === 'string')
+  ) {
     return value
   }
 
@@ -42,7 +45,8 @@ export const Route = createFileRoute(
           )
         }
 
-        const body = await readJsonBody<ResetWorkspaceAuthorizationBody>(request)
+        const body =
+          await readJsonBody<ResetWorkspaceAuthorizationBody>(request)
         const memberIds = readStringList(body.memberIds)
         if (memberIds === null) {
           return text(

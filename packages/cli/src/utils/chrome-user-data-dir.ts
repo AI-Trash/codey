@@ -36,9 +36,7 @@ function splitRelativePath(relativePath: string): string[] {
 
 function isLockLikeChromeEntry(name: string): boolean {
   return (
-    /^Singleton/i.test(name) ||
-    /^lockfile/i.test(name) ||
-    /\.lock$/i.test(name)
+    /^Singleton/i.test(name) || /^lockfile/i.test(name) || /\.lock$/i.test(name)
   )
 }
 
@@ -52,10 +50,7 @@ export function shouldCopyChromeUserDataEntry(
   }
 
   const leafName = segments[segments.length - 1] || ''
-  if (
-    isLockLikeChromeEntry(leafName) ||
-    TRANSIENT_FILE_NAMES.has(leafName)
-  ) {
+  if (isLockLikeChromeEntry(leafName) || TRANSIENT_FILE_NAMES.has(leafName)) {
     return false
   }
 

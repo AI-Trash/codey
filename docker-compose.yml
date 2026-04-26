@@ -9,7 +9,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codey -d codey"]
+      test: ['CMD-SHELL', 'pg_isready -U codey -d codey']
       interval: 5s
       timeout: 5s
       retries: 20
@@ -28,9 +28,9 @@ services:
     image: caddy:latest
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy-data:/data

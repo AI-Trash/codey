@@ -1,245 +1,245 @@
-import "@tanstack/react-start/server-only";
-import { eq } from "drizzle-orm";
-import { getAppEnv } from "./env";
-import { getDb } from "./db/client";
-import { sessions } from "./db/schema";
-import { getBearerTokenContext } from "./oauth-resource";
-import { createId, randomToken, sha256 } from "./security";
+import '@tanstack/react-start/server-only'
+import { eq } from 'drizzle-orm'
+import { getAppEnv } from './env'
+import { getDb } from './db/client'
+import { sessions } from './db/schema'
+import { getBearerTokenContext } from './oauth-resource'
+import { createId, randomToken, sha256 } from './security'
 import {
   type AdminPermission,
   hasAnyAdminPermission,
   hasAdminPermission,
-} from "../admin-access";
+} from '../admin-access'
 
 export interface SessionUser {
   user: {
-    id: string;
-    email: string | null;
-    githubId: string | null;
-    githubLogin: string | null;
-    name: string | null;
-    avatarUrl: string | null;
-    role: "ADMIN" | "USER";
-    permissions: AdminPermission[];
-    createdAt: Date;
-    updatedAt: Date;
-  };
+    id: string
+    email: string | null
+    githubId: string | null
+    githubLogin: string | null
+    name: string | null
+    avatarUrl: string | null
+    role: 'ADMIN' | 'USER'
+    permissions: AdminPermission[]
+    createdAt: Date
+    updatedAt: Date
+  }
   session: {
-    id: string;
-    tokenHash: string;
-    kind: "BROWSER" | "CLI";
-    userId: string;
-    expiresAt: Date;
-    createdAt: Date;
-    lastSeenAt: Date;
-  };
+    id: string
+    tokenHash: string
+    kind: 'BROWSER' | 'CLI'
+    userId: string
+    expiresAt: Date
+    createdAt: Date
+    lastSeenAt: Date
+  }
 }
 
 function getExpiresAt(days: number): Date {
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000)
 }
 
 export async function createBrowserSession(userId: string): Promise<{
-  token: string;
-  session: SessionUser["session"];
+  token: string
+  session: SessionUser['session']
 }> {
-  const env = getAppEnv();
-  const token = randomToken();
+  const env = getAppEnv()
+  const token = randomToken()
   const [session] = await getDb()
     .insert(sessions)
     .values({
       id: createId(),
       userId,
-      kind: "BROWSER",
+      kind: 'BROWSER',
       tokenHash: sha256(token),
       expiresAt: getExpiresAt(env.sessionTtlDays),
     })
-    .returning();
+    .returning()
 
-  return { token, session };
+  return { token, session }
 }
 
 export function buildSessionCookie(token: string): string {
-  const env = getAppEnv();
-  const maxAge = env.sessionTtlDays * 24 * 60 * 60;
+  const env = getAppEnv()
+  const maxAge = env.sessionTtlDays * 24 * 60 * 60
   return [
     `${env.sessionCookieName}=${encodeURIComponent(token)}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    process.env.NODE_ENV === "production" ? "Secure" : "",
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    process.env.NODE_ENV === 'production' ? 'Secure' : '',
     `Max-Age=${maxAge}`,
   ]
     .filter(Boolean)
-    .join("; ");
+    .join('; ')
 }
 
 export function clearSessionCookie(): string {
-  const env = getAppEnv();
+  const env = getAppEnv()
   return [
     `${env.sessionCookieName}=`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    process.env.NODE_ENV === "production" ? "Secure" : "",
-    "Max-Age=0",
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    process.env.NODE_ENV === 'production' ? 'Secure' : '',
+    'Max-Age=0',
   ]
     .filter(Boolean)
-    .join("; ");
+    .join('; ')
 }
 
 function readCookieValue(request: Request, name: string): string | undefined {
-  const raw = request.headers.get("cookie");
-  if (!raw) return undefined;
-  const items = raw.split(";").map((entry) => entry.trim());
+  const raw = request.headers.get('cookie')
+  if (!raw) return undefined
+  const items = raw.split(';').map((entry) => entry.trim())
   for (const item of items) {
-    const [key, ...rest] = item.split("=");
-    if (key === name) return decodeURIComponent(rest.join("="));
+    const [key, ...rest] = item.split('=')
+    if (key === name) return decodeURIComponent(rest.join('='))
   }
 }
 
 function readBearerToken(request: Request): string | undefined {
-  const header = request.headers.get("authorization");
-  if (!header) return undefined;
-  const [scheme, token] = header.split(" ");
-  if (scheme?.toLowerCase() !== "bearer" || !token) return undefined;
-  return token.trim();
+  const header = request.headers.get('authorization')
+  if (!header) return undefined
+  const [scheme, token] = header.split(' ')
+  if (scheme?.toLowerCase() !== 'bearer' || !token) return undefined
+  return token.trim()
 }
 
 export async function getSessionUser(
   request: Request,
 ): Promise<SessionUser | null> {
-  const env = getAppEnv();
-  const token = readCookieValue(request, env.sessionCookieName);
-  if (!token) return null;
+  const env = getAppEnv()
+  const token = readCookieValue(request, env.sessionCookieName)
+  if (!token) return null
 
   const session = await getDb().query.sessions.findFirst({
     where: eq(sessions.tokenHash, sha256(token)),
     with: {
       user: true,
     },
-  });
+  })
 
-  if (!session || !session.user || session.kind !== "BROWSER") return null;
+  if (!session || !session.user || session.kind !== 'BROWSER') return null
   if (session.expiresAt.getTime() <= Date.now()) {
-    await getDb().delete(sessions).where(eq(sessions.id, session.id));
-    return null;
+    await getDb().delete(sessions).where(eq(sessions.id, session.id))
+    return null
   }
 
   await getDb()
     .update(sessions)
     .set({ lastSeenAt: new Date() })
-    .where(eq(sessions.id, session.id));
+    .where(eq(sessions.id, session.id))
 
   return {
     user: session.user,
     session,
-  };
+  }
 }
 
 export async function requireSessionUser(
   request: Request,
 ): Promise<SessionUser> {
-  const sessionUser = await getSessionUser(request);
+  const sessionUser = await getSessionUser(request)
   if (!sessionUser) {
-    throw new Error("Authentication required");
+    throw new Error('Authentication required')
   }
 
-  return sessionUser;
+  return sessionUser
 }
 
 export async function requireAdmin(request: Request): Promise<SessionUser> {
-  const sessionUser = await requireSessionUser(request);
+  const sessionUser = await requireSessionUser(request)
   if (!hasAnyAdminPermission(sessionUser.user)) {
-    throw new Error("Admin access required");
+    throw new Error('Admin access required')
   }
 
-  return sessionUser;
+  return sessionUser
 }
 
 export async function requireAdminPermission(
   request: Request,
   permission: AdminPermission,
 ): Promise<SessionUser> {
-  const sessionUser = await requireAdmin(request);
+  const sessionUser = await requireAdmin(request)
 
   if (!hasAdminPermission(sessionUser.user, permission)) {
-    throw new Error("Admin permission required");
+    throw new Error('Admin permission required')
   }
 
-  return sessionUser;
+  return sessionUser
 }
 
 export async function getCliSessionUser(
   request: Request,
 ): Promise<SessionUser | null> {
-  const oidcBearer = await getBearerTokenContext(request);
+  const oidcBearer = await getBearerTokenContext(request)
   if (oidcBearer?.accountId) {
     const user = await getDb().query.users.findFirst({
       where: (users, { eq: eqOperator }) =>
         eqOperator(users.id, oidcBearer.accountId as string),
-    });
+    })
 
     if (user) {
       return {
         user,
         session: {
           id: `oidc:${oidcBearer.clientId}`,
-          tokenHash: "",
-          kind: "CLI",
+          tokenHash: '',
+          kind: 'CLI',
           userId: user.id,
           expiresAt: new Date(Date.now() + 60 * 60 * 1000),
           createdAt: new Date(),
           lastSeenAt: new Date(),
         },
-      };
+      }
     }
   }
 
-  const token = readBearerToken(request);
-  if (!token) return null;
+  const token = readBearerToken(request)
+  if (!token) return null
 
   const session = await getDb().query.sessions.findFirst({
     where: eq(sessions.tokenHash, sha256(token)),
     with: {
       user: true,
     },
-  });
+  })
 
-  if (!session || !session.user || session.kind !== "CLI") return null;
+  if (!session || !session.user || session.kind !== 'CLI') return null
   if (session.expiresAt.getTime() <= Date.now()) {
-    await getDb().delete(sessions).where(eq(sessions.id, session.id));
-    return null;
+    await getDb().delete(sessions).where(eq(sessions.id, session.id))
+    return null
   }
 
   await getDb()
     .update(sessions)
     .set({ lastSeenAt: new Date() })
-    .where(eq(sessions.id, session.id));
+    .where(eq(sessions.id, session.id))
 
   return {
     user: session.user,
     session,
-  };
+  }
 }
 
 export async function requireCliSessionUser(
   request: Request,
 ): Promise<SessionUser> {
-  const sessionUser = await getCliSessionUser(request);
+  const sessionUser = await getCliSessionUser(request)
   if (!sessionUser) {
-    throw new Error("CLI authentication required");
+    throw new Error('CLI authentication required')
   }
 
-  return sessionUser;
+  return sessionUser
 }
 
 export async function destroyBrowserSession(request: Request): Promise<void> {
-  const env = getAppEnv();
-  const token = readCookieValue(request, env.sessionCookieName);
-  if (!token) return;
+  const env = getAppEnv()
+  const token = readCookieValue(request, env.sessionCookieName)
+  if (!token) return
 
   await getDb()
     .delete(sessions)
-    .where(eq(sessions.tokenHash, sha256(token)));
+    .where(eq(sessions.tokenHash, sha256(token)))
 }

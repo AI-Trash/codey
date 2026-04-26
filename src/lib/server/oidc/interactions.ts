@@ -1,27 +1,27 @@
-import "@tanstack/react-start/server-only";
+import '@tanstack/react-start/server-only'
 
-import type { IncomingMessage, ServerResponse } from "node:http";
-import type { InteractionResults, KoaContextWithOIDC } from "oidc-provider";
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { InteractionResults, KoaContextWithOIDC } from 'oidc-provider'
 
-import { m } from "#/paraglide/messages";
-import { getLocalizedHtmlLang } from "#/lib/i18n";
-import { requireAdminPermission } from "../auth";
-import { redirect as httpRedirect } from "../http";
-import { getOidcProvider } from "./provider";
+import { m } from '#/paraglide/messages'
+import { getLocalizedHtmlLang } from '#/lib/i18n'
+import { requireAdminPermission } from '../auth'
+import { redirect as httpRedirect } from '../http'
+import { getOidcProvider } from './provider'
 
 function escapeHtml(value: string): string {
   return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 function renderPage(params: {
-  title: string;
-  kicker: string;
-  body: string;
+  title: string
+  kicker: string
+  body: string
 }): string {
   return `<!DOCTYPE html>
   <html lang="${escapeHtml(getLocalizedHtmlLang())}">
@@ -139,13 +139,13 @@ function renderPage(params: {
         <div class="stack">${params.body}</div>
       </main>
     </body>
-  </html>`;
+  </html>`
 }
 
 export async function renderDeviceUserCodeInput(params: {
-  ctx: KoaContextWithOIDC;
-  form: string;
-  errorMessage?: string;
+  ctx: KoaContextWithOIDC
+  form: string
+  errorMessage?: string
 }): Promise<string> {
   return renderPage({
     kicker: m.oidc_interaction_kicker(),
@@ -155,18 +155,18 @@ export async function renderDeviceUserCodeInput(params: {
       ${
         params.errorMessage
           ? `<div class="error">${escapeHtml(params.errorMessage)}</div>`
-          : ""
+          : ''
       }
       ${params.form}
     `,
-  });
+  })
 }
 
 export async function renderDeviceUserCodeConfirm(params: {
-  ctx: KoaContextWithOIDC;
-  form: string;
-  clientName: string;
-  userCode: string;
+  ctx: KoaContextWithOIDC
+  form: string
+  clientName: string
+  userCode: string
 }): Promise<string> {
   return renderPage({
     kicker: m.oidc_interaction_kicker(),
@@ -178,12 +178,14 @@ export async function renderDeviceUserCodeConfirm(params: {
         }),
       )}</p>
       <p>${escapeHtml(m.oidc_interaction_user_code_label())}: <code>${escapeHtml(params.userCode)}</code></p>
-      ${params.form.replace("[ Abort ]", m.oidc_interaction_deny())}
+      ${params.form.replace('[ Abort ]', m.oidc_interaction_deny())}
     `,
-  });
+  })
 }
 
-export async function renderDeviceFlowSuccess(clientName: string): Promise<string> {
+export async function renderDeviceFlowSuccess(
+  clientName: string,
+): Promise<string> {
   return renderPage({
     kicker: m.oidc_interaction_kicker(),
     title: m.oidc_interaction_success_title(),
@@ -192,22 +194,24 @@ export async function renderDeviceFlowSuccess(clientName: string): Promise<strin
         client: clientName,
       }),
     )}</p>`,
-  });
+  })
 }
 
 function getNodeContext(request: Request): {
-  req: IncomingMessage;
-  res: ServerResponse;
+  req: IncomingMessage
+  res: ServerResponse
 } {
-  const node = (request as Request & {
-    node?: { req?: IncomingMessage; res?: ServerResponse };
-  }).node;
+  const node = (
+    request as Request & {
+      node?: { req?: IncomingMessage; res?: ServerResponse }
+    }
+  ).node
 
   if (!node?.req || !node.res) {
-    throw new Error("Node request context is required for OIDC interactions.");
+    throw new Error('Node request context is required for OIDC interactions.')
   }
 
-  return { req: node.req, res: node.res };
+  return { req: node.req, res: node.res }
 }
 
 function getProvidedNodeContext(
@@ -215,19 +219,19 @@ function getProvidedNodeContext(
   res?: ServerResponse,
 ): { req: IncomingMessage; res: ServerResponse } | null {
   if (req && res) {
-    return { req, res };
+    return { req, res }
   }
-  return null;
+  return null
 }
 
 function html(body: string, status = 200): Response {
   return new Response(body, {
     status,
     headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
     },
-  });
+  })
 }
 
 export async function loadInteractionPage(
@@ -236,17 +240,23 @@ export async function loadInteractionPage(
   req?: IncomingMessage,
   res?: ServerResponse,
 ): Promise<Response> {
-  const provider = await getOidcProvider();
-  const nodeContext = getProvidedNodeContext(req, res) || getNodeContext(request);
-  const details = await provider.interactionDetails(nodeContext.req, nodeContext.res);
-  const client = await provider.Client.find(String(details.params.client_id || ""));
+  const provider = await getOidcProvider()
+  const nodeContext =
+    getProvidedNodeContext(req, res) || getNodeContext(request)
+  const details = await provider.interactionDetails(
+    nodeContext.req,
+    nodeContext.res,
+  )
+  const client = await provider.Client.find(
+    String(details.params.client_id || ''),
+  )
   const clientName =
     client?.clientName ||
     client?.clientId ||
-    String(details.params.client_id || m.oidc_device_client_fallback());
+    String(details.params.client_id || m.oidc_device_client_fallback())
 
   try {
-    await requireAdminPermission(request, "CLI_OPERATIONS");
+    await requireAdminPermission(request, 'CLI_OPERATIONS')
   } catch {
     return html(
       renderPage({
@@ -261,7 +271,7 @@ export async function loadInteractionPage(
         `,
       }),
       401,
-    );
+    )
   }
 
   return html(
@@ -281,7 +291,7 @@ export async function loadInteractionPage(
         </div>
       `,
     }),
-  );
+  )
 }
 
 export async function completeInteraction(
@@ -291,30 +301,31 @@ export async function completeInteraction(
   req?: IncomingMessage,
   res?: ServerResponse,
 ): Promise<Response> {
-  const admin = await requireAdminPermission(request, "CLI_OPERATIONS");
-  const provider = await getOidcProvider();
-  const nodeContext = getProvidedNodeContext(req, res) || getNodeContext(request);
+  const admin = await requireAdminPermission(request, 'CLI_OPERATIONS')
+  const provider = await getOidcProvider()
+  const nodeContext =
+    getProvidedNodeContext(req, res) || getNodeContext(request)
 
   const result: InteractionResults = aborted
     ? {
-        error: "access_denied",
-        error_description: "End-User denied device authorization",
+        error: 'access_denied',
+        error_description: 'End-User denied device authorization',
       }
     : {
         login: {
           accountId: admin.user.id,
           remember: true,
           ts: Math.floor(Date.now() / 1000),
-          amr: ["github"],
-          acr: "urn:codey:admin:github",
+          amr: ['github'],
+          acr: 'urn:codey:admin:github',
         },
-      };
+      }
 
   await provider.interactionFinished(nodeContext.req, nodeContext.res, result, {
     mergeWithLastSubmission: false,
-  });
+  })
 
-  return httpRedirect(`/oidc/interaction/${encodeURIComponent(uid)}/done`);
+  return httpRedirect(`/oidc/interaction/${encodeURIComponent(uid)}/done`)
 }
 
 export function renderInteractionComplete(): Response {
@@ -324,5 +335,5 @@ export function renderInteractionComplete(): Response {
       title: m.oidc_interaction_success_title(),
       body: `<p>${escapeHtml(m.oidc_interaction_complete_body())}</p>`,
     }),
-  );
+  )
 }

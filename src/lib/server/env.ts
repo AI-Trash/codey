@@ -1,159 +1,159 @@
-import "@tanstack/react-start/server-only";
+import '@tanstack/react-start/server-only'
 
-import { DEFAULT_OAUTH_SUPPORTED_SCOPES } from "./oauth-scopes";
+import { DEFAULT_OAUTH_SUPPORTED_SCOPES } from './oauth-scopes'
 
 export interface AppEnv {
-  databaseUrl: string;
-  sessionCookieName: string;
-  sessionTtlDays: number;
-  adminGitHubLogins: string[];
-  flowAppApiKey?: string;
-  flowAppApiKeyHeader: string;
-  verificationApiKey?: string;
-  verificationApiKeyHeader: string;
-  githubClientId?: string;
-  githubClientSecret?: string;
-  githubAuthorizeUrl: string;
-  githubTokenUrl: string;
-  githubUserUrl: string;
-  githubScope: string;
-  appBaseUrl?: string;
-  verificationMailbox?: string;
-  verificationEmailPrefix?: string;
-  verificationDomain?: string;
-  verificationReservationTtlMinutes: number;
-  deviceChallengeTtlMinutes: number;
-  cloudflareWebhookSecret?: string;
-  cloudflareSignatureHeader: string;
-  cloudflareTimestampHeader: string;
-  oauthIssuer?: string;
+  databaseUrl: string
+  sessionCookieName: string
+  sessionTtlDays: number
+  adminGitHubLogins: string[]
+  flowAppApiKey?: string
+  flowAppApiKeyHeader: string
+  verificationApiKey?: string
+  verificationApiKeyHeader: string
+  githubClientId?: string
+  githubClientSecret?: string
+  githubAuthorizeUrl: string
+  githubTokenUrl: string
+  githubUserUrl: string
+  githubScope: string
+  appBaseUrl?: string
+  verificationMailbox?: string
+  verificationEmailPrefix?: string
+  verificationDomain?: string
+  verificationReservationTtlMinutes: number
+  deviceChallengeTtlMinutes: number
+  cloudflareWebhookSecret?: string
+  cloudflareSignatureHeader: string
+  cloudflareTimestampHeader: string
+  oauthIssuer?: string
   oauthJwksSeed?: {
-    keys: Array<Record<string, unknown>>;
-  };
-  oauthClientSecretEncryptionKey?: string;
-  oauthAccessTokenTtlSeconds: number;
-  oauthDeviceCodeTtlSeconds: number;
-  oauthSigningKeyRotationDays: number;
-  oauthSigningKeyRetentionDays: number;
-  oauthDefaultResourceIndicator?: string;
-  oauthSupportedScopes: string[];
+    keys: Array<Record<string, unknown>>
+  }
+  oauthClientSecretEncryptionKey?: string
+  oauthAccessTokenTtlSeconds: number
+  oauthDeviceCodeTtlSeconds: number
+  oauthSigningKeyRotationDays: number
+  oauthSigningKeyRetentionDays: number
+  oauthDefaultResourceIndicator?: string
+  oauthSupportedScopes: string[]
 }
 
 function readDatabaseUrl(value: string | undefined): string {
-  const databaseUrl = value?.trim();
+  const databaseUrl = value?.trim()
   if (!databaseUrl) {
     throw new Error(
-      "DATABASE_URL is required and must use a postgres:// or postgresql:// URL.",
-    );
+      'DATABASE_URL is required and must use a postgres:// or postgresql:// URL.',
+    )
   }
 
-  let protocol: string;
+  let protocol: string
   try {
-    protocol = new URL(databaseUrl).protocol;
+    protocol = new URL(databaseUrl).protocol
   } catch {
     throw new Error(
-      "DATABASE_URL must be a valid postgres:// or postgresql:// URL.",
-    );
+      'DATABASE_URL must be a valid postgres:// or postgresql:// URL.',
+    )
   }
 
-  if (protocol !== "postgres:" && protocol !== "postgresql:") {
+  if (protocol !== 'postgres:' && protocol !== 'postgresql:') {
     throw new Error(
-      "DATABASE_URL must use PostgreSQL. SQLite and other database engines are not supported.",
-    );
+      'DATABASE_URL must use PostgreSQL. SQLite and other database engines are not supported.',
+    )
   }
 
-  return databaseUrl;
+  return databaseUrl
 }
 
 function readNumber(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 function readList(value: string | undefined): string[] {
   if (!value) {
-    return [];
+    return []
   }
 
   return value
-    .split(",")
+    .split(',')
     .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
+    .filter(Boolean)
 }
 
 function readOptionalBase64Key(
   value: string | undefined,
   envName: string,
 ): string | undefined {
-  const normalized = value?.trim();
+  const normalized = value?.trim()
   if (!normalized) {
-    return undefined;
+    return undefined
   }
 
-  let decoded: Buffer;
+  let decoded: Buffer
   try {
-    decoded = Buffer.from(normalized, "base64");
+    decoded = Buffer.from(normalized, 'base64')
   } catch {
-    throw new Error(`${envName} must be valid base64.`);
+    throw new Error(`${envName} must be valid base64.`)
   }
 
   if (decoded.length !== 32) {
-    throw new Error(`${envName} must decode to exactly 32 bytes.`);
+    throw new Error(`${envName} must decode to exactly 32 bytes.`)
   }
 
-  return normalized;
+  return normalized
 }
 
 function readOptionalJsonObject(
   value: string | undefined,
   envName: string,
 ): { keys: Array<Record<string, unknown>> } | undefined {
-  const normalized = value?.trim();
+  const normalized = value?.trim()
   if (!normalized) {
-    return undefined;
+    return undefined
   }
 
-  let parsed: unknown;
+  let parsed: unknown
   try {
-    parsed = JSON.parse(normalized);
+    parsed = JSON.parse(normalized)
   } catch {
-    throw new Error(`${envName} must be valid JSON.`);
+    throw new Error(`${envName} must be valid JSON.`)
   }
 
   if (
-    typeof parsed !== "object" ||
+    typeof parsed !== 'object' ||
     parsed === null ||
-    !("keys" in parsed) ||
+    !('keys' in parsed) ||
     !Array.isArray((parsed as { keys?: unknown }).keys)
   ) {
-    throw new Error(`${envName} must be a JWKS object with a keys array.`);
+    throw new Error(`${envName} must be a JWKS object with a keys array.`)
   }
 
-  return parsed as { keys: Array<Record<string, unknown>> };
+  return parsed as { keys: Array<Record<string, unknown>> }
 }
 
 export function getAppEnv(): AppEnv {
   return {
     databaseUrl: readDatabaseUrl(process.env.DATABASE_URL),
-    sessionCookieName: process.env.SESSION_COOKIE_NAME || "codey_session",
+    sessionCookieName: process.env.SESSION_COOKIE_NAME || 'codey_session',
     sessionTtlDays: readNumber(process.env.SESSION_TTL_DAYS, 14),
     adminGitHubLogins: readList(process.env.ADMIN_GITHUB_LOGINS),
     flowAppApiKey: process.env.FLOW_APP_API_KEY,
     flowAppApiKeyHeader:
-      process.env.FLOW_APP_API_KEY_HEADER || "x-codey-flow-app-key",
+      process.env.FLOW_APP_API_KEY_HEADER || 'x-codey-flow-app-key',
     verificationApiKey: process.env.VERIFICATION_API_KEY,
     verificationApiKeyHeader:
-      process.env.VERIFICATION_API_KEY_HEADER || "x-codey-api-key",
+      process.env.VERIFICATION_API_KEY_HEADER || 'x-codey-api-key',
     githubClientId: process.env.GITHUB_CLIENT_ID,
     githubClientSecret: process.env.GITHUB_CLIENT_SECRET,
     githubAuthorizeUrl:
       process.env.GITHUB_AUTHORIZE_URL ||
-      "https://github.com/login/oauth/authorize",
+      'https://github.com/login/oauth/authorize',
     githubTokenUrl:
       process.env.GITHUB_TOKEN_URL ||
-      "https://github.com/login/oauth/access_token",
-    githubUserUrl: process.env.GITHUB_USER_URL || "https://api.github.com/user",
-    githubScope: process.env.GITHUB_SCOPE || "read:user user:email",
+      'https://github.com/login/oauth/access_token',
+    githubUserUrl: process.env.GITHUB_USER_URL || 'https://api.github.com/user',
+    githubScope: process.env.GITHUB_SCOPE || 'read:user user:email',
     appBaseUrl: process.env.APP_BASE_URL,
     verificationMailbox: process.env.VERIFICATION_MAILBOX,
     verificationEmailPrefix: process.env.VERIFICATION_EMAIL_PREFIX,
@@ -168,17 +168,17 @@ export function getAppEnv(): AppEnv {
     ),
     cloudflareWebhookSecret: process.env.CLOUDFLARE_EMAIL_WEBHOOK_SECRET,
     cloudflareSignatureHeader:
-      process.env.CLOUDFLARE_SIGNATURE_HEADER || "x-codey-signature",
+      process.env.CLOUDFLARE_SIGNATURE_HEADER || 'x-codey-signature',
     cloudflareTimestampHeader:
-      process.env.CLOUDFLARE_TIMESTAMP_HEADER || "x-codey-timestamp",
+      process.env.CLOUDFLARE_TIMESTAMP_HEADER || 'x-codey-timestamp',
     oauthIssuer: process.env.OAUTH_ISSUER,
     oauthJwksSeed: readOptionalJsonObject(
       process.env.OAUTH_JWKS_JSON,
-      "OAUTH_JWKS_JSON",
+      'OAUTH_JWKS_JSON',
     ),
     oauthClientSecretEncryptionKey: readOptionalBase64Key(
       process.env.OAUTH_CLIENT_SECRET_ENCRYPTION_KEY,
-      "OAUTH_CLIENT_SECRET_ENCRYPTION_KEY",
+      'OAUTH_CLIENT_SECRET_ENCRYPTION_KEY',
     ),
     oauthAccessTokenTtlSeconds: readNumber(
       process.env.OAUTH_ACCESS_TOKEN_TTL_SECONDS,
@@ -200,5 +200,5 @@ export function getAppEnv(): AppEnv {
     oauthSupportedScopes: readList(process.env.OAUTH_SUPPORTED_SCOPES).length
       ? readList(process.env.OAUTH_SUPPORTED_SCOPES)
       : DEFAULT_OAUTH_SUPPORTED_SCOPES,
-  };
+  }
 }

@@ -252,10 +252,9 @@ describe('workspace member random selection', () => {
       'member-other-owner',
     ])
     expect(selection.conflicts).toHaveLength(2)
-    expect(selection.conflicts.map((entry) => entry.identity.id).sort()).toEqual([
-      'member-other-member',
-      'member-other-owner',
-    ])
+    expect(
+      selection.conflicts.map((entry) => entry.identity.id).sort(),
+    ).toEqual(['member-other-member', 'member-other-owner'])
     expect(
       selection.conflicts.find(
         (entry) => entry.identity.id === 'member-other-owner',

@@ -8,12 +8,15 @@ import { m } from '#/paraglide/messages'
 
 const loadExternalServices = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const [{ getRequest }, { requireAdminPermission }, { getSub2ApiServiceSummary }] =
-      await Promise.all([
-        import('@tanstack/react-start/server'),
-        import('../../lib/server/auth'),
-        import('../../lib/server/external-service-configs'),
-      ])
+    const [
+      { getRequest },
+      { requireAdminPermission },
+      { getSub2ApiServiceSummary },
+    ] = await Promise.all([
+      import('@tanstack/react-start/server'),
+      import('../../lib/server/auth'),
+      import('../../lib/server/external-service-configs'),
+    ])
 
     const request = getRequest()
 

@@ -1,4 +1,4 @@
-import "@tanstack/react-start/server-only";
+import '@tanstack/react-start/server-only'
 
 import Provider, {
   errors,
@@ -10,51 +10,53 @@ import Provider, {
   type DeviceCode,
   type KoaContextWithOIDC,
   type ResourceServer,
-} from "oidc-provider";
-import { m } from "#/paraglide/messages";
-import { createOidcAdapter } from "./adapter";
-import { getAppEnv } from "../env";
-import { getManagedOidcJwks } from "./jwks";
+} from 'oidc-provider'
+import { m } from '#/paraglide/messages'
+import { createOidcAdapter } from './adapter'
+import { getAppEnv } from '../env'
+import { getManagedOidcJwks } from './jwks'
 import {
   renderDeviceFlowSuccess,
   renderDeviceUserCodeConfirm,
   renderDeviceUserCodeInput,
-} from "./interactions";
+} from './interactions'
 
 interface ResourceIndicatorRecord {
-  audience: string;
-  scope: string;
-  accessTokenTTL: number;
-  accessTokenFormat: "opaque";
+  audience: string
+  scope: string
+  accessTokenTTL: number
+  accessTokenFormat: 'opaque'
 }
 
 function readIssuer(): string {
-  const env = getAppEnv();
-  const baseUrl = env.oauthIssuer || env.appBaseUrl || "http://localhost:3000";
-  return baseUrl.endsWith("/oidc") ? baseUrl : `${baseUrl.replace(/\/$/, "")}/oidc`;
+  const env = getAppEnv()
+  const baseUrl = env.oauthIssuer || env.appBaseUrl || 'http://localhost:3000'
+  return baseUrl.endsWith('/oidc')
+    ? baseUrl
+    : `${baseUrl.replace(/\/$/, '')}/oidc`
 }
 
 function readSupportedScopes(): string[] {
-  const env = getAppEnv();
-  return env.oauthSupportedScopes;
+  const env = getAppEnv()
+  return env.oauthSupportedScopes
 }
 
 function getTokenEndpointAuthMethods() {
-  return ["client_secret_basic", "client_secret_post"] as const;
+  return ['client_secret_basic', 'client_secret_post'] as const
 }
 
 function getResourceIndicators(): Record<string, ResourceIndicatorRecord> {
-  const env = getAppEnv();
-  const defaultAudience = env.oauthDefaultResourceIndicator || readIssuer();
-  const scopes = readSupportedScopes().join(" ");
+  const env = getAppEnv()
+  const defaultAudience = env.oauthDefaultResourceIndicator || readIssuer()
+  const scopes = readSupportedScopes().join(' ')
   return {
     [defaultAudience]: {
       audience: defaultAudience,
       scope: scopes,
       accessTokenTTL: env.oauthAccessTokenTtlSeconds,
-      accessTokenFormat: "opaque",
+      accessTokenFormat: 'opaque',
     },
-  };
+  }
 }
 
 async function findAccount(
@@ -67,23 +69,25 @@ async function findAccount(
     | BackchannelAuthenticationRequest,
 ): Promise<Account | undefined> {
   const accountId =
-    ("accountId" in (token || {}) && typeof token?.accountId === "string"
+    ('accountId' in (token || {}) && typeof token?.accountId === 'string'
       ? token.accountId
-      : undefined) || sub;
+      : undefined) || sub
   if (!accountId) {
-    return undefined;
+    return undefined
   }
   return {
     accountId,
     async claims() {
-      return { sub: accountId };
+      return { sub: accountId }
     },
-  };
+  }
 }
 
-function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }): Configuration {
-  const env = getAppEnv();
-  const resourceIndicators = getResourceIndicators();
+function buildOidcConfiguration(jwks: {
+  keys: Array<Record<string, unknown>>
+}): Configuration {
+  const env = getAppEnv()
+  const resourceIndicators = getResourceIndicators()
   return {
     adapter: createOidcAdapter,
     jwks,
@@ -92,7 +96,7 @@ function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }):
     },
     scopes: readSupportedScopes(),
     claims: {
-      openid: ["sub"],
+      openid: ['sub'],
     },
     clientAuthMethods: [...getTokenEndpointAuthMethods()],
     clients: [],
@@ -101,17 +105,17 @@ function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }):
       properties: [],
     },
     renderError(ctx, out, error) {
-      ctx.status = out.error === "invalid_scope" ? 400 : 500;
+      ctx.status = out.error === 'invalid_scope' ? 400 : 500
       ctx.body = {
         error: out.error,
         error_description:
           out.error_description ||
-          (error instanceof Error ? error.message : "OIDC provider error"),
-      };
+          (error instanceof Error ? error.message : 'OIDC provider error'),
+      }
     },
     interactions: {
       url(_ctx, interaction) {
-        return `/oidc/interaction/${interaction.uid}`;
+        return `/oidc/interaction/${interaction.uid}`
       },
     },
     features: {
@@ -123,38 +127,38 @@ function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }):
       },
       deviceFlow: {
         enabled: true,
-        mask: "****-****",
+        mask: '****-****',
         async userCodeInputSource(ctx, form, _out, err) {
-          ctx.type = "html";
+          ctx.type = 'html'
           ctx.body = await renderDeviceUserCodeInput({
             ctx,
             form,
             errorMessage:
-              err && ("userCode" in err || err.name === "NoCodeError")
+              err && ('userCode' in err || err.name === 'NoCodeError')
                 ? m.oidc_device_error_invalid_code()
-                : err && err.name === "AbortedError"
+                : err && err.name === 'AbortedError'
                   ? m.oidc_device_error_interrupted()
                   : err
                     ? m.oidc_device_error_generic()
                     : undefined,
-          });
+          })
         },
         async userCodeConfirmSource(ctx, form, client, _deviceInfo, userCode) {
-          ctx.type = "html";
+          ctx.type = 'html'
           ctx.body = await renderDeviceUserCodeConfirm({
             ctx,
             form,
             clientName: client.clientName || client.clientId,
             userCode,
-          });
+          })
         },
         async successSource(ctx) {
-          ctx.type = "html";
+          ctx.type = 'html'
           ctx.body = await renderDeviceFlowSuccess(
             ctx.oidc.client?.clientName ||
               ctx.oidc.client?.clientId ||
               m.oidc_device_client_fallback(),
-          );
+          )
         },
       },
       revocation: {
@@ -166,19 +170,19 @@ function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }):
       resourceIndicators: {
         enabled: true,
         getResourceServerInfo(_ctx, resourceIndicator): ResourceServer {
-          const resourceServer = resourceIndicators[resourceIndicator];
+          const resourceServer = resourceIndicators[resourceIndicator]
           if (!resourceServer) {
-            throw new errors.InvalidTarget("Unknown resource indicator");
+            throw new errors.InvalidTarget('Unknown resource indicator')
           }
           return {
             audience: resourceServer.audience,
             scope: resourceServer.scope,
             accessTokenTTL: resourceServer.accessTokenTTL,
             accessTokenFormat: resourceServer.accessTokenFormat,
-          };
+          }
         },
         defaultResource() {
-          return env.oauthDefaultResourceIndicator || readIssuer();
+          return env.oauthDefaultResourceIndicator || readIssuer()
         },
       },
     },
@@ -187,52 +191,52 @@ function buildOidcConfiguration(jwks: { keys: Array<Record<string, unknown>> }):
       ClientCredentials: env.oauthAccessTokenTtlSeconds,
       DeviceCode: env.oauthDeviceCodeTtlSeconds,
     },
-  };
+  }
 }
 
 declare global {
   var __codeyOidcProviderState:
     | {
-        issuer: string;
-        jwksVersion: string;
-        provider: Provider;
+        issuer: string
+        jwksVersion: string
+        provider: Provider
       }
-    | undefined;
-  var __codeyOidcProviderPromise: Promise<Provider> | undefined;
+    | undefined
+  var __codeyOidcProviderPromise: Promise<Provider> | undefined
 }
 
 export async function getOidcConfiguration(): Promise<Configuration> {
-  const snapshot = await getManagedOidcJwks();
+  const snapshot = await getManagedOidcJwks()
   return buildOidcConfiguration({
     keys: snapshot.keys,
-  });
+  })
 }
 
 export async function getOidcProvider(): Promise<Provider> {
-  const issuer = readIssuer();
-  const snapshot = await getManagedOidcJwks();
-  const cached = globalThis.__codeyOidcProviderState;
+  const issuer = readIssuer()
+  const snapshot = await getManagedOidcJwks()
+  const cached = globalThis.__codeyOidcProviderState
   if (
     cached &&
     cached.issuer === issuer &&
     cached.jwksVersion === snapshot.version
   ) {
-    return cached.provider;
+    return cached.provider
   }
 
   if (!globalThis.__codeyOidcProviderPromise) {
     globalThis.__codeyOidcProviderPromise = (async () => {
-      const resolvedIssuer = readIssuer();
+      const resolvedIssuer = readIssuer()
       const resolvedSnapshot = await getManagedOidcJwks({
         forceRefresh: true,
-      });
-      const existing = globalThis.__codeyOidcProviderState;
+      })
+      const existing = globalThis.__codeyOidcProviderState
       if (
         existing &&
         existing.issuer === resolvedIssuer &&
         existing.jwksVersion === resolvedSnapshot.version
       ) {
-        return existing.provider;
+        return existing.provider
       }
 
       const provider = new Provider(
@@ -240,18 +244,18 @@ export async function getOidcProvider(): Promise<Provider> {
         buildOidcConfiguration({
           keys: resolvedSnapshot.keys,
         }),
-      );
-      provider.proxy = true;
+      )
+      provider.proxy = true
       globalThis.__codeyOidcProviderState = {
         issuer: resolvedIssuer,
         jwksVersion: resolvedSnapshot.version,
         provider,
-      };
-      return provider;
+      }
+      return provider
     })().finally(() => {
-      globalThis.__codeyOidcProviderPromise = undefined;
-    });
+      globalThis.__codeyOidcProviderPromise = undefined
+    })
   }
 
-  return globalThis.__codeyOidcProviderPromise;
+  return globalThis.__codeyOidcProviderPromise
 }
