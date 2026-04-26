@@ -61,6 +61,9 @@ describe('managed workspace authorization summaries', () => {
         managedWorkspaces: {
           findFirst: findFirstWorkspace,
         },
+        managedWorkspaceMembers: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
         managedIdentitySessions: {
           findMany: vi.fn().mockResolvedValue([]),
         },
@@ -107,6 +110,48 @@ describe('managed workspace authorization summaries', () => {
         ownerIdentityId: 'identity-1',
       }),
     )
+  })
+
+  it('rejects a workspace owner that is already a member of another workspace', async () => {
+    const ownerIdentity = {
+      identityId: 'identity-1',
+      email: 'owner@example.com',
+      label: 'Owner',
+    }
+    const findMemberWorkspace = vi.fn().mockResolvedValue({
+      id: 'member-row-1',
+      workspace: {
+        id: 'workspace-record-2',
+        workspaceId: 'ws_beta',
+        label: 'Beta',
+      },
+    })
+    const insertRecord = vi.fn()
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedIdentities: {
+          findFirst: vi.fn().mockResolvedValue(ownerIdentity),
+        },
+        managedWorkspaces: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+        managedWorkspaceMembers: {
+          findFirst: findMemberWorkspace,
+        },
+      },
+      insert: insertRecord,
+    })
+
+    await expect(
+      createManagedWorkspace({
+        label: 'Alpha',
+        ownerIdentityId: 'identity-1',
+      }),
+    ).rejects.toThrow('This identity already belongs to workspace Beta.')
+
+    expect(findMemberWorkspace).toHaveBeenCalledTimes(1)
+    expect(insertRecord).not.toHaveBeenCalled()
   })
 
   it('keeps authorization state scoped to the matching workspace', async () => {

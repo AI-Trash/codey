@@ -699,7 +699,7 @@
   "admin_workspace_member_random_confirm_title": "确认使用这些成员？",
   "admin_workspace_member_random_requires_owner": "请先选择当前工作空间的所有者，再随机选择成员。",
   "admin_workspace_member_selected_badge": "已选中",
-  "admin_workspace_owner_description": "选择一个身份作为该工作空间的所有者。同一个身份不能同时拥有多个工作空间。",
+  "admin_workspace_owner_description": "请选择一个没有在其他工作空间担任所有者或成员的身份作为所有者。",
   "admin_workspace_owner_kicker": "工作空间所有者",
   "admin_workspace_owner_label": "所有者",
   "admin_workspace_owner_missing": "尚未选择所有者",

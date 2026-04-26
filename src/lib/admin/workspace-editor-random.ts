@@ -90,6 +90,25 @@ function getOtherWorkspaceAssociations(
   return [...entries.values()]
 }
 
+export function hasOtherWorkspaceAssociations(
+  identityId: string,
+  ownerWorkspaceByIdentityId: ReadonlyMap<string, RandomizableWorkspace>,
+  memberWorkspacesByIdentityId: ReadonlyMap<
+    string,
+    readonly RandomizableWorkspace[]
+  >,
+  currentWorkspaceId?: string,
+) {
+  return (
+    getOtherWorkspaceAssociations(
+      identityId,
+      ownerWorkspaceByIdentityId,
+      memberWorkspacesByIdentityId,
+      currentWorkspaceId,
+    ).length > 0
+  )
+}
+
 export function getRandomWorkspaceOwnerIdentity(input: {
   identities: RandomizableIdentity[]
   ownerWorkspaceByIdentityId: ReadonlyMap<string, RandomizableWorkspace>
@@ -102,37 +121,15 @@ export function getRandomWorkspaceOwnerIdentity(input: {
   const eligibleIdentities = input.identities.filter(
     (identity) =>
       isWorkspaceSelectableIdentity(identity) &&
-      !getOtherWorkspaceOwnerWorkspace(
+      !hasOtherWorkspaceAssociations(
         identity.id,
         input.ownerWorkspaceByIdentityId,
+        input.memberWorkspacesByIdentityId,
         input.currentWorkspaceId,
       ),
   )
-  const [preferredIdentities, fallbackIdentities] = eligibleIdentities.reduce<
-    [RandomizableIdentity[], RandomizableIdentity[]]
-  >(
-    (groups, identity) => {
-      if (
-        getOtherWorkspaceMemberWorkspaces(
-          identity.id,
-          input.memberWorkspacesByIdentityId,
-          input.currentWorkspaceId,
-        ).length
-      ) {
-        groups[1].push(identity)
-      } else {
-        groups[0].push(identity)
-      }
 
-      return groups
-    },
-    [[], []],
-  )
-
-  return [
-    ...shuffleItems(preferredIdentities),
-    ...shuffleItems(fallbackIdentities),
-  ][0]
+  return shuffleItems(eligibleIdentities)[0]
 }
 
 export function getRandomWorkspaceMemberSelection(input: {

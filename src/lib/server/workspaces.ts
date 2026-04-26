@@ -665,20 +665,20 @@ async function replaceWorkspaceMembers(
 }
 
 async function assertWorkspaceOwnerAvailability(
-  ownerIdentityId: string | null,
+  ownerIdentity: ManagedIdentityLookupRow | null,
   currentWorkspaceId?: string,
 ) {
-  if (!ownerIdentityId) {
+  if (!ownerIdentity) {
     return
   }
 
   const duplicate = await getDb().query.managedWorkspaces.findFirst({
     where: currentWorkspaceId
       ? and(
-          eq(managedWorkspaces.ownerIdentityId, ownerIdentityId),
+          eq(managedWorkspaces.ownerIdentityId, ownerIdentity.identityId),
           notInArray(managedWorkspaces.id, [currentWorkspaceId]),
         )
-      : eq(managedWorkspaces.ownerIdentityId, ownerIdentityId),
+      : eq(managedWorkspaces.ownerIdentityId, ownerIdentity.identityId),
     columns: {
       id: true,
       workspaceId: true,
@@ -689,6 +689,43 @@ async function assertWorkspaceOwnerAvailability(
   if (duplicate) {
     throw new Error(
       `This identity already owns workspace ${duplicate.label || duplicate.workspaceId || 'unnamed workspace'}.`,
+    )
+  }
+
+  const ownerEmail = normalizeEmail(ownerIdentity.email)
+  const memberMatch = await getDb().query.managedWorkspaceMembers.findFirst({
+    where: currentWorkspaceId
+      ? and(
+          or(
+            eq(managedWorkspaceMembers.identityId, ownerIdentity.identityId),
+            eq(managedWorkspaceMembers.email, ownerEmail),
+          ),
+          notInArray(managedWorkspaceMembers.managedWorkspaceId, [
+            currentWorkspaceId,
+          ]),
+        )
+      : or(
+          eq(managedWorkspaceMembers.identityId, ownerIdentity.identityId),
+          eq(managedWorkspaceMembers.email, ownerEmail),
+        ),
+    columns: {
+      id: true,
+    },
+    with: {
+      workspace: {
+        columns: {
+          id: true,
+          workspaceId: true,
+          label: true,
+        },
+      },
+    },
+  })
+
+  if (memberMatch) {
+    const workspace = memberMatch.workspace
+    throw new Error(
+      `This identity already belongs to workspace ${workspace?.label || workspace?.workspaceId || 'unnamed workspace'}.`,
     )
   }
 }
@@ -828,7 +865,7 @@ export async function createManagedWorkspace(input: {
     memberEmails: input.memberEmails,
   })
 
-  await assertWorkspaceOwnerAvailability(ownerIdentityId)
+  await assertWorkspaceOwnerAvailability(ownerIdentity)
   validateManagedWorkspaceMembership({
     ownerIdentity,
     members: memberInputs,
@@ -916,7 +953,7 @@ export async function updateManagedWorkspace(
         })
       : await listWorkspaceMemberInputs(existing.id)
 
-  await assertWorkspaceOwnerAvailability(ownerIdentityId, id)
+  await assertWorkspaceOwnerAvailability(ownerIdentity, id)
   validateManagedWorkspaceMembership({
     ownerIdentity,
     members: nextMemberInputs,
@@ -1126,7 +1163,7 @@ export async function syncManagedWorkspaceInvite(input: {
     ...incomingMemberInputs,
   ])
 
-  await assertWorkspaceOwnerAvailability(ownerIdentityId, existing?.id)
+  await assertWorkspaceOwnerAvailability(ownerIdentity, existing?.id)
   validateManagedWorkspaceMembership({
     ownerIdentity,
     members: mergedMemberInputs,

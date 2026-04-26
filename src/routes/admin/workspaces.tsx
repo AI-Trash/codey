@@ -63,10 +63,10 @@ import {
 } from '#/components/ui/table'
 import type { RandomWorkspaceMemberConflict } from '#/lib/admin/workspace-editor-random'
 import {
-  getOtherWorkspaceMemberWorkspaces,
   getOtherWorkspaceOwnerWorkspace,
   getRandomWorkspaceMemberSelection,
   getRandomWorkspaceOwnerIdentity,
+  hasOtherWorkspaceAssociations,
   isWorkspaceSelectableIdentity,
 } from '#/lib/admin/workspace-editor-random'
 import { translateStatusLabel } from '#/lib/i18n'
@@ -228,11 +228,6 @@ type PendingAuthorizationReset =
       memberLabel: string
     }
 
-type RandomOwnerConfirmationState = {
-  identity: IdentitySummary
-  memberWorkspaces: WorkspaceSummary[]
-}
-
 type RandomMemberConfirmationState = {
   identityIds: string[]
   conflicts: RandomWorkspaceMemberConflict[]
@@ -338,6 +333,10 @@ function filterIdentitySummaries(
         .includes(normalizedQuery),
     )
   })
+}
+
+function normalizeIdentityAccount(value?: string | null) {
+  return value?.trim().toLowerCase() || ''
 }
 
 function getWorkspaceDisplayLabel(
@@ -725,8 +724,6 @@ function WorkspaceEditorDialog(props: {
 }) {
   const [ownerQuery, setOwnerQuery] = useState('')
   const [memberQuery, setMemberQuery] = useState('')
-  const [pendingRandomOwner, setPendingRandomOwner] =
-    useState<RandomOwnerConfirmationState | null>(null)
   const [pendingRandomMembers, setPendingRandomMembers] =
     useState<RandomMemberConfirmationState | null>(null)
 
@@ -737,7 +734,6 @@ function WorkspaceEditorDialog(props: {
 
     setOwnerQuery('')
     setMemberQuery('')
-    setPendingRandomOwner(null)
     setPendingRandomMembers(null)
   }, [props.editor.id, props.open])
 
@@ -779,7 +775,85 @@ function WorkspaceEditorDialog(props: {
 
     return entries
   }, [props.workspaces])
-  const ownerPickerIdentities = selectableIdentities
+  const memberWorkspacesByAccount = useMemo(() => {
+    const entries = new Map<string, WorkspaceSummary[]>()
+
+    for (const workspace of props.workspaces) {
+      for (const member of workspace.members) {
+        const account = normalizeIdentityAccount(member.email)
+        if (!account) {
+          continue
+        }
+
+        const memberWorkspaces = entries.get(account) || []
+
+        if (!memberWorkspaces.some((entry) => entry.id === workspace.id)) {
+          memberWorkspaces.push(workspace)
+        }
+
+        entries.set(account, memberWorkspaces)
+      }
+    }
+
+    return entries
+  }, [props.workspaces])
+  const ownerPickerIdentities = useMemo(() => {
+    return selectableIdentities.filter(
+      (identity) => {
+        const hasOtherIdentityAssociation = hasOtherWorkspaceAssociations(
+          identity.id,
+          ownerWorkspaceByIdentityId,
+          memberWorkspacesByIdentityId,
+          props.editor.id,
+        )
+        if (hasOtherIdentityAssociation) {
+          return false
+        }
+
+        const account = normalizeIdentityAccount(identity.account)
+        const otherAccountMemberWorkspaces = account
+          ? memberWorkspacesByAccount
+              .get(account)
+              ?.some((workspace) => workspace.id !== props.editor.id)
+          : false
+
+        return !otherAccountMemberWorkspaces
+      },
+    )
+  }, [
+    memberWorkspacesByAccount,
+    memberWorkspacesByIdentityId,
+    ownerWorkspaceByIdentityId,
+    props.editor.id,
+    selectableIdentities,
+  ])
+  useEffect(() => {
+    const ownerIdentityId = props.editor.ownerIdentityId
+    if (!props.open || props.editor.id || !ownerIdentityId) {
+      return
+    }
+
+    if (
+      ownerPickerIdentities.some((identity) => identity.id === ownerIdentityId)
+    ) {
+      return
+    }
+
+    props.onEditorChange((current) =>
+      current.ownerIdentityId === ownerIdentityId
+        ? {
+            ...current,
+            ownerIdentityId: '',
+          }
+        : current,
+    )
+  }, [
+    ownerPickerIdentities,
+    props.editor.id,
+    props.editor.ownerIdentityId,
+    props.onEditorChange,
+    props.open,
+  ])
   const memberPickerIdentities = selectableIdentities
   const selectedMemberIds = useMemo(
     () => new Set(props.editor.memberIdentityIds),
@@ -799,15 +873,7 @@ function WorkspaceEditorDialog(props: {
   const memberCapReached =
     props.editor.memberIdentityIds.length >= MAX_WORKSPACE_MEMBER_COUNT
   const canRandomizeOwner =
-    !props.editor.id &&
-    ownerPickerIdentities.some(
-      (identity) =>
-        !getOtherWorkspaceOwnerWorkspace(
-          identity.id,
-          ownerWorkspaceByIdentityId,
-          props.editor.id,
-        ),
-    )
+    !props.editor.id && ownerPickerIdentities.length > 0
   const canRandomizeMembers =
     !props.editor.id &&
     Boolean(props.editor.ownerIdentityId) &&
@@ -865,20 +931,6 @@ function WorkspaceEditorDialog(props: {
     })
 
     if (!nextOwner) {
-      return
-    }
-
-    const otherMemberWorkspaces = getOtherWorkspaceMemberWorkspaces(
-      nextOwner.id,
-      memberWorkspacesByIdentityId,
-      props.editor.id,
-    )
-
-    if (otherMemberWorkspaces.length) {
-      setPendingRandomOwner({
-        identity: nextOwner,
-        memberWorkspaces: otherMemberWorkspaces,
-      })
       return
     }
 
@@ -1277,71 +1329,6 @@ function WorkspaceEditorDialog(props: {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog
-        open={Boolean(pendingRandomOwner)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPendingRandomOwner(null)
-          }
-        }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {m.admin_workspace_owner_random_confirm_title()}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingRandomOwner
-                ? m.admin_workspace_owner_random_confirm_description({
-                    identity: pendingRandomOwner.identity.label,
-                    count: String(pendingRandomOwner.memberWorkspaces.length),
-                  })
-                : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {pendingRandomOwner ? (
-            <div className="space-y-3">
-              <Badge variant="secondary" className="max-w-full">
-                <span className="truncate">
-                  {pendingRandomOwner.identity.label}
-                  {pendingRandomOwner.identity.account
-                    ? ` · ${pendingRandomOwner.identity.account}`
-                    : ''}
-                </span>
-              </Badge>
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {m.admin_workspace_owner_random_confirm_memberships_label()}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {pendingRandomOwner.memberWorkspaces.map((workspace) => (
-                    <Badge key={workspace.id} variant="outline">
-                      {getWorkspaceDisplayLabel(workspace)}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-          <AlertDialogFooter>
-            <AlertDialogCancel>{m.ui_close()}</AlertDialogCancel>
-            <Button
-              type="button"
-              onClick={() => {
-                if (!pendingRandomOwner) {
-                  return
-                }
-
-                selectOwner(pendingRandomOwner.identity.id)
-                setPendingRandomOwner(null)
-              }}
-            >
-              {m.admin_workspace_owner_random_confirm_button()}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog
         open={Boolean(pendingRandomMembers)}

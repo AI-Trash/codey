@@ -31,6 +31,72 @@ describe('workspace owner random selection', () => {
 
     expect(selection?.id).toBe('owner-active')
   })
+
+  it('only selects identities without other workspace ownership or membership', () => {
+    const selection = getRandomWorkspaceOwnerIdentity({
+      identities: [
+        {
+          id: 'owner-other-workspace',
+          label: 'Other Owner',
+        },
+        {
+          id: 'member-other-workspace',
+          label: 'Other Member',
+        },
+        {
+          id: 'owner-clean',
+          label: 'Clean Owner',
+        },
+      ],
+      ownerWorkspaceByIdentityId: new Map([
+        [
+          'owner-other-workspace',
+          {
+            id: 'workspace-owner',
+            label: 'Owner Workspace',
+          },
+        ],
+      ]),
+      memberWorkspacesByIdentityId: new Map([
+        [
+          'member-other-workspace',
+          [
+            {
+              id: 'workspace-member',
+              label: 'Member Workspace',
+            },
+          ],
+        ],
+      ]),
+    })
+
+    expect(selection?.id).toBe('owner-clean')
+  })
+
+  it('does not fall back to identities that are members elsewhere', () => {
+    const selection = getRandomWorkspaceOwnerIdentity({
+      identities: [
+        {
+          id: 'member-other-workspace',
+          label: 'Other Member',
+        },
+      ],
+      ownerWorkspaceByIdentityId: new Map(),
+      memberWorkspacesByIdentityId: new Map([
+        [
+          'member-other-workspace',
+          [
+            {
+              id: 'workspace-member',
+              label: 'Member Workspace',
+            },
+          ],
+        ],
+      ]),
+    })
+
+    expect(selection).toBeUndefined()
+  })
 })
 
 describe('workspace member random selection', () => {
