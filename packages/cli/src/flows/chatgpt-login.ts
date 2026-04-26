@@ -44,7 +44,7 @@ import {
   submitLoginEmail,
   waitForPasswordInputReady,
   waitForPostEmailLoginCandidates,
-  waitForProfileReady,
+  createChatGPTBackendMeSessionProbe,
   waitForVerificationCodeInputReady,
 } from '../modules/chatgpt/shared'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
@@ -433,16 +433,26 @@ async function sendLoginMachine(
   })
 }
 
-async function waitForRestoredChatGPTSession(page: Page): Promise<boolean> {
-  await page
-    .goto(CHATGPT_HOME_URL, { waitUntil: 'domcontentloaded' })
-    .catch(() => undefined)
-  await page
-    .locator('body')
-    .waitFor({ state: 'visible' })
-    .catch(() => undefined)
-  await page.waitForLoadState('networkidle').catch(() => undefined)
-  return waitForProfileReady(page, 8000)
+async function waitForRestoredChatGPTSession(
+  page: Page,
+  expectedEmail: string,
+): Promise<boolean> {
+  const backendMeProbe = createChatGPTBackendMeSessionProbe(page, {
+    expectedEmail,
+  })
+  try {
+    await page
+      .goto(CHATGPT_HOME_URL, { waitUntil: 'domcontentloaded' })
+      .catch(() => undefined)
+    await page
+      .locator('body')
+      .waitFor({ state: 'visible' })
+      .catch(() => undefined)
+    await page.waitForLoadState('networkidle').catch(() => undefined)
+    return backendMeProbe.wait(8000)
+  } finally {
+    backendMeProbe.dispose()
+  }
 }
 
 function shouldAttemptLocalStorageStateRestore(options: FlowOptions): boolean {
@@ -785,7 +795,10 @@ export async function loginChatGPT(
             'Checking whether local ChatGPT session state restores login',
         },
       )
-      const sessionRestored = await waitForRestoredChatGPTSession(page)
+      const sessionRestored = await waitForRestoredChatGPTSession(
+        page,
+        stored.identity.email,
+      )
       if (sessionRestored) {
         await sendLoginMachine(
           machine,

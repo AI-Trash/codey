@@ -15,7 +15,9 @@ const waitForAuthenticatedSession = vi.fn()
 const waitForLoginSurface = vi.fn()
 const waitForPasswordInputReady = vi.fn()
 const waitForPostEmailLoginCandidates = vi.fn()
-const waitForProfileReady = vi.fn()
+const createChatGPTBackendMeSessionProbe = vi.fn()
+const waitForBackendMeSession = vi.fn()
+const disposeBackendMeSessionProbe = vi.fn()
 const waitForVerificationCodeInputReady = vi.fn()
 const syncManagedIdentityToCodeyApp = vi.fn()
 
@@ -48,6 +50,7 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   CHATGPT_HOME_URL: 'https://chatgpt.com/',
   clickLoginEntryIfPresent,
   completePasswordOrVerificationLoginFallback,
+  createChatGPTBackendMeSessionProbe,
   gotoLoginEntry,
   logStep,
   submitLoginEmail,
@@ -55,7 +58,6 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   waitForLoginSurface,
   waitForPasswordInputReady,
   waitForPostEmailLoginCandidates,
-  waitForProfileReady,
   waitForVerificationCodeInputReady,
 }))
 
@@ -134,7 +136,12 @@ describe('loginChatGPT local storage-state restore', () => {
     waitForLoginSurface.mockResolvedValue('email')
     waitForPasswordInputReady.mockResolvedValue(true)
     waitForPostEmailLoginCandidates.mockResolvedValue(['password'])
-    waitForProfileReady.mockResolvedValue(false)
+    waitForBackendMeSession.mockResolvedValue(false)
+    disposeBackendMeSessionProbe.mockReturnValue(undefined)
+    createChatGPTBackendMeSessionProbe.mockReturnValue({
+      wait: waitForBackendMeSession,
+      dispose: disposeBackendMeSessionProbe,
+    })
     waitForVerificationCodeInputReady.mockResolvedValue(false)
     syncManagedIdentityToCodeyApp.mockResolvedValue(undefined)
   })
@@ -197,7 +204,7 @@ describe('loginChatGPT local storage-state restore', () => {
   })
 
   it('falls back to normal login when the loaded local storage state does not restore a profile', async () => {
-    waitForProfileReady.mockResolvedValueOnce(false)
+    waitForBackendMeSession.mockResolvedValueOnce(false)
     waitForAuthenticatedSession
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(false)
@@ -217,6 +224,9 @@ describe('loginChatGPT local storage-state restore', () => {
     expect(page.goto).toHaveBeenCalledWith('https://chatgpt.com/', {
       waitUntil: 'domcontentloaded',
     })
+    expect(createChatGPTBackendMeSessionProbe).toHaveBeenCalledWith(page, {
+      expectedEmail: 'person@example.com',
+    })
     expect(gotoLoginEntry).toHaveBeenCalledTimes(1)
     expect(result.method).toBe('password')
     expect(progressReporter).toHaveBeenCalledWith({
@@ -226,7 +236,7 @@ describe('loginChatGPT local storage-state restore', () => {
   })
 
   it('keeps the restored-session path only when the loaded local storage state restores a profile', async () => {
-    waitForProfileReady.mockResolvedValueOnce(true)
+    waitForBackendMeSession.mockResolvedValueOnce(true)
 
     const page = createPage()
     const { loginChatGPT } = await import('../src/flows/chatgpt-login')

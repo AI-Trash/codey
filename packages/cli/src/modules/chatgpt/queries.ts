@@ -1,4 +1,4 @@
-import type { Locator, Page } from 'patchright'
+import type { Locator, Page, Request } from 'patchright'
 import { toLocator } from '../../utils/selectors'
 import type { SelectorTarget } from '../../types'
 import { sleep } from '../../utils/wait'
@@ -75,6 +75,42 @@ const CHATGPT_NEW_USER_ONBOARDING_ANNOUNCEMENT_KEYS = [
   'oai/apps/hasSeenPromptOnboarding',
 ] as const
 const SELECTOR_STATE_POLL_INTERVAL_MS = 100
+const CHATGPT_BACKEND_ORIGIN = new URL(CHATGPT_HOME_URL).origin
+const CHATGPT_BACKEND_ME_PATH = '/backend-api/me'
+const CHATGPT_BACKEND_ME_URL = `${CHATGPT_BACKEND_ORIGIN}${CHATGPT_BACKEND_ME_PATH}`
+const CHATGPT_BACKEND_ME_ROUTE = '/backend-api/me'
+const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+const CHATGPT_BACKEND_FORWARDABLE_HEADERS: Array<
+  [source: string, target: string]
+> = [
+  ['authorization', 'Authorization'],
+  ['chatgpt-account-id', 'ChatGPT-Account-ID'],
+  ['oai-client-build-number', 'OAI-Client-Build-Number'],
+  ['oai-client-version', 'OAI-Client-Version'],
+  ['oai-device-id', 'OAI-Device-Id'],
+  ['oai-language', 'OAI-Language'],
+  ['oai-session-id', 'OAI-Session-Id'],
+]
+
+interface CapturedChatGPTBackendApiHeaders {
+  headers: Record<string, string>
+  accountId?: string
+  isMeRequest: boolean
+  capturedAt: number
+}
+
+interface ChatGPTBackendMeProbeResponse {
+  ok: boolean
+  status: number
+  url: string
+  text: string
+  error?: string
+}
+
+export interface ChatGPTBackendMeSessionProbe {
+  wait(timeoutMs?: number): Promise<boolean>
+  dispose(): void
+}
 
 export function isChatGPTHomeUrl(url: string): boolean {
   return (
@@ -130,6 +166,268 @@ export async function waitForAnySelectorState(
   } while (Date.now() <= deadline)
 
   return false
+}
+
+export function createChatGPTBackendMeSessionProbe(
+  page: Page,
+  options: {
+    expectedEmail?: string
+  } = {},
+): ChatGPTBackendMeSessionProbe {
+  const captures: CapturedChatGPTBackendApiHeaders[] = []
+  const handleRequest = (request: Request) => {
+    const url = request.url()
+    if (!url.startsWith(`${CHATGPT_BACKEND_ORIGIN}/backend-api/`)) {
+      return
+    }
+
+    const headers = normalizeHeaderRecord(request.headers())
+    if (!headers.authorization && !headers['chatgpt-account-id']) {
+      return
+    }
+
+    captures.push({
+      headers,
+      accountId: extractAccountIdFromBackendApiRequest(url, headers),
+      isMeRequest: isChatGPTBackendMeUrl(url),
+      capturedAt: Date.now(),
+    })
+  }
+
+  page.on('request', handleRequest)
+
+  return {
+    async wait(timeoutMs = DEFAULT_EVENT_TIMEOUT_MS) {
+      const deadline = Date.now() + Math.max(0, timeoutMs)
+
+      do {
+        const capture = pickBestChatGPTBackendApiHeaders(captures)
+        const accountId =
+          capture?.accountId || (await readCurrentChatGPTAccountCookie(page))
+        const response = await fetchChatGPTBackendMe(page, {
+          accountId,
+          requestHeaders: capture?.headers,
+        })
+        if (isAuthenticatedChatGPTBackendMeResponse(response, options)) {
+          return true
+        }
+
+        await sleep(Math.min(250, Math.max(1, deadline - Date.now())))
+      } while (Date.now() < deadline)
+
+      return false
+    },
+    dispose() {
+      page.off('request', handleRequest)
+    },
+  }
+}
+
+async function fetchChatGPTBackendMe(
+  page: Page,
+  options: {
+    accountId?: string
+    requestHeaders?: Record<string, string>
+  } = {},
+): Promise<ChatGPTBackendMeProbeResponse> {
+  const headers = buildChatGPTBackendMeHeaders(options)
+  return page
+    .evaluate(
+      async ({ url, requestHeaders }) => {
+        try {
+          const response = await fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: requestHeaders,
+          })
+          const text = await response.text()
+          return {
+            ok: response.ok,
+            status: response.status,
+            url: response.url,
+            text,
+          }
+        } catch (error) {
+          return {
+            ok: false,
+            status: 0,
+            url,
+            text: '',
+            error: error instanceof Error ? error.message : String(error),
+          }
+        }
+      },
+      {
+        url: CHATGPT_BACKEND_ME_URL,
+        requestHeaders: headers,
+      },
+    )
+    .catch((error) => ({
+      ok: false,
+      status: 0,
+      url: CHATGPT_BACKEND_ME_URL,
+      text: '',
+      error: error instanceof Error ? error.message : String(error),
+    }))
+}
+
+function buildChatGPTBackendMeHeaders(options: {
+  accountId?: string
+  requestHeaders?: Record<string, string>
+}): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-OpenAI-Target-Path': CHATGPT_BACKEND_ME_PATH,
+    'X-OpenAI-Target-Route': CHATGPT_BACKEND_ME_ROUTE,
+  }
+
+  if (options.accountId) {
+    headers['ChatGPT-Account-ID'] = options.accountId
+  }
+
+  for (const [source, target] of CHATGPT_BACKEND_FORWARDABLE_HEADERS) {
+    const value = options.requestHeaders?.[source]
+    if (value) {
+      headers[target] = value
+    }
+  }
+
+  return headers
+}
+
+function isAuthenticatedChatGPTBackendMeResponse(
+  response: ChatGPTBackendMeProbeResponse,
+  options: {
+    expectedEmail?: string
+  },
+): boolean {
+  if (!response.ok || response.status < 200 || response.status >= 300) {
+    return false
+  }
+
+  const expectedEmail = normalizeEmail(options.expectedEmail)
+  if (!expectedEmail) {
+    return true
+  }
+
+  const emails = extractEmailsFromJsonText(response.text)
+  return emails.length === 0 || emails.includes(expectedEmail)
+}
+
+function extractEmailsFromJsonText(text: string): string[] {
+  if (!text.trim()) {
+    return []
+  }
+
+  try {
+    return Array.from(extractEmailsFromValue(JSON.parse(text) as unknown))
+  } catch {
+    return normalizeEmails(text.match(EMAIL_PATTERN) || [])
+  }
+}
+
+function extractEmailsFromValue(
+  value: unknown,
+  output = new Set<string>(),
+): Set<string> {
+  if (!value) {
+    return output
+  }
+
+  if (typeof value === 'string') {
+    for (const email of normalizeEmails(value.match(EMAIL_PATTERN) || [])) {
+      output.add(email)
+    }
+    return output
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      extractEmailsFromValue(entry, output)
+    }
+    return output
+  }
+
+  if (typeof value === 'object') {
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      extractEmailsFromValue(entry, output)
+    }
+  }
+
+  return output
+}
+
+function normalizeEmails(values: Iterable<string>): string[] {
+  return Array.from(
+    new Set(
+      Array.from(values)
+        .map((value) => normalizeEmail(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  )
+}
+
+function normalizeEmail(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase()
+  return normalized || undefined
+}
+
+function normalizeHeaderRecord(
+  headers: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]),
+  )
+}
+
+async function readCurrentChatGPTAccountCookie(
+  page: Page,
+): Promise<string | undefined> {
+  const cookie = (
+    await page
+      .context()
+      .cookies(CHATGPT_HOME_URL)
+      .catch(() => [])
+  ).find((entry) => entry.name === '_account')
+  return cookie?.value || undefined
+}
+
+function extractAccountIdFromBackendApiRequest(
+  url: string,
+  headers: Record<string, string>,
+): string | undefined {
+  const accountMatch = url.match(/\/backend-api\/accounts\/([^/?]+)/i)
+  return accountMatch?.[1] || headers['chatgpt-account-id'] || undefined
+}
+
+function isChatGPTBackendMeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return (
+      parsed.origin === CHATGPT_BACKEND_ORIGIN &&
+      parsed.pathname === CHATGPT_BACKEND_ME_PATH
+    )
+  } catch {
+    return false
+  }
+}
+
+function pickBestChatGPTBackendApiHeaders(
+  captures: CapturedChatGPTBackendApiHeaders[],
+): CapturedChatGPTBackendApiHeaders | undefined {
+  return [...captures].sort((left, right) => {
+    const leftScore =
+      Number(left.isMeRequest) * 8 +
+      Number(Boolean(left.headers.authorization)) * 4 +
+      Number(Boolean(left.accountId)) * 2
+    const rightScore =
+      Number(right.isMeRequest) * 8 +
+      Number(Boolean(right.headers.authorization)) * 4 +
+      Number(Boolean(right.accountId)) * 2
+
+    return rightScore - leftScore || right.capturedAt - left.capturedAt
+  })[0]
 }
 
 export async function waitForUrlMatch(
