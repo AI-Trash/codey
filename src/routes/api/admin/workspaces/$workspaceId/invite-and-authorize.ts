@@ -47,7 +47,7 @@ export const Route = createFileRoute(
             workflowId: result.workflowId,
             workspace: result.workspace,
             memberEmails: result.memberEmails,
-            queuedLoginCount: result.queuedLoginCount,
+            queuedInviteCount: result.queuedInviteCount,
             assignedCliCount: result.assignedCliCount,
             connectionId: result.connectionId,
             connectionLabel: result.connectionLabel,

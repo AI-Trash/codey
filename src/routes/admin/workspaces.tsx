@@ -209,7 +209,7 @@ type DispatchWorkspaceInviteAuthorizeResponse = {
   workflowId: string
   workspace: WorkspaceSummary
   memberEmails: string[]
-  queuedLoginCount: number
+  queuedInviteCount: number
   assignedCliCount?: number
   connectionLabel?: string
 }
