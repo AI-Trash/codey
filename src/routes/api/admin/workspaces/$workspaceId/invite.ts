@@ -94,6 +94,17 @@ function buildWorkspaceInviteNotes(input: {
   return lines.join('\n')
 }
 
+function shouldMarkInvitePending(member: {
+  authorization?: { state?: string } | null
+  inviteStatus?: string | null
+}) {
+  return (
+    member.authorization?.state !== 'authorized' &&
+    member.inviteStatus !== 'INVITED' &&
+    member.inviteStatus !== 'PENDING'
+  )
+}
+
 export const Route = createFileRoute(
   '/api/admin/workspaces/$workspaceId/invite',
 )({
@@ -155,6 +166,14 @@ export const Route = createFileRoute(
               .filter(Boolean),
           ),
         )
+        const pendingInviteStatusEmails = Array.from(
+          new Set(
+            selectedMembers
+              .filter(shouldMarkInvitePending)
+              .map((member) => member.email.trim().toLowerCase())
+              .filter(Boolean),
+          ),
+        )
 
         if (
           memberEmails.some(
@@ -190,6 +209,7 @@ export const Route = createFileRoute(
               config: {
                 identityId: workspace.owner.identityId,
                 inviteEmail: memberEmails,
+                pruneUnmanagedWorkspaceMembers: !memberIds?.length,
               },
               metadata: {
                 workspace: {
@@ -202,7 +222,7 @@ export const Route = createFileRoute(
             })
             await markManagedWorkspaceMemberInviteStatus({
               workspaceRecordId: workspace.id,
-              emails: memberEmails,
+              emails: pendingInviteStatusEmails,
               status: 'PENDING',
             })
 
@@ -235,7 +255,7 @@ export const Route = createFileRoute(
           })
           await markManagedWorkspaceMemberInviteStatus({
             workspaceRecordId: workspace.id,
-            emails: memberEmails,
+            emails: pendingInviteStatusEmails,
             status: 'PENDING',
           })
 

@@ -1283,6 +1283,10 @@ withCommonOptions(
       '--inviteFile <file>',
       'CSV or JSON file containing invite email addresses',
     )
+    .option(
+      '--pruneUnmanagedWorkspaceMembers <bool>',
+      'Remove ChatGPT workspace users not present in the invite list before inviting',
+    )
     .example(
       'codey flow chatgpt-invite --inviteEmail a@example.com --inviteEmail b@example.com',
     )

@@ -54,6 +54,7 @@ export interface FlowOptions extends CommonOptions {
   redirectPort?: number
   inviteEmail?: string[]
   inviteFile?: string
+  pruneUnmanagedWorkspaceMembers?: boolean
   chatgptStorageStatePath?: string
   chatgptStorageStateIdentityId?: string
   chatgptStorageStateEmail?: string
@@ -308,12 +309,14 @@ function formatInviteCounts(
   const invited = asStringArray(result.invitedEmails)?.length
   const skipped = asStringArray(result.skippedEmails)?.length
   const errored = asStringArray(result.erroredEmails)?.length
+  const removed = asStringArray(result.removedMemberEmails)?.length
 
   const parts = [
     requested != null ? `requested ${requested}` : undefined,
     invited != null ? `invited ${invited}` : undefined,
     skipped != null ? `skipped ${skipped}` : undefined,
     errored != null ? `errored ${errored}` : undefined,
+    removed != null ? `removed ${removed}` : undefined,
   ].filter((part): part is string => Boolean(part))
 
   return parts.length ? parts.join(', ') : undefined

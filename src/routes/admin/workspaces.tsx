@@ -480,14 +480,6 @@ function WorkspaceInviteStatusBadge(props: {
   )
 }
 
-function isWorkspaceInviteable(member: WorkspaceMemberSummary) {
-  if (isWorkspaceAuthorized(member.authorization)) {
-    return false
-  }
-
-  return member.inviteStatus !== 'INVITED' && member.inviteStatus !== 'PENDING'
-}
-
 function escapeCsvValue(value: string) {
   const normalizedValue = value.replaceAll('"', '""')
   return /[",\r\n]/.test(normalizedValue)
@@ -776,6 +768,23 @@ function SelectedMemberBadges(props: {
   )
 }
 
+function mergeWorkspaceMemberIdentityIds(values: Iterable<string>): string[] {
+  const deduped = new Set<string>()
+  const identityIds: string[] = []
+
+  for (const value of values) {
+    const identityId = value.trim()
+    if (!identityId || deduped.has(identityId)) {
+      continue
+    }
+
+    deduped.add(identityId)
+    identityIds.push(identityId)
+  }
+
+  return identityIds.slice(0, MAX_WORKSPACE_MEMBER_COUNT)
+}
+
 function WorkspaceEditorDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -936,8 +945,14 @@ function WorkspaceEditorDialog(props: {
   const selectedOwner = props.editor.ownerIdentityId
     ? identityById.get(props.editor.ownerIdentityId) || null
     : null
-  const memberCapReached =
-    props.editor.memberIdentityIds.length >= MAX_WORKSPACE_MEMBER_COUNT
+  const selectedMemberCount =
+    props.editor.memberIdentityIds.length +
+    props.editor.legacyMemberEmails.length
+  const memberCapReached = selectedMemberCount >= MAX_WORKSPACE_MEMBER_COUNT
+  const remainingMemberSlots = Math.max(
+    0,
+    MAX_WORKSPACE_MEMBER_COUNT - selectedMemberCount,
+  )
   const canChooseLatestOwner =
     !props.editor.id && ownerPickerIdentities.length > 0
   const canRandomizeMembers =
@@ -945,6 +960,14 @@ function WorkspaceEditorDialog(props: {
     Boolean(props.editor.ownerIdentityId) &&
     memberPickerIdentities.some(
       (identity) => identity.id !== props.editor.ownerIdentityId,
+    )
+  const canRandomlySupplementMembers =
+    Boolean(props.editor.ownerIdentityId) &&
+    remainingMemberSlots > 0 &&
+    memberPickerIdentities.some(
+      (identity) =>
+        identity.id !== props.editor.ownerIdentityId &&
+        !selectedMemberIds.has(identity.id),
     )
 
   function setEditor(
@@ -977,7 +1000,10 @@ function WorkspaceEditorDialog(props: {
         }
       }
 
-      if (current.memberIdentityIds.length >= MAX_WORKSPACE_MEMBER_COUNT) {
+      if (
+        current.memberIdentityIds.length + current.legacyMemberEmails.length >=
+        MAX_WORKSPACE_MEMBER_COUNT
+      ) {
         return current
       }
 
@@ -1003,28 +1029,47 @@ function WorkspaceEditorDialog(props: {
     selectOwner(nextOwner.id)
   }
 
-  function randomizeMembers() {
+  function randomizeMembers(mode: 'replace' | 'supplement') {
     if (!props.editor.ownerIdentityId) {
       return
     }
 
+    const identities =
+      mode === 'supplement'
+        ? memberPickerIdentities.filter(
+            (identity) => !selectedMemberIds.has(identity.id),
+          )
+        : memberPickerIdentities
     const selection = getRandomWorkspaceMemberSelection({
-      identities: memberPickerIdentities,
+      identities,
       ownerIdentityId: props.editor.ownerIdentityId,
       ownerWorkspaceByIdentityId,
       memberWorkspacesByIdentityId,
       currentWorkspaceId: props.editor.id,
-      count: MAX_WORKSPACE_MEMBER_COUNT,
+      count:
+        mode === 'supplement'
+          ? remainingMemberSlots
+          : MAX_WORKSPACE_MEMBER_COUNT,
     })
+    const nextSelection = {
+      ...selection,
+      identityIds:
+        mode === 'supplement'
+          ? mergeWorkspaceMemberIdentityIds([
+              ...props.editor.memberIdentityIds,
+              ...selection.identityIds,
+            ])
+          : selection.identityIds,
+    }
 
     if (selection.conflicts.length) {
-      setPendingRandomMembers(selection)
+      setPendingRandomMembers(nextSelection)
       return
     }
 
     setEditor((current) => ({
       ...current,
-      memberIdentityIds: selection.identityIds,
+      memberIdentityIds: nextSelection.identityIds,
     }))
   }
 
@@ -1222,7 +1267,7 @@ function WorkspaceEditorDialog(props: {
                 </div>
                 <Badge variant="outline">
                   {m.admin_workspace_members_count({
-                    count: String(props.editor.memberIdentityIds.length),
+                    count: String(selectedMemberCount),
                     max: String(MAX_WORKSPACE_MEMBER_COUNT),
                   })}
                 </Badge>
@@ -1232,28 +1277,47 @@ function WorkspaceEditorDialog(props: {
                   max: String(MAX_WORKSPACE_MEMBER_COUNT),
                 })}
               </p>
-              {!props.editor.id ? (
-                <div className="space-y-2">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {!props.editor.id ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto"
+                      disabled={!canRandomizeMembers}
+                      onClick={() => {
+                        randomizeMembers('replace')
+                      }}
+                    >
+                      <RefreshCcwIcon className="size-4" />
+                      {m.admin_workspace_member_random_button({
+                        count: String(MAX_WORKSPACE_MEMBER_COUNT),
+                      })}
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     className="w-full sm:w-auto"
-                    disabled={!canRandomizeMembers}
-                    onClick={randomizeMembers}
+                    disabled={!canRandomlySupplementMembers}
+                    onClick={() => {
+                      randomizeMembers('supplement')
+                    }}
                   >
-                    <RefreshCcwIcon className="size-4" />
-                    {m.admin_workspace_member_random_button({
-                      count: String(MAX_WORKSPACE_MEMBER_COUNT),
+                    <PlusIcon className="size-4" />
+                    {m.admin_workspace_member_random_supplement_button({
+                      count: String(remainingMemberSlots),
                     })}
                   </Button>
-                  {!props.editor.ownerIdentityId ? (
-                    <p className="text-xs text-muted-foreground">
-                      {m.admin_workspace_member_random_requires_owner()}
-                    </p>
-                  ) : null}
                 </div>
-              ) : null}
+                {!props.editor.ownerIdentityId ? (
+                  <p className="text-xs text-muted-foreground">
+                    {m.admin_workspace_member_random_requires_owner()}
+                  </p>
+                ) : null}
+              </div>
               <SelectedMemberBadges
                 identityById={identityById}
                 memberIdentityIds={props.editor.memberIdentityIds}
@@ -1554,30 +1618,20 @@ function WorkspaceDetailDialog(props: {
     }
   }
 
-  async function handleInvite(memberIds?: string[]) {
+  async function handleInvite() {
     if (!props.workspace) {
       return
     }
 
-    const requestedMemberIds = memberIds?.length
-      ? memberIds
-      : props.workspace.members
-          .filter((member) => !isWorkspaceAuthorized(member.authorization))
-          .map((member) => member.id)
-
-    if (!requestedMemberIds.length) {
+    if (!props.workspace.members.length) {
       return
     }
 
-    const actionKey = memberIds?.join('|') || 'all'
-    setInviteActionKey(actionKey)
+    setInviteActionKey('all')
     setLocalFlash(null)
 
     try {
-      const result = await dispatchWorkspaceInvite(
-        props.workspace.id,
-        requestedMemberIds,
-      )
+      const result = await dispatchWorkspaceInvite(props.workspace.id)
       const flash: FlashMessage =
         result.mode === 'dispatch'
           ? {
@@ -1763,10 +1817,6 @@ function WorkspaceDetailDialog(props: {
     unauthorizedMembers.length + (unauthorizedOwner ? 1 : 0)
   const workspaceAuthorizationIdentityCount =
     (props.workspace?.owner ? 1 : 0) + (props.workspace?.members.length || 0)
-  const inviteableMembers =
-    props.workspace?.members.filter((member) =>
-      isWorkspaceInviteable(member),
-    ) || []
   const hasResettableOwnerAuthorization = canResetWorkspaceAuthorization(
     props.workspace?.owner?.authorization,
     props.workspace?.owner?.identityId,
@@ -1790,7 +1840,7 @@ function WorkspaceDetailDialog(props: {
   const canInviteAll =
     props.canDispatchFlows &&
     Boolean(props.workspace?.owner?.identityId) &&
-    Boolean(inviteableMembers.length)
+    Boolean(props.workspace?.members.length)
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -2050,12 +2100,7 @@ function WorkspaceDetailDialog(props: {
                     >
                       {inviteActionKey === 'all'
                         ? m.admin_workspace_invite_running()
-                        : inviteableMembers.length === 0
-                          ? m.admin_workspace_invite_all_done_button()
-                          : inviteableMembers.length ===
-                              (props.workspace?.members.length || 0)
-                            ? m.admin_workspace_invite_all_button()
-                            : m.admin_workspace_invite_remaining_button()}
+                        : m.admin_workspace_invite_all_button()}
                     </Button>
                   </div>
                 </div>
@@ -2070,10 +2115,6 @@ function WorkspaceDetailDialog(props: {
                 ) : !props.workspace.owner ? (
                   <p className="text-sm text-muted-foreground">
                     {m.admin_workspace_invite_requires_owner()}
-                  </p>
-                ) : !inviteableMembers.length ? (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_all_done_hint()}
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
@@ -2133,30 +2174,6 @@ function WorkspaceDetailDialog(props: {
                           ) : null}
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          {isWorkspaceAuthorized(member.authorization) ? (
-                            <Button type="button" variant="secondary" disabled>
-                              {m.admin_workspace_authorization_authorized_button()}
-                            </Button>
-                          ) : !isWorkspaceInviteable(member) ? (
-                            <Button type="button" variant="secondary" disabled>
-                              {member.inviteStatus === 'PENDING'
-                                ? m.admin_workspace_invite_pending_button()
-                                : m.admin_workspace_invite_invited_button()}
-                            </Button>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              disabled={!canInviteAll || isMutating}
-                              onClick={() => {
-                                void handleInvite([member.id])
-                              }}
-                            >
-                              {inviteActionKey === member.id
-                                ? m.admin_workspace_invite_running()
-                                : m.admin_workspace_invite_member_button()}
-                            </Button>
-                          )}
                           <Button
                             type="button"
                             variant="outline"

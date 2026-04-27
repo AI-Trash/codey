@@ -50,6 +50,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'billingPostalCode'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'pruneUnmanagedWorkspaceMembers'
   | 'workspaceId'
   | 'workspaceIndex'
   | 'redirectPort'
@@ -77,6 +78,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'billingPostalCode'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'pruneUnmanagedWorkspaceMembers'
   | 'workspaceId'
   | 'workspaceIndex'
   | 'redirectPort'
@@ -104,6 +106,7 @@ export type CliFlowConfigFieldKey =
   | 'billingPostalCode'
   | 'inviteEmail'
   | 'inviteFile'
+  | 'pruneUnmanagedWorkspaceMembers'
   | 'workspaceId'
   | 'workspaceIndex'
   | 'redirectPort'
@@ -254,6 +257,12 @@ export interface ChatGPTInviteFlowConfig extends ChatGPTLoginFlowConfig {
    * Read invite email addresses from a CSV or JSON file.
    */
   inviteFile?: string
+
+  /**
+   * Remove existing ChatGPT workspace users that are not in the managed invite
+   * list before sending new invites.
+   */
+  pruneUnmanagedWorkspaceMembers?: boolean
 }
 
 /**
@@ -534,6 +543,13 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'inviteFile',
   },
   {
+    key: 'pruneUnmanagedWorkspaceMembers',
+    cliFlag: '--pruneUnmanagedWorkspaceMembers',
+    type: 'boolean',
+    displayNameKey: 'pruneUnmanagedWorkspaceMembers',
+    descriptionKey: 'pruneUnmanagedWorkspaceMembers',
+  },
+  {
     key: 'workspaceId',
     cliFlag: '--workspaceId',
     type: 'string',
@@ -603,6 +619,7 @@ export const cliFlowDefinitions = [
       'restoreStorageState',
       'inviteEmail',
       'inviteFile',
+      'pruneUnmanagedWorkspaceMembers',
     ],
   },
   {

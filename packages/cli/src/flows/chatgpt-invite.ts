@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'url'
 import {
+  parseBooleanFlag,
   sanitizeErrorForOutput,
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
@@ -90,7 +91,11 @@ export async function inviteChatGPTWorkspaceMembers(
   options.progressReporter?.({
     message: 'Inviting workspace members',
   })
-  const invites = await inviteWorkspaceMembers(page, inviteInputs.emails)
+  const invites = await inviteWorkspaceMembers(page, inviteInputs.emails, {
+    pruneUnmanagedWorkspaceMembers:
+      parseBooleanFlag(options.pruneUnmanagedWorkspaceMembers, false) ?? false,
+    protectedEmails: [login.email, login.storedIdentity.email],
+  })
   const workspaceId = invites.accountId || login.selectedWorkspaceId
   const linkedEmails = inviteInputs.emails.filter(
     (email) => !invites.erroredEmails.includes(email),

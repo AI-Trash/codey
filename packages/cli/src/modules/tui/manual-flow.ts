@@ -53,6 +53,7 @@ const flowOptionLabelByKey: Record<string, string> = {
   email: 'Shared identity email',
   inviteEmail: 'Invite email addresses',
   inviteFile: 'Invite CSV/JSON file',
+  pruneUnmanagedWorkspaceMembers: 'Prune unmanaged workspace members',
   workspaceId: 'Codex workspace ID',
   workspaceIndex: 'Codex workspace index',
   redirectPort: 'OAuth redirect port',
@@ -79,6 +80,8 @@ const flowOptionDescriptionByKey: Record<string, string> = {
   email: 'Choose a specific shared identity by email.',
   inviteEmail: 'Enter one or more invite emails separated by commas or lines.',
   inviteFile: 'Path to a CSV or JSON file that contains invite emails.',
+  pruneUnmanagedWorkspaceMembers:
+    'Remove existing ChatGPT workspace users that are not in the invite list before inviting.',
   workspaceId: 'Explicit OpenAI workspace ID to request during Codex OAuth.',
   workspaceIndex: '1-based Codex workspace position to select.',
   redirectPort: 'Local port to use for the OAuth redirect callback.',

@@ -7,6 +7,7 @@ import {
   extractInviteEmailsFromCsv,
   extractInviteEmailsFromJson,
   inviteWorkspaceMembers,
+  planUnmanagedWorkspaceMemberRemovals,
   planWorkspaceMemberRemovals,
   resolveInviteEmails,
   selectInviteCapableAccount,
@@ -263,6 +264,39 @@ describe('workspace invite helpers', () => {
     ).toEqual(['deactivated-old', 'deactivated-new', 'member-old'])
   })
 
+  it('plans unmanaged workspace removals without removing managed or protected users', () => {
+    expect(
+      planUnmanagedWorkspaceMemberRemovals({
+        managedEmails: ['managed@example.com'],
+        protectedEmails: ['owner@example.com'],
+        members: [
+          {
+            id: 'owner-1',
+            email: 'owner@example.com',
+            role: 'account-owner',
+          },
+          {
+            id: 'managed-1',
+            email: 'managed@example.com',
+            role: 'standard-user',
+          },
+          {
+            id: 'stale-1',
+            email: 'stale@example.com',
+            role: 'standard-user',
+            created_time: '2026-03-01T00:00:00.000Z',
+          },
+          {
+            id: 'stale-admin',
+            email: 'stale-admin@example.com',
+            role: 'admin',
+            created_time: '2026-02-01T00:00:00.000Z',
+          },
+        ],
+      }).map((member) => member.id),
+    ).toEqual(['stale-1', 'stale-admin'])
+  })
+
   it('lists pending invites with page sizes accepted by the ChatGPT API', async () => {
     const page = new FakeInvitePage()
     const firstPendingInvitePage = Array.from({ length: 100 }, (_, index) => ({
@@ -340,5 +374,86 @@ describe('workspace invite helpers', () => {
     })
     expect(result.invitedEmails).toEqual(['new@example.com'])
     expect(result.skippedEmails).toEqual(['repeat@example.com'])
+  })
+
+  it('removes unmanaged workspace members before sending new invites', async () => {
+    const page = new FakeInvitePage()
+
+    page.responses.push(
+      jsonApiResponse({
+        account_ordering: ['workspace-123'],
+        accounts: {
+          'workspace-123': {
+            account: {
+              account_id: 'workspace-123',
+              structure: 'workspace',
+              plan_type: 'team',
+            },
+            can_access_with_session: true,
+          },
+        },
+      }),
+      jsonApiResponse({
+        items: [
+          {
+            id: 'owner-1',
+            email: 'owner@example.com',
+            role: 'account-owner',
+          },
+          {
+            id: 'managed-1',
+            email: 'managed@example.com',
+            role: 'standard-user',
+          },
+          {
+            id: 'stale-1',
+            email: 'stale@example.com',
+            role: 'standard-user',
+          },
+        ],
+      }),
+      jsonApiResponse({
+        account_invites: [],
+        total: 0,
+      }),
+      jsonApiResponse({
+        success: true,
+      }),
+      jsonApiResponse({
+        account_invites: [
+          {
+            email_address: 'new@example.com',
+          },
+        ],
+        errored_emails: [],
+      }),
+    )
+
+    const result = await inviteWorkspaceMembers(
+      page as never,
+      ['managed@example.com', 'new@example.com'],
+      {
+        pruneUnmanagedWorkspaceMembers: true,
+        protectedEmails: ['owner@example.com'],
+      },
+    )
+    const deleteCallIndex = page.fetchCalls.findIndex(
+      (call) => call.method === 'DELETE',
+    )
+    const invitePostCallIndex = page.fetchCalls.findIndex(
+      (call) => call.url.endsWith('/invites') && call.method === 'POST',
+    )
+    const deleteCall = page.fetchCalls[deleteCallIndex]
+    const invitePostCall = page.fetchCalls[invitePostCallIndex]
+
+    expect(deleteCall?.url).toContain('/users/stale-1')
+    expect(deleteCallIndex).toBeGreaterThan(-1)
+    expect(invitePostCallIndex).toBeGreaterThan(deleteCallIndex)
+    expect(JSON.parse(invitePostCall?.body || '{}')).toMatchObject({
+      email_addresses: ['new@example.com'],
+    })
+    expect(result.removedMemberEmails).toEqual(['stale@example.com'])
+    expect(result.skippedEmails).toEqual(['managed@example.com'])
+    expect(result.invitedEmails).toEqual(['new@example.com'])
   })
 })

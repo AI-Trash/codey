@@ -1464,6 +1464,8 @@ const optionDisplayNameMap: Record<
   billingPostalCode: () => m.admin_cli_option_billing_postal_code_name(),
   inviteEmail: () => m.admin_cli_option_invite_email_name(),
   inviteFile: () => m.admin_cli_option_invite_file_name(),
+  pruneUnmanagedWorkspaceMembers: () =>
+    m.admin_cli_option_prune_unmanaged_workspace_members_name(),
   workspaceId: () => m.admin_cli_option_workspace_id_name(),
   workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
   redirectPort: () => m.admin_cli_option_redirect_port_name(),
@@ -1500,6 +1502,8 @@ const optionDescriptionMap: Record<
   billingPostalCode: () => m.admin_cli_option_billing_postal_code_description(),
   inviteEmail: () => m.admin_cli_option_invite_email_description(),
   inviteFile: () => m.admin_cli_option_invite_file_description(),
+  pruneUnmanagedWorkspaceMembers: () =>
+    m.admin_cli_option_prune_unmanaged_workspace_members_description(),
   workspaceId: () => m.admin_cli_option_workspace_id_description(),
   workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
   redirectPort: () => m.admin_cli_option_redirect_port_description(),

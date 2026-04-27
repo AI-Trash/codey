@@ -46,6 +46,7 @@ describe('flow registry', () => {
         'restoreStorageState',
         'inviteEmail',
         'inviteFile',
+        'pruneUnmanagedWorkspaceMembers',
       ],
     })
 
@@ -55,6 +56,7 @@ describe('flow registry', () => {
         flowId: 'chatgpt-login-invite',
         config: {
           inviteEmail: ['member@example.com'],
+          pruneUnmanagedWorkspaceMembers: 'true',
         },
       }),
     ).toEqual({
@@ -62,6 +64,7 @@ describe('flow registry', () => {
       flowId: 'chatgpt-invite',
       config: {
         inviteEmail: ['member@example.com'],
+        pruneUnmanagedWorkspaceMembers: true,
       },
     })
   })
