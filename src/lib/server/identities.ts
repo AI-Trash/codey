@@ -175,7 +175,7 @@ async function syncManagedIdentityWorkspaceMembership(params: {
   email: string
   status: string
 }) {
-  if (params.status === 'BANNED') {
+  if (params.status === 'BANNED' || params.status === 'ARCHIVED') {
     await removeManagedIdentityFromAllWorkspaces({
       identityId: params.identityId,
       email: params.email,
@@ -241,6 +241,7 @@ export async function resolveManagedIdentityCredential(params: {
           where: and(
             isNotNull(managedIdentities.passwordCiphertext),
             ne(managedIdentities.status, 'BANNED'),
+            ne(managedIdentities.status, 'ARCHIVED'),
           ),
           orderBy: [desc(managedIdentities.updatedAt)],
         })

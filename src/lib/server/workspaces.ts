@@ -16,6 +16,7 @@ import {
   managedIdentitySessions,
   managedWorkspaceMembers,
   managedWorkspaces,
+  type ManagedIdentityStatus,
   type ManagedWorkspaceMemberInviteStatus,
 } from './db/schema'
 import { createId } from './security'
@@ -71,6 +72,7 @@ interface ManagedIdentityLookupRow {
   identityId: string
   email: string
   label: string | null
+  status?: ManagedIdentityStatus | null
 }
 
 interface WorkspaceMemberInput {
@@ -608,6 +610,7 @@ async function resolveManagedIdentityRowsByIds(
       identityId: true,
       email: true,
       label: true,
+      status: true,
     },
   })
 
@@ -627,6 +630,7 @@ async function resolveManagedWorkspaceOwner(
       identityId: true,
       email: true,
       label: true,
+      status: true,
     },
   })
 
@@ -783,6 +787,14 @@ async function assertWorkspaceOwnerAvailability(
 ) {
   if (!ownerIdentity) {
     return
+  }
+
+  if (ownerIdentity.status === 'ARCHIVED') {
+    throw new Error('Archived identities cannot own workspaces')
+  }
+
+  if (ownerIdentity.status === 'BANNED') {
+    throw new Error('Banned identities cannot own workspaces')
   }
 
   const duplicate = await getDb().query.managedWorkspaces.findFirst({
@@ -1502,10 +1514,10 @@ export async function syncManagedWorkspaceInvite(input: {
     })
   }
 
-  const ownerIdentityId =
+  const ownerIdentityId: string | null =
     input.ownerIdentityId === undefined
       ? existing?.ownerIdentityId || null
-      : requestedOwnerIdentityId
+      : requestedOwnerIdentityId || null
   const ownerIdentity = await resolveManagedWorkspaceOwner(ownerIdentityId)
   const currentMemberInputs = existing
     ? await listWorkspaceMemberInputs(existing.id)

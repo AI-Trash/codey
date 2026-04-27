@@ -177,6 +177,42 @@ describe('managed workspace authorization summaries', () => {
     expect(insertRecord).not.toHaveBeenCalled()
   })
 
+  it('rejects an archived workspace owner identity', async () => {
+    const ownerIdentity = {
+      identityId: 'identity-archived',
+      email: 'archived-owner@example.com',
+      label: 'Archived Owner',
+      status: 'ARCHIVED' as const,
+    }
+    const findWorkspace = vi.fn()
+    const insertRecord = vi.fn()
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedIdentities: {
+          findFirst: vi.fn().mockResolvedValue(ownerIdentity),
+        },
+        managedWorkspaces: {
+          findFirst: findWorkspace,
+        },
+        managedWorkspaceMembers: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      },
+      insert: insertRecord,
+    })
+
+    await expect(
+      createManagedWorkspace({
+        label: 'Alpha',
+        ownerIdentityId: 'identity-archived',
+      }),
+    ).rejects.toThrow('Archived identities cannot own workspaces')
+
+    expect(findWorkspace).not.toHaveBeenCalled()
+    expect(insertRecord).not.toHaveBeenCalled()
+  })
+
   it('fills an existing owner workspace with the synced OpenAI workspace ID', async () => {
     const now = new Date('2026-04-23T00:00:00.000Z')
     const ownerIdentity = {

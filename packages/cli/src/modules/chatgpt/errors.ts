@@ -11,6 +11,28 @@ export class ChatGPTAccountDeactivatedError extends Error {
 
 export function isChatGPTAccountDeactivatedError(
   error: unknown,
-): error is ChatGPTAccountDeactivatedError {
-  return error instanceof ChatGPTAccountDeactivatedError
+  seen = new Set<unknown>(),
+): boolean {
+  if (error instanceof ChatGPTAccountDeactivatedError) {
+    return true
+  }
+
+  if (typeof error === 'string') {
+    return /account_deactivated/i.test(error)
+  }
+
+  if (!error || typeof error !== 'object' || seen.has(error)) {
+    return false
+  }
+
+  seen.add(error)
+
+  if (error instanceof Error && /account_deactivated/i.test(error.message)) {
+    return true
+  }
+
+  return isChatGPTAccountDeactivatedError(
+    (error as { cause?: unknown }).cause,
+    seen,
+  )
 }

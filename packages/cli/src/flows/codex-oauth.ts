@@ -28,12 +28,12 @@ import {
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
 import { shareCodexOAuthSessionWithCodeyApp } from '../modules/app-auth/codex-oauth-sharing'
-import { syncManagedIdentityToCodeyApp } from '../modules/app-auth/managed-identities'
 import { resolveAssociatedManagedWorkspaceFromCodeyApp } from '../modules/app-auth/workspaces'
 import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
+import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 import {
   resolveStoredChatGPTIdentity,
   type ResolvedChatGPTIdentity,
@@ -1908,28 +1908,11 @@ export async function runCodexOAuthFlow(
     result.machine = snapshot
     return result
   } catch (error) {
-    if (isChatGPTAccountDeactivatedError(error)) {
-      const storedIdentity = machine.getSnapshot().context.storedIdentity
-      if (storedIdentity) {
-        try {
-          const reported = await syncManagedIdentityToCodeyApp({
-            identityId: storedIdentity.id,
-            email: storedIdentity.email,
-            credentialCount: storedIdentity.credentialCount,
-            status: 'BANNED',
-          })
-          options.progressReporter?.({
-            message: reported
-              ? `OpenAI returned account_deactivated; marked ${storedIdentity.email} as banned in Codey app`
-              : `OpenAI returned account_deactivated for ${storedIdentity.email}, but Codey app access was unavailable to report the banned status`,
-          })
-        } catch (reportError) {
-          options.progressReporter?.({
-            message: `OpenAI returned account_deactivated for ${storedIdentity.email}, but reporting the banned status to Codey app failed: ${sanitizeErrorForOutput(reportError).message}`,
-          })
-        }
-      }
-    }
+    await reportChatGPTAccountDeactivationToCodeyApp({
+      error,
+      identity: machine.getSnapshot().context.storedIdentity,
+      progressReporter: options.progressReporter,
+    })
 
     machine.fail(error, 'failed', {
       event: 'codex.oauth.failed',

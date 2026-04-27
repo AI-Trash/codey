@@ -252,6 +252,11 @@ type WorkspaceEditorState = {
   legacyMemberEmails: string[]
 }
 
+function createDefaultWorkspaceLabel() {
+  const now = new Date()
+  return formatAdminDate(now) || now.toISOString()
+}
+
 function createWorkspaceEditorState(
   summary?: WorkspaceSummary | null,
 ): WorkspaceEditorState {
@@ -260,7 +265,7 @@ function createWorkspaceEditorState(
   return {
     id: summary?.id,
     workspaceId: summary?.workspaceId || '',
-    label: summary?.label || '',
+    label: summary ? summary.label || '' : createDefaultWorkspaceLabel(),
     ownerIdentityId: summary?.owner?.identityId || '',
     memberIdentityIds: members.flatMap((member) =>
       member.identityId ? [member.identityId] : [],
@@ -2293,6 +2298,12 @@ function AdminWorkspacesPage() {
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(() =>
     'workspaces' in data ? (data.workspaces as WorkspaceSummary[]) : [],
   )
+  const [identitySummaries, setIdentitySummaries] = useState<IdentitySummary[]>(
+    () =>
+      'identitySummaries' in data
+        ? (data.identitySummaries as IdentitySummary[])
+        : [],
+  )
   const [query, setQuery] = useState('')
   const [editor, setEditor] = useState<WorkspaceEditorState>(
     createWorkspaceEditorState(),
@@ -2314,6 +2325,10 @@ function AdminWorkspacesPage() {
         sortWorkspaceSummaries(data.workspaces as WorkspaceSummary[]),
       )
     }
+
+    if ('identitySummaries' in data) {
+      setIdentitySummaries(data.identitySummaries as IdentitySummary[])
+    }
   }, [data])
 
   useEffect(() => {
@@ -2332,6 +2347,7 @@ function AdminWorkspacesPage() {
       setWorkspaces(
         sortWorkspaceSummaries(next.workspaces as WorkspaceSummary[]),
       )
+      setIdentitySummaries(next.identitySummaries as IdentitySummary[])
     }
 
     const interval = window.setInterval(() => {
@@ -2362,10 +2378,6 @@ function AdminWorkspacesPage() {
     }
   }, [detailsTarget, workspaces])
 
-  const identitySummaries =
-    'identitySummaries' in data
-      ? (data.identitySummaries as IdentitySummary[])
-      : []
   const filteredWorkspaces = useMemo(
     () => filterWorkspaceSummaries(workspaces, query),
     [query, workspaces],
@@ -2662,6 +2674,19 @@ function AdminWorkspacesPage() {
                   setWorkspaces((current) =>
                     current.filter((workspace) => workspace.id !== deletedId),
                   )
+
+                  const next = await loadAdminWorkspaces().catch(() => null)
+                  if (next?.authorized) {
+                    setWorkspaces(
+                      sortWorkspaceSummaries(
+                        next.workspaces as WorkspaceSummary[],
+                      ),
+                    )
+                    setIdentitySummaries(
+                      next.identitySummaries as IdentitySummary[],
+                    )
+                  }
+
                   setDeleteTarget(null)
                 } catch (error) {
                   setFlash({

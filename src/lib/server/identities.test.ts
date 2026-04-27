@@ -143,4 +143,48 @@ describe('managed identity workspace cleanup', () => {
     })
     expect(mocks.linkWorkspaceMembersToManagedIdentity).not.toHaveBeenCalled()
   })
+
+  it('removes a manually archived identity from all workspaces', async () => {
+    const existingIdentity = {
+      id: 'managed-identity-3',
+      identityId: 'identity-3',
+      email: 'archived@example.com',
+      label: 'Archived',
+      passwordCiphertext: null,
+      credentialMetadata: null,
+      credentialCount: 0,
+      status: 'ACTIVE' as const,
+      lastSeenAt: new Date('2026-04-20T00:00:00.000Z'),
+      createdAt: new Date('2026-04-20T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-20T00:00:00.000Z'),
+    }
+    const updatedIdentity = {
+      ...existingIdentity,
+      status: 'ARCHIVED' as const,
+      updatedAt: new Date('2026-04-23T00:00:00.000Z'),
+    }
+    const updateChain = createUpdateChain([updatedIdentity])
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedIdentities: {
+          findFirst: vi.fn().mockResolvedValue(existingIdentity),
+        },
+      },
+      update: updateChain.update,
+    })
+
+    await expect(
+      updateManagedIdentity({
+        identityId: 'identity-3',
+        status: 'ARCHIVED',
+      }),
+    ).resolves.toEqual(updatedIdentity)
+
+    expect(mocks.removeManagedIdentityFromAllWorkspaces).toHaveBeenCalledWith({
+      identityId: 'identity-3',
+      email: 'archived@example.com',
+    })
+    expect(mocks.linkWorkspaceMembersToManagedIdentity).not.toHaveBeenCalled()
+  })
 })

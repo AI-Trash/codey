@@ -82,6 +82,8 @@ import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
+import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
+import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
 
 export type ChatGPTRegistrationFlowKind = 'chatgpt-registration'
 
@@ -1055,6 +1057,7 @@ export async function registerChatGPT(
   const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
   const startedAt = new Date().toISOString()
   const sessionCapture = createChatGPTSessionCapture(page)
+  let storedIdentityForStatusReport: StoredChatGPTIdentitySummary | undefined
 
   try {
     machine.start(
@@ -1402,6 +1405,7 @@ export async function registerChatGPT(
         mailbox,
       })
     ).summary
+    storedIdentityForStatusReport = storedIdentity
     options.progressReporter?.({
       message: 'Saved ChatGPT identity to Codey app',
     })
@@ -1480,13 +1484,23 @@ export async function registerChatGPT(
     result.machine = snapshot
     return result
   } catch (error) {
+    await reportChatGPTAccountDeactivationToCodeyApp({
+      error,
+      identity:
+        storedIdentityForStatusReport ||
+        machine.getSnapshot().context.storedIdentity,
+      progressReporter: options.progressReporter,
+    })
+
     machine.fail(error, 'failed', {
       event: 'chatgpt.failed',
       patch: {
         email,
         prefix,
         url: page.url(),
-        lastMessage: 'ChatGPT registration failed',
+        lastMessage: isChatGPTAccountDeactivatedError(error)
+          ? 'ChatGPT identity was deactivated by OpenAI'
+          : 'ChatGPT registration failed',
       },
     })
     throw error

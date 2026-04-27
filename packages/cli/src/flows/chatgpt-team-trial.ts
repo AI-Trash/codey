@@ -36,6 +36,7 @@ import {
 } from '../modules/flow-cli/single-file'
 import { writeFileAtomic } from '../utils/fs'
 import { loginChatGPT, type ChatGPTLoginFlowResult } from './chatgpt-login'
+import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 
 export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME = 'Summpot'
 
@@ -318,6 +319,7 @@ export async function runChatGPTTeamTrial(
     machine,
     options.progressReporter,
   )
+  let completedLogin: ChatGPTLoginFlowResult | undefined
 
   try {
     machine.start(
@@ -335,6 +337,7 @@ export async function runChatGPTTeamTrial(
       lastMessage: 'Logging in before opening pricing promo',
     })
     const login = await loginChatGPT(page, options)
+    completedLogin = login
 
     await sendTeamTrialMachine(
       machine,
@@ -555,6 +558,11 @@ export async function runChatGPTTeamTrial(
     return result
   } catch (error) {
     const message = sanitizeErrorForOutput(error).message
+    await reportChatGPTAccountDeactivationToCodeyApp({
+      error,
+      identity: completedLogin?.storedIdentity,
+      progressReporter: options.progressReporter,
+    })
     machine.fail('failed', error, {
       event: 'chatgpt.failed',
       patch: {

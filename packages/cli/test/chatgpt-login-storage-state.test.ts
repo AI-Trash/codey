@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ChatGPTAccountDeactivatedError } from '../src/modules/chatgpt/errors'
 
 const getRuntimeConfig = vi.fn()
 const resolveStoredChatGPTIdentity = vi.fn()
@@ -282,5 +283,34 @@ describe('loginChatGPT local storage-state restore', () => {
 
     expect(continueOpenAIWorkspaceSelection).toHaveBeenCalledWith(page, 1)
     expect(result.selectedWorkspaceId).toBe('workspace-selected')
+  })
+
+  it('marks the stored identity as banned when OpenAI returns account_deactivated', async () => {
+    waitForAuthenticatedSession.mockResolvedValue(false)
+    completePasswordOrVerificationLoginFallback.mockRejectedValueOnce(
+      new ChatGPTAccountDeactivatedError(),
+    )
+
+    const progressReporter = vi.fn()
+    const page = createPage()
+    const { loginChatGPT } = await import('../src/flows/chatgpt-login')
+
+    await expect(
+      loginChatGPT(page as never, {
+        email: 'person@example.com',
+        progressReporter,
+      }),
+    ).rejects.toThrow(/account_deactivated/)
+
+    expect(syncManagedIdentityToCodeyApp).toHaveBeenCalledWith({
+      identityId: 'identity-123',
+      email: 'person@example.com',
+      credentialCount: 1,
+      status: 'BANNED',
+    })
+    expect(progressReporter).toHaveBeenCalledWith({
+      message:
+        'OpenAI returned account_deactivated for person@example.com, but Codey app access was unavailable to report the banned status',
+    })
   })
 })

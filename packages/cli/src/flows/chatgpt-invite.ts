@@ -17,6 +17,7 @@ import {
 } from '../modules/flow-cli/single-file'
 import { syncManagedWorkspaceToCodeyApp } from '../modules/app-auth/workspaces'
 import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
+import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 
 export interface ChatGPTInviteFlowResult {
   pageName: 'chatgpt-invite'
@@ -69,73 +70,86 @@ export async function inviteChatGPTWorkspaceMembers(
   page: Parameters<typeof loginChatGPT>[0],
   options: FlowOptions = {},
 ): Promise<ChatGPTInviteFlowResult> {
-  options.progressReporter?.({
-    message: 'Resolving invite targets',
-  })
-  const inviteInputs = resolveInviteEmails(options)
-  if (!inviteInputs.emails.length) {
-    throw new Error(
-      'No invite emails were resolved. Pass --inviteEmail or --inviteFile.',
-    )
-  }
+  let completedLogin: ChatGPTLoginFlowResult | undefined
 
-  const login = await loginChatGPT(page, {
-    ...options,
-    autoSelectFirstWorkspace: true,
-  })
-  await reportWorkspaceToCodeyApp({
-    workspaceId: login.selectedWorkspaceId,
-    ownerIdentityId: login.storedIdentity?.id,
-    progressReporter: options.progressReporter,
-  })
-  options.progressReporter?.({
-    message: 'Inviting workspace members',
-  })
-  const invites = await inviteWorkspaceMembers(page, inviteInputs.emails, {
-    pruneUnmanagedWorkspaceMembers:
-      parseBooleanFlag(options.pruneUnmanagedWorkspaceMembers, false) ?? false,
-    protectedEmails: [login.email, login.storedIdentity.email],
-  })
-  const workspaceId = invites.accountId || login.selectedWorkspaceId
-  const linkedEmails = inviteInputs.emails.filter(
-    (email) => !invites.erroredEmails.includes(email),
-  )
-  await reportWorkspaceToCodeyApp({
-    workspaceId,
-    ownerIdentityId: login.storedIdentity?.id,
-    memberEmails: linkedEmails,
-    confirmedInviteEmails: invites.invitedEmails,
-    failedInviteEmails: invites.erroredEmails,
-    progressReporter: options.progressReporter,
-  })
-  options.progressReporter?.({
-    message: 'Workspace invitations completed',
-  })
   try {
-    await saveLocalChatGPTStorageState(page, {
-      identityId: login.storedIdentity.id,
-      email: login.storedIdentity.email,
-      flowType: 'chatgpt-invite',
-    })
     options.progressReporter?.({
-      message: `Saved local ChatGPT storage state for ${login.storedIdentity.email}`,
+      message: 'Resolving invite targets',
     })
-  } catch (error) {
-    options.progressReporter?.({
-      message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
-    })
-  }
+    const inviteInputs = resolveInviteEmails(options)
+    if (!inviteInputs.emails.length) {
+      throw new Error(
+        'No invite emails were resolved. Pass --inviteEmail or --inviteFile.',
+      )
+    }
 
-  return {
-    pageName: 'chatgpt-invite',
-    url: page.url(),
-    title: await page.title(),
-    email: login.email,
-    workspaceId,
-    authenticated: login.authenticated,
-    login,
-    invites,
-    inviteInputs,
+    const login = await loginChatGPT(page, {
+      ...options,
+      autoSelectFirstWorkspace: true,
+    })
+    completedLogin = login
+    await reportWorkspaceToCodeyApp({
+      workspaceId: login.selectedWorkspaceId,
+      ownerIdentityId: login.storedIdentity?.id,
+      progressReporter: options.progressReporter,
+    })
+    options.progressReporter?.({
+      message: 'Inviting workspace members',
+    })
+    const invites = await inviteWorkspaceMembers(page, inviteInputs.emails, {
+      pruneUnmanagedWorkspaceMembers:
+        parseBooleanFlag(options.pruneUnmanagedWorkspaceMembers, false) ??
+        false,
+      protectedEmails: [login.email, login.storedIdentity.email],
+    })
+    const workspaceId = invites.accountId || login.selectedWorkspaceId
+    const linkedEmails = inviteInputs.emails.filter(
+      (email) => !invites.erroredEmails.includes(email),
+    )
+    await reportWorkspaceToCodeyApp({
+      workspaceId,
+      ownerIdentityId: login.storedIdentity?.id,
+      memberEmails: linkedEmails,
+      confirmedInviteEmails: invites.invitedEmails,
+      failedInviteEmails: invites.erroredEmails,
+      progressReporter: options.progressReporter,
+    })
+    options.progressReporter?.({
+      message: 'Workspace invitations completed',
+    })
+    try {
+      await saveLocalChatGPTStorageState(page, {
+        identityId: login.storedIdentity.id,
+        email: login.storedIdentity.email,
+        flowType: 'chatgpt-invite',
+      })
+      options.progressReporter?.({
+        message: `Saved local ChatGPT storage state for ${login.storedIdentity.email}`,
+      })
+    } catch (error) {
+      options.progressReporter?.({
+        message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
+      })
+    }
+
+    return {
+      pageName: 'chatgpt-invite',
+      url: page.url(),
+      title: await page.title(),
+      email: login.email,
+      workspaceId,
+      authenticated: login.authenticated,
+      login,
+      invites,
+      inviteInputs,
+    }
+  } catch (error) {
+    await reportChatGPTAccountDeactivationToCodeyApp({
+      error,
+      identity: completedLogin?.storedIdentity,
+      progressReporter: options.progressReporter,
+    })
+    throw error
   }
 }
 
