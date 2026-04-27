@@ -1014,6 +1014,8 @@
   "admin_dashboard_not_captured_yet": "Not captured yet",
   "admin_dashboard_identity_label": "Identity label",
   "clipboard_copy_value": "Copy {label}",
+  "clipboard_copy_success": "Copied to clipboard.",
+  "clipboard_copy_error": "Unable to copy to the clipboard.",
   "admin_dashboard_device_kicker": "Device approvals",
   "admin_dashboard_device_title": "Recent device challenges",
   "admin_dashboard_device_description": "Approve or deny pending CLI sessions and keep an eye on the most recently updated device authorizations.",

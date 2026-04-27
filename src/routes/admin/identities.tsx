@@ -32,7 +32,6 @@ import {
 } from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
 import type { FiltersState } from '#/components/data-table-filter/core/types'
-import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -84,7 +83,7 @@ import {
   TooltipTrigger,
 } from '#/components/ui/tooltip'
 import { translateStatusLabel } from '#/lib/i18n'
-import { cn } from '#/lib/utils'
+import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
@@ -509,10 +508,6 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
   const [open, setOpen] = useState(false)
   const [selectedField, setSelectedField] =
     useState<ManagedIdentityBulkCopyField>('email')
-  const [actionMessage, setActionMessage] = useState<string | null>(null)
-  const [actionStatus, setActionStatus] = useState<'success' | 'error' | null>(
-    null,
-  )
   const rowIdsKey = useMemo(
     () => props.rows.map((row) => row.id).join('|'),
     [props.rows],
@@ -542,8 +537,6 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
     }
 
     setSelectedField(defaultField)
-    setActionMessage(null)
-    setActionStatus(null)
   }, [defaultField, open, rowIdsKey])
 
   async function handleCopy() {
@@ -551,29 +544,35 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
       activeField?.label() || m.admin_identity_bulk_copy_field_email()
 
     if (!previewValue) {
-      setActionStatus('error')
-      setActionMessage(m.admin_identity_bulk_copy_empty({ field: fieldLabel }))
+      showAppToast({
+        kind: 'error',
+        description: m.admin_identity_bulk_copy_empty({ field: fieldLabel }),
+      })
       return
     }
 
     if (typeof navigator === 'undefined' || !navigator.clipboard) {
-      setActionStatus('error')
-      setActionMessage(m.admin_identity_bulk_copy_error({ field: fieldLabel }))
+      showAppToast({
+        kind: 'error',
+        description: m.admin_identity_bulk_copy_error({ field: fieldLabel }),
+      })
       return
     }
 
     try {
       await navigator.clipboard.writeText(previewValue)
-      setActionStatus('success')
-      setActionMessage(
-        m.admin_identity_bulk_copy_success({
+      showAppToast({
+        kind: 'success',
+        description: m.admin_identity_bulk_copy_success({
           count: String(activeField?.values.length || 0),
           field: fieldLabel,
         }),
-      )
+      })
     } catch {
-      setActionStatus('error')
-      setActionMessage(m.admin_identity_bulk_copy_error({ field: fieldLabel }))
+      showAppToast({
+        kind: 'error',
+        description: m.admin_identity_bulk_copy_error({ field: fieldLabel }),
+      })
     }
   }
 
@@ -582,8 +581,10 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
       activeField?.label() || m.admin_identity_bulk_copy_field_email()
 
     if (!activeField?.values.length) {
-      setActionStatus('error')
-      setActionMessage(m.admin_identity_bulk_copy_empty({ field: fieldLabel }))
+      showAppToast({
+        kind: 'error',
+        description: m.admin_identity_bulk_copy_empty({ field: fieldLabel }),
+      })
       return
     }
 
@@ -592,18 +593,20 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
         field: activeField.value,
         values: activeField.values,
       })
-      setActionStatus('success')
-      setActionMessage(
-        m.admin_identity_bulk_copy_download_success({
+      showAppToast({
+        kind: 'success',
+        description: m.admin_identity_bulk_copy_download_success({
           count: String(activeField.values.length),
           field: fieldLabel,
         }),
-      )
+      })
     } catch {
-      setActionStatus('error')
-      setActionMessage(
-        m.admin_identity_bulk_copy_download_error({ field: fieldLabel }),
-      )
+      showAppToast({
+        kind: 'error',
+        description: m.admin_identity_bulk_copy_download_error({
+          field: fieldLabel,
+        }),
+      })
     }
   }
 
@@ -647,8 +650,6 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
                   }
 
                   setSelectedField(nextField)
-                  setActionMessage(null)
-                  setActionStatus(null)
                 }}
               >
                 <SelectTrigger>
@@ -685,20 +686,6 @@ function BulkCopyIdentityValuesAction(props: { rows: IdentitySummary[] }) {
                 })}
               />
             </DialogField>
-
-            {actionMessage ? (
-              <p
-                aria-live="polite"
-                className={cn(
-                  'text-sm',
-                  actionStatus === 'success'
-                    ? 'text-emerald-600 dark:text-emerald-300'
-                    : 'text-destructive',
-                )}
-              >
-                {actionMessage}
-              </p>
-            ) : null}
           </div>
 
           <DialogFooter>
@@ -744,7 +731,6 @@ function BulkDeleteIdentityAction(props: {
 }) {
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
   const rowIds = useMemo(() => props.rows.map((row) => row.id), [props.rows])
   const rowIdsKey = rowIds.join('|')
 
@@ -754,12 +740,10 @@ function BulkDeleteIdentityAction(props: {
     }
 
     setSubmitting(false)
-    setSaveError(null)
   }, [open, rowIdsKey])
 
   async function handleSubmit() {
     setSubmitting(true)
-    setSaveError(null)
 
     try {
       const form = new FormData()
@@ -788,11 +772,14 @@ function BulkDeleteIdentityAction(props: {
       props.onDeleted(result.identityIds)
       setOpen(false)
     } catch (error) {
-      setSaveError(
-        error instanceof Error
-          ? error.message
-          : m.admin_identity_bulk_delete_error_fallback(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.oauth_unable_to_save_title(),
+        description: getToastErrorDescription(
+          error,
+          m.admin_identity_bulk_delete_error_fallback(),
+        ),
+      })
     } finally {
       setSubmitting(false)
     }
@@ -832,13 +819,6 @@ function BulkDeleteIdentityAction(props: {
                 count: String(rowIds.length),
               })}
             </div>
-
-            {saveError ? (
-              <Alert variant="destructive">
-                <AlertTitle>{m.oauth_unable_to_save_title()}</AlertTitle>
-                <AlertDescription>{saveError}</AlertDescription>
-              </Alert>
-            ) : null}
           </div>
 
           <DialogFooter>
@@ -894,7 +874,6 @@ function IdentityEditAction(props: {
     getManagedIdentityEditableLabel(props.summary),
   )
   const [submitting, setSubmitting] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) {
@@ -903,12 +882,10 @@ function IdentityEditAction(props: {
 
     setLabel(getManagedIdentityEditableLabel(props.summary))
     setSubmitting(false)
-    setSaveError(null)
   }, [open, props.summary.account, props.summary.id, props.summary.label])
 
   async function handleSubmit() {
     setSubmitting(true)
-    setSaveError(null)
 
     try {
       const form = new FormData()
@@ -938,11 +915,14 @@ function IdentityEditAction(props: {
 
       setOpen(false)
     } catch (error) {
-      setSaveError(
-        error instanceof Error
-          ? error.message
-          : m.admin_identity_save_error_fallback(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.oauth_unable_to_save_title(),
+        description: getToastErrorDescription(
+          error,
+          m.admin_identity_save_error_fallback(),
+        ),
+      })
     } finally {
       setSubmitting(false)
     }
@@ -991,13 +971,6 @@ function IdentityEditAction(props: {
                 disabled={submitting}
               />
             </DialogField>
-
-            {saveError ? (
-              <Alert variant="destructive">
-                <AlertTitle>{m.oauth_unable_to_save_title()}</AlertTitle>
-                <AlertDescription>{saveError}</AlertDescription>
-              </Alert>
-            ) : null}
           </div>
 
           <DialogFooter>

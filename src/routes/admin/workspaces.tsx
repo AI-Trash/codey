@@ -23,7 +23,6 @@ import {
   formatAdminDate,
 } from '#/components/admin/layout'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
-import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -68,6 +67,7 @@ import {
   hasOtherWorkspaceAssociations,
   isWorkspaceSelectableIdentity,
 } from '#/lib/admin/workspace-editor-random'
+import { showAppToast } from '#/lib/toast'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 
@@ -220,6 +220,14 @@ type ResetWorkspaceAuthorizationResponse = {
 type FlashMessage = {
   kind: 'success' | 'error'
   message: string
+}
+
+function showWorkspaceToast(flash: FlashMessage) {
+  showAppToast({
+    kind: flash.kind,
+    title: flash.kind === 'error' ? m.status_failed() : m.status_success(),
+    description: flash.message,
+  })
 }
 
 type PendingAuthorizationReset =
@@ -780,7 +788,6 @@ function WorkspaceEditorDialog(props: {
 }) {
   const [pendingRandomMembers, setPendingRandomMembers] =
     useState<RandomMemberConfirmationState | null>(null)
-  const [formFlash, setFormFlash] = useState<FlashMessage | null>(null)
 
   useEffect(() => {
     if (!props.open) {
@@ -788,7 +795,6 @@ function WorkspaceEditorDialog(props: {
     }
 
     setPendingRandomMembers(null)
-    setFormFlash(null)
   }, [props.open])
 
   const identityById = useMemo(
@@ -1040,19 +1046,6 @@ function WorkspaceEditorDialog(props: {
           </DialogHeader>
 
           <div className="space-y-6">
-            {formFlash ? (
-              <Alert
-                variant={formFlash.kind === 'error' ? 'destructive' : undefined}
-              >
-                <AlertTitle>
-                  {formFlash.kind === 'error'
-                    ? m.status_failed()
-                    : m.status_success()}
-                </AlertTitle>
-                <AlertDescription>{formFlash.message}</AlertDescription>
-              </Alert>
-            ) : null}
-
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2">
                 <span className="text-sm font-medium">
@@ -1238,17 +1231,15 @@ function WorkspaceEditorDialog(props: {
               type="button"
               disabled={props.isSaving || !props.editor.ownerIdentityId}
               onClick={async () => {
-                setFormFlash(null)
-
                 try {
                   const workspace = await props.onSave()
                   setEditor(createWorkspaceEditorState(workspace))
-                  setFormFlash({
+                  showWorkspaceToast({
                     kind: 'success',
                     message: m.admin_workspace_save_success(),
                   })
                 } catch (error) {
-                  setFormFlash({
+                  showWorkspaceToast({
                     kind: 'error',
                     message:
                       error instanceof Error
@@ -1360,7 +1351,6 @@ function WorkspaceOperationsSection(props: {
     useState(false)
   const [authorizationResetTarget, setAuthorizationResetTarget] =
     useState<PendingAuthorizationReset | null>(null)
-  const [localFlash, setLocalFlash] = useState<FlashMessage | null>(null)
 
   useEffect(() => {
     if (!props.active) {
@@ -1372,11 +1362,9 @@ function WorkspaceOperationsSection(props: {
     setAuthorizationPending(false)
     setAuthorizationResetPending(false)
     setAuthorizationResetTarget(null)
-    setLocalFlash(null)
   }, [props.active, props.workspace.id])
 
   function publishFlash(flash: FlashMessage) {
-    setLocalFlash(flash)
     props.onFlash(flash)
   }
 
@@ -1386,7 +1374,6 @@ function WorkspaceOperationsSection(props: {
     }
 
     setTeamTrialPending(true)
-    setLocalFlash(null)
 
     try {
       const result = await dispatchWorkspaceTeamTrial(props.workspace.id)
@@ -1430,7 +1417,6 @@ function WorkspaceOperationsSection(props: {
     }
 
     setInviteActionKey('all')
-    setLocalFlash(null)
 
     try {
       const result = await dispatchWorkspaceInvite(props.workspace.id)
@@ -1483,7 +1469,6 @@ function WorkspaceOperationsSection(props: {
     }
 
     setAuthorizationPending(true)
-    setLocalFlash(null)
 
     try {
       const result = await dispatchWorkspaceCodexOAuth(
@@ -1532,7 +1517,6 @@ function WorkspaceOperationsSection(props: {
     }
 
     setAuthorizationResetPending(true)
-    setLocalFlash(null)
 
     try {
       const result = await resetWorkspaceAuthorizationStatuses(
@@ -1571,8 +1555,6 @@ function WorkspaceOperationsSection(props: {
     if (!props.workspace) {
       return
     }
-
-    setLocalFlash(null)
 
     try {
       const count = downloadWorkspaceEmailsCsv({
@@ -1647,19 +1629,6 @@ function WorkspaceOperationsSection(props: {
   return (
     <>
       <div className="space-y-6">
-        {localFlash ? (
-          <Alert
-            variant={localFlash.kind === 'error' ? 'destructive' : undefined}
-          >
-            <AlertTitle>
-              {localFlash.kind === 'error'
-                ? m.status_failed()
-                : m.status_success()}
-            </AlertTitle>
-            <AlertDescription>{localFlash.message}</AlertDescription>
-          </Alert>
-        ) : null}
-
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader className="gap-3 pb-3">
@@ -2066,7 +2035,6 @@ function AdminWorkspacesPage() {
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceSummary | null>(
     null,
   )
-  const [flash, setFlash] = useState<FlashMessage | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
@@ -2135,7 +2103,6 @@ function AdminWorkspacesPage() {
               <Button
                 type="button"
                 onClick={() => {
-                  setFlash(null)
                   setEditor(createWorkspaceEditorState())
                   setEditorOpen(true)
                 }}
@@ -2146,15 +2113,6 @@ function AdminWorkspacesPage() {
             </>
           }
         />
-
-        {flash ? (
-          <Alert variant={flash.kind === 'error' ? 'destructive' : undefined}>
-            <AlertTitle>
-              {flash.kind === 'error' ? m.status_failed() : m.status_success()}
-            </AlertTitle>
-            <AlertDescription>{flash.message}</AlertDescription>
-          </Alert>
-        ) : null}
 
         <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <CardHeader className="gap-4">
@@ -2259,7 +2217,6 @@ function AdminWorkspacesPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => {
-                                setFlash(null)
                                 setEditor(createWorkspaceEditorState(workspace))
                                 setEditorOpen(true)
                               }}
@@ -2316,7 +2273,6 @@ function AdminWorkspacesPage() {
         isSaving={isSaving}
         onSave={async () => {
           setIsSaving(true)
-          setFlash(null)
 
           try {
             const workspace = await saveWorkspace(editor)
@@ -2331,7 +2287,7 @@ function AdminWorkspacesPage() {
         onWorkspaceChange={(workspace) => {
           setWorkspaces((current) => upsertWorkspaceSummary(current, workspace))
         }}
-        onFlash={setFlash}
+        onFlash={showWorkspaceToast}
       />
 
       <AlertDialog
@@ -2365,7 +2321,6 @@ function AdminWorkspacesPage() {
                 }
 
                 setIsDeleting(true)
-                setFlash(null)
 
                 try {
                   const deletedId = await deleteWorkspace(deleteTarget.id)
@@ -2387,7 +2342,7 @@ function AdminWorkspacesPage() {
 
                   setDeleteTarget(null)
                 } catch (error) {
-                  setFlash({
+                  showWorkspaceToast({
                     kind: 'error',
                     message:
                       error instanceof Error

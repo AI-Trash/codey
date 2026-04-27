@@ -3,6 +3,8 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { CheckIcon, ClipboardCopyIcon } from 'lucide-react'
 
 import { cn } from '#/lib/utils'
+import { showAppToast } from '#/lib/toast'
+import { m } from '#/paraglide/messages'
 import {
   Tooltip,
   TooltipContent,
@@ -51,14 +53,28 @@ export function CopyableValue(props: CopyableValueProps) {
 
   async function handleCopy() {
     if (disabled || typeof navigator === 'undefined' || !navigator.clipboard) {
-      props.onCopyError?.()
+      if (props.onCopyError) {
+        props.onCopyError()
+      } else {
+        showAppToast({
+          kind: 'error',
+          description: m.clipboard_copy_error(),
+        })
+      }
       return
     }
 
     try {
       await navigator.clipboard.writeText(value)
       setCopied(true)
-      props.onCopySuccess?.()
+      if (props.onCopySuccess) {
+        props.onCopySuccess()
+      } else {
+        showAppToast({
+          kind: 'success',
+          description: m.clipboard_copy_success(),
+        })
+      }
 
       if (resetTimerRef.current != null) {
         window.clearTimeout(resetTimerRef.current)
@@ -69,7 +85,14 @@ export function CopyableValue(props: CopyableValueProps) {
         resetTimerRef.current = null
       }, 1500)
     } catch {
-      props.onCopyError?.()
+      if (props.onCopyError) {
+        props.onCopyError()
+      } else {
+        showAppToast({
+          kind: 'error',
+          description: m.clipboard_copy_error(),
+        })
+      }
     }
   }
 

@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 
-import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
@@ -22,6 +21,7 @@ import {
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import { EmptyState, formatAdminDate } from '#/components/admin/layout'
+import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { m } from '#/paraglide/messages'
 
 export type ManagedVerificationDomain = {
@@ -112,7 +112,6 @@ export function CreateVerificationDomainDialog({
     createNewVerificationDomainFormValues(hasExistingDomains),
   )
   const [creating, setCreating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (open) {
@@ -121,13 +120,11 @@ export function CreateVerificationDomainDialog({
 
     setForm(createNewVerificationDomainFormValues(hasExistingDomains))
     setCreating(false)
-    setError(null)
   }, [open, hasExistingDomains])
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setCreating(true)
-    setError(null)
 
     try {
       const response = await fetch('/api/admin/verification-domains', {
@@ -154,11 +151,14 @@ export function CreateVerificationDomainDialog({
       onDomainCreated?.(data.domain)
       onOpenChange(false)
     } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : m.domain_create_error(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.domain_save_failed_title(),
+        description: getToastErrorDescription(
+          createError,
+          m.domain_create_error(),
+        ),
+      })
     } finally {
       setCreating(false)
     }
@@ -220,13 +220,6 @@ export function CreateVerificationDomainDialog({
             disabled={creating}
           />
 
-          {error ? (
-            <Alert variant="destructive">
-              <AlertTitle>{m.domain_save_failed_title()}</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
-
           <DialogFooter showCloseButton>
             <Button type="submit" disabled={creating}>
               {creating ? m.domain_creating() : m.domain_create_submit()}
@@ -247,8 +240,6 @@ function VerificationDomainCard({
 }) {
   const [form, setForm] = useState(() => toFormValues(domain))
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     setForm(toFormValues(domain))
@@ -256,8 +247,6 @@ function VerificationDomainCard({
 
   async function saveDomain(overrides?: Partial<VerificationDomainFormValues>) {
     setSaving(true)
-    setError(null)
-    setSuccess(null)
 
     try {
       const payload = {
@@ -288,17 +277,22 @@ function VerificationDomainCard({
       }
 
       onUpdated(data.domain)
-      setSuccess(
-        overrides?.isDefault
+      showAppToast({
+        kind: 'success',
+        title: m.oauth_saved_title(),
+        description: overrides?.isDefault
           ? m.domain_set_default_success()
           : m.domain_update_success(),
-      )
+      })
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : m.domain_update_error(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.domain_save_failed_title(),
+        description: getToastErrorDescription(
+          saveError,
+          m.domain_update_error(),
+        ),
+      })
     } finally {
       setSaving(false)
     }
@@ -381,20 +375,6 @@ function VerificationDomainCard({
             disabled={domain.isDefault || saving}
           />
         </div>
-
-        {error ? (
-          <Alert variant="destructive">
-            <AlertTitle>{m.domain_save_failed_title()}</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-
-        {success ? (
-          <Alert>
-            <AlertTitle>{m.oauth_saved_title()}</AlertTitle>
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        ) : null}
 
         <div className="flex flex-wrap gap-2">
           <Button

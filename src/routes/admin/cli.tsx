@@ -37,7 +37,6 @@ import {
   AdminTableSelectionCell,
   AdminTableSelectionHead,
 } from '#/components/admin/table-selection'
-import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -85,6 +84,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '#/components/ui/tooltip'
+import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { m } from '#/paraglide/messages'
 
 const CLI_CONNECTION_POLL_INTERVAL_MS = 10_000
@@ -176,11 +176,6 @@ type CliConnectionState = {
   activeConnections: CliConnectionSummary[]
 }
 
-type DispatchFlash = {
-  title: string
-  description: string
-}
-
 type DispatchResultSummary = {
   queuedCount: number
   assignedCliCount: number
@@ -199,7 +194,6 @@ function AdminCliConnectionsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [selectedConnection, setSelectedConnection] =
     useState<CliConnectionSummary | null>(null)
-  const [dispatchFlash, setDispatchFlash] = useState<DispatchFlash | null>(null)
 
   async function refreshConnections() {
     setIsRefreshing(true)
@@ -301,13 +295,6 @@ function AdminCliConnectionsPage() {
         }
       />
 
-      {dispatchFlash ? (
-        <Alert>
-          <AlertTitle>{dispatchFlash.title}</AlertTitle>
-          <AlertDescription>{dispatchFlash.description}</AlertDescription>
-        </Alert>
-      ) : null}
-
       <CliConnectionsTableCard
         title={m.admin_cli_connected_section_title()}
         description={m.admin_cli_connected_section_description()}
@@ -315,7 +302,6 @@ function AdminCliConnectionsPage() {
         emptyDescription={m.admin_cli_empty_connected_description()}
         connections={state.activeConnections}
         onDispatch={(connection) => {
-          setDispatchFlash(null)
           setSelectedConnection(connection)
         }}
       />
@@ -329,7 +315,8 @@ function AdminCliConnectionsPage() {
           }
         }}
         onDispatched={(flowId, connection, result) => {
-          setDispatchFlash({
+          showAppToast({
+            kind: 'success',
             title: m.admin_cli_dispatch_success_title(),
             description:
               result.assignedCliCount > 1
@@ -515,7 +502,6 @@ function CliTaskDialog(props: {
   )
   const [draftValues, setDraftValues] = useState<DraftOptionState>({})
   const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
     setSelectedFlowId(availableFlows[0] || '')
@@ -523,7 +509,6 @@ function CliTaskDialog(props: {
     setDispatchParallelism(String(DEFAULT_CLI_FLOW_TASK_PARALLELISM))
     setDraftValues({})
     setSubmitting(false)
-    setSubmitError(null)
   }, [props.connection?.id, availableFlows])
 
   const batchState = useMemo(
@@ -550,7 +535,6 @@ function CliTaskDialog(props: {
     }
 
     setSubmitting(true)
-    setSubmitError(null)
     try {
       const submission = buildDispatchSubmission(
         selectedFlowId,
@@ -596,11 +580,14 @@ function CliTaskDialog(props: {
             : 1,
       })
     } catch (error) {
-      setSubmitError(
-        error instanceof Error
-          ? error.message
-          : m.admin_cli_dispatch_error_fallback(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.admin_cli_dispatch_error_title(),
+        description: getToastErrorDescription(
+          error,
+          m.admin_cli_dispatch_error_fallback(),
+        ),
+      })
     } finally {
       setSubmitting(false)
     }
@@ -638,7 +625,6 @@ function CliTaskDialog(props: {
                       setDispatchParallelism(
                         String(DEFAULT_CLI_FLOW_TASK_PARALLELISM),
                       )
-                      setSubmitError(null)
                     }}
                     disabled={!availableFlows.length || submitting}
                   >
@@ -780,13 +766,6 @@ function CliTaskDialog(props: {
                   }}
                 />
               </>
-            ) : null}
-
-            {submitError ? (
-              <Alert variant="destructive">
-                <AlertTitle>{m.admin_cli_dispatch_error_title()}</AlertTitle>
-                <AlertDescription>{submitError}</AlertDescription>
-              </Alert>
             ) : null}
           </div>
         ) : null}
@@ -980,8 +959,6 @@ function EmailBatchDispatchField(props: {
   onChange: (value: string) => void
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const [importFeedback, setImportFeedback] = useState<string | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
   const detectedEmails = useMemo(
     () => extractDispatchEmailAddresses(props.value),
     [props.value],
@@ -999,8 +976,6 @@ function EmailBatchDispatchField(props: {
         rows={6}
         placeholder={'a@example.com\nb@example.com'}
         onChange={(event) => {
-          setImportFeedback(null)
-          setImportError(null)
           props.onChange(event.currentTarget.value)
         }}
       />
@@ -1041,8 +1016,10 @@ function EmailBatchDispatchField(props: {
             const importedEmails = extractDispatchEmailAddresses(content)
 
             if (!importedEmails.length) {
-              setImportFeedback(null)
-              setImportError(m.admin_cli_dispatch_upload_csv_empty())
+              showAppToast({
+                kind: 'error',
+                description: m.admin_cli_dispatch_upload_csv_empty(),
+              })
               return
             }
 
@@ -1052,16 +1029,18 @@ function EmailBatchDispatchField(props: {
             )
 
             props.onChange(mergedEmails.join('\n'))
-            setImportError(null)
-            setImportFeedback(
-              m.admin_cli_dispatch_upload_csv_success({
+            showAppToast({
+              kind: 'success',
+              description: m.admin_cli_dispatch_upload_csv_success({
                 count: String(importedEmails.length),
                 file: file.name,
               }),
-            )
+            })
           } catch {
-            setImportFeedback(null)
-            setImportError(m.admin_cli_dispatch_upload_csv_error())
+            showAppToast({
+              kind: 'error',
+              description: m.admin_cli_dispatch_upload_csv_error(),
+            })
           } finally {
             event.currentTarget.value = ''
           }
@@ -1070,12 +1049,6 @@ function EmailBatchDispatchField(props: {
       <FieldDescription>
         {formatOptionDescription(props.option, props.flowId)}
       </FieldDescription>
-      {importFeedback ? (
-        <p className="text-xs text-muted-foreground">{importFeedback}</p>
-      ) : null}
-      {importError ? (
-        <p className="text-xs text-destructive">{importError}</p>
-      ) : null}
     </Field>
   )
 }

@@ -1019,6 +1019,8 @@
   "admin_dashboard_not_captured_yet": "尚未捕获",
   "admin_dashboard_identity_label": "身份标签",
   "clipboard_copy_value": "复制{label}",
+  "clipboard_copy_success": "已复制到剪贴板。",
+  "clipboard_copy_error": "无法复制到剪贴板。",
   "admin_dashboard_device_kicker": "设备审批",
   "admin_dashboard_device_title": "最近设备挑战",
   "admin_dashboard_device_description": "批准或拒绝待处理的 CLI 会话，并持续关注最近更新的设备授权。",

@@ -61,6 +61,7 @@ import {
 import { translateStatusLabel } from '#/lib/i18n'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
+import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
@@ -381,7 +382,6 @@ export function CreateOAuthClientDialog({
     createNewOAuthClientFormValues(supportedScopes, verificationDomains),
   )
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<{
     client: ManagedOAuthClient
     clientSecret: string
@@ -396,14 +396,12 @@ export function CreateOAuthClientDialog({
       createNewOAuthClientFormValues(supportedScopes, verificationDomains),
     )
     setSubmitting(false)
-    setError(null)
     setCreated(null)
   }, [open, supportedScopes, verificationDomains])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSubmitting(true)
-    setError(null)
     setCreated(null)
 
     try {
@@ -427,11 +425,14 @@ export function CreateOAuthClientDialog({
       setCreated(data)
       onClientCreated?.(data.client)
     } catch (submitError) {
-      setError(
-        submitError instanceof Error
-          ? submitError.message
-          : m.oauth_new_error_create(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.oauth_unable_to_save_title(),
+        description: getToastErrorDescription(
+          submitError,
+          m.oauth_new_error_create(),
+        ),
+      })
     } finally {
       setSubmitting(false)
     }
@@ -478,7 +479,6 @@ export function CreateOAuthClientDialog({
                   supportedScopes={supportedScopes}
                   verificationDomains={verificationDomains}
                   allowedScopesInputMode="tags"
-                  error={error}
                   onChange={setForm}
                   onSubmit={handleSubmit}
                 />
@@ -560,8 +560,6 @@ export function EditOAuthClientPageContent({
   )
   const [saving, setSaving] = useState(false)
   const [revealing, setRevealing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
   const [visibleSecret, setVisibleSecret] = useState<string | null>(null)
 
   useEffect(() => {
@@ -571,8 +569,6 @@ export function EditOAuthClientPageContent({
 
   async function saveClient(rotateSecret: boolean) {
     setSaving(true)
-    setError(null)
-    setSuccess(null)
 
     try {
       const response = await fetch(`/api/admin/oauth-clients/${client.id}`, {
@@ -597,17 +593,22 @@ export function EditOAuthClientPageContent({
       setClient(data.client)
       setForm(createFormValues(data.client))
       setVisibleSecret(data.rotatedSecret || null)
-      setSuccess(
-        rotateSecret
+      showAppToast({
+        kind: 'success',
+        title: m.oauth_saved_title(),
+        description: rotateSecret
           ? m.oauth_edit_success_rotated()
           : m.oauth_edit_success_saved(),
-      )
+      })
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : m.oauth_edit_error_update(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.oauth_unable_to_save_title(),
+        description: getToastErrorDescription(
+          saveError,
+          m.oauth_edit_error_update(),
+        ),
+      })
     } finally {
       setSaving(false)
     }
@@ -615,7 +616,6 @@ export function EditOAuthClientPageContent({
 
   async function revealSecret() {
     setRevealing(true)
-    setError(null)
 
     try {
       const response = await fetch(
@@ -631,13 +631,20 @@ export function EditOAuthClientPageContent({
       }
       setVisibleSecret(data.clientSecret || null)
       setClient(data.client)
-      setSuccess(m.oauth_edit_reveal_success())
+      showAppToast({
+        kind: 'success',
+        title: m.oauth_saved_title(),
+        description: m.oauth_edit_reveal_success(),
+      })
     } catch (revealError) {
-      setError(
-        revealError instanceof Error
-          ? revealError.message
-          : m.oauth_edit_reveal_error(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.oauth_unable_to_save_title(),
+        description: getToastErrorDescription(
+          revealError,
+          m.oauth_edit_reveal_error(),
+        ),
+      })
     } finally {
       setRevealing(false)
     }
@@ -673,8 +680,6 @@ export function EditOAuthClientPageContent({
             submitLabel={m.oauth_edit_save_settings()}
             supportedScopes={supportedScopes}
             verificationDomains={verificationDomains}
-            error={error}
-            success={success}
             onChange={setForm}
             onSubmit={(event) => {
               event.preventDefault()
@@ -802,8 +807,6 @@ function OAuthClientForm({
   supportedScopes,
   verificationDomains,
   allowedScopesInputMode = 'text',
-  error,
-  success,
   children,
 }: {
   form: OAuthClientFormValues
@@ -814,8 +817,6 @@ function OAuthClientForm({
   supportedScopes: string[]
   verificationDomains: ManagedVerificationDomainOption[]
   allowedScopesInputMode?: 'text' | 'tags'
-  error?: string | null
-  success?: string | null
   children?: ReactNode
 }) {
   const enabledId = useId()
@@ -972,20 +973,6 @@ function OAuthClientForm({
             </Badge>
           ))}
         </div>
-      ) : null}
-
-      {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>{m.oauth_unable_to_save_title()}</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {success ? (
-        <Alert>
-          <AlertTitle>{m.oauth_saved_title()}</AlertTitle>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
       ) : null}
 
       {children || (

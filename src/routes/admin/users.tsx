@@ -55,6 +55,7 @@ import {
   getDefaultAdminRoute,
   type AdminPermission,
 } from '#/lib/admin-access'
+import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
@@ -387,12 +388,10 @@ function UserPermissionsDialog(props: {
     AdminPermission[]
   >([])
   const [submitting, setSubmitting] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     setSelectedPermissions(props.user?.permissions || [])
     setSubmitting(false)
-    setSaveError(null)
   }, [props.user?.id, props.user?.updatedAt])
 
   if (!props.user) {
@@ -407,7 +406,6 @@ function UserPermissionsDialog(props: {
 
   async function handleSubmit() {
     setSubmitting(true)
-    setSaveError(null)
 
     try {
       const form = new FormData()
@@ -437,11 +435,14 @@ function UserPermissionsDialog(props: {
         updatedSelf: Boolean(result.updatedSelf),
       })
     } catch (error) {
-      setSaveError(
-        error instanceof Error
-          ? error.message
-          : m.admin_users_save_error_fallback(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.admin_users_save_failed_title(),
+        description: getToastErrorDescription(
+          error,
+          m.admin_users_save_error_fallback(),
+        ),
+      })
     } finally {
       setSubmitting(false)
     }
@@ -518,13 +519,6 @@ function UserPermissionsDialog(props: {
               />
             ))}
           </div>
-
-          {saveError ? (
-            <Alert variant="destructive">
-              <AlertTitle>{m.admin_users_save_failed_title()}</AlertTitle>
-              <AlertDescription>{saveError}</AlertDescription>
-            </Alert>
-          ) : null}
         </div>
 
         <DialogFooter>

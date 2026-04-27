@@ -87,6 +87,7 @@ import {
   TooltipTrigger,
 } from '#/components/ui/tooltip'
 import { serializeDataTableFilters } from '#/lib/data-table-filters'
+import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
@@ -869,12 +870,10 @@ function ArchiveManagedIdentityButton(
   const [status, setStatus] = useState<
     'idle' | 'submitting' | 'success' | 'error'
   >('idle')
-  const [message, setMessage] = useState<string | null>(null)
   const isArchived = props.identityStatus === 'archived'
 
   useEffect(() => {
     setStatus('idle')
-    setMessage(null)
   }, [props.identityId, props.identityStatus])
 
   if (!props.identityId) {
@@ -887,7 +886,6 @@ function ArchiveManagedIdentityButton(
     }
 
     setStatus('submitting')
-    setMessage(null)
 
     try {
       await submitAdminIdentityAction({
@@ -896,14 +894,19 @@ function ArchiveManagedIdentityButton(
       })
       await props.onUpdated?.()
       setStatus('success')
-      setMessage(m.mail_identity_archive_success())
+      showAppToast({
+        kind: 'success',
+        description: m.mail_identity_archive_success(),
+      })
     } catch (error) {
       setStatus('error')
-      setMessage(
-        error instanceof Error && error.message
-          ? error.message
-          : m.mail_identity_archive_error(),
-      )
+      showAppToast({
+        kind: 'error',
+        description: getToastErrorDescription(
+          error,
+          m.mail_identity_archive_error(),
+        ),
+      })
     }
   }
 
@@ -949,17 +952,6 @@ function ArchiveManagedIdentityButton(
               : m.mail_identity_archive_button()}
           </TooltipContent>
         </Tooltip>
-
-        {message && (!props.compact || status === 'error') ? (
-          <p
-            className={cn(
-              'text-xs',
-              status === 'error' ? 'text-destructive' : 'text-emerald-600',
-            )}
-          >
-            {message}
-          </p>
-        ) : null}
       </div>
     </TooltipProvider>
   )
@@ -979,13 +971,11 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
   const [status, setStatus] = useState<
     'idle' | 'submitting' | 'success' | 'error'
   >('idle')
-  const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     setCode(props.initialCode || '')
     setIsEditing(false)
     setStatus('idle')
-    setMessage(null)
   }, [props.email, props.initialCode])
 
   useEffect(() => {
@@ -1004,7 +994,6 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
   }, [isEditing])
   async function submitCode() {
     setStatus('submitting')
-    setMessage(null)
 
     try {
       await submitAdminVerificationCode({
@@ -1014,14 +1003,19 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
       await props.onUpdated?.()
       setIsEditing(false)
       setStatus('success')
-      setMessage(m.mail_manual_code_success())
+      showAppToast({
+        kind: 'success',
+        description: m.mail_manual_code_success(),
+      })
     } catch (error) {
       setStatus('error')
-      setMessage(
-        error instanceof Error && error.message
-          ? error.message
-          : m.mail_manual_code_error(),
-      )
+      showAppToast({
+        kind: 'error',
+        description: getToastErrorDescription(
+          error,
+          m.mail_manual_code_error(),
+        ),
+      })
     }
   }
 
@@ -1054,7 +1048,6 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
               setCode(event.target.value.replace(/\D/g, '').slice(0, 6))
               if (status !== 'idle') {
                 setStatus('idle')
-                setMessage(null)
               }
             }}
             disabled={status === 'submitting'}
@@ -1077,11 +1070,17 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
             title={m.mail_manual_code_copy_button()}
             onCopySuccess={() => {
               setStatus('success')
-              setMessage(m.mail_manual_code_copy_success())
+              showAppToast({
+                kind: 'success',
+                description: m.mail_manual_code_copy_success(),
+              })
             }}
             onCopyError={() => {
               setStatus('error')
-              setMessage(m.mail_manual_code_copy_error())
+              showAppToast({
+                kind: 'error',
+                description: m.mail_manual_code_copy_error(),
+              })
             }}
             className={cn(
               'h-8 justify-center rounded-md border border-border/70 bg-muted/40 px-3 pr-8',
@@ -1106,7 +1105,6 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
 
             setIsEditing(true)
             setStatus('idle')
-            setMessage(null)
           }}
           className={cn(
             isEditing &&
@@ -1132,21 +1130,6 @@ function ManualVerificationCodeForm(props: ManualVerificationCodeFormProps) {
           )}
         </Button>
       </div>
-
-      {message && (!props.compact || status === 'error') ? (
-        <p
-          className={cn(
-            'text-xs',
-            status === 'error'
-              ? 'text-destructive'
-              : status === 'success'
-                ? 'text-emerald-600'
-                : 'text-muted-foreground',
-          )}
-        >
-          {message}
-        </p>
-      ) : null}
     </form>
   )
 }

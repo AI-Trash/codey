@@ -10,6 +10,7 @@ import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { AppQueryProvider } from '../components/query-provider'
 
+import { Toaster } from '#/components/ui/sonner'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
@@ -69,6 +70,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
               },
             ]}
           />
+          <Toaster closeButton richColors position="bottom-right" />
           <Scripts />
         </AppQueryProvider>
       </body>

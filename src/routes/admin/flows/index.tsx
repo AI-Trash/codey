@@ -30,7 +30,6 @@ import {
   AdminTableSelectionHead,
 } from '#/components/admin/table-selection'
 import { createColumnConfigHelper } from '#/components/data-table-filter/core/filters'
-import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -67,6 +66,7 @@ import {
 } from '#/components/ui/table'
 import { getFlowDisplayName } from '#/lib/admin-flows'
 import { translateStatusLabel } from '#/lib/i18n'
+import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
@@ -78,12 +78,6 @@ type ClearFlowRunsResponse = {
   deletedCount: number
   preservedCount: number
   totalVisibleCount: number
-}
-
-type FlowPageFlash = {
-  kind: 'success' | 'error'
-  title: string
-  description: string
 }
 
 const loadAdminFlowRuns = createServerFn({ method: 'GET' })
@@ -148,7 +142,6 @@ function AdminFlowsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
   const [clearMode, setClearMode] = useState<ClearFlowRunsMode | null>(null)
-  const [flash, setFlash] = useState<FlowPageFlash | null>(null)
 
   useEffect(() => {
     if (!authorizedSnapshot) {
@@ -199,7 +192,6 @@ function AdminFlowsPage() {
 
   async function clearFlowRuns(mode: ClearFlowRunsMode) {
     setIsClearing(true)
-    setFlash(null)
 
     try {
       const response = await fetch(`/api/admin/flows?mode=${mode}`, {
@@ -245,7 +237,7 @@ function AdminFlowsPage() {
       }
 
       if (mode === 'all') {
-        setFlash({
+        showAppToast({
           kind: 'success',
           title: m.status_success(),
           description:
@@ -259,7 +251,7 @@ function AdminFlowsPage() {
       }
 
       if (result.deletedCount > 0 && result.preservedCount > 0) {
-        setFlash({
+        showAppToast({
           kind: 'success',
           title: m.status_success(),
           description: m.admin_flow_clear_success_partial({
@@ -271,7 +263,7 @@ function AdminFlowsPage() {
       }
 
       if (result.deletedCount > 0) {
-        setFlash({
+        showAppToast({
           kind: 'success',
           title: m.status_success(),
           description: m.admin_flow_clear_success({
@@ -281,7 +273,7 @@ function AdminFlowsPage() {
         return
       }
 
-      setFlash({
+      showAppToast({
         kind: 'success',
         title: m.status_success(),
         description:
@@ -292,15 +284,15 @@ function AdminFlowsPage() {
             : m.admin_flow_clear_empty(),
       })
     } catch (error) {
-      setFlash({
+      showAppToast({
         kind: 'error',
         title: m.status_failed(),
-        description:
-          error instanceof Error
-            ? error.message
-            : mode === 'all'
-              ? m.admin_flow_force_clear_error()
-              : m.admin_flow_clear_error(),
+        description: getToastErrorDescription(
+          error,
+          mode === 'all'
+            ? m.admin_flow_force_clear_error()
+            : m.admin_flow_clear_error(),
+        ),
       })
     } finally {
       setIsClearing(false)
@@ -460,7 +452,6 @@ function AdminFlowsPage() {
               type="button"
               variant="outline"
               onClick={() => {
-                setFlash(null)
                 void refreshSnapshot(activeTaskId)
               }}
               disabled={isRefreshing}
@@ -472,7 +463,6 @@ function AdminFlowsPage() {
               variant="outline"
               disabled={isClearing || !hasCompletedTasks}
               onClick={() => {
-                setFlash(null)
                 setClearMode('completed')
               }}
             >
@@ -486,7 +476,6 @@ function AdminFlowsPage() {
               variant="destructive"
               disabled={isClearing || !hasTasks}
               onClick={() => {
-                setFlash(null)
                 setClearMode('all')
               }}
             >
@@ -498,13 +487,6 @@ function AdminFlowsPage() {
           </>
         }
       />
-
-      {flash ? (
-        <Alert variant={flash.kind === 'error' ? 'destructive' : undefined}>
-          <AlertTitle>{flash.title}</AlertTitle>
-          <AlertDescription>{flash.description}</AlertDescription>
-        </Alert>
-      ) : null}
 
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <CardHeader>

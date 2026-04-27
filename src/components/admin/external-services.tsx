@@ -14,6 +14,7 @@ import { Checkbox } from '#/components/ui/checkbox'
 import { Input } from '#/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import { StatusBadge, formatAdminDate } from '#/components/admin/layout'
+import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { m } from '#/paraglide/messages'
 
 export type ManagedSub2ApiService = {
@@ -72,8 +73,6 @@ export function ExternalServicesPageContent(props: {
     toSub2ApiFormValues(props.initialSub2Api),
   )
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     setService(props.initialSub2Api)
@@ -83,8 +82,6 @@ export function ExternalServicesPageContent(props: {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSaving(true)
-    setError(null)
-    setSuccess(null)
 
     try {
       const response = await fetch('/api/admin/external-services/sub2api', {
@@ -127,13 +124,20 @@ export function ExternalServicesPageContent(props: {
 
       setService(data.service)
       setForm(toSub2ApiFormValues(data.service))
-      setSuccess(m.external_services_save_success())
+      showAppToast({
+        kind: 'success',
+        title: m.oauth_saved_title(),
+        description: m.external_services_save_success(),
+      })
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : m.external_services_save_error(),
-      )
+      showAppToast({
+        kind: 'error',
+        title: m.external_services_save_failed_title(),
+        description: getToastErrorDescription(
+          saveError,
+          m.external_services_save_error(),
+        ),
+      })
     } finally {
       setSaving(false)
     }
@@ -477,20 +481,6 @@ export function ExternalServicesPageContent(props: {
               disabled={saving}
             />
           </div>
-
-          {error ? (
-            <Alert variant="destructive">
-              <AlertTitle>{m.external_services_save_failed_title()}</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
-
-          {success ? (
-            <Alert>
-              <AlertTitle>{m.oauth_saved_title()}</AlertTitle>
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          ) : null}
 
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={saving}>
