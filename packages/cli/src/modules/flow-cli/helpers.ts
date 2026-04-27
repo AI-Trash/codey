@@ -310,6 +310,7 @@ function formatInviteCounts(
   const skipped = asStringArray(result.skippedEmails)?.length
   const errored = asStringArray(result.erroredEmails)?.length
   const removed = asStringArray(result.removedMemberEmails)?.length
+  const removedInvites = asStringArray(result.removedInviteEmails)?.length
 
   const parts = [
     requested != null ? `requested ${requested}` : undefined,
@@ -317,6 +318,7 @@ function formatInviteCounts(
     skipped != null ? `skipped ${skipped}` : undefined,
     errored != null ? `errored ${errored}` : undefined,
     removed != null ? `removed ${removed}` : undefined,
+    removedInvites != null ? `removed invites ${removedInvites}` : undefined,
   ].filter((part): part is string => Boolean(part))
 
   return parts.length ? parts.join(', ') : undefined

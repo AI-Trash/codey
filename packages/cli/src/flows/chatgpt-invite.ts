@@ -101,6 +101,7 @@ export async function inviteChatGPTWorkspaceMembers(
         parseBooleanFlag(options.pruneUnmanagedWorkspaceMembers, false) ??
         false,
       protectedEmails: [login.email, login.storedIdentity.email],
+      progressReporter: options.progressReporter,
     })
     const workspaceId = invites.accountId || login.selectedWorkspaceId
     const linkedEmails = inviteInputs.emails.filter(

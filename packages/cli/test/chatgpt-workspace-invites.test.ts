@@ -7,6 +7,7 @@ import {
   extractInviteEmailsFromCsv,
   extractInviteEmailsFromJson,
   inviteWorkspaceMembers,
+  planUnmanagedWorkspaceInviteRemovals,
   planUnmanagedWorkspaceMemberRemovals,
   planWorkspaceMemberRemovals,
   resolveInviteEmails,
@@ -297,6 +298,33 @@ describe('workspace invite helpers', () => {
     ).toEqual(['stale-1', 'stale-admin'])
   })
 
+  it('plans unmanaged pending invite removals without removing managed invites', () => {
+    expect(
+      planUnmanagedWorkspaceInviteRemovals({
+        managedEmails: ['managed@example.com'],
+        invites: [
+          {
+            id: 'managed-invite',
+            email_address: 'managed@example.com',
+          },
+          {
+            id: 'stale-old',
+            email_address: 'stale-old@example.com',
+            created_time: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'stale-new',
+            email_address: 'stale-new@example.com',
+            created_time: '2026-03-01T00:00:00.000Z',
+          },
+          {
+            email_address: 'missing-id@example.com',
+          },
+        ],
+      }).map((invite) => invite.id),
+    ).toEqual(['stale-old', 'stale-new'])
+  })
+
   it('lists pending invites with page sizes accepted by the ChatGPT API', async () => {
     const page = new FakeInvitePage()
     const firstPendingInvitePage = Array.from({ length: 100 }, (_, index) => ({
@@ -332,18 +360,9 @@ describe('workspace invite helpers', () => {
         ],
         total: 101,
       }),
-      jsonApiResponse({
-        account_invites: [
-          {
-            email_address: 'new@example.com',
-          },
-        ],
-        errored_emails: [],
-      }),
     )
 
     const result = await inviteWorkspaceMembers(page as never, [
-      'new@example.com',
       'repeat@example.com',
     ])
 
@@ -369,10 +388,8 @@ describe('workspace invite helpers', () => {
         (call) => Number(new URL(call.url).searchParams.get('limit')) <= 100,
       ),
     ).toBe(true)
-    expect(JSON.parse(invitePostCall?.body || '{}')).toMatchObject({
-      email_addresses: ['new@example.com'],
-    })
-    expect(result.invitedEmails).toEqual(['new@example.com'])
+    expect(invitePostCall).toBeUndefined()
+    expect(result.invitedEmails).toEqual([])
     expect(result.skippedEmails).toEqual(['repeat@example.com'])
   })
 
@@ -453,6 +470,86 @@ describe('workspace invite helpers', () => {
       email_addresses: ['new@example.com'],
     })
     expect(result.removedMemberEmails).toEqual(['stale@example.com'])
+    expect(result.skippedEmails).toEqual(['managed@example.com'])
+    expect(result.invitedEmails).toEqual(['new@example.com'])
+  })
+
+  it('removes unmanaged pending invites before sending new invites', async () => {
+    const page = new FakeInvitePage()
+
+    page.responses.push(
+      jsonApiResponse({
+        account_ordering: ['workspace-123'],
+        accounts: {
+          'workspace-123': {
+            account: {
+              account_id: 'workspace-123',
+              structure: 'workspace',
+              plan_type: 'team',
+            },
+            can_access_with_session: true,
+          },
+        },
+      }),
+      jsonApiResponse({
+        items: [
+          {
+            id: 'owner-1',
+            email: 'owner@example.com',
+            role: 'account-owner',
+          },
+        ],
+      }),
+      jsonApiResponse({
+        account_invites: [
+          {
+            id: 'managed-invite',
+            email_address: 'managed@example.com',
+          },
+          {
+            id: 'stale-invite',
+            email_address: 'stale@example.com',
+          },
+        ],
+        total: 2,
+      }),
+      jsonApiResponse({
+        success: true,
+      }),
+      jsonApiResponse({
+        account_invites: [
+          {
+            email_address: 'new@example.com',
+          },
+        ],
+        errored_emails: [],
+      }),
+    )
+
+    const result = await inviteWorkspaceMembers(
+      page as never,
+      ['managed@example.com', 'new@example.com'],
+      {
+        pruneUnmanagedWorkspaceMembers: true,
+        protectedEmails: ['owner@example.com'],
+      },
+    )
+    const deleteCallIndex = page.fetchCalls.findIndex(
+      (call) => call.method === 'DELETE',
+    )
+    const invitePostCallIndex = page.fetchCalls.findIndex(
+      (call) => call.url.endsWith('/invites') && call.method === 'POST',
+    )
+    const deleteCall = page.fetchCalls[deleteCallIndex]
+    const invitePostCall = page.fetchCalls[invitePostCallIndex]
+
+    expect(deleteCall?.url).toContain('/invites/stale-invite')
+    expect(deleteCallIndex).toBeGreaterThan(-1)
+    expect(invitePostCallIndex).toBeGreaterThan(deleteCallIndex)
+    expect(JSON.parse(invitePostCall?.body || '{}')).toMatchObject({
+      email_addresses: ['new@example.com'],
+    })
+    expect(result.removedInviteEmails).toEqual(['stale@example.com'])
     expect(result.skippedEmails).toEqual(['managed@example.com'])
     expect(result.invitedEmails).toEqual(['new@example.com'])
   })
