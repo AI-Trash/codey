@@ -284,7 +284,7 @@ export function AdminShell(props: {
         >
           <div
             className={cn(
-              'mx-auto flex w-full max-w-[1600px] flex-col gap-6',
+              'flex w-full flex-col gap-6',
               usesViewportShell && 'lg:min-h-0 lg:flex-1',
             )}
           >

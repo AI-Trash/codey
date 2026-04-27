@@ -26,7 +26,7 @@ function App() {
     <main className="px-4 py-6 md:py-8">
       <HeroDitheringRoot
         srTitle="Codey"
-        className="mx-auto min-h-[calc(100svh-10rem)] max-w-6xl rounded-[2rem] border border-border/70 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.12),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.1),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_24px_80px_-32px_rgba(15,23,42,0.28)] dark:bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.14),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.12),transparent_32%),linear-gradient(180deg,rgba(2,6,23,0.96),rgba(15,23,42,0.9))]"
+        className="min-h-[calc(100svh-10rem)] rounded-[2rem] border border-border/70 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.12),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.1),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_24px_80px_-32px_rgba(15,23,42,0.28)] dark:bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.14),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.12),transparent_32%),linear-gradient(180deg,rgba(2,6,23,0.96),rgba(15,23,42,0.9))]"
       >
         <div className="relative z-10 grid gap-8 px-6 py-8 sm:px-8 sm:py-10 lg:min-h-[calc(100svh-10rem)] lg:grid-cols-[minmax(0,1fr)_minmax(320px,460px)] lg:items-center lg:px-12 lg:py-12">
           <HeroDitheringContent className="gap-6 px-0 sm:px-0 md:px-0 lg:pl-0 lg:pr-0 xl:pl-0 2xl:pl-0">

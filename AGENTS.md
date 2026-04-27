@@ -9,6 +9,10 @@
   - `packages/cli/`: browser automation CLI and tests
   - `packages/cloudflare-email-worker/`: email ingest worker
 
+## Concurrent agent changes
+
+- If you encounter git working tree changes during a run that you did not make yourself, assume they were most likely made by another agent and ignore them unless they directly block your assigned task.
+
 ## Commands agents can rely on
 
 - `pnpm dev` runs the app on port 3000.

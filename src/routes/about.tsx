@@ -15,7 +15,7 @@ export const Route = createFileRoute('/about')({
 
 function About() {
   return (
-    <main className="mx-auto flex w-full max-w-4xl px-4 py-10 md:py-14">
+    <main className="flex w-full px-4 py-10 md:px-6 md:py-14">
       <Card className="w-full">
         <CardHeader>
           <CardDescription>{m.about_kicker()}</CardDescription>

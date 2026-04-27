@@ -42,7 +42,7 @@ function AdminLoginPage() {
   const search = Route.useSearch()
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-10 md:py-14">
+    <main className="flex w-full flex-col gap-6 px-4 py-10 md:px-6 md:py-14">
       {search.access === 'restricted' ? (
         <Alert>
           <AlertTitle>{m.admin_login_access_pending_title()}</AlertTitle>

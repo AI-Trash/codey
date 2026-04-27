@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
@@ -6,8 +6,9 @@ import {
   CalendarIcon,
   DownloadIcon,
   ExternalLinkIcon,
+  InfoIcon,
   KeyRoundIcon,
-  PencilIcon,
+  LinkIcon,
   PlusIcon,
   RefreshCcwIcon,
   SearchIcon,
@@ -73,6 +74,7 @@ import { m } from '#/paraglide/messages'
 
 const MAX_WORKSPACE_MEMBER_COUNT = 9
 const WORKSPACE_REFRESH_INTERVAL_MS = 10000
+const WORKSPACE_AUTO_SAVE_DELAY_MS = 500
 
 const loadAdminWorkspaces = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -256,6 +258,22 @@ type WorkspaceEditorState = {
   legacyMemberEmails: string[]
 }
 
+type WorkspaceAssociationMaps = {
+  ownerWorkspaceByIdentityId: Map<string, WorkspaceSummary>
+  memberWorkspacesByIdentityId: Map<string, WorkspaceSummary[]>
+  memberWorkspacesByAccount: Map<string, WorkspaceSummary[]>
+}
+
+type WorkspaceTeamTrialDraft =
+  | {
+      ok: true
+      editor: WorkspaceEditorState
+    }
+  | {
+      ok: false
+      reason: 'owner' | 'member'
+    }
+
 function createDefaultWorkspaceLabel() {
   const now = new Date()
   return formatAdminDate(now) || now.toISOString()
@@ -278,6 +296,25 @@ function createWorkspaceEditorState(
       .flatMap((member) => (member.identityId ? [] : [member.email]))
       .filter(Boolean),
   }
+}
+
+function createWorkspaceEditorSaveKey(editor: WorkspaceEditorState): string {
+  return JSON.stringify({
+    id: editor.id || '',
+    workspaceId: editor.workspaceId.trim(),
+    label: editor.label.trim(),
+    ownerIdentityId: editor.ownerIdentityId.trim(),
+    memberIdentityIds: editor.memberIdentityIds.map((identityId) =>
+      identityId.trim(),
+    ),
+    legacyMemberEmails: editor.legacyMemberEmails.map((email) =>
+      email.trim().toLowerCase(),
+    ),
+  })
+}
+
+function createWorkspaceSummarySaveKey(workspace: WorkspaceSummary): string {
+  return createWorkspaceEditorSaveKey(createWorkspaceEditorState(workspace))
 }
 
 function sortWorkspaceSummaries(workspaces: WorkspaceSummary[]) {
@@ -331,6 +368,135 @@ function filterWorkspaceSummaries(
 
 function normalizeIdentityAccount(value?: string | null) {
   return value?.trim().toLowerCase() || ''
+}
+
+function createWorkspaceAssociationMaps(
+  workspaces: WorkspaceSummary[],
+): WorkspaceAssociationMaps {
+  const ownerWorkspaceByIdentityId = new Map<string, WorkspaceSummary>()
+  const memberWorkspacesByIdentityId = new Map<string, WorkspaceSummary[]>()
+  const memberWorkspacesByAccount = new Map<string, WorkspaceSummary[]>()
+
+  for (const workspace of workspaces) {
+    if (workspace.owner?.identityId) {
+      ownerWorkspaceByIdentityId.set(workspace.owner.identityId, workspace)
+    }
+
+    for (const member of workspace.members) {
+      if (member.identityId) {
+        const memberWorkspaces =
+          memberWorkspacesByIdentityId.get(member.identityId) || []
+
+        if (!memberWorkspaces.some((entry) => entry.id === workspace.id)) {
+          memberWorkspaces.push(workspace)
+        }
+
+        memberWorkspacesByIdentityId.set(member.identityId, memberWorkspaces)
+      }
+
+      const account = normalizeIdentityAccount(member.email)
+      if (!account) {
+        continue
+      }
+
+      const accountWorkspaces = memberWorkspacesByAccount.get(account) || []
+
+      if (!accountWorkspaces.some((entry) => entry.id === workspace.id)) {
+        accountWorkspaces.push(workspace)
+      }
+
+      memberWorkspacesByAccount.set(account, accountWorkspaces)
+    }
+  }
+
+  return {
+    ownerWorkspaceByIdentityId,
+    memberWorkspacesByIdentityId,
+    memberWorkspacesByAccount,
+  }
+}
+
+function getWorkspaceOwnerPickerIdentities(input: {
+  identities: IdentitySummary[]
+  associations: WorkspaceAssociationMaps
+  currentWorkspaceId?: string
+}): IdentitySummary[] {
+  return input.identities.filter((identity) => {
+    if (!isWorkspaceSelectableIdentity(identity)) {
+      return false
+    }
+
+    const hasOtherIdentityAssociation = hasOtherWorkspaceAssociations(
+      identity.id,
+      input.associations.ownerWorkspaceByIdentityId,
+      input.associations.memberWorkspacesByIdentityId,
+      input.currentWorkspaceId,
+    )
+    if (hasOtherIdentityAssociation) {
+      return false
+    }
+
+    const account = normalizeIdentityAccount(identity.account)
+    const otherAccountMemberWorkspaces = account
+      ? input.associations.memberWorkspacesByAccount
+          .get(account)
+          ?.some((workspace) => workspace.id !== input.currentWorkspaceId)
+      : false
+
+    return !otherAccountMemberWorkspaces
+  })
+}
+
+function createWorkspaceTeamTrialDraft(input: {
+  identities: IdentitySummary[]
+  workspaces: WorkspaceSummary[]
+}): WorkspaceTeamTrialDraft {
+  const associations = createWorkspaceAssociationMaps(input.workspaces)
+  const selectableIdentities = input.identities.filter(
+    isWorkspaceSelectableIdentity,
+  )
+  const ownerPickerIdentities = getWorkspaceOwnerPickerIdentities({
+    identities: selectableIdentities,
+    associations,
+  })
+  const owner = getLatestWorkspaceOwnerIdentity({
+    identities: ownerPickerIdentities,
+    ownerWorkspaceByIdentityId: associations.ownerWorkspaceByIdentityId,
+    memberWorkspacesByIdentityId: associations.memberWorkspacesByIdentityId,
+  })
+
+  if (!owner) {
+    return {
+      ok: false,
+      reason: 'owner',
+    }
+  }
+
+  const memberSelection = getRandomWorkspaceMemberSelection({
+    identities: selectableIdentities,
+    ownerIdentityId: owner.id,
+    ownerWorkspaceByIdentityId: associations.ownerWorkspaceByIdentityId,
+    memberWorkspacesByIdentityId: associations.memberWorkspacesByIdentityId,
+    count: MAX_WORKSPACE_MEMBER_COUNT,
+  })
+
+  if (!memberSelection.identityIds.length) {
+    return {
+      ok: false,
+      reason: 'member',
+    }
+  }
+
+  return {
+    ok: true,
+    editor: {
+      workspaceId: '',
+      label: createDefaultWorkspaceLabel(),
+      ownerIdentityId: owner.id,
+      memberIdentityIds: memberSelection.identityIds,
+      legacyMemberEmails: [],
+    },
+  }
 }
 
 function getWorkspaceDisplayLabel(
@@ -782,7 +948,7 @@ function WorkspaceEditorDialog(props: {
   workspaces: WorkspaceSummary[]
   canDispatchFlows: boolean
   isSaving: boolean
-  onSave: () => Promise<WorkspaceSummary>
+  onSave: (editor: WorkspaceEditorState) => Promise<WorkspaceSummary>
   onWorkspaceChange: (workspace: WorkspaceSummary) => void
   onFlash: (flash: FlashMessage) => void
 }) {
@@ -1033,15 +1199,17 @@ function WorkspaceEditorDialog(props: {
           }
         }}
       >
-        <DialogContent className="max-h-[92vh] max-w-[min(1080px,calc(100%-2rem))] overflow-y-auto sm:max-w-[min(1080px,calc(100%-2rem))]">
+        <DialogContent className="max-h-[92vh] max-w-[min(1680px,calc(100%-2rem))] overflow-y-auto sm:max-w-[min(1680px,calc(100%-2rem))]">
           <DialogHeader>
             <DialogTitle>
               {props.editor.id
-                ? m.admin_workspace_dialog_edit_title()
+                ? m.admin_workspace_detail_meta_title()
                 : m.admin_workspace_dialog_create_title()}
             </DialogTitle>
             <DialogDescription>
-              {m.admin_workspace_dialog_description()}
+              {props.editor.id
+                ? m.admin_workspace_detail_description()
+                : m.admin_workspace_dialog_description()}
             </DialogDescription>
           </DialogHeader>
 
@@ -1216,42 +1384,44 @@ function WorkspaceEditorDialog(props: {
             ) : null}
           </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                props.onOpenChange(false)
-              }}
-              disabled={props.isSaving}
-            >
-              {m.ui_close()}
-            </Button>
-            <Button
-              type="button"
-              disabled={props.isSaving || !props.editor.ownerIdentityId}
-              onClick={async () => {
-                try {
-                  const workspace = await props.onSave()
-                  setEditor(createWorkspaceEditorState(workspace))
-                  showWorkspaceToast({
-                    kind: 'success',
-                    message: m.admin_workspace_save_success(),
-                  })
-                } catch (error) {
-                  showWorkspaceToast({
-                    kind: 'error',
-                    message:
-                      error instanceof Error
-                        ? error.message
-                        : m.admin_workspace_save_error_fallback(),
-                  })
-                }
-              }}
-            >
-              {m.admin_workspace_save_button()}
-            </Button>
-          </DialogFooter>
+          {props.editor.id ? null : (
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  props.onOpenChange(false)
+                }}
+                disabled={props.isSaving}
+              >
+                {m.ui_close()}
+              </Button>
+              <Button
+                type="button"
+                disabled={props.isSaving || !props.editor.ownerIdentityId}
+                onClick={async () => {
+                  try {
+                    const workspace = await props.onSave(props.editor)
+                    setEditor(createWorkspaceEditorState(workspace))
+                    showWorkspaceToast({
+                      kind: 'success',
+                      message: m.admin_workspace_save_success(),
+                    })
+                  } catch (error) {
+                    showWorkspaceToast({
+                      kind: 'error',
+                      message:
+                        error instanceof Error
+                          ? error.message
+                          : m.admin_workspace_save_error_fallback(),
+                    })
+                  }
+                }}
+              >
+                {m.admin_workspace_save_button()}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -2037,6 +2207,7 @@ function AdminWorkspacesPage() {
   )
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [quickTeamTrialPending, setQuickTeamTrialPending] = useState(false)
 
   useEffect(() => {
     if ('workspaces' in data) {
@@ -2083,6 +2254,75 @@ function AdminWorkspacesPage() {
     () => filterWorkspaceSummaries(workspaces, query),
     [query, workspaces],
   )
+  const canDispatchFlows = Boolean(
+    'canDispatchFlows' in data && data.canDispatchFlows,
+  )
+
+  async function handleCreateWorkspaceTeamTrial() {
+    if (!canDispatchFlows) {
+      showWorkspaceToast({
+        kind: 'error',
+        message: m.admin_workspace_team_trial_requires_cli_permission(),
+      })
+      return
+    }
+
+    const draft = createWorkspaceTeamTrialDraft({
+      identities: identitySummaries,
+      workspaces,
+    })
+    if (!draft.ok) {
+      showWorkspaceToast({
+        kind: 'error',
+        message:
+          draft.reason === 'owner'
+            ? m.admin_workspace_get_paypal_link_requires_owner()
+            : m.admin_workspace_get_paypal_link_requires_members(),
+      })
+      return
+    }
+
+    let workspace: WorkspaceSummary | null = null
+    setQuickTeamTrialPending(true)
+    setIsSaving(true)
+
+    try {
+      workspace = await saveWorkspace(draft.editor)
+      setWorkspaces((current) => upsertWorkspaceSummary(current, workspace))
+      setEditor(createWorkspaceEditorState(workspace))
+
+      const result = await dispatchWorkspaceTeamTrial(workspace.id)
+      showWorkspaceToast({
+        kind: 'success',
+        message:
+          result.mode === 'dispatch'
+            ? m.admin_workspace_get_paypal_link_success_dispatched({
+                count: String(workspace.memberCount),
+                email: result.ownerEmail,
+                cli: result.connectionLabel || 'CLI',
+              })
+            : m.admin_workspace_get_paypal_link_success_requested({
+                count: String(workspace.memberCount),
+                email: result.ownerEmail,
+              }),
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : m.admin_workspace_get_paypal_link_error_fallback()
+
+      showWorkspaceToast({
+        kind: 'error',
+        message: workspace
+          ? m.admin_workspace_get_paypal_link_partial_error({ error: message })
+          : message,
+      })
+    } finally {
+      setIsSaving(false)
+      setQuickTeamTrialPending(false)
+    }
+  }
 
   if (!data.authorized) {
     return <AdminAuthRequired />
@@ -2102,6 +2342,30 @@ function AdminWorkspacesPage() {
               </Button>
               <Button
                 type="button"
+                variant="secondary"
+                disabled={
+                  !canDispatchFlows ||
+                  quickTeamTrialPending ||
+                  isSaving ||
+                  isDeleting
+                }
+                title={
+                  canDispatchFlows
+                    ? undefined
+                    : m.admin_workspace_team_trial_requires_cli_permission()
+                }
+                onClick={() => {
+                  void handleCreateWorkspaceTeamTrial()
+                }}
+              >
+                <LinkIcon />
+                {quickTeamTrialPending
+                  ? m.admin_workspace_get_paypal_link_running()
+                  : m.admin_workspace_get_paypal_link_button()}
+              </Button>
+              <Button
+                type="button"
+                disabled={quickTeamTrialPending || isSaving || isDeleting}
                 onClick={() => {
                   setEditor(createWorkspaceEditorState())
                   setEditorOpen(true)
@@ -2267,9 +2531,7 @@ function AdminWorkspacesPage() {
         onEditorChange={setEditor}
         identities={identitySummaries}
         workspaces={workspaces}
-        canDispatchFlows={Boolean(
-          'canDispatchFlows' in data && data.canDispatchFlows,
-        )}
+        canDispatchFlows={canDispatchFlows}
         isSaving={isSaving}
         onSave={async () => {
           setIsSaving(true)
