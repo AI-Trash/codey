@@ -57,6 +57,7 @@ import {
   normalizeCliFlowTaskPayload,
   type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
+  type CliFlowTaskMetadata,
 } from './modules/flow-cli/flow-registry'
 import { normalizeFlowCliArgsForCommand } from './modules/flow-cli/parse-argv'
 import { runPromptDashboard } from './modules/tui/dashboard'
@@ -699,6 +700,7 @@ async function runDaemonCommand(
       notificationId: string
       message: string
       batch?: CliFlowTaskBatchMetadata
+      metadata?: CliFlowTaskMetadata
       leaseReporter?: CliFlowTaskLeaseReporter
     }) => {
       const scheduled = taskScheduler.enqueue({
@@ -752,6 +754,7 @@ async function runDaemonCommand(
               try {
                 const execution = await executeFlowSubcommand(task.flowId, {
                   ...task.config,
+                  ...(task.metadata ? { taskMetadata: task.metadata } : {}),
                   progressReporter: (update) => {
                     consoleProgressReporter(update)
 
@@ -941,6 +944,7 @@ async function runDaemonCommand(
             notificationId: claimedTask.id,
             message: claimedTask.title || 'Task started',
             batch: taskPayload.batch,
+            metadata: taskPayload.metadata,
             leaseReporter,
           }).catch((error) => {
             writeCliStderrLine(

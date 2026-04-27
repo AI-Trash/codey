@@ -135,6 +135,7 @@ export async function syncManagedSession(params: {
   authMode: string
   flowType: string
   workspaceId?: string | null
+  workspaceRecordId?: string | null
   accountId?: string | null
   sessionId?: string | null
   lastRefreshAt?: string | null
@@ -152,20 +153,39 @@ export async function syncManagedSession(params: {
   const authMode = params.authMode.trim() || 'chatgpt'
   const flowType = params.flowType.trim()
   const workspaceId = params.workspaceId?.trim() || null
+  const workspaceRecordId = params.workspaceRecordId?.trim() || null
   const accountId = params.accountId?.trim() || null
   const sessionId = params.sessionId?.trim() || null
   const lastRefreshAt = parseOptionalDate(params.lastRefreshAt)
   const expiresAt = parseOptionalDate(params.expiresAt)
   const seenAt = new Date()
-  const existing = await getDb().query.managedIdentitySessions.findFirst({
-    where: and(
-      eq(managedIdentitySessions.identityId, identityId),
-      eq(managedIdentitySessions.clientId, clientId),
-      workspaceId
-        ? eq(managedIdentitySessions.workspaceId, workspaceId)
-        : isNull(managedIdentitySessions.workspaceId),
-    ),
-  })
+  const existing =
+    (await getDb().query.managedIdentitySessions.findFirst({
+      where: workspaceRecordId
+        ? and(
+            eq(managedIdentitySessions.identityId, identityId),
+            eq(managedIdentitySessions.clientId, clientId),
+            eq(managedIdentitySessions.workspaceRecordId, workspaceRecordId),
+          )
+        : and(
+            eq(managedIdentitySessions.identityId, identityId),
+            eq(managedIdentitySessions.clientId, clientId),
+            workspaceId
+              ? eq(managedIdentitySessions.workspaceId, workspaceId)
+              : isNull(managedIdentitySessions.workspaceId),
+            isNull(managedIdentitySessions.workspaceRecordId),
+          ),
+    })) ||
+    (workspaceRecordId && workspaceId
+      ? await getDb().query.managedIdentitySessions.findFirst({
+          where: and(
+            eq(managedIdentitySessions.identityId, identityId),
+            eq(managedIdentitySessions.clientId, clientId),
+            eq(managedIdentitySessions.workspaceId, workspaceId),
+            isNull(managedIdentitySessions.workspaceRecordId),
+          ),
+        })
+      : null)
 
   if (existing) {
     const [record] = await getDb()
@@ -176,6 +196,7 @@ export async function syncManagedSession(params: {
         authMode,
         flowType,
         workspaceId,
+        workspaceRecordId,
         accountId,
         sessionId,
         sessionData: params.sessionData,
@@ -185,15 +206,7 @@ export async function syncManagedSession(params: {
         lastSeenAt: seenAt,
         updatedAt: seenAt,
       })
-      .where(
-        and(
-          eq(managedIdentitySessions.identityId, identityId),
-          eq(managedIdentitySessions.clientId, clientId),
-          workspaceId
-            ? eq(managedIdentitySessions.workspaceId, workspaceId)
-            : isNull(managedIdentitySessions.workspaceId),
-        ),
-      )
+      .where(eq(managedIdentitySessions.id, existing.id))
       .returning()
 
     if (record) {
@@ -211,6 +224,7 @@ export async function syncManagedSession(params: {
       authMode,
       flowType,
       workspaceId,
+      workspaceRecordId,
       accountId,
       sessionId,
       sessionData: params.sessionData,

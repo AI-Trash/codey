@@ -1834,6 +1834,7 @@ export async function runCodexOAuthFlow(
         clientId: codexConfig.clientId,
         redirectUri: started.redirectUri,
         workspaceId: selectedCodexWorkspaceId,
+        workspaceRecordId: options.taskMetadata?.workspace?.recordId,
       })) || undefined
 
     if (!codeyApp) {

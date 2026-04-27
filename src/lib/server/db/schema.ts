@@ -521,6 +521,7 @@ export const managedIdentitySessions = pgTable(
     accountId: text('account_id'),
     sessionId: text('session_id'),
     workspaceId: text('workspace_id'),
+    workspaceRecordId: text('workspace_record_id'),
     sessionData: jsonb('session_data')
       .$type<Record<string, unknown>>()
       .notNull(),
@@ -567,10 +568,18 @@ export const managedIdentitySessions = pgTable(
       table.workspaceId,
       table.lastSeenAt,
     ),
+    index('managed_identity_sessions_identity_ws_record_last_seen_idx').on(
+      table.identityId,
+      table.workspaceRecordId,
+      table.lastSeenAt,
+    ),
     index('managed_identity_sessions_email_idx').on(table.email),
     index('managed_identity_sessions_client_id_idx').on(table.clientId),
     index('managed_identity_sessions_account_id_idx').on(table.accountId),
     index('managed_identity_sessions_session_id_idx').on(table.sessionId),
+    index('managed_identity_sessions_ws_record_id_idx').on(
+      table.workspaceRecordId,
+    ),
   ],
 )
 

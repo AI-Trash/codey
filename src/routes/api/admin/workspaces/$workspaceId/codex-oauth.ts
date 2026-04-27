@@ -203,6 +203,14 @@ export const Route = createFileRoute(
                   ? { workspaceId: workspace.workspaceId }
                   : {}),
               })),
+              metadata: {
+                workspace: {
+                  recordId: workspace.id,
+                  workspaceId: workspace.workspaceId || undefined,
+                  label: workspace.label || undefined,
+                  ownerIdentityId: workspace.owner?.identityId || undefined,
+                },
+              },
             })
 
             return json({

@@ -6,7 +6,6 @@ import {
   CalendarIcon,
   DownloadIcon,
   ExternalLinkIcon,
-  EyeIcon,
   KeyRoundIcon,
   PencilIcon,
   PlusIcon,
@@ -43,7 +42,6 @@ import {
   CardHeader,
   CardTitle,
 } from '#/components/ui/card'
-import { Checkbox } from '#/components/ui/checkbox'
 import { CopyableValue } from '#/components/ui/copyable-value'
 import {
   Dialog,
@@ -66,12 +64,10 @@ import {
 import type { RandomWorkspaceMemberConflict } from '#/lib/admin/workspace-editor-random'
 import {
   getLatestWorkspaceOwnerIdentity,
-  getOtherWorkspaceOwnerWorkspace,
   getRandomWorkspaceMemberSelection,
   hasOtherWorkspaceAssociations,
   isWorkspaceSelectableIdentity,
 } from '#/lib/admin/workspace-editor-random'
-import { translateStatusLabel } from '#/lib/i18n'
 import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 
@@ -315,31 +311,6 @@ function filterWorkspaceSummaries(
         member.identityId,
         member.identityLabel,
       ]),
-    ]
-
-    return searchableValues.some((value) =>
-      String(value || '')
-        .toLowerCase()
-        .includes(normalizedQuery),
-    )
-  })
-}
-
-function filterIdentitySummaries(
-  identities: IdentitySummary[],
-  query: string,
-): IdentitySummary[] {
-  const normalizedQuery = query.trim().toLowerCase()
-  if (!normalizedQuery) {
-    return identities
-  }
-
-  return identities.filter((identity) => {
-    const searchableValues = [
-      identity.id,
-      identity.label,
-      identity.account,
-      identity.status,
     ]
 
     return searchableValues.some((value) =>
@@ -801,23 +772,24 @@ function WorkspaceEditorDialog(props: {
   ) => void
   identities: IdentitySummary[]
   workspaces: WorkspaceSummary[]
+  canDispatchFlows: boolean
   isSaving: boolean
-  onSave: () => Promise<void>
+  onSave: () => Promise<WorkspaceSummary>
+  onWorkspaceChange: (workspace: WorkspaceSummary) => void
+  onFlash: (flash: FlashMessage) => void
 }) {
-  const [ownerQuery, setOwnerQuery] = useState('')
-  const [memberQuery, setMemberQuery] = useState('')
   const [pendingRandomMembers, setPendingRandomMembers] =
     useState<RandomMemberConfirmationState | null>(null)
+  const [formFlash, setFormFlash] = useState<FlashMessage | null>(null)
 
   useEffect(() => {
     if (!props.open) {
       return
     }
 
-    setOwnerQuery('')
-    setMemberQuery('')
     setPendingRandomMembers(null)
-  }, [props.editor.id, props.open])
+    setFormFlash(null)
+  }, [props.open])
 
   const identityById = useMemo(
     () => new Map(props.identities.map((identity) => [identity.id, identity])),
@@ -939,29 +911,18 @@ function WorkspaceEditorDialog(props: {
     () => new Set(props.editor.memberIdentityIds),
     [props.editor.memberIdentityIds],
   )
-  const filteredOwnerIdentities = useMemo(
-    () => filterIdentitySummaries(ownerPickerIdentities, ownerQuery),
-    [ownerPickerIdentities, ownerQuery],
-  )
-  const filteredMemberIdentities = useMemo(
-    () => filterIdentitySummaries(memberPickerIdentities, memberQuery),
-    [memberPickerIdentities, memberQuery],
-  )
   const selectedOwner = props.editor.ownerIdentityId
     ? identityById.get(props.editor.ownerIdentityId) || null
     : null
   const selectedMemberCount =
     props.editor.memberIdentityIds.length +
     props.editor.legacyMemberEmails.length
-  const memberCapReached = selectedMemberCount >= MAX_WORKSPACE_MEMBER_COUNT
   const remainingMemberSlots = Math.max(
     0,
     MAX_WORKSPACE_MEMBER_COUNT - selectedMemberCount,
   )
-  const canChooseLatestOwner =
-    !props.editor.id && ownerPickerIdentities.length > 0
+  const canChooseLatestOwner = ownerPickerIdentities.length > 0
   const canRandomizeMembers =
-    !props.editor.id &&
     Boolean(props.editor.ownerIdentityId) &&
     memberPickerIdentities.some(
       (identity) => identity.id !== props.editor.ownerIdentityId,
@@ -974,6 +935,10 @@ function WorkspaceEditorDialog(props: {
         identity.id !== props.editor.ownerIdentityId &&
         !selectedMemberIds.has(identity.id),
     )
+  const currentWorkspace = props.editor.id
+    ? props.workspaces.find((workspace) => workspace.id === props.editor.id) ||
+      null
+    : null
 
   function setEditor(
     updater:
@@ -991,32 +956,6 @@ function WorkspaceEditorDialog(props: {
         (entry) => entry !== identityId,
       ),
     }))
-  }
-
-  function toggleMember(identityId: string) {
-    setEditor((current) => {
-      const isSelected = current.memberIdentityIds.includes(identityId)
-      if (isSelected) {
-        return {
-          ...current,
-          memberIdentityIds: current.memberIdentityIds.filter(
-            (entry) => entry !== identityId,
-          ),
-        }
-      }
-
-      if (
-        current.memberIdentityIds.length + current.legacyMemberEmails.length >=
-        MAX_WORKSPACE_MEMBER_COUNT
-      ) {
-        return current
-      }
-
-      return {
-        ...current,
-        memberIdentityIds: [...current.memberIdentityIds, identityId],
-      }
-    })
   }
 
   function chooseLatestOwner() {
@@ -1101,6 +1040,19 @@ function WorkspaceEditorDialog(props: {
           </DialogHeader>
 
           <div className="space-y-6">
+            {formFlash ? (
+              <Alert
+                variant={formFlash.kind === 'error' ? 'destructive' : undefined}
+              >
+                <AlertTitle>
+                  {formFlash.kind === 'error'
+                    ? m.status_failed()
+                    : m.status_success()}
+                </AlertTitle>
+                <AlertDescription>{formFlash.message}</AlertDescription>
+              </Alert>
+            ) : null}
+
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2">
                 <span className="text-sm font-medium">
@@ -1148,7 +1100,31 @@ function WorkspaceEditorDialog(props: {
               <p className="text-sm text-muted-foreground">
                 {m.admin_workspace_owner_description()}
               </p>
-              {!props.editor.id ? (
+              <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-2">
+                  {selectedOwner ? (
+                    <Badge variant="secondary" className="max-w-full">
+                      <span className="truncate">
+                        {selectedOwner.label}
+                        {selectedOwner.account
+                          ? ` · ${selectedOwner.account}`
+                          : ''}
+                      </span>
+                    </Badge>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {m.admin_workspace_owner_none_selected()}
+                    </p>
+                  )}
+                  {selectedOwner ? (
+                    <CopyableValue
+                      value={selectedOwner.id}
+                      code
+                      className="max-w-full text-xs text-muted-foreground"
+                      contentClassName="break-all"
+                    />
+                  ) : null}
+                </div>
                 <Button
                   type="button"
                   variant="outline"
@@ -1160,106 +1136,7 @@ function WorkspaceEditorDialog(props: {
                   <CalendarIcon className="size-4" />
                   {m.admin_workspace_owner_random_button()}
                 </Button>
-              ) : null}
-              {selectedOwner ? (
-                <Badge variant="secondary" className="max-w-full">
-                  <span className="truncate">
-                    {selectedOwner.label}
-                    {selectedOwner.account ? ` · ${selectedOwner.account}` : ''}
-                  </span>
-                </Badge>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {m.admin_workspace_owner_none_selected()}
-                </p>
-              )}
-              <Input
-                value={ownerQuery}
-                onChange={(event) => {
-                  setOwnerQuery(event.target.value)
-                }}
-                placeholder={m.admin_workspace_identity_search_placeholder()}
-              />
-              <ScrollArea className="h-60 rounded-lg border">
-                <div className="divide-y">
-                  {filteredOwnerIdentities.length ? (
-                    filteredOwnerIdentities.map((identity) => {
-                      const ownerWorkspace = ownerWorkspaceByIdentityId.get(
-                        identity.id,
-                      )
-                      const disabled =
-                        Boolean(ownerWorkspace) &&
-                        ownerWorkspace?.id !== props.editor.id
-                      const selected =
-                        props.editor.ownerIdentityId === identity.id
-
-                      return (
-                        <button
-                          key={identity.id}
-                          type="button"
-                          disabled={disabled}
-                          className={cn(
-                            'flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors',
-                            selected && 'bg-primary/5',
-                            disabled
-                              ? 'cursor-not-allowed opacity-60'
-                              : 'hover:bg-muted/40',
-                          )}
-                          onClick={() => {
-                            if (disabled) {
-                              return
-                            }
-
-                            selectOwner(identity.id)
-                          }}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate font-medium">
-                                {identity.label}
-                              </div>
-                              <div className="truncate text-sm text-muted-foreground">
-                                {identity.account || identity.id}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
-                              {selected ? (
-                                <Badge>
-                                  {m.admin_workspace_owner_selected_badge()}
-                                </Badge>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span>{identity.id}</span>
-                            <span>·</span>
-                            <span>
-                              {translateStatusLabel(
-                                identity.status || 'active',
-                              )}
-                            </span>
-                            {disabled ? (
-                              <>
-                                <span>·</span>
-                                <span>
-                                  {m.admin_workspace_owner_taken_hint({
-                                    workspace:
-                                      getWorkspaceDisplayLabel(ownerWorkspace),
-                                  })}
-                                </span>
-                              </>
-                            ) : null}
-                          </div>
-                        </button>
-                      )
-                    })
-                  ) : (
-                    <div className="px-4 py-6 text-sm text-muted-foreground">
-                      {m.admin_workspace_identity_search_empty()}
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -1284,23 +1161,21 @@ function WorkspaceEditorDialog(props: {
               </p>
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  {!props.editor.id ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full sm:w-auto"
-                      disabled={!canRandomizeMembers}
-                      onClick={() => {
-                        randomizeMembers('replace')
-                      }}
-                    >
-                      <RefreshCcwIcon className="size-4" />
-                      {m.admin_workspace_member_random_button({
-                        count: String(MAX_WORKSPACE_MEMBER_COUNT),
-                      })}
-                    </Button>
-                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto"
+                    disabled={!canRandomizeMembers}
+                    onClick={() => {
+                      randomizeMembers('replace')
+                    }}
+                  >
+                    <RefreshCcwIcon className="size-4" />
+                    {m.admin_workspace_member_random_button({
+                      count: String(MAX_WORKSPACE_MEMBER_COUNT),
+                    })}
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"
@@ -1328,109 +1203,6 @@ function WorkspaceEditorDialog(props: {
                 memberIdentityIds={props.editor.memberIdentityIds}
                 legacyMemberEmails={props.editor.legacyMemberEmails}
               />
-              <Input
-                value={memberQuery}
-                onChange={(event) => {
-                  setMemberQuery(event.target.value)
-                }}
-                placeholder={m.admin_workspace_identity_search_placeholder()}
-              />
-              <ScrollArea className="h-72 rounded-lg border">
-                <div className="divide-y">
-                  {filteredMemberIdentities.length ? (
-                    filteredMemberIdentities.map((identity) => {
-                      const selected = selectedMemberIds.has(identity.id)
-                      const otherOwnerWorkspace =
-                        getOtherWorkspaceOwnerWorkspace(
-                          identity.id,
-                          ownerWorkspaceByIdentityId,
-                          props.editor.id,
-                        )
-                      const disabled =
-                        identity.id === props.editor.ownerIdentityId ||
-                        (!selected && memberCapReached)
-
-                      return (
-                        <label
-                          key={identity.id}
-                          className={cn(
-                            'flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors',
-                            disabled && 'cursor-not-allowed opacity-60',
-                            selected && 'bg-primary/5',
-                            !disabled && 'hover:bg-muted/40',
-                          )}
-                        >
-                          <Checkbox
-                            checked={selected}
-                            disabled={disabled}
-                            onCheckedChange={() => {
-                              toggleMember(identity.id)
-                            }}
-                            className="mt-0.5"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="truncate font-medium">
-                                  {identity.label}
-                                </div>
-                                <div className="truncate text-sm text-muted-foreground">
-                                  {identity.account || identity.id}
-                                </div>
-                              </div>
-                              <div className="flex shrink-0 items-center gap-1.5">
-                                {otherOwnerWorkspace ? (
-                                  <Badge variant="outline">
-                                    {m.admin_workspace_member_other_owner_badge()}
-                                  </Badge>
-                                ) : null}
-                                {selected ? (
-                                  <Badge>
-                                    {m.admin_workspace_member_selected_badge()}
-                                  </Badge>
-                                ) : null}
-                              </div>
-                            </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              {identity.id}
-                              {' · '}
-                              {translateStatusLabel(
-                                identity.status || 'active',
-                              )}
-                              {otherOwnerWorkspace
-                                ? ` · ${m.admin_workspace_member_other_owner_hint(
-                                    {
-                                      workspace:
-                                        getWorkspaceDisplayLabel(
-                                          otherOwnerWorkspace,
-                                        ),
-                                    },
-                                  )}`
-                                : null}
-                              {identity.id === props.editor.ownerIdentityId
-                                ? ` · ${m.admin_workspace_member_disabled_owner()}`
-                                : null}
-                              {!selected &&
-                              memberCapReached &&
-                              identity.id !== props.editor.ownerIdentityId
-                                ? ` · ${m.admin_workspace_member_disabled_limit(
-                                    {
-                                      max: String(MAX_WORKSPACE_MEMBER_COUNT),
-                                    },
-                                  )}`
-                                : null}
-                            </div>
-                          </div>
-                        </label>
-                      )
-                    })
-                  ) : (
-                    <div className="px-4 py-6 text-sm text-muted-foreground">
-                      {m.admin_workspace_identity_search_empty()}
-                    </div>
-                  )}
-                </div>
-              </ScrollArea>
               {props.editor.legacyMemberEmails.length ? (
                 <p className="text-sm text-muted-foreground">
                   {m.admin_workspace_legacy_members_notice({
@@ -1439,6 +1211,16 @@ function WorkspaceEditorDialog(props: {
                 </p>
               ) : null}
             </div>
+
+            {currentWorkspace ? (
+              <WorkspaceOperationsSection
+                active={props.open}
+                workspace={currentWorkspace}
+                canDispatchFlows={props.canDispatchFlows}
+                onWorkspaceChange={props.onWorkspaceChange}
+                onFlash={props.onFlash}
+              />
+            ) : null}
           </div>
 
           <DialogFooter>
@@ -1455,8 +1237,25 @@ function WorkspaceEditorDialog(props: {
             <Button
               type="button"
               disabled={props.isSaving || !props.editor.ownerIdentityId}
-              onClick={() => {
-                void props.onSave()
+              onClick={async () => {
+                setFormFlash(null)
+
+                try {
+                  const workspace = await props.onSave()
+                  setEditor(createWorkspaceEditorState(workspace))
+                  setFormFlash({
+                    kind: 'success',
+                    message: m.admin_workspace_save_success(),
+                  })
+                } catch (error) {
+                  setFormFlash({
+                    kind: 'error',
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : m.admin_workspace_save_error_fallback(),
+                  })
+                }
               }}
             >
               {m.admin_workspace_save_button()}
@@ -1547,12 +1346,10 @@ function WorkspaceEditorDialog(props: {
   )
 }
 
-function WorkspaceDetailDialog(props: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  workspace: WorkspaceSummary | null
+function WorkspaceOperationsSection(props: {
+  active: boolean
+  workspace: WorkspaceSummary
   canDispatchFlows: boolean
-  onEdit: (workspace: WorkspaceSummary) => void
   onWorkspaceChange: (workspace: WorkspaceSummary) => void
   onFlash: (flash: FlashMessage) => void
 }) {
@@ -1566,7 +1363,7 @@ function WorkspaceDetailDialog(props: {
   const [localFlash, setLocalFlash] = useState<FlashMessage | null>(null)
 
   useEffect(() => {
-    if (!props.open) {
+    if (!props.active) {
       return
     }
 
@@ -1576,7 +1373,7 @@ function WorkspaceDetailDialog(props: {
     setAuthorizationResetPending(false)
     setAuthorizationResetTarget(null)
     setLocalFlash(null)
-  }, [props.open, props.workspace?.id])
+  }, [props.active, props.workspace.id])
 
   function publishFlash(flash: FlashMessage) {
     setLocalFlash(flash)
@@ -1848,371 +1645,352 @@ function WorkspaceDetailDialog(props: {
     Boolean(props.workspace?.members.length)
 
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-[min(1080px,calc(100%-2rem))] overflow-y-auto sm:max-w-[min(1080px,calc(100%-2rem))]">
-        <DialogHeader>
-          <DialogTitle>{getWorkspaceDisplayLabel(props.workspace)}</DialogTitle>
-          <DialogDescription>
-            {m.admin_workspace_detail_description()}
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <div className="space-y-6">
+        {localFlash ? (
+          <Alert
+            variant={localFlash.kind === 'error' ? 'destructive' : undefined}
+          >
+            <AlertTitle>
+              {localFlash.kind === 'error'
+                ? m.status_failed()
+                : m.status_success()}
+            </AlertTitle>
+            <AlertDescription>{localFlash.message}</AlertDescription>
+          </Alert>
+        ) : null}
 
-        {props.workspace ? (
-          <div className="space-y-6">
-            {localFlash ? (
-              <Alert
-                variant={
-                  localFlash.kind === 'error' ? 'destructive' : undefined
-                }
-              >
-                <AlertTitle>
-                  {localFlash.kind === 'error'
-                    ? m.status_failed()
-                    : m.status_success()}
-                </AlertTitle>
-                <AlertDescription>{localFlash.message}</AlertDescription>
-              </Alert>
-            ) : null}
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader className="gap-3 pb-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardDescription>
+                    {m.admin_workspace_detail_meta_kicker()}
+                  </CardDescription>
+                  <CardTitle>{m.admin_workspace_detail_meta_title()}</CardTitle>
+                </div>
+                <Button
+                  type="button"
+                  disabled={!canAuthorizeWorkspace || isMutating}
+                  onClick={() => {
+                    void handleAuthorizeWorkspace()
+                  }}
+                >
+                  <KeyRoundIcon />
+                  {authorizationPending
+                    ? m.admin_workspace_authorize_running()
+                    : pendingWorkspaceAuthorizationCount === 0
+                      ? m.admin_workspace_authorize_all_authorized_button()
+                      : pendingWorkspaceAuthorizationCount ===
+                          workspaceAuthorizationIdentityCount
+                        ? m.admin_workspace_authorize_all_button()
+                        : m.admin_workspace_authorize_remaining_button()}
+                </Button>
+              </div>
+              {!props.canDispatchFlows ? (
+                <p className="text-sm text-muted-foreground">
+                  {m.admin_workspace_authorize_requires_cli_permission()}
+                </p>
+              ) : !workspaceAuthorizationIdentityCount ? (
+                <p className="text-sm text-muted-foreground">
+                  {m.admin_workspace_authorize_requires_members()}
+                </p>
+              ) : !pendingWorkspaceAuthorizationCount ? (
+                <p className="text-sm text-muted-foreground">
+                  {m.admin_workspace_authorize_all_authorized_hint()}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {props.workspace.workspaceId
+                    ? m.admin_workspace_authorize_dispatch_hint()
+                    : m.admin_workspace_authorize_dispatch_default_workspace_hint()}
+                </p>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-foreground">
+                  {m.admin_workspace_table_workspace_id()}
+                </div>
+                {props.workspace.workspaceId ? (
+                  <CopyableValue
+                    value={props.workspace.workspaceId}
+                    code
+                    className="max-w-full text-sm text-muted-foreground"
+                    contentClassName="break-all"
+                  />
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    {getWorkspaceIdDisplayValue(props.workspace.workspaceId)}
+                  </div>
+                )}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-foreground">
+                    {m.admin_workspace_created_at_label()}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {formatAdminDate(props.workspace.createdAt) ||
+                      props.workspace.createdAt}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-foreground">
+                    {m.admin_workspace_table_updated_at()}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {formatAdminDate(props.workspace.updatedAt) ||
+                      props.workspace.updatedAt}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card>
-                <CardHeader className="gap-3 pb-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <CardDescription>
-                        {m.admin_workspace_detail_meta_kicker()}
-                      </CardDescription>
-                      <CardTitle>
-                        {m.admin_workspace_detail_meta_title()}
-                      </CardTitle>
-                    </div>
+          <Card>
+            <CardHeader className="gap-3 pb-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardDescription>
+                    {m.admin_workspace_owner_kicker()}
+                  </CardDescription>
+                  <CardTitle>{m.admin_workspace_owner_label()}</CardTitle>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {teamTrialPaypalUrl ? (
                     <Button
                       type="button"
-                      disabled={!canAuthorizeWorkspace || isMutating}
+                      variant="secondary"
                       onClick={() => {
-                        void handleAuthorizeWorkspace()
+                        window.open(
+                          teamTrialPaypalUrl,
+                          '_blank',
+                          'noopener,noreferrer',
+                        )
                       }}
                     >
-                      <KeyRoundIcon />
-                      {authorizationPending
-                        ? m.admin_workspace_authorize_running()
-                        : pendingWorkspaceAuthorizationCount === 0
-                          ? m.admin_workspace_authorize_all_authorized_button()
-                          : pendingWorkspaceAuthorizationCount ===
-                              workspaceAuthorizationIdentityCount
-                            ? m.admin_workspace_authorize_all_button()
-                            : m.admin_workspace_authorize_remaining_button()}
+                      <ExternalLinkIcon />
+                      {m.admin_workspace_team_trial_paypal_button()}
                     </Button>
-                  </div>
-                  {!props.canDispatchFlows ? (
-                    <p className="text-sm text-muted-foreground">
-                      {m.admin_workspace_authorize_requires_cli_permission()}
-                    </p>
-                  ) : !workspaceAuthorizationIdentityCount ? (
-                    <p className="text-sm text-muted-foreground">
-                      {m.admin_workspace_authorize_requires_members()}
-                    </p>
-                  ) : !pendingWorkspaceAuthorizationCount ? (
-                    <p className="text-sm text-muted-foreground">
-                      {m.admin_workspace_authorize_all_authorized_hint()}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {props.workspace.workspaceId
-                        ? m.admin_workspace_authorize_dispatch_hint()
-                        : m.admin_workspace_authorize_dispatch_default_workspace_hint()}
-                    </p>
-                  )}
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-1">
-                    <div className="text-sm font-medium text-foreground">
-                      {m.admin_workspace_table_workspace_id()}
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!canStartTeamTrial || isMutating}
+                    onClick={() => {
+                      void handleTeamTrial()
+                    }}
+                  >
+                    <SparklesIcon />
+                    {teamTrialPending
+                      ? m.admin_workspace_team_trial_running()
+                      : m.admin_workspace_team_trial_button()}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {props.workspace.owner ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-medium text-foreground">
+                      {props.workspace.owner.identityLabel}
                     </div>
-                    {props.workspace.workspaceId ? (
-                      <CopyableValue
-                        value={props.workspace.workspaceId}
-                        code
-                        className="max-w-full text-sm text-muted-foreground"
-                        contentClassName="break-all"
-                      />
-                    ) : (
-                      <div className="text-sm text-muted-foreground">
-                        {getWorkspaceIdDisplayValue(
-                          props.workspace.workspaceId,
-                        )}
-                      </div>
-                    )}
+                    <WorkspaceAuthorizationBadge
+                      authorization={props.workspace.owner.authorization}
+                    />
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-foreground">
-                        {m.admin_workspace_created_at_label()}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {formatAdminDate(props.workspace.createdAt) ||
-                          props.workspace.createdAt}
-                      </div>
+                  <CopyableValue
+                    value={props.workspace.owner.email}
+                    className="max-w-full text-sm text-muted-foreground"
+                    contentClassName="break-all"
+                  />
+                  <CopyableValue
+                    value={props.workspace.owner.identityId}
+                    code
+                    className="max-w-full text-sm text-muted-foreground"
+                    contentClassName="break-all"
+                  />
+                  {props.workspace.owner.authorization.lastSeenAt ? (
+                    <div className="text-xs text-muted-foreground">
+                      {m.admin_workspace_authorization_last_seen({
+                        time:
+                          formatAdminDate(
+                            props.workspace.owner.authorization.lastSeenAt,
+                          ) || props.workspace.owner.authorization.lastSeenAt,
+                      })}
                     </div>
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-foreground">
-                        {m.admin_workspace_table_updated_at()}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {formatAdminDate(props.workspace.updatedAt) ||
-                          props.workspace.updatedAt}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {m.admin_workspace_owner_missing()}
+                </p>
+              )}
+              {props.workspace.owner && !props.canDispatchFlows ? (
+                <p className="text-xs text-muted-foreground">
+                  {m.admin_workspace_team_trial_requires_cli_permission()}
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
 
-              <Card>
-                <CardHeader className="gap-3 pb-3">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <CardDescription>
-                        {m.admin_workspace_owner_kicker()}
-                      </CardDescription>
-                      <CardTitle>{m.admin_workspace_owner_label()}</CardTitle>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {teamTrialPaypalUrl ? (
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() => {
-                            window.open(
-                              teamTrialPaypalUrl,
-                              '_blank',
-                              'noopener,noreferrer',
-                            )
-                          }}
-                        >
-                          <ExternalLinkIcon />
-                          {m.admin_workspace_team_trial_paypal_button()}
-                        </Button>
-                      ) : null}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={!canStartTeamTrial || isMutating}
-                        onClick={() => {
-                          void handleTeamTrial()
-                        }}
-                      >
-                        <SparklesIcon />
-                        {teamTrialPending
-                          ? m.admin_workspace_team_trial_running()
-                          : m.admin_workspace_team_trial_button()}
-                      </Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {props.workspace.owner ? (
-                    <div className="space-y-2">
+        <Card>
+          <CardHeader className="gap-4">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <CardDescription>
+                  {m.admin_workspace_members_kicker()}
+                </CardDescription>
+                <CardTitle>
+                  {m.admin_workspace_members_title({
+                    count: String(props.workspace.memberCount),
+                  })}
+                </CardTitle>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!memberEmails.length}
+                  onClick={() => {
+                    handleDownloadEmails('members', memberEmails)
+                  }}
+                >
+                  <DownloadIcon />
+                  {m.admin_workspace_download_members_button()}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!canResetAllAuthorizations || isMutating}
+                  onClick={() => {
+                    setAuthorizationResetTarget({
+                      scope: 'all',
+                    })
+                  }}
+                >
+                  <RefreshCcwIcon />
+                  {m.admin_workspace_authorization_reset_all_button()}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!canInviteAll || isMutating}
+                  onClick={() => {
+                    void handleInvite()
+                  }}
+                >
+                  {inviteActionKey === 'all'
+                    ? m.admin_workspace_invite_running()
+                    : m.admin_workspace_invite_all_button()}
+                </Button>
+              </div>
+            </div>
+            {!props.canDispatchFlows ? (
+              <p className="text-sm text-muted-foreground">
+                {m.admin_workspace_invite_requires_cli_permission()}
+              </p>
+            ) : !props.workspace.members.length ? (
+              <p className="text-sm text-muted-foreground">
+                {m.admin_workspace_invite_requires_members()}
+              </p>
+            ) : !props.workspace.owner ? (
+              <p className="text-sm text-muted-foreground">
+                {m.admin_workspace_invite_requires_owner()}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {m.admin_workspace_invite_dispatch_hint()}
+              </p>
+            )}
+          </CardHeader>
+          <CardContent>
+            {props.workspace.members.length ? (
+              <div className="space-y-3">
+                {props.workspace.members.map((member) => (
+                  <div
+                    key={member.id}
+                    className="flex flex-col gap-3 rounded-lg border p-4 lg:flex-row lg:items-center lg:justify-between"
+                  >
+                    <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="font-medium text-foreground">
-                          {props.workspace.owner.identityLabel}
+                          {member.identityLabel || member.email}
                         </div>
                         <WorkspaceAuthorizationBadge
-                          authorization={props.workspace.owner.authorization}
+                          authorization={member.authorization}
+                        />
+                        <WorkspaceInviteStatusBadge
+                          status={member.inviteStatus}
                         />
                       </div>
-                      <CopyableValue
-                        value={props.workspace.owner.email}
-                        className="max-w-full text-sm text-muted-foreground"
-                        contentClassName="break-all"
-                      />
-                      <CopyableValue
-                        value={props.workspace.owner.identityId}
-                        code
-                        className="max-w-full text-sm text-muted-foreground"
-                        contentClassName="break-all"
-                      />
-                      {props.workspace.owner.authorization.lastSeenAt ? (
+                      <div className="text-sm text-muted-foreground">
+                        {member.email}
+                      </div>
+                      {member.identityId ? (
+                        <CopyableValue
+                          value={member.identityId}
+                          code
+                          className="max-w-full text-sm text-muted-foreground"
+                          contentClassName="break-all"
+                        />
+                      ) : null}
+                      {member.authorization.lastSeenAt ? (
                         <div className="text-xs text-muted-foreground">
                           {m.admin_workspace_authorization_last_seen({
                             time:
                               formatAdminDate(
-                                props.workspace.owner.authorization.lastSeenAt,
-                              ) ||
-                              props.workspace.owner.authorization.lastSeenAt,
+                                member.authorization.lastSeenAt,
+                              ) || member.authorization.lastSeenAt,
+                          })}
+                        </div>
+                      ) : null}
+                      {member.invitedAt ? (
+                        <div className="text-xs text-muted-foreground">
+                          {m.admin_workspace_invitation_last_confirmed({
+                            time:
+                              formatAdminDate(member.invitedAt) ||
+                              member.invitedAt,
                           })}
                         </div>
                       ) : null}
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {m.admin_workspace_owner_missing()}
-                    </p>
-                  )}
-                  {props.workspace.owner && !props.canDispatchFlows ? (
-                    <p className="text-xs text-muted-foreground">
-                      {m.admin_workspace_team_trial_requires_cli_permission()}
-                    </p>
-                  ) : null}
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader className="gap-4">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <CardDescription>
-                      {m.admin_workspace_members_kicker()}
-                    </CardDescription>
-                    <CardTitle>
-                      {m.admin_workspace_members_title({
-                        count: String(props.workspace.memberCount),
-                      })}
-                    </CardTitle>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!memberEmails.length}
-                      onClick={() => {
-                        handleDownloadEmails('members', memberEmails)
-                      }}
-                    >
-                      <DownloadIcon />
-                      {m.admin_workspace_download_members_button()}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!canResetAllAuthorizations || isMutating}
-                      onClick={() => {
-                        setAuthorizationResetTarget({
-                          scope: 'all',
-                        })
-                      }}
-                    >
-                      <RefreshCcwIcon />
-                      {m.admin_workspace_authorization_reset_all_button()}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!canInviteAll || isMutating}
-                      onClick={() => {
-                        void handleInvite()
-                      }}
-                    >
-                      {inviteActionKey === 'all'
-                        ? m.admin_workspace_invite_running()
-                        : m.admin_workspace_invite_all_button()}
-                    </Button>
-                  </div>
-                </div>
-                {!props.canDispatchFlows ? (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_requires_cli_permission()}
-                  </p>
-                ) : !props.workspace.members.length ? (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_requires_members()}
-                  </p>
-                ) : !props.workspace.owner ? (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_requires_owner()}
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_dispatch_hint()}
-                  </p>
-                )}
-              </CardHeader>
-              <CardContent>
-                {props.workspace.members.length ? (
-                  <div className="space-y-3">
-                    {props.workspace.members.map((member) => (
-                      <div
-                        key={member.id}
-                        className="flex flex-col gap-3 rounded-lg border p-4 lg:flex-row lg:items-center lg:justify-between"
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={
+                          !canResetWorkspaceAuthorization(
+                            member.authorization,
+                            member.identityId,
+                          ) || isMutating
+                        }
+                        onClick={() => {
+                          setAuthorizationResetTarget({
+                            scope: 'member',
+                            memberIds: [member.id],
+                            memberLabel: member.identityLabel || member.email,
+                          })
+                        }}
                       >
-                        <div className="min-w-0 space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="font-medium text-foreground">
-                              {member.identityLabel || member.email}
-                            </div>
-                            <WorkspaceAuthorizationBadge
-                              authorization={member.authorization}
-                            />
-                            <WorkspaceInviteStatusBadge
-                              status={member.inviteStatus}
-                            />
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {member.email}
-                          </div>
-                          {member.identityId ? (
-                            <CopyableValue
-                              value={member.identityId}
-                              code
-                              className="max-w-full text-sm text-muted-foreground"
-                              contentClassName="break-all"
-                            />
-                          ) : null}
-                          {member.authorization.lastSeenAt ? (
-                            <div className="text-xs text-muted-foreground">
-                              {m.admin_workspace_authorization_last_seen({
-                                time:
-                                  formatAdminDate(
-                                    member.authorization.lastSeenAt,
-                                  ) || member.authorization.lastSeenAt,
-                              })}
-                            </div>
-                          ) : null}
-                          {member.invitedAt ? (
-                            <div className="text-xs text-muted-foreground">
-                              {m.admin_workspace_invitation_last_confirmed({
-                                time:
-                                  formatAdminDate(member.invitedAt) ||
-                                  member.invitedAt,
-                              })}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={
-                              !canResetWorkspaceAuthorization(
-                                member.authorization,
-                                member.identityId,
-                              ) || isMutating
-                            }
-                            onClick={() => {
-                              setAuthorizationResetTarget({
-                                scope: 'member',
-                                memberIds: [member.id],
-                                memberLabel:
-                                  member.identityLabel || member.email,
-                              })
-                            }}
-                          >
-                            <RefreshCcwIcon />
-                            {m.admin_workspace_authorization_reset_member_button()}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                        <RefreshCcwIcon />
+                        {m.admin_workspace_authorization_reset_member_button()}
+                      </Button>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {m.admin_workspace_invite_requires_members()}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        ) : null}
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {m.admin_workspace_invite_requires_members()}
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         <AlertDialog
           open={Boolean(authorizationResetTarget)}
@@ -2264,32 +2042,8 @@ function WorkspaceDetailDialog(props: {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        <DialogFooter>
-          {props.workspace ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                props.onEdit(props.workspace as WorkspaceSummary)
-              }}
-            >
-              <PencilIcon />
-              {m.admin_workspace_edit_button()}
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              props.onOpenChange(false)
-            }}
-          >
-            {m.ui_close()}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </>
   )
 }
 
@@ -2309,9 +2063,6 @@ function AdminWorkspacesPage() {
     createWorkspaceEditorState(),
   )
   const [editorOpen, setEditorOpen] = useState(false)
-  const [detailsTarget, setDetailsTarget] = useState<WorkspaceSummary | null>(
-    null,
-  )
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceSummary | null>(
     null,
   )
@@ -2359,24 +2110,6 @@ function AdminWorkspacesPage() {
       window.clearInterval(interval)
     }
   }, [data.authorized])
-
-  useEffect(() => {
-    if (!detailsTarget) {
-      return
-    }
-
-    const nextDetailsTarget =
-      workspaces.find((workspace) => workspace.id === detailsTarget.id) || null
-
-    if (!nextDetailsTarget) {
-      setDetailsTarget(null)
-      return
-    }
-
-    if (nextDetailsTarget !== detailsTarget) {
-      setDetailsTarget(nextDetailsTarget)
-    }
-  }, [detailsTarget, workspaces])
 
   const filteredWorkspaces = useMemo(
     () => filterWorkspaceSummaries(workspaces, query),
@@ -2526,17 +2259,6 @@ function AdminWorkspacesPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => {
-                                setDetailsTarget(workspace)
-                              }}
-                            >
-                              <EyeIcon />
-                              {m.admin_workspace_detail_button()}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
                                 setFlash(null)
                                 setEditor(createWorkspaceEditorState(workspace))
                                 setEditorOpen(true)
@@ -2588,6 +2310,9 @@ function AdminWorkspacesPage() {
         onEditorChange={setEditor}
         identities={identitySummaries}
         workspaces={workspaces}
+        canDispatchFlows={Boolean(
+          'canDispatchFlows' in data && data.canDispatchFlows,
+        )}
         isSaving={isSaving}
         onSave={async () => {
           setIsSaving(true)
@@ -2598,40 +2323,13 @@ function AdminWorkspacesPage() {
             setWorkspaces((current) =>
               upsertWorkspaceSummary(current, workspace),
             )
-            setEditorOpen(false)
-          } catch (error) {
-            setFlash({
-              kind: 'error',
-              message:
-                error instanceof Error
-                  ? error.message
-                  : m.admin_workspace_save_error_fallback(),
-            })
+            return workspace
           } finally {
             setIsSaving(false)
           }
         }}
-      />
-
-      <WorkspaceDetailDialog
-        open={Boolean(detailsTarget)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDetailsTarget(null)
-          }
-        }}
-        workspace={detailsTarget}
-        canDispatchFlows={Boolean(
-          'canDispatchFlows' in data && data.canDispatchFlows,
-        )}
-        onEdit={(workspace) => {
-          setDetailsTarget(null)
-          setEditor(createWorkspaceEditorState(workspace))
-          setEditorOpen(true)
-        }}
         onWorkspaceChange={(workspace) => {
           setWorkspaces((current) => upsertWorkspaceSummary(current, workspace))
-          setDetailsTarget(workspace)
         }}
         onFlash={setFlash}
       />

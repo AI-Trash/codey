@@ -364,6 +364,125 @@ describe('managed workspace authorization summaries', () => {
     ])
   })
 
+  it('keeps authorization state scoped by workspace record when the OpenAI workspace ID is missing', async () => {
+    const now = new Date('2026-04-23T00:00:00.000Z')
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedWorkspaces: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'workspace-record-1',
+              workspaceId: null,
+              label: 'Alpha',
+              ownerIdentity: {
+                identityId: 'identity-1',
+                email: 'owner@example.com',
+                label: 'Owner',
+              },
+              createdAt: now,
+              updatedAt: now,
+              members: [],
+            },
+            {
+              id: 'workspace-record-2',
+              workspaceId: null,
+              label: 'Beta',
+              ownerIdentity: {
+                identityId: 'identity-1',
+                email: 'owner@example.com',
+                label: 'Owner',
+              },
+              createdAt: now,
+              updatedAt: now,
+              members: [],
+            },
+          ]),
+        },
+        managedIdentitySessions: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              identityId: 'identity-1',
+              workspaceId: null,
+              workspaceRecordId: 'workspace-record-1',
+              status: 'ACTIVE',
+              expiresAt: new Date('2999-05-24T00:00:00.000Z'),
+              lastSeenAt: now,
+            },
+          ]),
+        },
+      },
+    })
+
+    await expect(listAdminManagedWorkspaceSummaries()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'workspace-record-1',
+        owner: expect.objectContaining({
+          authorization: expect.objectContaining({
+            state: 'authorized',
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        id: 'workspace-record-2',
+        owner: expect.objectContaining({
+          authorization: expect.objectContaining({
+            state: 'missing',
+          }),
+        }),
+      }),
+    ])
+  })
+
+  it('ignores legacy unscoped default authorization when a workspace has no OpenAI workspace ID yet', async () => {
+    const now = new Date('2026-04-23T00:00:00.000Z')
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedWorkspaces: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'workspace-record-1',
+              workspaceId: null,
+              label: 'Alpha',
+              ownerIdentity: {
+                identityId: 'identity-1',
+                email: 'owner@example.com',
+                label: 'Owner',
+              },
+              createdAt: now,
+              updatedAt: now,
+              members: [],
+            },
+          ]),
+        },
+        managedIdentitySessions: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              identityId: 'identity-1',
+              workspaceId: null,
+              workspaceRecordId: null,
+              status: 'ACTIVE',
+              expiresAt: new Date('2999-05-24T00:00:00.000Z'),
+              lastSeenAt: now,
+            },
+          ]),
+        },
+      },
+    })
+
+    await expect(listAdminManagedWorkspaceSummaries()).resolves.toEqual([
+      expect.objectContaining({
+        id: 'workspace-record-1',
+        owner: expect.objectContaining({
+          authorization: expect.objectContaining({
+            state: 'missing',
+          }),
+        }),
+      }),
+    ])
+  })
+
   it('resets all stored workspace authorization statuses for the owner and members', async () => {
     const now = new Date('2026-04-23T00:00:00.000Z')
     const later = new Date('2026-04-23T00:05:00.000Z')

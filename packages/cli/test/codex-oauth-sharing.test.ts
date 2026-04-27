@@ -36,6 +36,7 @@ describe('shareCodexOAuthSessionWithCodeyApp', () => {
         clientId: 'codex-client-id',
         redirectUri: 'http://localhost:1455/auth/callback',
         workspaceId: 'ws-primary',
+        workspaceRecordId: 'workspace-record-1',
       }),
     ).resolves.toBeNull()
   })
@@ -134,6 +135,7 @@ describe('shareCodexOAuthSessionWithCodeyApp', () => {
         clientId: 'codex-client-id',
         redirectUri: 'http://localhost:1455/auth/callback',
         workspaceId: 'ws-primary',
+        workspaceRecordId: 'workspace-record-1',
       }),
     ).resolves.toEqual({
       identityId: 'identity-1',
@@ -167,6 +169,7 @@ describe('shareCodexOAuthSessionWithCodeyApp', () => {
           clientId: 'codex-client-id',
           authMode: 'codex-oauth',
           workspaceId: 'ws-primary',
+          workspaceRecordId: 'workspace-record-1',
           accountId: undefined,
           sessionId: undefined,
           expiresAt: '2026-04-21T01:00:00.000Z',
@@ -178,6 +181,7 @@ describe('shareCodexOAuthSessionWithCodeyApp', () => {
             client_id: 'codex-client-id',
             redirect_uri: 'http://localhost:1455/auth/callback',
             workspace_id: 'ws-primary',
+            workspace_record_id: 'workspace-record-1',
             tokens: {
               access_token: 'codex-access-token',
               refresh_token: 'codex-refresh-token',

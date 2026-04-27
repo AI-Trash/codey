@@ -523,6 +523,7 @@ export async function shareCodexOAuthSessionWithCodeyApp(input: {
   clientId: string
   redirectUri: string
   workspaceId?: string
+  workspaceRecordId?: string
 }): Promise<SharedCodexOAuthSessionResult | null> {
   const config = resolveCodeyAppConfig()
   if (!config.baseUrl?.trim()) {
@@ -544,6 +545,7 @@ export async function shareCodexOAuthSessionWithCodeyApp(input: {
     clientId: input.clientId,
     authMode: 'codex-oauth',
     workspaceId: input.workspaceId,
+    workspaceRecordId: input.workspaceRecordId,
     expiresAt,
     lastRefreshAt: input.token.createdAt,
     sessionData: {
@@ -553,6 +555,9 @@ export async function shareCodexOAuthSessionWithCodeyApp(input: {
       client_id: input.clientId,
       redirect_uri: input.redirectUri,
       ...(input.workspaceId ? { workspace_id: input.workspaceId } : {}),
+      ...(input.workspaceRecordId
+        ? { workspace_record_id: input.workspaceRecordId }
+        : {}),
       tokens: {
         access_token: input.token.accessToken,
         refresh_token: input.token.refreshToken,

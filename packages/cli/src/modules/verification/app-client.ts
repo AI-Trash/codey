@@ -580,6 +580,7 @@ export class AppVerificationProviderClient {
     clientId: string
     authMode: string
     workspaceId?: string
+    workspaceRecordId?: string
     accountId?: string
     sessionId?: string
     expiresAt?: string
@@ -600,6 +601,7 @@ export class AppVerificationProviderClient {
           clientId: input.clientId,
           authMode: input.authMode,
           workspaceId: input.workspaceId,
+          workspaceRecordId: input.workspaceRecordId,
           accountId: input.accountId,
           sessionId: input.sessionId,
           expiresAt: input.expiresAt,

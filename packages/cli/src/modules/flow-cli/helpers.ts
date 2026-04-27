@@ -4,6 +4,7 @@ import {
   type CliRuntimeConfig,
   type RuntimeConfigOverrides,
 } from '../../config'
+import type { CliFlowTaskMetadata } from './flow-registry'
 import type { MachineStatus, StateMachineController } from '../../state-machine'
 import { writeCliStderrLine, writeCliStdoutLine } from '../../utils/cli-output'
 import { resolveChromeProfileLaunchConfig } from '../../utils/chrome-profile'
@@ -59,6 +60,7 @@ export interface FlowOptions extends CommonOptions {
   chatgptStorageStateIdentityId?: string
   chatgptStorageStateEmail?: string
   autoSelectFirstWorkspace?: boolean
+  taskMetadata?: CliFlowTaskMetadata
 }
 
 export interface AuthOptions extends CommonOptions {

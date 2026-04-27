@@ -86,11 +86,13 @@ interface WorkspaceMemberInput {
 interface ManagedWorkspaceAuthorizationInput {
   identityId: string
   workspaceId: string | null
+  workspaceRecordId?: string | null
 }
 
 interface ManagedWorkspaceAuthorizationLookupRow {
   identityId: string
   workspaceId: string | null
+  workspaceRecordId: string | null
   status: 'ACTIVE' | 'REVOKED'
   expiresAt: Date | null
   lastSeenAt: Date
@@ -106,6 +108,11 @@ const DEFAULT_WORKSPACE_MEMBER_INVITE_STATUS: ManagedWorkspaceMemberInviteStatus
   'NOT_INVITED'
 
 function normalizeWorkspaceId(value?: string | null): string | null {
+  const normalized = value?.trim()
+  return normalized ? normalized : null
+}
+
+function normalizeWorkspaceRecordId(value?: string | null): string | null {
   const normalized = value?.trim()
   return normalized ? normalized : null
 }
@@ -212,17 +219,101 @@ function normalizeWorkspaceIds(values: Iterable<string | null>): string[] {
   return [...deduped.values()]
 }
 
-function buildManagedWorkspaceAuthorizationKey(input: {
+function normalizeWorkspaceRecordIds(
+  values: Iterable<string | null | undefined>,
+): string[] {
+  const deduped = new Map<string, string>()
+
+  for (const value of values) {
+    const workspaceRecordId = normalizeWorkspaceRecordId(value)
+    if (!workspaceRecordId) {
+      continue
+    }
+
+    deduped.set(workspaceRecordId, workspaceRecordId)
+  }
+
+  return [...deduped.values()]
+}
+
+function buildManagedWorkspaceRecordAuthorizationKey(input: {
+  identityId: string
+  workspaceRecordId: string
+}): string {
+  return `${input.identityId}::record:${input.workspaceRecordId}`
+}
+
+function buildManagedWorkspaceExternalAuthorizationKey(input: {
+  identityId: string
+  workspaceId: string
+}): string {
+  return `${input.identityId}::workspace:${input.workspaceId}`
+}
+
+function buildManagedWorkspaceAuthorizationLookupKeys(input: {
   identityId: string
   workspaceId?: string | null
-}): string {
+  workspaceRecordId?: string | null
+}): string[] {
+  const keys: string[] = []
+  const workspaceRecordId = normalizeWorkspaceRecordId(input.workspaceRecordId)
   const workspaceId = normalizeWorkspaceId(input.workspaceId)
-  return `${input.identityId}::${workspaceId ? `workspace:${workspaceId}` : 'default:'}`
+
+  if (workspaceRecordId) {
+    keys.push(
+      buildManagedWorkspaceRecordAuthorizationKey({
+        identityId: input.identityId,
+        workspaceRecordId,
+      }),
+    )
+  }
+
+  if (workspaceId) {
+    keys.push(
+      buildManagedWorkspaceExternalAuthorizationKey({
+        identityId: input.identityId,
+        workspaceId,
+      }),
+    )
+  }
+
+  return keys
+}
+
+function resolveManagedWorkspaceAuthorizationSummaryForIdentity(input: {
+  identityId?: string | null
+  workspaceId?: string | null
+  workspaceRecordId?: string | null
+  authorizationsByWorkspaceIdentity?: Map<
+    string,
+    ManagedWorkspaceAuthorizationSummary
+  >
+}): ManagedWorkspaceAuthorizationSummary {
+  if (!input.identityId) {
+    return DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY
+  }
+
+  for (const authorizationKey of buildManagedWorkspaceAuthorizationLookupKeys({
+    identityId: input.identityId,
+    workspaceId: input.workspaceId,
+    workspaceRecordId: input.workspaceRecordId,
+  })) {
+    const summary =
+      input.authorizationsByWorkspaceIdentity?.get(authorizationKey)
+    if (summary) {
+      return summary
+    }
+  }
+
+  return DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY
 }
 
 function buildManagedWorkspaceIdentitySummary(
   identity?: ManagedIdentityLookupRow | null,
-  workspaceId?: string | null,
+  workspaceScope?: {
+    workspaceId?: string | null
+    workspaceRecordId?: string | null
+  },
   authorizationsByWorkspaceIdentity: Map<
     string,
     ManagedWorkspaceAuthorizationSummary
@@ -232,22 +323,16 @@ function buildManagedWorkspaceIdentitySummary(
     return null
   }
 
-  const authorizationKey =
-    workspaceId !== undefined
-      ? buildManagedWorkspaceAuthorizationKey({
-          identityId: identity.identityId,
-          workspaceId,
-        })
-      : null
-
   return {
     identityId: identity.identityId,
     email: identity.email,
     identityLabel: identity.label || identity.email,
-    authorization:
-      (authorizationKey
-        ? authorizationsByWorkspaceIdentity.get(authorizationKey)
-        : null) || DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY,
+    authorization: resolveManagedWorkspaceAuthorizationSummaryForIdentity({
+      identityId: identity.identityId,
+      workspaceId: workspaceScope?.workspaceId,
+      workspaceRecordId: workspaceScope?.workspaceRecordId,
+      authorizationsByWorkspaceIdentity,
+    }),
   }
 }
 
@@ -259,19 +344,20 @@ function normalizeManagedWorkspaceAuthorizationInputs(
   for (const value of values) {
     const identityId = value.identityId.trim()
     const workspaceId = normalizeWorkspaceId(value.workspaceId)
+    const workspaceRecordId = normalizeWorkspaceRecordId(
+      value.workspaceRecordId,
+    )
 
-    if (!identityId) {
+    if (!identityId || (!workspaceId && !workspaceRecordId)) {
       continue
     }
 
     deduped.set(
-      buildManagedWorkspaceAuthorizationKey({
-        identityId,
-        workspaceId,
-      }),
+      `${identityId}::record:${workspaceRecordId || ''}::workspace:${workspaceId || ''}`,
       {
         identityId,
         workspaceId,
+        workspaceRecordId,
       },
     )
   }
@@ -335,8 +421,8 @@ async function resolveManagedWorkspaceAuthorizations(
   }
 
   const requestedAuthorizationKeys = new Set(
-    normalizedAuthorizations.map((authorization) =>
-      buildManagedWorkspaceAuthorizationKey(authorization),
+    normalizedAuthorizations.flatMap((authorization) =>
+      buildManagedWorkspaceAuthorizationLookupKeys(authorization),
     ),
   )
   const normalizedIdentityIds = normalizeIdentityIds(
@@ -345,18 +431,31 @@ async function resolveManagedWorkspaceAuthorizations(
   const normalizedWorkspaceIds = normalizeWorkspaceIds(
     normalizedAuthorizations.map((authorization) => authorization.workspaceId),
   )
-  const requestsDefaultWorkspace = normalizedAuthorizations.some(
-    (authorization) => !authorization.workspaceId,
+  const normalizedWorkspaceRecordIds = normalizeWorkspaceRecordIds(
+    normalizedAuthorizations.map(
+      (authorization) => authorization.workspaceRecordId,
+    ),
   )
+  const workspaceClauses = [
+    ...(normalizedWorkspaceIds.length
+      ? [inArray(managedIdentitySessions.workspaceId, normalizedWorkspaceIds)]
+      : []),
+    ...(normalizedWorkspaceRecordIds.length
+      ? [
+          inArray(
+            managedIdentitySessions.workspaceRecordId,
+            normalizedWorkspaceRecordIds,
+          ),
+        ]
+      : []),
+  ]
+  if (!workspaceClauses.length) {
+    return new Map()
+  }
   const workspaceWhere =
-    normalizedWorkspaceIds.length && requestsDefaultWorkspace
-      ? or(
-          inArray(managedIdentitySessions.workspaceId, normalizedWorkspaceIds),
-          isNull(managedIdentitySessions.workspaceId),
-        )
-      : normalizedWorkspaceIds.length
-        ? inArray(managedIdentitySessions.workspaceId, normalizedWorkspaceIds)
-        : isNull(managedIdentitySessions.workspaceId)
+    workspaceClauses.length === 1
+      ? workspaceClauses[0]
+      : or(...workspaceClauses)
 
   const rows = await getDb().query.managedIdentitySessions.findMany({
     where: and(
@@ -370,6 +469,7 @@ async function resolveManagedWorkspaceAuthorizations(
     columns: {
       identityId: true,
       workspaceId: true,
+      workspaceRecordId: true,
       status: true,
       expiresAt: true,
       lastSeenAt: true,
@@ -380,47 +480,50 @@ async function resolveManagedWorkspaceAuthorizations(
   const summaries = new Map<string, ManagedWorkspaceAuthorizationSummary>()
 
   for (const row of rows) {
-    const authorizationKey = buildManagedWorkspaceAuthorizationKey({
-      identityId: row.identityId,
-      workspaceId: row.workspaceId,
-    })
-    if (!requestedAuthorizationKeys.has(authorizationKey)) {
-      continue
-    }
-
     const nextSummary = buildManagedWorkspaceAuthorizationSummary(row)
-    const currentSummary = summaries.get(authorizationKey)
+    for (const authorizationKey of buildManagedWorkspaceAuthorizationLookupKeys(
+      {
+        identityId: row.identityId,
+        workspaceId: row.workspaceId,
+        workspaceRecordId: row.workspaceRecordId,
+      },
+    )) {
+      if (!requestedAuthorizationKeys.has(authorizationKey)) {
+        continue
+      }
 
-    if (!currentSummary) {
-      summaries.set(authorizationKey, nextSummary)
-      continue
-    }
+      const currentSummary = summaries.get(authorizationKey)
+      if (!currentSummary) {
+        summaries.set(authorizationKey, nextSummary)
+        continue
+      }
 
-    const currentPriority = getManagedWorkspaceAuthorizationPriority(
-      currentSummary.state,
-    )
-    const nextPriority = getManagedWorkspaceAuthorizationPriority(
-      nextSummary.state,
-    )
+      const currentPriority = getManagedWorkspaceAuthorizationPriority(
+        currentSummary.state,
+      )
+      const nextPriority = getManagedWorkspaceAuthorizationPriority(
+        nextSummary.state,
+      )
 
-    if (nextPriority > currentPriority) {
-      summaries.set(authorizationKey, nextSummary)
-      continue
-    }
+      if (nextPriority > currentPriority) {
+        summaries.set(authorizationKey, nextSummary)
+        continue
+      }
 
-    if (nextPriority < currentPriority) {
-      continue
-    }
+      if (nextPriority < currentPriority) {
+        continue
+      }
 
-    const currentLastSeenAt = currentSummary.lastSeenAt
-      ? new Date(currentSummary.lastSeenAt).getTime()
-      : 0
-    const nextLastSeenAt = nextSummary.lastSeenAt
-      ? new Date(nextSummary.lastSeenAt).getTime()
-      : 0
+      const currentLastSeenAt = currentSummary.lastSeenAt
+        ? new Date(currentSummary.lastSeenAt).getTime()
+        : 0
+      const nextLastSeenAt = nextSummary.lastSeenAt
+        ? new Date(nextSummary.lastSeenAt).getTime()
+        : 0
 
-    if (nextLastSeenAt > currentLastSeenAt) {
-      summaries.set(authorizationKey, nextSummary)
+      if (nextLastSeenAt > currentLastSeenAt) {
+        summaries.set(authorizationKey, nextSummary)
+      }
     }
   }
 
@@ -453,23 +556,18 @@ function buildAdminManagedWorkspaceSummary(
   >,
 ): AdminManagedWorkspaceSummary {
   const members = row.members.map((member) => {
-    const authorizationKey = member.identityId
-      ? buildManagedWorkspaceAuthorizationKey({
-          identityId: member.identityId,
-          workspaceId: row.workspaceId,
-        })
-      : null
-
     return {
       id: member.id,
       email: member.email,
       identityId: member.identityId,
       identityLabel:
         member.identity?.label || member.identity?.email || member.email,
-      authorization:
-        (authorizationKey
-          ? authorizationsByWorkspaceIdentity.get(authorizationKey)
-          : null) || DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY,
+      authorization: resolveManagedWorkspaceAuthorizationSummaryForIdentity({
+        identityId: member.identityId,
+        workspaceId: row.workspaceId,
+        workspaceRecordId: row.id,
+        authorizationsByWorkspaceIdentity,
+      }),
       inviteStatus:
         member.inviteStatus || DEFAULT_WORKSPACE_MEMBER_INVITE_STATUS,
       invitedAt: member.invitedAt?.toISOString() || null,
@@ -487,7 +585,10 @@ function buildAdminManagedWorkspaceSummary(
       row.teamTrialPaypalCapturedAt?.toISOString() || null,
     owner: buildManagedWorkspaceIdentitySummary(
       row.ownerIdentity,
-      row.workspaceId,
+      {
+        workspaceId: row.workspaceId,
+        workspaceRecordId: row.id,
+      },
       authorizationsByWorkspaceIdentity,
     ),
     memberCount: members.length,
@@ -891,12 +992,19 @@ export async function listAdminManagedWorkspaceSummaries(): Promise<
               {
                 identityId: row.ownerIdentity.identityId,
                 workspaceId: row.workspaceId,
+                workspaceRecordId: row.id,
               },
             ]
           : []),
         ...row.members.flatMap((member) =>
           member.identityId
-            ? [{ identityId: member.identityId, workspaceId: row.workspaceId }]
+            ? [
+                {
+                  identityId: member.identityId,
+                  workspaceId: row.workspaceId,
+                  workspaceRecordId: row.id,
+                },
+              ]
             : [],
         ),
       ]),
@@ -946,12 +1054,19 @@ export async function findAdminManagedWorkspaceSummary(
             {
               identityId: row.ownerIdentity.identityId,
               workspaceId: row.workspaceId,
+              workspaceRecordId: row.id,
             },
           ]
         : []),
       ...row.members.flatMap((member) =>
         member.identityId
-          ? [{ identityId: member.identityId, workspaceId: row.workspaceId }]
+          ? [
+              {
+                identityId: member.identityId,
+                workspaceId: row.workspaceId,
+                workspaceRecordId: row.id,
+              },
+            ]
           : [],
       ),
     ])
@@ -1401,8 +1516,11 @@ export async function resetManagedWorkspaceAuthorizationStatuses(input: {
       and(
         inArray(managedIdentitySessions.identityId, identityIds),
         workspace.workspaceId
-          ? eq(managedIdentitySessions.workspaceId, workspace.workspaceId)
-          : isNull(managedIdentitySessions.workspaceId),
+          ? or(
+              eq(managedIdentitySessions.workspaceId, workspace.workspaceId),
+              eq(managedIdentitySessions.workspaceRecordId, workspace.id),
+            )
+          : eq(managedIdentitySessions.workspaceRecordId, workspace.id),
         or(
           eq(managedIdentitySessions.authMode, 'codex-oauth'),
           eq(managedIdentitySessions.flowType, 'codex-oauth'),
