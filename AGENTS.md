@@ -16,10 +16,13 @@
 ## Commands agents can rely on
 
 - `pnpm dev` runs the app on port 3000.
+- Do not attempt to start or manage the dev server unless explicitly asked by the user.
 - `pnpm build` validates the web app build.
 - `pnpm db:generate` and `pnpm db:migrate` manage Drizzle migrations.
+- This local workspace does not have a database environment. Do not attempt to execute real Drizzle migrations in the development environment unless the user explicitly provides a database target and asks for it.
 - `pnpm fmt` and `pnpm fmt:check` run `oxfmt` across the repository, respecting ignore files.
 - `pnpm lint` and `pnpm lint:fix` run `oxlint` across the repository.
+- Do not assume linting or formatting changes code logic; inspect diffs or test results before attributing behavior changes to `pnpm lint`, `pnpm lint:fix`, `pnpm fmt`, or `pnpm fmt:check`.
 - `pnpm test` is scoped to `packages/cli`.
 - If you change app code outside `packages/cli`, use `pnpm build` in addition to linting.
 

@@ -2208,6 +2208,8 @@ function AdminWorkspacesPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [quickTeamTrialPending, setQuickTeamTrialPending] = useState(false)
+  const autoSaveRequestIdRef = useRef(0)
+  const lastAutoSaveErrorKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if ('workspaces' in data) {
@@ -2257,6 +2259,87 @@ function AdminWorkspacesPage() {
   const canDispatchFlows = Boolean(
     'canDispatchFlows' in data && data.canDispatchFlows,
   )
+
+  useEffect(() => {
+    if (!editorOpen || !editor.id || !editor.ownerIdentityId) {
+      return
+    }
+
+    const currentWorkspace =
+      workspaces.find((workspace) => workspace.id === editor.id) || null
+    if (!currentWorkspace) {
+      return
+    }
+
+    const editorSaveKey = createWorkspaceEditorSaveKey(editor)
+    if (editorSaveKey === createWorkspaceSummarySaveKey(currentWorkspace)) {
+      lastAutoSaveErrorKeyRef.current = null
+      return
+    }
+
+    let active = true
+    const timeout = window.setTimeout(() => {
+      const requestId = autoSaveRequestIdRef.current + 1
+      autoSaveRequestIdRef.current = requestId
+      setIsSaving(true)
+
+      void saveWorkspace(editor)
+        .then((workspace) => {
+          if (!active || autoSaveRequestIdRef.current !== requestId) {
+            return
+          }
+
+          lastAutoSaveErrorKeyRef.current = null
+          setWorkspaces((current) => upsertWorkspaceSummary(current, workspace))
+          setEditor((current) =>
+            current.id === editor.id &&
+            createWorkspaceEditorSaveKey(current) === editorSaveKey
+              ? createWorkspaceEditorState(workspace)
+              : current,
+          )
+        })
+        .catch((error) => {
+          if (!active || autoSaveRequestIdRef.current !== requestId) {
+            return
+          }
+
+          if (lastAutoSaveErrorKeyRef.current === editorSaveKey) {
+            return
+          }
+
+          lastAutoSaveErrorKeyRef.current = editorSaveKey
+          showWorkspaceToast({
+            kind: 'error',
+            message:
+              error instanceof Error
+                ? error.message
+                : m.admin_workspace_save_error_fallback(),
+          })
+        })
+        .finally(() => {
+          if (autoSaveRequestIdRef.current === requestId) {
+            setIsSaving(false)
+          }
+        })
+    }, WORKSPACE_AUTO_SAVE_DELAY_MS)
+
+    return () => {
+      active = false
+      window.clearTimeout(timeout)
+    }
+  }, [editor, editorOpen, workspaces])
+
+  async function handleSaveWorkspaceDraft(draft: WorkspaceEditorState) {
+    setIsSaving(true)
+
+    try {
+      const workspace = await saveWorkspace(draft)
+      setWorkspaces((current) => upsertWorkspaceSummary(current, workspace))
+      return workspace
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   async function handleCreateWorkspaceTeamTrial() {
     if (!canDispatchFlows) {
@@ -2485,8 +2568,8 @@ function AdminWorkspacesPage() {
                                 setEditorOpen(true)
                               }}
                             >
-                              <PencilIcon />
-                              {m.admin_workspace_edit_button()}
+                              <InfoIcon />
+                              {m.admin_workspace_detail_button()}
                             </Button>
                             <Button
                               type="button"
@@ -2533,19 +2616,7 @@ function AdminWorkspacesPage() {
         workspaces={workspaces}
         canDispatchFlows={canDispatchFlows}
         isSaving={isSaving}
-        onSave={async () => {
-          setIsSaving(true)
-
-          try {
-            const workspace = await saveWorkspace(editor)
-            setWorkspaces((current) =>
-              upsertWorkspaceSummary(current, workspace),
-            )
-            return workspace
-          } finally {
-            setIsSaving(false)
-          }
-        }}
+        onSave={handleSaveWorkspaceDraft}
         onWorkspaceChange={(workspace) => {
           setWorkspaces((current) => upsertWorkspaceSummary(current, workspace))
         }}
