@@ -75,6 +75,7 @@ import { m } from '#/paraglide/messages'
 const MAX_WORKSPACE_MEMBER_COUNT = 9
 const WORKSPACE_REFRESH_INTERVAL_MS = 10000
 const WORKSPACE_AUTO_SAVE_DELAY_MS = 500
+const TEAM_TRIAL_PAYPAL_LINK_TTL_MS = 10 * 60 * 1000
 
 const loadAdminWorkspaces = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -166,6 +167,7 @@ type WorkspaceSummary = {
   label?: string | null
   teamTrialPaypalUrl?: string | null
   teamTrialPaypalCapturedAt?: string | null
+  teamTrialPaypalExpiresAt?: string | null
   owner?: WorkspaceIdentitySummary | null
   memberCount: number
   members: WorkspaceMemberSummary[]
@@ -234,6 +236,8 @@ type FlashMessage = {
   kind: 'success' | 'error'
   message: string
 }
+
+type WorkspacePaypalPaymentState = 'confirming' | 'paid'
 
 function showWorkspaceToast(flash: FlashMessage) {
   showAppToast({
@@ -518,6 +522,49 @@ function getWorkspaceDisplayLabel(
 
 function getWorkspaceIdDisplayValue(workspaceId?: string | null) {
   return workspaceId || m.admin_workspace_id_missing_value()
+}
+
+function parseOptionalTime(value?: string | null): number | null {
+  if (!value) {
+    return null
+  }
+
+  const time = new Date(value).getTime()
+  return Number.isFinite(time) ? time : null
+}
+
+function getWorkspaceTeamTrialPaypalExpiresAt(
+  workspace: WorkspaceSummary,
+): number | null {
+  const explicitExpiresAt = parseOptionalTime(
+    workspace.teamTrialPaypalExpiresAt,
+  )
+  if (explicitExpiresAt !== null) {
+    return explicitExpiresAt
+  }
+
+  const capturedAt = parseOptionalTime(workspace.teamTrialPaypalCapturedAt)
+  return capturedAt === null ? null : capturedAt + TEAM_TRIAL_PAYPAL_LINK_TTL_MS
+}
+
+function getWorkspaceTeamTrialPaypalUrl(
+  workspace: WorkspaceSummary,
+): string | null {
+  const paypalUrl = workspace.teamTrialPaypalUrl?.trim() || null
+  if (!paypalUrl) {
+    return null
+  }
+
+  const expiresAt = getWorkspaceTeamTrialPaypalExpiresAt(workspace)
+  if (expiresAt === null || expiresAt <= Date.now()) {
+    return null
+  }
+
+  return paypalUrl
+}
+
+function openWorkspaceTeamTrialPaypalUrl(paypalUrl: string) {
+  window.open(paypalUrl, '_blank', 'noopener,noreferrer')
 }
 
 function isWorkspaceAuthorized(
@@ -880,6 +927,74 @@ async function resetWorkspaceAuthorizationStatuses(
   }
 
   return (await response.json()) as ResetWorkspaceAuthorizationResponse
+}
+
+function WorkspacePaypalAction(props: {
+  paypalUrl: string | null
+  paymentState?: WorkspacePaypalPaymentState | null
+  size?: 'default' | 'sm'
+  inviteAuthorizePending?: boolean
+  inviteAuthorizeDisabled?: boolean
+  inviteAuthorizeTitle?: string
+  onPaymentStarted: () => void
+  onPaymentPending: () => void
+  onPaymentCompleted: () => void
+  onInviteAuthorize: () => void
+}) {
+  if (props.paymentState === 'paid') {
+    return (
+      <Button
+        type="button"
+        size={props.size}
+        disabled={props.inviteAuthorizeDisabled}
+        title={props.inviteAuthorizeTitle}
+        onClick={props.onInviteAuthorize}
+      >
+        <UsersIcon />
+        {props.inviteAuthorizePending
+          ? m.admin_workspace_invite_authorize_running()
+          : m.admin_workspace_invite_authorize_button()}
+      </Button>
+    )
+  }
+
+  if (!props.paypalUrl) {
+    return null
+  }
+
+  if (props.paymentState === 'confirming') {
+    return (
+      <>
+        <Button
+          type="button"
+          variant="outline"
+          size={props.size}
+          onClick={props.onPaymentPending}
+        >
+          {m.admin_workspace_team_trial_paypal_unpaid_button()}
+        </Button>
+        <Button
+          type="button"
+          size={props.size}
+          onClick={props.onPaymentCompleted}
+        >
+          {m.admin_workspace_team_trial_paypal_paid_button()}
+        </Button>
+      </>
+    )
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="secondary"
+      size={props.size}
+      onClick={props.onPaymentStarted}
+    >
+      <ExternalLinkIcon />
+      {m.admin_workspace_team_trial_paypal_button()}
+    </Button>
+  )
 }
 
 function WorkspaceMembersPreview(props: { workspace: WorkspaceSummary }) {
@@ -1549,6 +1664,8 @@ function WorkspaceOperationsSection(props: {
 }) {
   const [inviteActionKey, setInviteActionKey] = useState<string | null>(null)
   const [teamTrialPending, setTeamTrialPending] = useState(false)
+  const [teamTrialPaypalState, setTeamTrialPaypalState] =
+    useState<WorkspacePaypalPaymentState | null>(null)
   const [authorizationPending, setAuthorizationPending] = useState(false)
   const [inviteAuthorizePending, setInviteAuthorizePending] = useState(false)
   const [authorizationResetPending, setAuthorizationResetPending] =
@@ -1563,6 +1680,7 @@ function WorkspaceOperationsSection(props: {
 
     setInviteActionKey(null)
     setTeamTrialPending(false)
+    setTeamTrialPaypalState(null)
     setAuthorizationPending(false)
     setInviteAuthorizePending(false)
     setAuthorizationResetPending(false)
@@ -1579,6 +1697,7 @@ function WorkspaceOperationsSection(props: {
     }
 
     setTeamTrialPending(true)
+    setTeamTrialPaypalState(null)
 
     try {
       const result = await dispatchWorkspaceTeamTrial(props.workspace.id)
@@ -1856,11 +1975,17 @@ function WorkspaceOperationsSection(props: {
     authorizationResetPending
   const canStartTeamTrial =
     props.canDispatchFlows && Boolean(props.workspace?.owner?.email)
-  const teamTrialPaypalUrl = props.workspace?.teamTrialPaypalUrl?.trim() || null
+  const teamTrialPaypalUrl = getWorkspaceTeamTrialPaypalUrl(props.workspace)
   const canAuthorizeWorkspace =
     props.canDispatchFlows && Boolean(pendingWorkspaceAuthorizationCount)
   const canInviteAndAuthorizeWorkspace =
     props.canDispatchFlows && Boolean(props.workspace?.owner?.identityId)
+  const inviteAuthorizeDisabled = !canInviteAndAuthorizeWorkspace || isMutating
+  const inviteAuthorizeTitle = !props.canDispatchFlows
+    ? m.admin_workspace_team_trial_requires_cli_permission()
+    : !props.workspace.owner
+      ? m.admin_workspace_invite_authorize_requires_owner()
+      : undefined
   const canInviteAll =
     props.canDispatchFlows &&
     Boolean(props.workspace?.owner?.identityId) &&
@@ -1991,22 +2116,34 @@ function WorkspaceOperationsSection(props: {
                   <CardTitle>{m.admin_workspace_owner_label()}</CardTitle>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {teamTrialPaypalUrl ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => {
-                        window.open(
-                          teamTrialPaypalUrl,
-                          '_blank',
-                          'noopener,noreferrer',
-                        )
-                      }}
-                    >
-                      <ExternalLinkIcon />
-                      {m.admin_workspace_team_trial_paypal_button()}
-                    </Button>
-                  ) : null}
+                  <WorkspacePaypalAction
+                    paypalUrl={teamTrialPaypalUrl}
+                    paymentState={teamTrialPaypalState}
+                    inviteAuthorizePending={inviteAuthorizePending}
+                    inviteAuthorizeDisabled={inviteAuthorizeDisabled}
+                    inviteAuthorizeTitle={inviteAuthorizeTitle}
+                    onPaymentStarted={() => {
+                      const paypalUrl = getWorkspaceTeamTrialPaypalUrl(
+                        props.workspace,
+                      )
+                      if (!paypalUrl) {
+                        setTeamTrialPaypalState(null)
+                        return
+                      }
+
+                      openWorkspaceTeamTrialPaypalUrl(paypalUrl)
+                      setTeamTrialPaypalState('confirming')
+                    }}
+                    onPaymentPending={() => {
+                      setTeamTrialPaypalState(null)
+                    }}
+                    onPaymentCompleted={() => {
+                      setTeamTrialPaypalState('paid')
+                    }}
+                    onInviteAuthorize={() => {
+                      void handleInviteAndAuthorizeWorkspace()
+                    }}
+                  />
                   <Button
                     type="button"
                     variant="outline"
@@ -2301,6 +2438,11 @@ function AdminWorkspacesPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [quickTeamTrialPending, setQuickTeamTrialPending] = useState(false)
+  const [paypalPaymentStates, setPaypalPaymentStates] = useState<
+    Record<string, WorkspacePaypalPaymentState | undefined>
+  >({})
+  const [tableInviteAuthorizePendingId, setTableInviteAuthorizePendingId] =
+    useState<string | null>(null)
   const autoSaveRequestIdRef = useRef(0)
   const lastAutoSaveErrorKeyRef = useRef<string | null>(null)
 
@@ -2500,6 +2642,68 @@ function AdminWorkspacesPage() {
     }
   }
 
+  function setWorkspacePaypalPaymentState(
+    workspaceId: string,
+    state: WorkspacePaypalPaymentState | null,
+  ) {
+    setPaypalPaymentStates((current) => {
+      const next = { ...current }
+      if (state) {
+        next[workspaceId] = state
+      } else {
+        delete next[workspaceId]
+      }
+
+      return next
+    })
+  }
+
+  async function handleInviteAndAuthorizeWorkspaceFromTable(
+    workspace: WorkspaceSummary,
+  ) {
+    if (!canDispatchFlows) {
+      showWorkspaceToast({
+        kind: 'error',
+        message: m.admin_workspace_team_trial_requires_cli_permission(),
+      })
+      return
+    }
+
+    if (!workspace.owner?.identityId) {
+      showWorkspaceToast({
+        kind: 'error',
+        message: m.admin_workspace_invite_authorize_requires_owner(),
+      })
+      return
+    }
+
+    setTableInviteAuthorizePendingId(workspace.id)
+
+    try {
+      const result = await dispatchWorkspaceInviteAndAuthorize(workspace.id)
+      setWorkspaces((current) =>
+        upsertWorkspaceSummary(current, result.workspace),
+      )
+      showWorkspaceToast({
+        kind: 'success',
+        message: m.admin_workspace_invite_authorize_success_dispatched({
+          count: String(result.memberEmails.length),
+          cli: result.connectionLabel || 'CLI',
+        }),
+      })
+    } catch (error) {
+      showWorkspaceToast({
+        kind: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : m.admin_workspace_invite_authorize_error_fallback(),
+      })
+    } finally {
+      setTableInviteAuthorizePendingId(null)
+    }
+  }
+
   if (!data.authorized) {
     return <AdminAuthRequired />
   }
@@ -2590,104 +2794,158 @@ function AdminWorkspacesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredWorkspaces.map((workspace) => (
-                      <TableRow key={workspace.id}>
-                        <TableCell className="align-top">
-                          <div className="space-y-1">
-                            <div className="font-medium text-foreground">
-                              {getWorkspaceDisplayLabel(workspace)}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {workspace.memberCount}{' '}
-                              {m.admin_workspace_members_label()}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="align-top">
-                          {workspace.workspaceId ? (
-                            <CopyableValue
-                              value={workspace.workspaceId}
-                              code
-                              className="max-w-full text-sm text-muted-foreground"
-                              contentClassName="break-all"
-                            />
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              {getWorkspaceIdDisplayValue(
-                                workspace.workspaceId,
-                              )}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="align-top">
-                          {workspace.owner ? (
+                    {filteredWorkspaces.map((workspace) => {
+                      const teamTrialPaypalUrl =
+                        getWorkspaceTeamTrialPaypalUrl(workspace)
+                      const paypalPaymentState =
+                        paypalPaymentStates[workspace.id] || null
+                      const inviteAuthorizePending =
+                        tableInviteAuthorizePendingId === workspace.id
+                      const inviteAuthorizeDisabled =
+                        !canDispatchFlows ||
+                        Boolean(tableInviteAuthorizePendingId) ||
+                        isSaving ||
+                        isDeleting ||
+                        !workspace.owner?.identityId
+                      const inviteAuthorizeTitle = !canDispatchFlows
+                        ? m.admin_workspace_team_trial_requires_cli_permission()
+                        : !workspace.owner
+                          ? m.admin_workspace_invite_authorize_requires_owner()
+                          : undefined
+
+                      return (
+                        <TableRow key={workspace.id}>
+                          <TableCell className="align-top">
                             <div className="space-y-1">
                               <div className="font-medium text-foreground">
-                                {workspace.owner.identityLabel}
+                                {getWorkspaceDisplayLabel(workspace)}
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                {workspace.owner.email}
+                                {workspace.memberCount}{' '}
+                                {m.admin_workspace_members_label()}
                               </div>
-                              <WorkspaceAuthorizationBadge
-                                authorization={workspace.owner.authorization}
-                              />
                             </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              {m.admin_workspace_owner_missing()}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <WorkspaceMembersPreview workspace={workspace} />
-                        </TableCell>
-                        <TableCell className="align-top text-sm text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <CalendarIcon className="size-4" />
-                            {formatAdminDate(workspace.updatedAt)}
-                          </div>
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {workspace.teamTrialPaypalUrl ? (
-                              <Button asChild variant="secondary" size="sm">
-                                <a
-                                  href={workspace.teamTrialPaypalUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <ExternalLinkIcon />
-                                  {m.admin_workspace_team_trial_paypal_button()}
-                                </a>
+                          </TableCell>
+                          <TableCell className="align-top">
+                            {workspace.workspaceId ? (
+                              <CopyableValue
+                                value={workspace.workspaceId}
+                                code
+                                className="max-w-full text-sm text-muted-foreground"
+                                contentClassName="break-all"
+                              />
+                            ) : (
+                              <span className="text-sm text-muted-foreground">
+                                {getWorkspaceIdDisplayValue(
+                                  workspace.workspaceId,
+                                )}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="align-top">
+                            {workspace.owner ? (
+                              <div className="space-y-1">
+                                <div className="font-medium text-foreground">
+                                  {workspace.owner.identityLabel}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  {workspace.owner.email}
+                                </div>
+                                <WorkspaceAuthorizationBadge
+                                  authorization={workspace.owner.authorization}
+                                />
+                              </div>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">
+                                {m.admin_workspace_owner_missing()}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="align-top">
+                            <WorkspaceMembersPreview workspace={workspace} />
+                          </TableCell>
+                          <TableCell className="align-top text-sm text-muted-foreground">
+                            <div className="flex items-center gap-2">
+                              <CalendarIcon className="size-4" />
+                              {formatAdminDate(workspace.updatedAt)}
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-top">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <WorkspacePaypalAction
+                                size="sm"
+                                paypalUrl={teamTrialPaypalUrl}
+                                paymentState={paypalPaymentState}
+                                inviteAuthorizePending={inviteAuthorizePending}
+                                inviteAuthorizeDisabled={
+                                  inviteAuthorizeDisabled
+                                }
+                                inviteAuthorizeTitle={inviteAuthorizeTitle}
+                                onPaymentStarted={() => {
+                                  const paypalUrl =
+                                    getWorkspaceTeamTrialPaypalUrl(workspace)
+                                  if (!paypalUrl) {
+                                    setWorkspacePaypalPaymentState(
+                                      workspace.id,
+                                      null,
+                                    )
+                                    return
+                                  }
+
+                                  openWorkspaceTeamTrialPaypalUrl(paypalUrl)
+                                  setWorkspacePaypalPaymentState(
+                                    workspace.id,
+                                    'confirming',
+                                  )
+                                }}
+                                onPaymentPending={() => {
+                                  setWorkspacePaypalPaymentState(
+                                    workspace.id,
+                                    null,
+                                  )
+                                }}
+                                onPaymentCompleted={() => {
+                                  setWorkspacePaypalPaymentState(
+                                    workspace.id,
+                                    'paid',
+                                  )
+                                }}
+                                onInviteAuthorize={() => {
+                                  void handleInviteAndAuthorizeWorkspaceFromTable(
+                                    workspace,
+                                  )
+                                }}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditor(
+                                    createWorkspaceEditorState(workspace),
+                                  )
+                                  setEditorOpen(true)
+                                }}
+                              >
+                                <InfoIcon />
+                                {m.admin_workspace_detail_button()}
                               </Button>
-                            ) : null}
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setEditor(createWorkspaceEditorState(workspace))
-                                setEditorOpen(true)
-                              }}
-                            >
-                              <InfoIcon />
-                              {m.admin_workspace_detail_button()}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setDeleteTarget(workspace)
-                              }}
-                            >
-                              <Trash2Icon />
-                              {m.admin_workspace_delete_button()}
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setDeleteTarget(workspace)
+                                }}
+                              >
+                                <Trash2Icon />
+                                {m.admin_workspace_delete_button()}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>

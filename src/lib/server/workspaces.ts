@@ -23,6 +23,7 @@ import {
 import { createId } from './security'
 
 const MAX_MANAGED_WORKSPACE_MEMBER_COUNT = 9
+const TEAM_TRIAL_PAYPAL_LINK_TTL_MS = 10 * 60 * 1000
 
 export type ManagedWorkspaceAuthorizationState =
   | 'authorized'
@@ -60,6 +61,7 @@ export interface AdminManagedWorkspaceSummary {
   label: string | null
   teamTrialPaypalUrl: string | null
   teamTrialPaypalCapturedAt: string | null
+  teamTrialPaypalExpiresAt: string | null
   owner: AdminManagedWorkspaceIdentitySummary | null
   memberCount: number
   members: AdminManagedWorkspaceMemberSummary[]
@@ -107,6 +109,39 @@ const DEFAULT_WORKSPACE_AUTHORIZATION_SUMMARY: ManagedWorkspaceAuthorizationSumm
   }
 const DEFAULT_WORKSPACE_MEMBER_INVITE_STATUS: ManagedWorkspaceMemberInviteStatus =
   'NOT_INVITED'
+
+export function getTeamTrialPaypalLinkExpiresAt(
+  capturedAt?: Date | null,
+): Date | null {
+  return capturedAt
+    ? new Date(capturedAt.getTime() + TEAM_TRIAL_PAYPAL_LINK_TTL_MS)
+    : null
+}
+
+export function resolveTeamTrialPaypalLinkState(input: {
+  paypalUrl?: string | null
+  capturedAt?: Date | null
+  now?: Date
+}): {
+  url: string | null
+  capturedAt: string | null
+  expiresAt: string | null
+} {
+  const paypalUrl = input.paypalUrl?.trim() || null
+  const capturedAt = input.capturedAt || null
+  const expiresAt = getTeamTrialPaypalLinkExpiresAt(capturedAt)
+  const now = input.now || new Date()
+  const isActive =
+    paypalUrl !== null &&
+    expiresAt !== null &&
+    expiresAt.getTime() > now.getTime()
+
+  return {
+    url: isActive ? paypalUrl : null,
+    capturedAt: capturedAt?.toISOString() || null,
+    expiresAt: expiresAt?.toISOString() || null,
+  }
+}
 
 function normalizeWorkspaceId(value?: string | null): string | null {
   const normalized = value?.trim()
@@ -556,6 +591,10 @@ function buildAdminManagedWorkspaceSummary(
     ManagedWorkspaceAuthorizationSummary
   >,
 ): AdminManagedWorkspaceSummary {
+  const teamTrialPaypalLink = resolveTeamTrialPaypalLinkState({
+    paypalUrl: row.teamTrialPaypalUrl,
+    capturedAt: row.teamTrialPaypalCapturedAt,
+  })
   const members = row.members.map((member) => {
     return {
       id: member.id,
@@ -581,9 +620,9 @@ function buildAdminManagedWorkspaceSummary(
     id: row.id,
     workspaceId: row.workspaceId,
     label: row.label,
-    teamTrialPaypalUrl: row.teamTrialPaypalUrl || null,
-    teamTrialPaypalCapturedAt:
-      row.teamTrialPaypalCapturedAt?.toISOString() || null,
+    teamTrialPaypalUrl: teamTrialPaypalLink.url,
+    teamTrialPaypalCapturedAt: teamTrialPaypalLink.capturedAt,
+    teamTrialPaypalExpiresAt: teamTrialPaypalLink.expiresAt,
     owner: buildManagedWorkspaceIdentitySummary(
       row.ownerIdentity,
       {

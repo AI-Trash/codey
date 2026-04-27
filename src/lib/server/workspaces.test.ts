@@ -16,9 +16,11 @@ import {
 import {
   createManagedWorkspace,
   deleteManagedWorkspace,
+  getTeamTrialPaypalLinkExpiresAt,
   listAdminManagedWorkspaceSummaries,
   normalizeTeamTrialPaypalUrl,
   resetManagedWorkspaceAuthorizationStatuses,
+  resolveTeamTrialPaypalLinkState,
   syncManagedWorkspaceInvite,
 } from './workspaces'
 
@@ -45,6 +47,34 @@ describe('managed workspace authorization summaries', () => {
     ).toBeNull()
     expect(
       normalizeTeamTrialPaypalUrl('https://www.paypal.com/pay?token=no'),
+    ).toBeNull()
+  })
+
+  it('keeps PayPal Team trial links active for only ten minutes', () => {
+    const capturedAt = new Date('2026-04-23T00:00:00.000Z')
+
+    expect(getTeamTrialPaypalLinkExpiresAt(capturedAt)?.toISOString()).toBe(
+      '2026-04-23T00:10:00.000Z',
+    )
+    expect(
+      resolveTeamTrialPaypalLinkState({
+        paypalUrl: 'https://www.paypal.com/pay?token=BA-123ABC',
+        capturedAt,
+        now: new Date('2026-04-23T00:09:59.999Z'),
+      }).url,
+    ).toBe('https://www.paypal.com/pay?token=BA-123ABC')
+    expect(
+      resolveTeamTrialPaypalLinkState({
+        paypalUrl: 'https://www.paypal.com/pay?token=BA-123ABC',
+        capturedAt,
+        now: new Date('2026-04-23T00:10:00.000Z'),
+      }).url,
+    ).toBeNull()
+    expect(
+      resolveTeamTrialPaypalLinkState({
+        paypalUrl: 'https://www.paypal.com/pay?token=BA-123ABC',
+        now: new Date('2026-04-23T00:00:00.000Z'),
+      }).url,
     ).toBeNull()
   })
 
