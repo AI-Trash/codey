@@ -26,6 +26,7 @@ const FORWARDABLE_API_HEADERS: Array<[source: string, target: string]> = [
   ['oai-device-id', 'OAI-Device-Id'],
   ['oai-language', 'OAI-Language'],
   ['oai-session-id', 'OAI-Session-Id'],
+  ['x-oai-is', 'X-OAI-Is'],
 ]
 
 export interface ResolvedInviteEmails {
@@ -37,7 +38,9 @@ export interface ResolvedInviteEmails {
 
 export interface ChatGPTInviteRecord {
   id?: string
+  email?: string
   email_address?: string
+  emailAddress?: string
   role?: string
   seat_type?: string
   created_time?: string
@@ -51,6 +54,9 @@ export interface ChatGPTWorkspaceInviteApiResponse {
 
 export interface ChatGPTWorkspaceInvitesListResponse {
   account_invites?: ChatGPTInviteRecord[]
+  invites?: ChatGPTInviteRecord[]
+  items?: ChatGPTInviteRecord[]
+  data?: unknown
   limit?: number
   offset?: number
   total?: number
@@ -494,9 +500,7 @@ async function inviteMembersViaApi(
     normalizeInviteEmails(existingMembers.map(getWorkspaceUserEmail)),
   )
   const alreadyPending = new Set(
-    normalizeInviteEmails(
-      existingPendingInvites.map((invite) => invite.email_address || ''),
-    ),
+    normalizeInviteEmails(existingPendingInvites.map(getWorkspaceInviteEmail)),
   )
   const skippedEmails = requestedEmails.filter(
     (email) => alreadyPending.has(email) || existingMemberEmails.has(email),
@@ -573,59 +577,79 @@ async function inviteMembersViaApi(
   const response = await fetchChatGPTJsonApi<ChatGPTWorkspaceInviteApiResponse>(
     page,
     `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
-    {
-      method: 'POST',
-      headers: buildChatGPTApiHeaders({
-        accountId,
-        requestHeaders: options.requestHeaders,
-        path: requestPath,
-        route: INVITE_ROUTE_TEMPLATE,
-        contentType: 'application/json',
-      }),
-      body: JSON.stringify({
-        email_addresses: pendingInviteEmails,
-        role: 'standard-user',
-        seat_type: 'default',
-        resend_emails: true,
-      }),
-    },
+    buildInviteMembersRequestInit({
+      accountId,
+      requestHeaders: options.requestHeaders,
+      requestPath,
+      emails: pendingInviteEmails,
+    }),
   )
 
-  if (!response.ok) {
-    return {
-      ok: false,
+  if (
+    !response.ok &&
+    options.pruneUnmanagedWorkspaceMembers &&
+    isWorkspaceSeatLimitResponse(response)
+  ) {
+    options.progressReporter?.({
+      message:
+        'Invite API reported full workspace capacity; removing matching pending invites and retrying',
+    })
+    const hiddenInviteRemoval = await removePendingInviteEmailList(
+      page,
       accountId,
-      invitedEmails: [],
-      skippedEmails,
-      erroredEmails: [],
-      removedMemberEmails,
-      removedInviteEmails,
-      status: response.status,
-      error: buildApiErrorMessage('invite members', response),
+      pendingInviteEmails,
+      options.requestHeaders,
+      { ignoreMissing: true },
+    )
+
+    if (!hiddenInviteRemoval.ok) {
+      return {
+        ok: false,
+        accountId,
+        invitedEmails: [],
+        skippedEmails,
+        erroredEmails: [],
+        removedMemberEmails,
+        removedInviteEmails,
+        status: hiddenInviteRemoval.status,
+        error: hiddenInviteRemoval.error,
+      }
+    }
+
+    pushUnique(removedInviteEmails, hiddenInviteRemoval.removedInviteEmails)
+
+    if (hiddenInviteRemoval.removedInviteEmails.length) {
+      const retryResponse =
+        await fetchChatGPTJsonApi<ChatGPTWorkspaceInviteApiResponse>(
+          page,
+          `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
+          buildInviteMembersRequestInit({
+            accountId,
+            requestHeaders: options.requestHeaders,
+            requestPath,
+            emails: pendingInviteEmails,
+          }),
+        )
+
+      return buildInviteAttemptFromResponse({
+        accountId,
+        response: retryResponse,
+        skippedEmails,
+        pendingInviteEmails,
+        removedMemberEmails,
+        removedInviteEmails,
+      })
     }
   }
 
-  const invitedEmails = normalizeInviteEmails(
-    response.data?.account_invites?.map(
-      (invite) => invite.email_address || '',
-    ) || [],
-  )
-  const erroredEmails = normalizeInviteEmails(
-    response.data?.errored_emails || [],
-  )
-
-  return {
-    ok: true,
+  return buildInviteAttemptFromResponse({
     accountId,
-    invitedEmails: invitedEmails.length
-      ? invitedEmails
-      : pendingInviteEmails.filter((email) => !erroredEmails.includes(email)),
+    response,
     skippedEmails,
-    erroredEmails,
+    pendingInviteEmails,
     removedMemberEmails,
     removedInviteEmails,
-    status: response.status,
-  }
+  })
 }
 
 async function captureApiContextFromAdmin(
@@ -725,7 +749,7 @@ async function listPendingInvites(
       return response
     }
 
-    const pageInvites = response.data?.account_invites || []
+    const pageInvites = readInviteRecords(response.data)
     collectedInvites.push(...pageInvites)
     total = readNonNegativeInteger(response.data?.total) ?? total
     lastResponse = response
@@ -916,18 +940,30 @@ async function removePendingInviteList(
   error?: string
   removedInviteEmails: string[]
 }> {
+  return removePendingInviteEmailList(
+    page,
+    accountId,
+    invites.map(getWorkspaceInviteEmail),
+    requestHeaders,
+  )
+}
+
+async function removePendingInviteEmailList(
+  page: Page,
+  accountId: string,
+  emails: string[],
+  requestHeaders?: Record<string, string>,
+  options: { ignoreMissing?: boolean } = {},
+): Promise<{
+  ok: boolean
+  status?: number
+  error?: string
+  removedInviteEmails: string[]
+}> {
   const removedInviteEmails: string[] = []
+  const inviteEmails = normalizeInviteEmails(emails)
 
-  for (const invite of invites) {
-    const inviteEmail = getWorkspaceInviteEmail(invite)
-    if (!inviteEmail) {
-      return {
-        ok: false,
-        removedInviteEmails,
-        error: 'A removable workspace invite did not include an email address.',
-      }
-    }
-
+  for (const inviteEmail of inviteEmails) {
     const removal = await removePendingInvite(
       page,
       accountId,
@@ -935,6 +971,10 @@ async function removePendingInviteList(
       requestHeaders,
     )
     if (!removal.ok || removal.data?.success === false) {
+      if (options.ignoreMissing && isMissingPendingInviteResponse(removal)) {
+        continue
+      }
+
       return {
         ok: false,
         removedInviteEmails,
@@ -1119,6 +1159,79 @@ function buildChatGPTApiHeaders(options: {
   return headers
 }
 
+function buildInviteMembersRequestInit(options: {
+  accountId: string
+  requestHeaders?: Record<string, string>
+  requestPath: string
+  emails: string[]
+}): {
+  method: string
+  headers: Record<string, string>
+  body: string
+} {
+  return {
+    method: 'POST',
+    headers: buildChatGPTApiHeaders({
+      accountId: options.accountId,
+      requestHeaders: options.requestHeaders,
+      path: options.requestPath,
+      route: INVITE_ROUTE_TEMPLATE,
+      contentType: 'application/json',
+    }),
+    body: JSON.stringify({
+      email_addresses: options.emails,
+      role: 'standard-user',
+      seat_type: 'default',
+      resend_emails: true,
+    }),
+  }
+}
+
+function buildInviteAttemptFromResponse(input: {
+  accountId: string
+  response: BrowserApiResponse<ChatGPTWorkspaceInviteApiResponse>
+  skippedEmails: string[]
+  pendingInviteEmails: string[]
+  removedMemberEmails: string[]
+  removedInviteEmails: string[]
+}): ApiInviteAttempt {
+  if (!input.response.ok) {
+    return {
+      ok: false,
+      accountId: input.accountId,
+      invitedEmails: [],
+      skippedEmails: input.skippedEmails,
+      erroredEmails: [],
+      removedMemberEmails: input.removedMemberEmails,
+      removedInviteEmails: input.removedInviteEmails,
+      status: input.response.status,
+      error: buildApiErrorMessage('invite members', input.response),
+    }
+  }
+
+  const invitedEmails = normalizeInviteEmails(
+    readInviteRecords(input.response.data).map(getWorkspaceInviteEmail),
+  )
+  const erroredEmails = normalizeInviteEmails(
+    input.response.data?.errored_emails || [],
+  )
+
+  return {
+    ok: true,
+    accountId: input.accountId,
+    invitedEmails: invitedEmails.length
+      ? invitedEmails
+      : input.pendingInviteEmails.filter(
+          (email) => !erroredEmails.includes(email),
+        ),
+    skippedEmails: input.skippedEmails,
+    erroredEmails,
+    removedMemberEmails: input.removedMemberEmails,
+    removedInviteEmails: input.removedInviteEmails,
+    status: input.response.status,
+  }
+}
+
 function buildApiErrorMessage(
   action: string,
   response: BrowserApiResponse<unknown>,
@@ -1131,6 +1244,81 @@ function buildApiErrorMessage(
   return excerpt
     ? `Unable to ${action}: HTTP ${response.status} ${excerpt}`
     : `Unable to ${action}: HTTP ${response.status}`
+}
+
+function readInviteRecords(payload: unknown): ChatGPTInviteRecord[] {
+  if (!isRecord(payload)) {
+    return []
+  }
+
+  const nestedData = payload.data
+  const candidates: unknown[] = [
+    payload.account_invites,
+    payload.invites,
+    payload.items,
+  ]
+
+  if (Array.isArray(nestedData)) {
+    candidates.push(nestedData)
+  } else if (isRecord(nestedData)) {
+    candidates.push(
+      nestedData.account_invites,
+      nestedData.invites,
+      nestedData.items,
+    )
+  }
+
+  for (const candidate of candidates) {
+    const records = readInviteRecordArray(candidate)
+    if (records.length) {
+      return records
+    }
+  }
+
+  return []
+}
+
+function readInviteRecordArray(value: unknown): ChatGPTInviteRecord[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.filter(isRecord).map((record) => record as ChatGPTInviteRecord)
+}
+
+function isWorkspaceSeatLimitResponse(
+  response: BrowserApiResponse<unknown>,
+): boolean {
+  const message = [response.error, response.text]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  return (
+    message.includes('maximum number of seats') ||
+    (message.includes('workspace') &&
+      message.includes('reached') &&
+      message.includes('seats'))
+  )
+}
+
+function isMissingPendingInviteResponse(
+  response: BrowserApiResponse<{ success?: boolean }>,
+): boolean {
+  if (response.ok && response.data?.success === false) {
+    return true
+  }
+
+  if (response.status === 404 || response.status === 410) {
+    return true
+  }
+
+  const message = response.text.toLowerCase()
+  return (
+    response.status === 400 &&
+    (message.includes('not found') ||
+      message.includes('does not exist') ||
+      message.includes('no invite'))
+  )
 }
 
 function extractAccountIdFromUrl(url: string): string | undefined {
@@ -1175,7 +1363,11 @@ function getWorkspaceUserEmail(member: ChatGPTWorkspaceUserRecord): string {
 }
 
 function getWorkspaceInviteEmail(invite: ChatGPTInviteRecord): string {
-  return normalizeInviteEmails([invite.email_address || ''])[0] || ''
+  return (
+    normalizeInviteEmails([
+      invite.email_address || invite.email || invite.emailAddress || '',
+    ])[0] || ''
+  )
 }
 
 function isRemovableWorkspaceInvite(invite: ChatGPTInviteRecord): boolean {
@@ -1235,8 +1427,8 @@ function compareWorkspaceInviteRemovalCandidates(
     return createdDelta
   }
 
-  return (left.email_address || left.id || '').localeCompare(
-    right.email_address || right.id || '',
+  return (getWorkspaceInviteEmail(left) || left.id || '').localeCompare(
+    getWorkspaceInviteEmail(right) || right.id || '',
   )
 }
 
@@ -1356,6 +1548,19 @@ function findEmailColumnIndexes(headerRow: string[]): number[] {
 
 function stripByteOrderMark(content: string): string {
   return content.replace(/^\uFEFF/, '')
+}
+
+function pushUnique(target: string[], values: string[]): void {
+  const seen = new Set(target)
+  for (const value of values) {
+    if (seen.has(value)) continue
+    target.push(value)
+    seen.add(value)
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
 function dedupe(values: Array<string | undefined>): string[] {

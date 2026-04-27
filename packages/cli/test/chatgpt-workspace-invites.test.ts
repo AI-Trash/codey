@@ -398,6 +398,48 @@ describe('workspace invite helpers', () => {
     expect(result.skippedEmails).toEqual(['repeat@example.com'])
   })
 
+  it('recognizes pending invites returned as list items', async () => {
+    const page = new FakeInvitePage()
+
+    page.responses.push(
+      jsonApiResponse({
+        account_ordering: ['workspace-123'],
+        accounts: {
+          'workspace-123': {
+            account: {
+              account_id: 'workspace-123',
+              structure: 'workspace',
+              plan_type: 'team',
+            },
+            can_access_with_session: true,
+          },
+        },
+      }),
+      jsonApiResponse({
+        items: [],
+      }),
+      jsonApiResponse({
+        items: [
+          {
+            email: 'repeat@example.com',
+          },
+        ],
+        total: 1,
+      }),
+    )
+
+    const result = await inviteWorkspaceMembers(page as never, [
+      'repeat@example.com',
+    ])
+    const invitePostCall = page.fetchCalls.find(
+      (call) => call.url.endsWith('/invites') && call.method === 'POST',
+    )
+
+    expect(invitePostCall).toBeUndefined()
+    expect(result.invitedEmails).toEqual([])
+    expect(result.skippedEmails).toEqual(['repeat@example.com'])
+  })
+
   it('removes unmanaged workspace members before sending new invites', async () => {
     const page = new FakeInvitePage()
 
@@ -559,6 +601,90 @@ describe('workspace invite helpers', () => {
     })
     expect(result.removedInviteEmails).toEqual(['stale@example.com'])
     expect(result.skippedEmails).toEqual(['managed@example.com'])
+    expect(result.invitedEmails).toEqual(['new@example.com'])
+  })
+
+  it('removes hidden matching pending invites and retries after seat-limit responses', async () => {
+    const page = new FakeInvitePage()
+
+    page.responses.push(
+      jsonApiResponse({
+        account_ordering: ['workspace-123'],
+        accounts: {
+          'workspace-123': {
+            account: {
+              account_id: 'workspace-123',
+              structure: 'workspace',
+              plan_type: 'team',
+            },
+            can_access_with_session: true,
+          },
+        },
+      }),
+      jsonApiResponse({
+        items: [
+          {
+            id: 'owner-1',
+            email: 'owner@example.com',
+            role: 'account-owner',
+          },
+        ],
+      }),
+      jsonApiResponse({
+        account_invites: [],
+        total: 0,
+      }),
+      {
+        ok: false,
+        status: 401,
+        url: 'https://chatgpt.com/backend-api/test',
+        text: JSON.stringify({
+          detail:
+            'Workspace has reached maximum number of seats allowed for a free trial.',
+        }),
+      },
+      jsonApiResponse({
+        success: true,
+      }),
+      jsonApiResponse({
+        account_invites: [
+          {
+            email_address: 'new@example.com',
+          },
+        ],
+        errored_emails: [],
+      }),
+    )
+
+    const result = await inviteWorkspaceMembers(
+      page as never,
+      ['new@example.com'],
+      {
+        pruneUnmanagedWorkspaceMembers: true,
+        protectedEmails: ['owner@example.com'],
+      },
+    )
+    const invitePostCalls = page.fetchCalls.filter(
+      (call) => call.url.endsWith('/invites') && call.method === 'POST',
+    )
+    const deleteCallIndex = page.fetchCalls.findIndex(
+      (call) => call.method === 'DELETE',
+    )
+    const secondInvitePostIndex = page.fetchCalls.findIndex(
+      (call, index) =>
+        index > deleteCallIndex &&
+        call.url.endsWith('/invites') &&
+        call.method === 'POST',
+    )
+    const deleteCall = page.fetchCalls[deleteCallIndex]
+
+    expect(invitePostCalls).toHaveLength(2)
+    expect(deleteCallIndex).toBeGreaterThan(-1)
+    expect(secondInvitePostIndex).toBeGreaterThan(deleteCallIndex)
+    expect(JSON.parse(deleteCall?.body || '{}')).toMatchObject({
+      email_address: 'new@example.com',
+    })
+    expect(result.removedInviteEmails).toEqual(['new@example.com'])
     expect(result.invitedEmails).toEqual(['new@example.com'])
   })
 })
