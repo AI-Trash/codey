@@ -319,10 +319,15 @@ describe('workspace invite helpers', () => {
           },
           {
             email_address: 'missing-id@example.com',
+            created_time: '2026-02-01T00:00:00.000Z',
           },
         ],
-      }).map((invite) => invite.id),
-    ).toEqual(['stale-old', 'stale-new'])
+      }).map((invite) => invite.email_address),
+    ).toEqual([
+      'stale-old@example.com',
+      'missing-id@example.com',
+      'stale-new@example.com',
+    ])
   })
 
   it('lists pending invites with page sizes accepted by the ChatGPT API', async () => {
@@ -543,7 +548,10 @@ describe('workspace invite helpers', () => {
     const deleteCall = page.fetchCalls[deleteCallIndex]
     const invitePostCall = page.fetchCalls[invitePostCallIndex]
 
-    expect(deleteCall?.url).toContain('/invites/stale-invite')
+    expect(deleteCall?.url).toMatch(/\/invites$/)
+    expect(JSON.parse(deleteCall?.body || '{}')).toMatchObject({
+      email_address: 'stale@example.com',
+    })
     expect(deleteCallIndex).toBeGreaterThan(-1)
     expect(invitePostCallIndex).toBeGreaterThan(deleteCallIndex)
     expect(JSON.parse(invitePostCall?.body || '{}')).toMatchObject({

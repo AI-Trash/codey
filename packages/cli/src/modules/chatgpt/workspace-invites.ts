@@ -9,8 +9,6 @@ const ACCOUNTS_CHECK_VERSION = 'v4-2023-04-27'
 const CHATGPT_ADMIN_URL = new URL('/admin', CHATGPT_HOME_URL).toString()
 const CHATGPT_BACKEND_ORIGIN = new URL(CHATGPT_HOME_URL).origin
 const INVITE_ROUTE_TEMPLATE = '/backend-api/accounts/:accountId/invites'
-const INVITE_DETAIL_ROUTE_TEMPLATE =
-  '/backend-api/accounts/:accountId/invites/:inviteId'
 const WORKSPACE_USERS_ROUTE_TEMPLATE = '/backend-api/accounts/:accountId/users'
 const WORKSPACE_USER_ROUTE_TEMPLATE =
   '/backend-api/accounts/:accountId/users/:userId'
@@ -764,12 +762,13 @@ async function listPendingInvitesPage(
   limit: number,
   requestHeaders?: Record<string, string>,
 ): Promise<BrowserApiResponse<ChatGPTWorkspaceInvitesListResponse>> {
-  const requestPath =
-    `/backend-api/accounts/${accountId}/invites` +
+  const requestPath = `/backend-api/accounts/${accountId}/invites`
+  const requestUrl =
+    `${CHATGPT_BACKEND_ORIGIN}${requestPath}` +
     `?offset=${offset}&limit=${limit}&query=`
   return fetchChatGPTJsonApi<ChatGPTWorkspaceInvitesListResponse>(
     page,
-    `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
+    requestUrl,
     {
       headers: buildChatGPTApiHeaders({
         accountId,
@@ -784,10 +783,10 @@ async function listPendingInvitesPage(
 async function removePendingInvite(
   page: Page,
   accountId: string,
-  inviteId: string,
+  inviteEmail: string,
   requestHeaders?: Record<string, string>,
 ): Promise<BrowserApiResponse<{ success?: boolean }>> {
-  const requestPath = `/backend-api/accounts/${accountId}/invites/${inviteId}`
+  const requestPath = `/backend-api/accounts/${accountId}/invites`
   return fetchChatGPTJsonApi<{ success?: boolean }>(
     page,
     `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
@@ -797,7 +796,11 @@ async function removePendingInvite(
         accountId,
         requestHeaders,
         path: requestPath,
-        route: INVITE_DETAIL_ROUTE_TEMPLATE,
+        route: INVITE_ROUTE_TEMPLATE,
+        contentType: 'application/json',
+      }),
+      body: JSON.stringify({
+        email_address: inviteEmail,
       }),
     },
   )
@@ -808,13 +811,14 @@ async function listWorkspaceMembers(
   accountId: string,
   requestHeaders?: Record<string, string>,
 ): Promise<BrowserApiResponse<ChatGPTWorkspaceUsersListResponse>> {
-  const requestPath =
-    `/backend-api/accounts/${accountId}/users` +
+  const requestPath = `/backend-api/accounts/${accountId}/users`
+  const requestUrl =
+    `${CHATGPT_BACKEND_ORIGIN}${requestPath}` +
     `?offset=0&limit=${WORKSPACE_USERS_PAGE_LIMIT}&query=`
 
   return fetchChatGPTJsonApi<ChatGPTWorkspaceUsersListResponse>(
     page,
-    `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
+    requestUrl,
     {
       headers: buildChatGPTApiHeaders({
         accountId,
@@ -915,19 +919,19 @@ async function removePendingInviteList(
   const removedInviteEmails: string[] = []
 
   for (const invite of invites) {
-    const inviteId = typeof invite.id === 'string' ? invite.id.trim() : ''
-    if (!inviteId) {
+    const inviteEmail = getWorkspaceInviteEmail(invite)
+    if (!inviteEmail) {
       return {
         ok: false,
         removedInviteEmails,
-        error: 'A removable workspace invite did not include an invite id.',
+        error: 'A removable workspace invite did not include an email address.',
       }
     }
 
     const removal = await removePendingInvite(
       page,
       accountId,
-      inviteId,
+      inviteEmail,
       requestHeaders,
     )
     if (!removal.ok || removal.data?.success === false) {
@@ -936,16 +940,13 @@ async function removePendingInviteList(
         removedInviteEmails,
         status: removal.status,
         error: buildApiErrorMessage(
-          `remove workspace invite ${getWorkspaceInviteEmail(invite) || inviteId}`,
+          `remove workspace invite ${inviteEmail}`,
           removal,
         ),
       }
     }
 
-    const email = getWorkspaceInviteEmail(invite)
-    if (email) {
-      removedInviteEmails.push(email)
-    }
+    removedInviteEmails.push(inviteEmail)
   }
 
   return {
@@ -1178,8 +1179,7 @@ function getWorkspaceInviteEmail(invite: ChatGPTInviteRecord): string {
 }
 
 function isRemovableWorkspaceInvite(invite: ChatGPTInviteRecord): boolean {
-  const inviteId = typeof invite.id === 'string' ? invite.id.trim() : ''
-  return Boolean(inviteId)
+  return Boolean(getWorkspaceInviteEmail(invite))
 }
 
 function isRemovableWorkspaceMember(
