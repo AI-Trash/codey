@@ -211,6 +211,13 @@
       "when": 1777297896302,
       "tag": "0029_cli_browser_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1777300000000,
+      "tag": "0030_workspace_invite_authorize_workflows",
+      "breakpoints": true
     }
   ]
 }

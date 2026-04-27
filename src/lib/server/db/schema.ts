@@ -67,6 +67,16 @@ export type ManagedWorkspaceMemberInviteStatus =
   | 'PENDING'
   | 'INVITED'
   | 'FAILED'
+export type WorkspaceInviteAuthorizeWorkflowStatus =
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+export type WorkspaceInviteAuthorizeWorkflowPhase =
+  | 'MEMBER_LOGIN'
+  | 'INVITE'
+  | 'AUTHORIZE'
+  | 'COMPLETED'
+  | 'FAILED'
 export const externalServiceKindEnum = pgEnum('external_service_kind', [
   'sub2api',
 ])
@@ -675,6 +685,58 @@ export const managedWorkspaceMembers = pgTable(
   ],
 )
 
+export const workspaceInviteAuthorizeWorkflows = pgTable(
+  'workspace_invite_authorize_workflows',
+  {
+    id: text('id').primaryKey(),
+    managedWorkspaceId: text('managed_workspace_id')
+      .notNull()
+      .references(() => managedWorkspaces.id, {
+        onDelete: 'cascade',
+      }),
+    connectionId: text('connection_id'),
+    status: text('status')
+      .$type<WorkspaceInviteAuthorizeWorkflowStatus>()
+      .default('RUNNING')
+      .notNull(),
+    phase: text('phase')
+      .$type<WorkspaceInviteAuthorizeWorkflowPhase>()
+      .default('MEMBER_LOGIN')
+      .notNull(),
+    targetMemberCount: integer('target_member_count').default(9).notNull(),
+    lastMessage: text('last_message'),
+    lastError: text('last_error'),
+    completedAt: timestamp('completed_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('workspace_invite_authorize_workflows_workspace_idx').on(
+      table.managedWorkspaceId,
+    ),
+    index('workspace_invite_authorize_workflows_status_updated_idx').on(
+      table.status,
+      table.updatedAt,
+    ),
+    index('workspace_invite_authorize_workflows_connection_idx').on(
+      table.connectionId,
+    ),
+  ],
+)
+
 export const verificationDomains = pgTable(
   'verification_domains',
   {
@@ -1057,6 +1119,7 @@ export const managedWorkspacesRelations = relations(
       references: [managedIdentities.identityId],
     }),
     members: many(managedWorkspaceMembers),
+    inviteAuthorizeWorkflows: many(workspaceInviteAuthorizeWorkflows),
   }),
 )
 
@@ -1070,6 +1133,20 @@ export const managedWorkspaceMembersRelations = relations(
     identity: one(managedIdentities, {
       fields: [managedWorkspaceMembers.identityId],
       references: [managedIdentities.identityId],
+    }),
+  }),
+)
+
+export const workspaceInviteAuthorizeWorkflowsRelations = relations(
+  workspaceInviteAuthorizeWorkflows,
+  ({ one }) => ({
+    workspace: one(managedWorkspaces, {
+      fields: [workspaceInviteAuthorizeWorkflows.managedWorkspaceId],
+      references: [managedWorkspaces.id],
+    }),
+    connection: one(cliConnections, {
+      fields: [workspaceInviteAuthorizeWorkflows.connectionId],
+      references: [cliConnections.id],
     }),
   }),
 )
@@ -1135,6 +1212,8 @@ export type ManagedIdentitySessionRow =
 export type ManagedWorkspaceRow = typeof managedWorkspaces.$inferSelect
 export type ManagedWorkspaceMemberRow =
   typeof managedWorkspaceMembers.$inferSelect
+export type WorkspaceInviteAuthorizeWorkflowRow =
+  typeof workspaceInviteAuthorizeWorkflows.$inferSelect
 export type VerificationDomainRow = typeof verificationDomains.$inferSelect
 export type OAuthClientRow = typeof oauthClients.$inferSelect
 export type ExternalServiceConfigRow =

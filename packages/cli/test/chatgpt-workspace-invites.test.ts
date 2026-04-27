@@ -22,6 +22,15 @@ afterEach(() => {
   }
 })
 
+type FakeInvitePageEvent =
+  | {
+      type: 'fetch'
+      callIndex: number
+    }
+  | {
+      type: 'reload'
+    }
+
 class FakeInvitePage {
   readonly fetchCalls: Array<{
     url: string
@@ -29,6 +38,8 @@ class FakeInvitePage {
     headers: Record<string, string>
     body?: string
   }> = []
+
+  readonly events: FakeInvitePageEvent[] = []
 
   readonly responses: Array<{
     ok: boolean
@@ -69,6 +80,10 @@ class FakeInvitePage {
       headers: input.headers || {},
       body: input.body,
     })
+    this.events.push({
+      type: 'fetch',
+      callIndex: this.fetchCalls.length - 1,
+    })
 
     return (
       this.responses.shift() || {
@@ -78,6 +93,15 @@ class FakeInvitePage {
         text: '',
       }
     )
+  }
+
+  async reload(): Promise<null> {
+    this.events.push({ type: 'reload' })
+    return null
+  }
+
+  async waitForLoadState(): Promise<void> {
+    return undefined
   }
 }
 
@@ -93,6 +117,20 @@ function jsonApiResponse(data: unknown): {
     url: 'https://chatgpt.com/backend-api/test',
     text: JSON.stringify(data),
   }
+}
+
+function findFetchEventIndex(
+  page: FakeInvitePage,
+  predicate: (call: FakeInvitePage['fetchCalls'][number]) => boolean,
+): number {
+  return page.events.findIndex((event) => {
+    if (event.type !== 'fetch') {
+      return false
+    }
+
+    const call = page.fetchCalls[event.callIndex]
+    return call ? predicate(call) : false
+  })
 }
 
 describe('workspace invite helpers', () => {
@@ -509,10 +547,23 @@ describe('workspace invite helpers', () => {
     )
     const deleteCall = page.fetchCalls[deleteCallIndex]
     const invitePostCall = page.fetchCalls[invitePostCallIndex]
+    const deleteEventIndex = findFetchEventIndex(
+      page,
+      (call) => call.method === 'DELETE',
+    )
+    const refreshEventIndex = page.events.findIndex(
+      (event) => event.type === 'reload',
+    )
+    const invitePostEventIndex = findFetchEventIndex(
+      page,
+      (call) => call.url.endsWith('/invites') && call.method === 'POST',
+    )
 
     expect(deleteCall?.url).toContain('/users/stale-1')
     expect(deleteCallIndex).toBeGreaterThan(-1)
     expect(invitePostCallIndex).toBeGreaterThan(deleteCallIndex)
+    expect(refreshEventIndex).toBeGreaterThan(deleteEventIndex)
+    expect(invitePostEventIndex).toBeGreaterThan(refreshEventIndex)
     expect(JSON.parse(invitePostCall?.body || '{}')).toMatchObject({
       email_addresses: ['new@example.com'],
     })
@@ -589,6 +640,17 @@ describe('workspace invite helpers', () => {
     )
     const deleteCall = page.fetchCalls[deleteCallIndex]
     const invitePostCall = page.fetchCalls[invitePostCallIndex]
+    const deleteEventIndex = findFetchEventIndex(
+      page,
+      (call) => call.method === 'DELETE',
+    )
+    const refreshEventIndex = page.events.findIndex(
+      (event) => event.type === 'reload',
+    )
+    const invitePostEventIndex = findFetchEventIndex(
+      page,
+      (call) => call.url.endsWith('/invites') && call.method === 'POST',
+    )
 
     expect(deleteCall?.url).toMatch(/\/invites$/)
     expect(JSON.parse(deleteCall?.body || '{}')).toMatchObject({
@@ -596,6 +658,8 @@ describe('workspace invite helpers', () => {
     })
     expect(deleteCallIndex).toBeGreaterThan(-1)
     expect(invitePostCallIndex).toBeGreaterThan(deleteCallIndex)
+    expect(refreshEventIndex).toBeGreaterThan(deleteEventIndex)
+    expect(invitePostEventIndex).toBeGreaterThan(refreshEventIndex)
     expect(JSON.parse(invitePostCall?.body || '{}')).toMatchObject({
       email_addresses: ['new@example.com'],
     })
@@ -677,10 +741,22 @@ describe('workspace invite helpers', () => {
         call.method === 'POST',
     )
     const deleteCall = page.fetchCalls[deleteCallIndex]
+    const deleteEventIndex = findFetchEventIndex(
+      page,
+      (call) => call.method === 'DELETE',
+    )
+    const refreshEventIndex = page.events.findIndex(
+      (event) => event.type === 'reload',
+    )
+    const secondInvitePostEventIndex = page.events.findIndex((event) => {
+      return event.type === 'fetch' && event.callIndex === secondInvitePostIndex
+    })
 
     expect(invitePostCalls).toHaveLength(2)
     expect(deleteCallIndex).toBeGreaterThan(-1)
     expect(secondInvitePostIndex).toBeGreaterThan(deleteCallIndex)
+    expect(refreshEventIndex).toBeGreaterThan(deleteEventIndex)
+    expect(secondInvitePostEventIndex).toBeGreaterThan(refreshEventIndex)
     expect(JSON.parse(deleteCall?.body || '{}')).toMatchObject({
       email_address: 'new@example.com',
     })

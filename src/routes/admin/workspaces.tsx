@@ -203,6 +203,17 @@ type DispatchWorkspaceCodexOAuthResponse = {
   requestId?: string
 }
 
+type DispatchWorkspaceInviteAuthorizeResponse = {
+  ok: boolean
+  mode: 'dispatch'
+  workflowId: string
+  workspace: WorkspaceSummary
+  memberEmails: string[]
+  queuedLoginCount: number
+  assignedCliCount?: number
+  connectionLabel?: string
+}
+
 type DispatchWorkspaceTeamTrialResponse = {
   ok: boolean
   mode: 'dispatch' | 'request'
@@ -800,6 +811,28 @@ async function dispatchWorkspaceCodexOAuth(
   }
 
   return (await response.json()) as DispatchWorkspaceCodexOAuthResponse
+}
+
+async function dispatchWorkspaceInviteAndAuthorize(
+  workspaceId: string,
+): Promise<DispatchWorkspaceInviteAuthorizeResponse> {
+  const response = await fetch(
+    `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/invite-and-authorize`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(await readResponseError(response))
+  }
+
+  return (await response.json()) as DispatchWorkspaceInviteAuthorizeResponse
 }
 
 async function dispatchWorkspaceTeamTrial(
@@ -1517,6 +1550,7 @@ function WorkspaceOperationsSection(props: {
   const [inviteActionKey, setInviteActionKey] = useState<string | null>(null)
   const [teamTrialPending, setTeamTrialPending] = useState(false)
   const [authorizationPending, setAuthorizationPending] = useState(false)
+  const [inviteAuthorizePending, setInviteAuthorizePending] = useState(false)
   const [authorizationResetPending, setAuthorizationResetPending] =
     useState(false)
   const [authorizationResetTarget, setAuthorizationResetTarget] =
@@ -1530,6 +1564,7 @@ function WorkspaceOperationsSection(props: {
     setInviteActionKey(null)
     setTeamTrialPending(false)
     setAuthorizationPending(false)
+    setInviteAuthorizePending(false)
     setAuthorizationResetPending(false)
     setAuthorizationResetTarget(null)
   }, [props.active, props.workspace.id])
@@ -1681,6 +1716,38 @@ function WorkspaceOperationsSection(props: {
     }
   }
 
+  async function handleInviteAndAuthorizeWorkspace() {
+    if (!props.workspace) {
+      return
+    }
+
+    setInviteAuthorizePending(true)
+
+    try {
+      const result = await dispatchWorkspaceInviteAndAuthorize(
+        props.workspace.id,
+      )
+      props.onWorkspaceChange(result.workspace)
+      publishFlash({
+        kind: 'success',
+        message: m.admin_workspace_invite_authorize_success_dispatched({
+          count: String(result.memberEmails.length),
+          cli: result.connectionLabel || 'CLI',
+        }),
+      })
+    } catch (error) {
+      publishFlash({
+        kind: 'error',
+        message:
+          error instanceof Error
+            ? error.message
+            : m.admin_workspace_invite_authorize_error_fallback(),
+      })
+    } finally {
+      setInviteAuthorizePending(false)
+    }
+  }
+
   async function handleResetAuthorization(target: PendingAuthorizationReset) {
     if (!props.workspace) {
       return
@@ -1785,12 +1852,15 @@ function WorkspaceOperationsSection(props: {
     inviteActionKey !== null ||
     teamTrialPending ||
     authorizationPending ||
+    inviteAuthorizePending ||
     authorizationResetPending
   const canStartTeamTrial =
     props.canDispatchFlows && Boolean(props.workspace?.owner?.email)
   const teamTrialPaypalUrl = props.workspace?.teamTrialPaypalUrl?.trim() || null
   const canAuthorizeWorkspace =
     props.canDispatchFlows && Boolean(pendingWorkspaceAuthorizationCount)
+  const canInviteAndAuthorizeWorkspace =
+    props.canDispatchFlows && Boolean(props.workspace?.owner?.identityId)
   const canInviteAll =
     props.canDispatchFlows &&
     Boolean(props.workspace?.owner?.identityId) &&
@@ -1809,31 +1879,54 @@ function WorkspaceOperationsSection(props: {
                   </CardDescription>
                   <CardTitle>{m.admin_workspace_detail_meta_title()}</CardTitle>
                 </div>
-                <Button
-                  type="button"
-                  disabled={!canAuthorizeWorkspace || isMutating}
-                  onClick={() => {
-                    void handleAuthorizeWorkspace()
-                  }}
-                >
-                  <KeyRoundIcon />
-                  {authorizationPending
-                    ? m.admin_workspace_authorize_running()
-                    : pendingWorkspaceAuthorizationCount === 0
-                      ? m.admin_workspace_authorize_all_authorized_button()
-                      : pendingWorkspaceAuthorizationCount ===
-                          workspaceAuthorizationIdentityCount
-                        ? m.admin_workspace_authorize_all_button()
-                        : m.admin_workspace_authorize_remaining_button()}
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    disabled={!canInviteAndAuthorizeWorkspace || isMutating}
+                    onClick={() => {
+                      void handleInviteAndAuthorizeWorkspace()
+                    }}
+                  >
+                    <UsersIcon />
+                    {inviteAuthorizePending
+                      ? m.admin_workspace_invite_authorize_running()
+                      : m.admin_workspace_invite_authorize_button()}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!canAuthorizeWorkspace || isMutating}
+                    onClick={() => {
+                      void handleAuthorizeWorkspace()
+                    }}
+                  >
+                    <KeyRoundIcon />
+                    {authorizationPending
+                      ? m.admin_workspace_authorize_running()
+                      : pendingWorkspaceAuthorizationCount === 0
+                        ? m.admin_workspace_authorize_all_authorized_button()
+                        : pendingWorkspaceAuthorizationCount ===
+                            workspaceAuthorizationIdentityCount
+                          ? m.admin_workspace_authorize_all_button()
+                          : m.admin_workspace_authorize_remaining_button()}
+                  </Button>
+                </div>
               </div>
               {!props.canDispatchFlows ? (
                 <p className="text-sm text-muted-foreground">
                   {m.admin_workspace_authorize_requires_cli_permission()}
                 </p>
+              ) : !props.workspace.owner ? (
+                <p className="text-sm text-muted-foreground">
+                  {m.admin_workspace_invite_authorize_requires_owner()}
+                </p>
               ) : !workspaceAuthorizationIdentityCount ? (
                 <p className="text-sm text-muted-foreground">
                   {m.admin_workspace_authorize_requires_members()}
+                </p>
+              ) : inviteAuthorizePending ? (
+                <p className="text-sm text-muted-foreground">
+                  {m.admin_workspace_invite_authorize_dispatch_hint()}
                 </p>
               ) : !pendingWorkspaceAuthorizationCount ? (
                 <p className="text-sm text-muted-foreground">

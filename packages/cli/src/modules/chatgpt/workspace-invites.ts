@@ -421,6 +421,7 @@ async function inviteMembersViaApi(
   let existingPendingInvites = pendingInvites.data?.account_invites || []
   const removedMemberEmails: string[] = []
   const removedInviteEmails: string[] = []
+  let shouldRefreshBeforeInvite = false
   if (options.pruneUnmanagedWorkspaceMembers) {
     options.progressReporter?.({
       message: 'Pruning unmanaged workspace members and pending invites',
@@ -452,6 +453,7 @@ async function inviteMembersViaApi(
     }
 
     removedMemberEmails.push(...removal.removedMemberEmails)
+    shouldRefreshBeforeInvite ||= unmanagedRemovalPlan.length > 0
     const removedMembers = new Set(unmanagedRemovalPlan)
     existingMembers = existingMembers.filter(
       (member) => !removedMembers.has(member),
@@ -484,6 +486,7 @@ async function inviteMembersViaApi(
     }
 
     removedInviteEmails.push(...inviteRemoval.removedInviteEmails)
+    shouldRefreshBeforeInvite ||= unmanagedInviteRemovalPlan.length > 0
     const removedInvites = new Set(unmanagedInviteRemovalPlan)
     existingPendingInvites = existingPendingInvites.filter(
       (invite) => !removedInvites.has(invite),
@@ -572,8 +575,12 @@ async function inviteMembersViaApi(
     }
   }
   removedMemberEmails.push(...capacityRemoval.removedMemberEmails)
+  shouldRefreshBeforeInvite ||= removalPlan.length > 0
 
   const requestPath = `/backend-api/accounts/${accountId}/invites`
+  if (shouldRefreshBeforeInvite) {
+    await refreshWorkspacePageBeforeInviting(page, options.progressReporter)
+  }
   const response = await fetchChatGPTJsonApi<ChatGPTWorkspaceInviteApiResponse>(
     page,
     `${CHATGPT_BACKEND_ORIGIN}${requestPath}`,
@@ -619,6 +626,7 @@ async function inviteMembersViaApi(
     pushUnique(removedInviteEmails, hiddenInviteRemoval.removedInviteEmails)
 
     if (hiddenInviteRemoval.removedInviteEmails.length) {
+      await refreshWorkspacePageBeforeInviting(page, options.progressReporter)
       const retryResponse =
         await fetchChatGPTJsonApi<ChatGPTWorkspaceInviteApiResponse>(
           page,
@@ -650,6 +658,31 @@ async function inviteMembersViaApi(
     removedMemberEmails,
     removedInviteEmails,
   })
+}
+
+async function refreshWorkspacePageBeforeInviting(
+  page: Page,
+  progressReporter?: FlowOptions['progressReporter'],
+): Promise<void> {
+  progressReporter?.({
+    message: 'Refreshing ChatGPT workspace page before inviting members',
+  })
+
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 })
+  } catch {
+    await page
+      .goto(CHATGPT_ADMIN_URL, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000,
+      })
+      .catch(() => undefined)
+  }
+
+  await Promise.allSettled([
+    page.waitForLoadState('networkidle', { timeout: 5000 }),
+    sleep(1000),
+  ])
 }
 
 async function captureApiContextFromAdmin(

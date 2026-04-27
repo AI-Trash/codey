@@ -348,6 +348,22 @@ export async function completeFlowTask(input: {
     }
   }
 
+  try {
+    const { advanceWorkspaceInviteAuthorizeWorkflowFromFlowTask } =
+      await import('./workspace-invite-authorize')
+    await advanceWorkspaceInviteAuthorizeWorkflowFromFlowTask({
+      task: updated,
+      status: input.status,
+      error: normalizedError,
+      ...(input.result ? { result: input.result } : {}),
+    })
+  } catch (error) {
+    console.error(
+      'Unable to advance workspace invite and authorize workflow',
+      error,
+    )
+  }
+
   return updated
 }
 

@@ -351,6 +351,13 @@ export interface CliFlowTaskWorkspaceMetadata {
   workspaceId?: string
   label?: string
   ownerIdentityId?: string
+  automation?: {
+    id?: string
+    kind?: string
+    phase?: string
+    connectionId?: string
+    targetMemberCount?: number
+  }
 }
 
 export interface CliFlowTaskMetadata {
@@ -968,6 +975,15 @@ function normalizeOptionalMetadataString(value: unknown): string | undefined {
   return normalized || undefined
 }
 
+function normalizeOptionalMetadataNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined
+  }
+
+  const normalized = Math.trunc(value)
+  return normalized > 0 ? normalized : undefined
+}
+
 function normalizeCliFlowTaskMetadata(
   value: unknown,
 ): CliFlowTaskMetadata | undefined {
@@ -986,11 +1002,42 @@ function normalizeCliFlowTaskMetadata(
   const ownerIdentityId = normalizeOptionalMetadataString(
     workspace.ownerIdentityId,
   )
+  const automation = isRecord(workspace.automation)
+    ? workspace.automation
+    : undefined
+  const automationId = normalizeOptionalMetadataString(automation?.id)
+  const automationKind = normalizeOptionalMetadataString(automation?.kind)
+  const automationPhase = normalizeOptionalMetadataString(automation?.phase)
+  const automationConnectionId = normalizeOptionalMetadataString(
+    automation?.connectionId,
+  )
+  const automationTargetMemberCount = normalizeOptionalMetadataNumber(
+    automation?.targetMemberCount,
+  )
+  const normalizedAutomation =
+    automationId ||
+    automationKind ||
+    automationPhase ||
+    automationConnectionId ||
+    automationTargetMemberCount
+      ? {
+          ...(automationId ? { id: automationId } : {}),
+          ...(automationKind ? { kind: automationKind } : {}),
+          ...(automationPhase ? { phase: automationPhase } : {}),
+          ...(automationConnectionId
+            ? { connectionId: automationConnectionId }
+            : {}),
+          ...(automationTargetMemberCount
+            ? { targetMemberCount: automationTargetMemberCount }
+            : {}),
+        }
+      : undefined
   const normalizedWorkspace: CliFlowTaskWorkspaceMetadata = {
     ...(recordId ? { recordId } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(label ? { label } : {}),
     ...(ownerIdentityId ? { ownerIdentityId } : {}),
+    ...(normalizedAutomation ? { automation: normalizedAutomation } : {}),
   }
 
   return Object.keys(normalizedWorkspace).length

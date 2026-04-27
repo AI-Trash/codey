@@ -6,6 +6,7 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   notInArray,
   or,
@@ -1133,6 +1134,195 @@ export async function createManagedWorkspace(input: {
   const summary = await findAdminManagedWorkspaceSummary(record.id)
   if (!summary) {
     throw new Error('Unable to load created workspace')
+  }
+
+  return summary
+}
+
+export async function ensureManagedWorkspaceMemberIdentityCount(input: {
+  id: string
+  count?: number
+}): Promise<AdminManagedWorkspaceSummary> {
+  const managedWorkspaceId = input.id.trim()
+  const count = input.count ?? MAX_MANAGED_WORKSPACE_MEMBER_COUNT
+  if (!managedWorkspaceId) {
+    throw new Error('Workspace id is required')
+  }
+  if (count < 1 || count > MAX_MANAGED_WORKSPACE_MEMBER_COUNT) {
+    throw new Error(
+      `A workspace can include at most ${MAX_MANAGED_WORKSPACE_MEMBER_COUNT} member identities.`,
+    )
+  }
+
+  const db = getDb()
+  const workspace = await db.query.managedWorkspaces.findFirst({
+    where: eq(managedWorkspaces.id, managedWorkspaceId),
+    with: {
+      ownerIdentity: {
+        columns: {
+          identityId: true,
+          email: true,
+          label: true,
+          passwordCiphertext: true,
+          status: true,
+        },
+      },
+      members: {
+        with: {
+          identity: {
+            columns: {
+              identityId: true,
+              email: true,
+              passwordCiphertext: true,
+              status: true,
+            },
+          },
+        },
+        orderBy: [asc(managedWorkspaceMembers.email)],
+      },
+    },
+  })
+
+  if (!workspace) {
+    throw new Error('Workspace not found')
+  }
+
+  const ownerIdentity = workspace.ownerIdentity
+  if (!ownerIdentity) {
+    throw new Error('Workspace owner identity is required')
+  }
+  if (ownerIdentity.status !== 'ACTIVE' || !ownerIdentity.passwordCiphertext) {
+    throw new Error(
+      'Workspace owner must be an active managed identity with a shared password',
+    )
+  }
+
+  const currentMembers = workspace.members
+    .filter(
+      (member) =>
+        member.identity &&
+        member.identity.status === 'ACTIVE' &&
+        Boolean(member.identity.passwordCiphertext),
+    )
+    .map((member) => ({
+      identityId: member.identity?.identityId || null,
+      email: member.identity?.email || member.email,
+      inviteStatus: member.inviteStatus,
+      invitedAt: member.invitedAt,
+      inviteStatusUpdatedAt: member.inviteStatusUpdatedAt,
+    }))
+    .slice(0, count)
+
+  if (currentMembers.length === count) {
+    return findAdminManagedWorkspaceSummary(managedWorkspaceId).then(
+      (summary) => {
+        if (!summary) {
+          throw new Error('Unable to load workspace')
+        }
+        return summary
+      },
+    )
+  }
+
+  const selectedIdentityIds = new Set(
+    currentMembers
+      .map((member) => member.identityId)
+      .filter((identityId): identityId is string => Boolean(identityId)),
+  )
+  const selectedEmails = new Set(
+    currentMembers.map((member) => normalizeEmail(member.email)),
+  )
+  selectedIdentityIds.add(ownerIdentity.identityId)
+  selectedEmails.add(normalizeEmail(ownerIdentity.email))
+
+  const ownerRows = await db.query.managedWorkspaces.findMany({
+    columns: {
+      id: true,
+      ownerIdentityId: true,
+    },
+  })
+  const memberRows = await db.query.managedWorkspaceMembers.findMany({
+    columns: {
+      managedWorkspaceId: true,
+      identityId: true,
+      email: true,
+    },
+  })
+  const unavailableIdentityIds = new Set<string>(selectedIdentityIds)
+  const unavailableEmails = new Set<string>(selectedEmails)
+
+  for (const row of ownerRows) {
+    if (row.ownerIdentityId && row.id !== managedWorkspaceId) {
+      unavailableIdentityIds.add(row.ownerIdentityId)
+    }
+  }
+
+  for (const row of memberRows) {
+    if (row.managedWorkspaceId === managedWorkspaceId) {
+      continue
+    }
+    if (row.identityId) {
+      unavailableIdentityIds.add(row.identityId)
+    }
+    unavailableEmails.add(normalizeEmail(row.email))
+  }
+
+  const candidates = await db.query.managedIdentities.findMany({
+    where: and(
+      eq(managedIdentities.status, 'ACTIVE'),
+      isNotNull(managedIdentities.passwordCiphertext),
+    ),
+    columns: {
+      identityId: true,
+      email: true,
+    },
+    orderBy: [desc(managedIdentities.createdAt), desc(managedIdentities.id)],
+  })
+  const replacements: WorkspaceMemberInput[] = []
+
+  for (const candidate of candidates) {
+    const email = normalizeEmail(candidate.email)
+    if (
+      unavailableIdentityIds.has(candidate.identityId) ||
+      unavailableEmails.has(email)
+    ) {
+      continue
+    }
+
+    replacements.push({
+      identityId: candidate.identityId,
+      email,
+    })
+    unavailableIdentityIds.add(candidate.identityId)
+    unavailableEmails.add(email)
+
+    if (currentMembers.length + replacements.length >= count) {
+      break
+    }
+  }
+
+  if (currentMembers.length + replacements.length < count) {
+    throw new Error(
+      `Not enough active managed identities with shared passwords are available to keep ${count} workspace members.`,
+    )
+  }
+
+  const nextMembers = [...currentMembers, ...replacements]
+  validateManagedWorkspaceMembership({
+    ownerIdentity,
+    members: nextMembers,
+  })
+  await replaceWorkspaceMembers(managedWorkspaceId, nextMembers)
+  await db
+    .update(managedWorkspaces)
+    .set({
+      updatedAt: new Date(),
+    })
+    .where(eq(managedWorkspaces.id, managedWorkspaceId))
+
+  const summary = await findAdminManagedWorkspaceSummary(managedWorkspaceId)
+  if (!summary) {
+    throw new Error('Unable to load updated workspace')
   }
 
   return summary
