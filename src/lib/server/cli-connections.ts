@@ -1,6 +1,7 @@
 import '@tanstack/react-start/server-only'
 
 import { and, desc, eq, gt, isNotNull, isNull, or } from 'drizzle-orm'
+import { DEFAULT_CLI_BROWSER_LIMIT } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { getDb } from './db/client'
 import { cliConnections } from './db/schema'
 import { createId } from './security'
@@ -20,6 +21,7 @@ export interface AdminCliConnectionSummary {
   registeredFlows: string[]
   storageStateIdentityIds: string[]
   storageStateEmails: string[]
+  browserLimit: number
   connectionPath: string
   status: 'active' | 'offline'
   connectedAt: string
@@ -121,6 +123,13 @@ function normalizeEmailList(value: string[] | null | undefined): string[] {
   return normalizeStringList(value).map((entry) => entry.toLowerCase())
 }
 
+function normalizeCliBrowserLimitValue(
+  value: number | null | undefined,
+  fallback = DEFAULT_CLI_BROWSER_LIMIT,
+): number {
+  return Number.isInteger(value) && value && value > 0 ? value : fallback
+}
+
 export function isCliConnectionOwnedByActor(
   connection: Pick<AdminCliConnectionSummary, 'userId' | 'target'>,
   actor: CliConnectionActorScope,
@@ -172,6 +181,7 @@ function mapSummary(
     registeredFlows: normalizeStringList(row.registeredFlows),
     storageStateIdentityIds: normalizeStringList(row.storageStateIdentityIds),
     storageStateEmails: normalizeEmailList(row.storageStateEmails),
+    browserLimit: normalizeCliBrowserLimitValue(row.browserLimit),
     connectionPath: row.connectionPath,
     status: getCliConnectionStatus(row),
     connectedAt: row.connectedAt.toISOString(),
@@ -200,6 +210,25 @@ async function listRecentCliConnectionRows(limit = 100) {
   })
 }
 
+async function getLatestBrowserLimitForWorker(workerId: string | null) {
+  if (!workerId) {
+    return DEFAULT_CLI_BROWSER_LIMIT
+  }
+
+  const latestConnection = await getDb().query.cliConnections.findFirst({
+    columns: {
+      browserLimit: true,
+    },
+    where: eq(cliConnections.workerId, workerId),
+    orderBy: [
+      desc(cliConnections.lastSeenAt),
+      desc(cliConnections.connectedAt),
+    ],
+  })
+
+  return normalizeCliBrowserLimitValue(latestConnection?.browserLimit)
+}
+
 export async function registerCliConnection(input: {
   workerId?: string | null
   sessionRef?: string | null
@@ -213,11 +242,13 @@ export async function registerCliConnection(input: {
   storageStateEmails?: string[] | null
   connectionPath: string
 }) {
+  const workerId = toOptionalString(input.workerId)
+  const browserLimit = await getLatestBrowserLimitForWorker(workerId)
   const [connection] = await getDb()
     .insert(cliConnections)
     .values({
       id: createId(),
-      workerId: toOptionalString(input.workerId),
+      workerId,
       sessionRef: toOptionalString(input.sessionRef),
       userId: toOptionalString(input.userId),
       authClientId: toOptionalString(input.authClientId),
@@ -229,6 +260,7 @@ export async function registerCliConnection(input: {
         input.storageStateIdentityIds,
       ),
       storageStateEmails: normalizeEmailList(input.storageStateEmails),
+      browserLimit,
       connectionPath: input.connectionPath,
     })
     .returning()
@@ -326,7 +358,7 @@ export async function updateCliConnectionRuntimeState(
     runtimeFlowUpdatedAt: new Date(),
   }
 
-  await getDb()
+  const [updated] = await getDb()
     .update(cliConnections)
     .set(patch)
     .where(
@@ -335,6 +367,44 @@ export async function updateCliConnectionRuntimeState(
         isNull(cliConnections.disconnectedAt),
       ),
     )
+    .returning({
+      browserLimit: cliConnections.browserLimit,
+    })
+
+  return updated
+    ? {
+        browserLimit: normalizeCliBrowserLimitValue(updated.browserLimit),
+      }
+    : null
+}
+
+export async function updateCliConnectionSettings(
+  connectionId: string,
+  input: {
+    browserLimit: number
+  },
+) {
+  const connection = await getDb().query.cliConnections.findFirst({
+    where: eq(cliConnections.id, connectionId),
+  })
+  if (!connection) {
+    throw new Error('CLI connection not found.')
+  }
+
+  const browserLimit = normalizeCliBrowserLimitValue(input.browserLimit)
+  const connectionFilter = connection.workerId
+    ? eq(cliConnections.workerId, connection.workerId)
+    : eq(cliConnections.id, connection.id)
+
+  const [updated] = await getDb()
+    .update(cliConnections)
+    .set({
+      browserLimit,
+    })
+    .where(connectionFilter)
+    .returning()
+
+  return updated || null
 }
 
 export async function listAdminCliConnectionState() {

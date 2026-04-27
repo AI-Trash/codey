@@ -2,7 +2,6 @@ import { useState } from 'react'
 
 import { createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
-import { getDefaultAdminRoute, hasAdminPermission } from '#/lib/admin-access'
 import {
   CreateVerificationDomainDialog,
   type ManagedVerificationDomain,
@@ -27,17 +26,12 @@ const loadVerificationDomains = createServerFn({ method: 'GET' }).handler(
     const request = getRequest()
 
     try {
-      const admin = await requireAdminPermission(
-        request,
-        'VERIFICATION_DOMAINS',
-      )
+      await requireAdminPermission(request, 'VERIFICATION_DOMAINS')
 
       return {
         authorized: true as const,
         domains:
           (await listVerificationDomains()) as ManagedVerificationDomain[],
-        canManageApps: hasAdminPermission(admin.user, 'OAUTH_CLIENTS'),
-        defaultRoute: getDefaultAdminRoute(admin.user),
       }
     } catch {
       return { authorized: false as const }
@@ -87,25 +81,14 @@ function AdminDomainsPage() {
         description={m.domain_page_description()}
         variant="plain"
         actions={
-          <>
-            {data.canManageApps ? (
-              <Button asChild variant="outline">
-                <a href="/admin/apps">{m.admin_back_to_apps()}</a>
-              </Button>
-            ) : (
-              <Button asChild variant="outline">
-                <a href={data.defaultRoute}>{m.admin_back_to_operations()}</a>
-              </Button>
-            )}
-            <Button
-              type="button"
-              onClick={() => {
-                setCreateDialogOpen(true)
-              }}
-            >
-              {m.domain_create_submit()}
-            </Button>
-          </>
+          <Button
+            type="button"
+            onClick={() => {
+              setCreateDialogOpen(true)
+            }}
+          >
+            {m.domain_create_submit()}
+          </Button>
         }
       />
 

@@ -361,6 +361,8 @@ export const DEFAULT_CLI_FLOW_TASK_COUNT = 1
 export const DEFAULT_CLI_FLOW_TASK_PARALLELISM = 1
 export const MAX_CLI_FLOW_TASK_BATCH_SIZE = 100
 export const MAX_CLI_FLOW_TASK_PARALLELISM = 10
+export const DEFAULT_CLI_BROWSER_LIMIT = 10
+export const MAX_CLI_FLOW_TASK_BATCH_METADATA_SIZE = 1_000_000
 
 export type CliFlowTaskRequestById = {
   [FlowId in CliFlowCommandId]: {
@@ -827,7 +829,7 @@ export function normalizeCliFlowTaskParallelism(
     DEFAULT_CLI_FLOW_TASK_COUNT,
     Math.min(
       input.count || DEFAULT_CLI_FLOW_TASK_COUNT,
-      MAX_CLI_FLOW_TASK_BATCH_SIZE,
+      MAX_CLI_FLOW_TASK_BATCH_METADATA_SIZE,
     ),
   )
   const normalized =
@@ -847,11 +849,11 @@ export function normalizeCliFlowTaskBatchMetadata(
   const batchId = normalizeBatchId(value.batchId)
   const total = normalizePositiveInteger(
     value.total,
-    MAX_CLI_FLOW_TASK_BATCH_SIZE,
+    MAX_CLI_FLOW_TASK_BATCH_METADATA_SIZE,
   )
   const sequence = normalizePositiveInteger(
     value.sequence,
-    MAX_CLI_FLOW_TASK_BATCH_SIZE,
+    MAX_CLI_FLOW_TASK_BATCH_METADATA_SIZE,
   )
   const parallelism = normalizeCliFlowTaskParallelism(value.parallelism, {
     count: total,

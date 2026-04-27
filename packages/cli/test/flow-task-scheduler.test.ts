@@ -27,10 +27,11 @@ function createDeferredTask(label: string) {
 }
 
 describe('flow task scheduler', () => {
-  it('runs default tasks sequentially', async () => {
+  it('runs default tasks up to the default browser limit', async () => {
     const scheduler = new FlowTaskScheduler<string>()
     const execution: string[] = []
     let releaseFirst: (() => void) | undefined
+    let releaseSecond: (() => void) | undefined
 
     const first = scheduler.enqueue({
       taskId: 'task-1',
@@ -48,27 +49,31 @@ describe('flow task scheduler', () => {
       taskId: 'task-2',
       run: async () => {
         execution.push('task-2:start')
+        await new Promise<void>((resolve) => {
+          releaseSecond = resolve
+        })
         execution.push('task-2:end')
         return 'task-2'
       },
     })
 
     await Promise.resolve()
-    expect(execution).toEqual(['task-1:start'])
+    expect(execution).toEqual(['task-1:start', 'task-2:start'])
 
     releaseFirst?.()
+    releaseSecond?.()
     await Promise.all([first, second])
 
     expect(execution).toEqual([
       'task-1:start',
-      'task-1:end',
       'task-2:start',
+      'task-1:end',
       'task-2:end',
     ])
   })
 
-  it('respects per-batch parallelism for batched tasks', async () => {
-    const scheduler = new FlowTaskScheduler<string>()
+  it('respects the global browser limit for batched tasks', async () => {
+    const scheduler = new FlowTaskScheduler<string>({ browserLimit: 2 })
     const started: string[] = []
     const deferred = ['one', 'two', 'three'].map((label) =>
       createDeferredTask(label),
@@ -83,7 +88,7 @@ describe('flow task scheduler', () => {
       scheduler.enqueue({
         taskId: `task-${index + 1}`,
         batchId: 'batch-1',
-        parallelism: 2,
+        parallelism: 1,
         run: task.run,
       }),
     )
@@ -100,8 +105,37 @@ describe('flow task scheduler', () => {
     await Promise.all(tasks)
   })
 
+  it('drains more queued work after the browser limit increases', async () => {
+    const scheduler = new FlowTaskScheduler<string>({ browserLimit: 1 })
+    const started: string[] = []
+    const deferred = ['one', 'two'].map((label) => createDeferredTask(label))
+    for (const task of deferred) {
+      void task.started.then((label) => {
+        started.push(label)
+      })
+    }
+
+    const tasks = deferred.map((task, index) =>
+      scheduler.enqueue({
+        taskId: `task-${index + 1}`,
+        run: task.run,
+      }),
+    )
+
+    await deferred[0].started
+    expect(started).toEqual(['one'])
+
+    scheduler.setBrowserLimit(2)
+    await deferred[1].started
+    expect(started).toEqual(['one', 'two'])
+
+    deferred[0]?.finish()
+    deferred[1]?.finish()
+    await Promise.all(tasks)
+  })
+
   it('cancels queued tasks before they start', async () => {
-    const scheduler = new FlowTaskScheduler<string>()
+    const scheduler = new FlowTaskScheduler<string>({ browserLimit: 1 })
     let releaseFirst: (() => void) | undefined
 
     const first = scheduler.enqueue({

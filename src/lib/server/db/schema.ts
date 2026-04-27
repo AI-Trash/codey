@@ -845,6 +845,7 @@ export const cliConnections = pgTable(
       .$type<string[]>()
       .default(sql`'{}'::text[]`)
       .notNull(),
+    browserLimit: integer('browser_limit').default(10).notNull(),
     connectionPath: text('connection_path').notNull(),
     runtimeFlowId: text('runtime_flow_id'),
     runtimeTaskId: text('runtime_task_id'),

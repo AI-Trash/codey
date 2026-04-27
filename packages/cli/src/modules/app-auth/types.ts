@@ -58,5 +58,6 @@ export interface CliConnectionEvent {
   workerId?: string
   cliName?: string
   target?: string
+  browserLimit?: number
   connectedAt: string
 }

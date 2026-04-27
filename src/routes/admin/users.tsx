@@ -75,7 +75,6 @@ const loadAdminUsers = createServerFn({ method: 'GET' }).handler(async () => {
     return {
       authorized: true as const,
       currentUserId: sessionUser.user.id,
-      defaultRoute: getDefaultAdminRoute(sessionUser.user),
       policy,
       users,
     }
@@ -192,13 +191,6 @@ function AdminUsersPage() {
         title={m.admin_users_page_title()}
         description={m.admin_users_page_description()}
         variant="plain"
-        actions={
-          data.defaultRoute !== '/admin/users' ? (
-            <Button asChild variant="outline">
-              <a href={data.defaultRoute}>{m.admin_users_back_to_console()}</a>
-            </Button>
-          ) : undefined
-        }
       />
 
       {data.policy === 'ALLOWLIST' ? (

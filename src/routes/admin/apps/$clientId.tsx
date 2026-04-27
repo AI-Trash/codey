@@ -102,11 +102,6 @@ function AdminAppsDetailPage() {
             />
           </div>
         </CardHeader>
-        <div className="px-6 pb-6">
-          <Button asChild>
-            <a href="/admin/apps">{m.admin_back_to_apps()}</a>
-          </Button>
-        </div>
       </Card>
     )
   }
@@ -119,9 +114,6 @@ function AdminAppsDetailPage() {
         description={m.admin_app_detail_description()}
         actions={
           <>
-            <Button asChild variant="outline">
-              <a href="/admin/apps">{m.admin_back_to_apps()}</a>
-            </Button>
             {data.canManageDomains ? (
               <Button asChild variant="outline">
                 <a href="/admin/domains">{m.admin_manage_domains()}</a>

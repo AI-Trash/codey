@@ -12,6 +12,11 @@ export interface ClaimedCliFlowTask {
   createdAt: string
 }
 
+export interface ClaimCliFlowTaskResult {
+  task: ClaimedCliFlowTask | null
+  browserLimit?: number
+}
+
 type FlowTaskLeaseStatus = 'LEASED' | 'RUNNING'
 type FinalFlowTaskStatus = 'SUCCEEDED' | 'FAILED' | 'CANCELED'
 
@@ -52,16 +57,21 @@ async function postJson<T>(input: {
 export async function claimCliFlowTask(input: {
   connectionId: string
   authState: CliNotificationsAuthState
-}): Promise<ClaimedCliFlowTask | null> {
+}): Promise<ClaimCliFlowTaskResult> {
   const result = await postJson<{
     ok: boolean
     task?: ClaimedCliFlowTask | null
+    browserLimit?: number
   }>({
     authState: input.authState,
     path: `/api/cli/connections/${encodeURIComponent(input.connectionId)}/tasks/claim`,
   })
 
-  return result.task || null
+  return {
+    task: result.task || null,
+    browserLimit:
+      typeof result.browserLimit === 'number' ? result.browserLimit : undefined,
+  }
 }
 
 export async function updateCliFlowTaskStatus(input: {

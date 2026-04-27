@@ -182,18 +182,24 @@ export const Route = createFileRoute(
           return text('storageStateEmails must be a string array or null', 400)
         }
 
-        await updateCliConnectionRuntimeState(params.connectionId, {
-          runtimeFlowId,
-          runtimeTaskId,
-          runtimeFlowStatus,
-          runtimeFlowMessage,
-          runtimeFlowStartedAt,
-          runtimeFlowCompletedAt,
-          storageStateIdentityIds,
-          storageStateEmails,
-        })
+        const result = await updateCliConnectionRuntimeState(
+          params.connectionId,
+          {
+            runtimeFlowId,
+            runtimeTaskId,
+            runtimeFlowStatus,
+            runtimeFlowMessage,
+            runtimeFlowStartedAt,
+            runtimeFlowCompletedAt,
+            storageStateIdentityIds,
+            storageStateEmails,
+          },
+        )
 
-        return json({ ok: true })
+        return json({
+          ok: true,
+          browserLimit: result?.browserLimit ?? connection.browserLimit,
+        })
       },
     },
   },

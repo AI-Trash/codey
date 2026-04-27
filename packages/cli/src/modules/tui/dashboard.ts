@@ -11,8 +11,7 @@ import {
 } from '../../utils/observability'
 import { sleep } from '../../utils/wait'
 import {
-  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
-  MAX_CLI_FLOW_TASK_PARALLELISM,
+  DEFAULT_CLI_BROWSER_LIMIT,
   normalizeCliFlowTaskPayload,
   type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
@@ -473,7 +472,7 @@ export async function runPromptDashboard(input: {
           ? dashboardState.currentFlow?.notificationId || null
           : null,
       runtimeFlowStatus: 'running',
-      runtimeFlowMessage: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (parallelism ${snapshot.parallelism || DEFAULT_CLI_FLOW_TASK_PARALLELISM})`,
+      runtimeFlowMessage: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (browser limit ${snapshot.browserLimit || DEFAULT_CLI_BROWSER_LIMIT})`,
       runtimeFlowStartedAt:
         outstandingStartedAt || dashboardState.currentFlow?.startedAt || null,
       runtimeFlowCompletedAt: null,
@@ -649,7 +648,6 @@ export async function runPromptDashboard(input: {
     const scheduled = taskScheduler.enqueue({
       taskId: task.notificationId,
       batchId: task.batch?.batchId,
-      parallelism: task.batch?.parallelism,
       run: async (): Promise<{
         interrupted: boolean
       }> =>
@@ -860,12 +858,17 @@ export async function runPromptDashboard(input: {
     try {
       while (
         claimConnectionId &&
-        getClaimedTaskCount() < MAX_CLI_FLOW_TASK_PARALLELISM
+        getClaimedTaskCount() < taskScheduler.getBrowserLimit()
       ) {
-        const claimedTask = await claimCliFlowTask({
+        const claimResult = await claimCliFlowTask({
           connectionId: claimConnectionId,
           authState,
         })
+        if (claimResult.browserLimit !== undefined) {
+          taskScheduler.setBrowserLimit(claimResult.browserLimit)
+          syncRuntimeReporterState()
+        }
+        const claimedTask = claimResult.task
         if (!claimedTask) {
           break
         }
@@ -943,7 +946,6 @@ export async function runPromptDashboard(input: {
     flowId: CliFlowCommandId
     config: FlowOptions
     repeatCount: number
-    parallelism: number
   }) => {
     const repeatCount = Math.max(task.repeatCount, 1)
     const notificationSeed = Date.now()
@@ -954,7 +956,7 @@ export async function runPromptDashboard(input: {
       updateState((state) =>
         appendDashboardEvent(
           state,
-          `Queued ${repeatCount} local ${task.flowId} tasks with parallelism ${task.parallelism}.`,
+          `Queued ${repeatCount} local ${task.flowId} tasks with browser limit ${taskScheduler.getBrowserLimit()}.`,
         ),
       )
     }
@@ -975,7 +977,6 @@ export async function runPromptDashboard(input: {
                   ...(batchId ? { batchId } : {}),
                   sequence: index + 1,
                   total: repeatCount,
-                  parallelism: task.parallelism,
                 }
               : undefined,
         }),
@@ -1050,7 +1051,6 @@ export async function runPromptDashboard(input: {
         flowId: task.flowId,
         config: task.config,
         repeatCount: task.repeatCount,
-        parallelism: task.parallelism,
       })
     } catch (error) {
       const normalized = toPromptCancelError(error)
@@ -1194,6 +1194,11 @@ export async function runPromptDashboard(input: {
             ),
           )
         },
+        onBrowserLimit: (browserLimit) => {
+          taskScheduler.setBrowserLimit(browserLimit)
+          syncRuntimeReporterState()
+          void tryClaimTasks()
+        },
       })
       runtimeReporter = connectionRuntimeReporter
 
@@ -1221,6 +1226,9 @@ export async function runPromptDashboard(input: {
             onConnection: (event: CliConnectionEvent) => {
               connectionOpened = true
               claimConnectionId = event.connectionId
+              if (event.browserLimit !== undefined) {
+                taskScheduler.setBrowserLimit(event.browserLimit)
+              }
               connectionRuntimeReporter.setConnectionId(event.connectionId)
               if (claimInterval) {
                 clearInterval(claimInterval)

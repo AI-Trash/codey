@@ -2,14 +2,11 @@ import '@tanstack/react-start/server-only'
 
 import {
   createCliFlowTaskPayload,
-  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
   type CliFlowCommandId,
   type CliFlowTaskMetadata,
   getCliFlowDefinition,
   MAX_CLI_FLOW_TASK_BATCH_SIZE,
-  MAX_CLI_FLOW_TASK_PARALLELISM,
   normalizeCliFlowConfig,
-  normalizeCliFlowTaskParallelism,
 } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import {
   type AdminCliConnectionSummary,
@@ -24,12 +21,11 @@ import { flowTaskEvents, flowTasks } from './db/schema'
 import { getCliConnectionTaskWorkerId } from './flow-tasks'
 import { createId } from './security'
 
-export { MAX_CLI_FLOW_TASK_BATCH_SIZE, MAX_CLI_FLOW_TASK_PARALLELISM }
+export { MAX_CLI_FLOW_TASK_BATCH_SIZE }
 
 interface CliDispatchTarget {
   connection: AdminCliConnectionSummary
   workerId: string
-  batchParallelism: number
 }
 
 function buildTaskTitle(input: {
@@ -53,7 +49,6 @@ function buildTaskBody(input: {
   configCount: number
   sequence: number
   total: number
-  parallelism: number
   email?: string | null
 }) {
   const target = input.cliName?.trim() || 'CLI'
@@ -67,50 +62,26 @@ function buildTaskBody(input: {
     return base
   }
 
-  return `${base} Batch item ${input.sequence} of ${input.total}. Parallelism ${input.parallelism}.`
+  return `${base} Batch item ${input.sequence} of ${input.total}.`
 }
 
-function resolveRequestedTaskCount(count?: number | null) {
-  if (count == null) {
+function resolveRequestedTaskCount(input: {
+  count?: number | null
+  maxTaskCount?: number | null
+}) {
+  if (input.count == null) {
     return 1
   }
 
-  if (!Number.isInteger(count) || count < 1) {
+  if (!Number.isInteger(input.count) || input.count < 1) {
     throw new Error('Task count must be a whole number greater than 0.')
   }
 
-  if (count > MAX_CLI_FLOW_TASK_BATCH_SIZE) {
-    throw new Error(`Task count cannot exceed ${MAX_CLI_FLOW_TASK_BATCH_SIZE}.`)
+  if (input.maxTaskCount && input.count > input.maxTaskCount) {
+    throw new Error(`Task count cannot exceed ${input.maxTaskCount}.`)
   }
 
-  return count
-}
-
-function resolveRequestedParallelism(input: {
-  parallelism?: number | null
-  count: number
-}) {
-  if (input.parallelism == null) {
-    return DEFAULT_CLI_FLOW_TASK_PARALLELISM
-  }
-
-  if (!Number.isInteger(input.parallelism) || input.parallelism < 1) {
-    throw new Error('Parallelism must be a whole number greater than 0.')
-  }
-
-  if (input.parallelism > MAX_CLI_FLOW_TASK_PARALLELISM) {
-    throw new Error(
-      `Parallelism cannot exceed ${MAX_CLI_FLOW_TASK_PARALLELISM}.`,
-    )
-  }
-
-  if (input.parallelism > input.count) {
-    throw new Error('Parallelism cannot exceed the task count.')
-  }
-
-  return normalizeCliFlowTaskParallelism(input.parallelism, {
-    count: input.count,
-  })
+  return input.count
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -240,7 +211,6 @@ function buildCliDispatchTargets(input: {
   connection: AdminCliConnectionSummary
   eligibleConnections: AdminCliConnectionSummary[]
   count: number
-  parallelism: number
   configs: Array<Record<string, unknown>>
 }): CliDispatchTarget[] {
   const uniqueTargets = new Map<string, AdminCliConnectionSummary>()
@@ -264,10 +234,7 @@ function buildCliDispatchTargets(input: {
   }
 
   const selectedTargets = [...uniqueTargets.entries()]
-    .slice(
-      0,
-      Math.max(1, Math.min(input.count, input.parallelism, uniqueTargets.size)),
-    )
+    .slice(0, Math.max(1, Math.min(input.count, uniqueTargets.size)))
     .map(([workerId, connection]) => ({
       connection,
       workerId,
@@ -279,21 +246,10 @@ function buildCliDispatchTargets(input: {
       throw new Error('No eligible CLI worker is available for dispatch.')
     }
 
-    return [
-      {
-        ...singleTarget,
-        batchParallelism: input.parallelism,
-      },
-    ]
+    return [singleTarget]
   }
 
-  const baseParallelism = Math.floor(input.parallelism / selectedTargets.length)
-  const remainder = input.parallelism % selectedTargets.length
-
-  return selectedTargets.map((target, index) => ({
-    ...target,
-    batchParallelism: baseParallelism + (index < remainder ? 1 : 0),
-  }))
+  return selectedTargets
 }
 
 function selectDispatchTargetForConfig(input: {
@@ -361,6 +317,7 @@ function resolveRequestedTaskConfigs<TFlowId extends CliFlowCommandId>(input: {
   config?: Record<string, unknown> | null
   configs?: Array<Record<string, unknown>> | null
   count?: number | null
+  maxTaskCount?: number | null
 }) {
   const requestedConfigs = Array.isArray(input.configs)
     ? input.configs.filter(isRecord)
@@ -370,8 +327,8 @@ function resolveRequestedTaskConfigs<TFlowId extends CliFlowCommandId>(input: {
     return [normalizeCliFlowConfig(input.flowId, input.config)]
   }
 
-  if (requestedConfigs.length > MAX_CLI_FLOW_TASK_BATCH_SIZE) {
-    throw new Error(`Task count cannot exceed ${MAX_CLI_FLOW_TASK_BATCH_SIZE}.`)
+  if (input.maxTaskCount && requestedConfigs.length > input.maxTaskCount) {
+    throw new Error(`Task count cannot exceed ${input.maxTaskCount}.`)
   }
 
   if (input.count != null && input.count !== requestedConfigs.length) {
@@ -462,6 +419,7 @@ export async function dispatchCliFlowTasks(input: {
   configs?: Array<Record<string, unknown>> | null
   count?: number | null
   parallelism?: number | null
+  maxTaskCount?: number | null
   actor?: CliConnectionActorScope
   metadata?: CliFlowTaskMetadata
 }) {
@@ -472,15 +430,15 @@ export async function dispatchCliFlowTasks(input: {
     config: input.config,
     configs: input.configs,
     count: input.count,
+    maxTaskCount: input.maxTaskCount,
   })
   const count =
     taskConfigs.length > 1
       ? taskConfigs.length
-      : resolveRequestedTaskCount(input.count)
-  const parallelism = resolveRequestedParallelism({
-    parallelism: input.parallelism,
-    count,
-  })
+      : resolveRequestedTaskCount({
+          count: input.count,
+          maxTaskCount: input.maxTaskCount,
+        })
   const externalServices = await resolveCliFlowTaskExternalServices(
     flowDefinition.id,
   )
@@ -493,7 +451,6 @@ export async function dispatchCliFlowTasks(input: {
     connection,
     eligibleConnections,
     count,
-    parallelism,
     configs: queuedConfigs,
   })
   const queuedTaskRows = queuedConfigs.map((config, index) => {
@@ -514,7 +471,6 @@ export async function dispatchCliFlowTasks(input: {
       configCount: Object.keys(config).length,
       sequence,
       total: count,
-      parallelism,
       email,
     })
 
@@ -537,9 +493,6 @@ export async function dispatchCliFlowTasks(input: {
         {
           ...(batchId ? { batchId } : {}),
           ...(count > 1 ? { sequence, total: count } : {}),
-          ...(target.batchParallelism > 1
-            ? { parallelism: target.batchParallelism }
-            : {}),
         },
         externalServices,
         input.metadata,
@@ -576,7 +529,6 @@ export async function dispatchCliFlowTasks(input: {
     assignedCliCount: dispatchTargets.length,
     assignedConnections: dispatchTargets.map((target) => target.connection),
     externalServices,
-    parallelism,
   }
 }
 

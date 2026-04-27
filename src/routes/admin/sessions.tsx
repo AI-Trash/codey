@@ -252,11 +252,6 @@ function AdminSessionsPage() {
         title={m.admin_session_page_title()}
         description={m.admin_session_page_description()}
         variant="plain"
-        actions={
-          <Button asChild variant="outline">
-            <a href="/admin">{m.admin_back_to_operations()}</a>
-          </Button>
-        }
       />
 
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">

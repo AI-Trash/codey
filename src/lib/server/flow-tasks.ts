@@ -1,6 +1,6 @@
 import '@tanstack/react-start/server-only'
 
-import { and, asc, eq, lt, or, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, lt, or, sql } from 'drizzle-orm'
 
 import { sanitizeSummaryString } from '../../../packages/cli/src/utils/redaction'
 import { getDb } from './db/client'
@@ -90,6 +90,14 @@ function buildClaimableTaskFilter(input: { workerId: string; now: Date }) {
   )
 }
 
+function buildActiveTaskFilter(input: { workerId: string; now: Date }) {
+  return and(
+    eq(flowTasks.workerId, input.workerId),
+    or(eq(flowTasks.status, 'LEASED'), eq(flowTasks.status, 'RUNNING')),
+    gt(flowTasks.leaseExpiresAt, input.now),
+  )
+}
+
 async function getCliConnectionRow(
   connectionId: string,
 ): Promise<CliConnectionRow | null> {
@@ -114,6 +122,17 @@ export async function claimNextFlowTaskForConnection(input: {
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const now = new Date()
+    const [activeTaskCount] = await getDb()
+      .select({
+        count: sql<number>`count(*)::int`,
+      })
+      .from(flowTasks)
+      .where(buildActiveTaskFilter({ workerId, now }))
+
+    if ((activeTaskCount?.count || 0) >= connection.browserLimit) {
+      return null
+    }
+
     const candidate = await getDb().query.flowTasks.findFirst({
       where: buildClaimableTaskFilter({ workerId, now }),
       orderBy: [asc(flowTasks.createdAt), asc(flowTasks.id)],

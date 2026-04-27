@@ -114,9 +114,6 @@ function AdminAppsListPage() {
           variant="plain"
           actions={
             <>
-              <Button asChild variant="outline">
-                <a href="/admin">{m.admin_back_to_operations()}</a>
-              </Button>
               {data.canManageDomains ? (
                 <Button asChild variant="outline">
                   <a href="/admin/domains">{m.admin_manage_domains()}</a>

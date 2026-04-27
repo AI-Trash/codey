@@ -19,7 +19,9 @@ async function postCliConnectionRuntimeState(input: {
   connectionId: string
   authState: CliNotificationsAuthState
   state: CliConnectionRuntimeState
-}): Promise<void> {
+}): Promise<{
+  browserLimit?: number
+}> {
   const storageStateAffinities = listLocalChatGPTStorageStateAffinities()
   const response = await fetch(
     resolveAppUrl(
@@ -40,13 +42,22 @@ async function postCliConnectionRuntimeState(input: {
     },
   )
 
-  await ensureJson<{ ok: boolean }>(response)
+  const result = await ensureJson<{
+    ok: boolean
+    browserLimit?: number
+  }>(response)
+
+  return {
+    browserLimit:
+      typeof result.browserLimit === 'number' ? result.browserLimit : undefined,
+  }
 }
 
 export class CliConnectionRuntimeReporter {
   private connectionId?: string
   private readonly authState: CliNotificationsAuthState
   private readonly onError?: (error: Error) => void
+  private readonly onBrowserLimit?: (browserLimit: number) => void
   private pendingState?: CliConnectionRuntimeState
   private inFlight = false
   private lastSerializedState?: string
@@ -55,9 +66,11 @@ export class CliConnectionRuntimeReporter {
   constructor(input: {
     authState: CliNotificationsAuthState
     onError?: (error: Error) => void
+    onBrowserLimit?: (browserLimit: number) => void
   }) {
     this.authState = input.authState
     this.onError = input.onError
+    this.onBrowserLimit = input.onBrowserLimit
   }
 
   setConnectionId(connectionId: string | undefined): void {
@@ -113,11 +126,14 @@ export class CliConnectionRuntimeReporter {
     this.inFlight = true
 
     try {
-      await postCliConnectionRuntimeState({
+      const result = await postCliConnectionRuntimeState({
         connectionId: this.connectionId,
         authState: this.authState,
         state: nextState,
       })
+      if (result.browserLimit !== undefined) {
+        this.onBrowserLimit?.(result.browserLimit)
+      }
       this.lastSerializedState = serializedState
     } catch (error) {
       const sanitized = sanitizeErrorForOutput(error)

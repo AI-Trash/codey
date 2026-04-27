@@ -5,7 +5,6 @@ import {
   buildManualFlowOptionChoices,
   describeManualFlow,
   normalizeManualFlowAnswers,
-  normalizeManualFlowParallelism,
   normalizeManualFlowRepeatCount,
   supportsManualFlowBatching,
 } from '../src/modules/tui/manual-flow'
@@ -55,13 +54,6 @@ describe('tui manual flow helpers', () => {
     expect(normalizeManualFlowRepeatCount('3')).toBe(3)
     expect(normalizeManualFlowRepeatCount('99')).toBe(99)
     expect(normalizeManualFlowRepeatCount('101')).toBe(100)
-  })
-
-  it('limits manual parallelism to the task count and default range', () => {
-    expect(normalizeManualFlowParallelism('', 3)).toBe(1)
-    expect(normalizeManualFlowParallelism('3', 3)).toBe(3)
-    expect(normalizeManualFlowParallelism('9', 3)).toBe(3)
-    expect(normalizeManualFlowParallelism('11', 20)).toBe(10)
   })
 
   it('only enables local batching for registration flows', () => {

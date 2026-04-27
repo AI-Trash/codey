@@ -1,4 +1,4 @@
-import { DEFAULT_CLI_FLOW_TASK_PARALLELISM } from './flow-registry'
+import { DEFAULT_CLI_BROWSER_LIMIT } from './flow-registry'
 
 export class FlowTaskSchedulerCancelledError extends Error {
   constructor(message = 'Queued flow task was canceled before start.') {
@@ -17,7 +17,7 @@ export interface FlowTaskSchedulerTask<TResult> {
 export interface FlowTaskSchedulerSnapshot {
   activeCount: number
   pendingCount: number
-  parallelism: number
+  browserLimit: number
 }
 
 interface FlowTaskSchedulerEntry<
@@ -25,25 +25,18 @@ interface FlowTaskSchedulerEntry<
 > extends FlowTaskSchedulerTask<TResult> {
   order: number
   batchId: string
-  parallelism: number
   resolve: (value: TResult | PromiseLike<TResult>) => void
   reject: (reason?: unknown) => void
 }
 
 interface FlowTaskSchedulerBatch<TResult> {
   id: string
-  parallelism: number
-  activeCount: number
   queue: FlowTaskSchedulerEntry<TResult>[]
 }
 
-function normalizeParallelism(value: number | undefined): number {
-  if (
-    typeof value !== 'number' ||
-    !Number.isInteger(value) ||
-    value < DEFAULT_CLI_FLOW_TASK_PARALLELISM
-  ) {
-    return DEFAULT_CLI_FLOW_TASK_PARALLELISM
+function normalizeBrowserLimit(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    return DEFAULT_CLI_BROWSER_LIMIT
   }
 
   return value
@@ -54,20 +47,35 @@ export class FlowTaskScheduler<TResult> {
   private readonly idleResolvers: Array<() => void> = []
   private nextOrder = 0
   private activeCount = 0
+  private browserLimit: number
+
+  constructor(input: { browserLimit?: number } = {}) {
+    this.browserLimit = normalizeBrowserLimit(input.browserLimit)
+  }
+
+  setBrowserLimit(value: number | undefined): void {
+    const nextLimit = normalizeBrowserLimit(value)
+    if (nextLimit === this.browserLimit) {
+      return
+    }
+
+    this.browserLimit = nextLimit
+    this.drain()
+  }
+
+  getBrowserLimit(): number {
+    return this.browserLimit
+  }
 
   enqueue(task: FlowTaskSchedulerTask<TResult>): Promise<TResult> {
     const batchId = task.batchId?.trim() || `task:${task.taskId}`
-    const parallelism = normalizeParallelism(task.parallelism)
     const batch =
       this.batches.get(batchId) ||
       ({
         id: batchId,
-        parallelism,
-        activeCount: 0,
         queue: [],
       } satisfies FlowTaskSchedulerBatch<TResult>)
 
-    batch.parallelism = Math.max(batch.parallelism, parallelism)
     this.batches.set(batchId, batch)
 
     return new Promise<TResult>((resolve, reject) => {
@@ -75,7 +83,6 @@ export class FlowTaskScheduler<TResult> {
         ...task,
         order: this.nextOrder++,
         batchId,
-        parallelism,
         resolve,
         reject,
       })
@@ -95,7 +102,7 @@ export class FlowTaskScheduler<TResult> {
     return {
       activeCount: this.activeCount,
       pendingCount: this.getPendingCount(),
-      parallelism: this.getGlobalParallelism(),
+      browserLimit: this.browserLimit,
     }
   }
 
@@ -111,7 +118,7 @@ export class FlowTaskScheduler<TResult> {
         entry.reject(error)
       }
 
-      if (!batch.activeCount && !batch.queue.length) {
+      if (!batch.queue.length) {
         this.batches.delete(batchId)
       }
     }
@@ -138,20 +145,6 @@ export class FlowTaskScheduler<TResult> {
     return count
   }
 
-  private getGlobalParallelism(): number {
-    let parallelism = DEFAULT_CLI_FLOW_TASK_PARALLELISM
-
-    for (const batch of this.batches.values()) {
-      if (!batch.activeCount && !batch.queue.length) {
-        continue
-      }
-
-      parallelism = Math.max(parallelism, batch.parallelism)
-    }
-
-    return parallelism
-  }
-
   private pickNextEntry():
     | {
         batch: FlowTaskSchedulerBatch<TResult>
@@ -166,7 +159,7 @@ export class FlowTaskScheduler<TResult> {
       | undefined
 
     for (const batch of this.batches.values()) {
-      if (batch.activeCount >= batch.parallelism || !batch.queue.length) {
+      if (!batch.queue.length) {
         continue
       }
 
@@ -184,7 +177,7 @@ export class FlowTaskScheduler<TResult> {
   }
 
   private drain(): void {
-    while (this.activeCount < this.getGlobalParallelism()) {
+    while (this.activeCount < this.browserLimit) {
       const candidate = this.pickNextEntry()
       if (!candidate) {
         break
@@ -195,7 +188,6 @@ export class FlowTaskScheduler<TResult> {
         continue
       }
 
-      candidate.batch.activeCount += 1
       this.activeCount += 1
       void this.runEntry(candidate.batch, nextEntry)
     }
@@ -212,10 +204,9 @@ export class FlowTaskScheduler<TResult> {
     } catch (error) {
       entry.reject(error)
     } finally {
-      batch.activeCount = Math.max(batch.activeCount - 1, 0)
       this.activeCount = Math.max(this.activeCount - 1, 0)
 
-      if (!batch.activeCount && !batch.queue.length) {
+      if (!batch.queue.length) {
         this.batches.delete(batch.id)
       }
 

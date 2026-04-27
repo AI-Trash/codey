@@ -9,7 +9,6 @@ import { dispatchCliFlowTasks } from '../../../../../lib/server/cli-tasks'
 import { createFlowAppRequest } from '../../../../../lib/server/admin'
 import { json, text } from '../../../../../lib/server/http'
 import { readJsonBody } from '../../../../../lib/server/request'
-import { getWorkspaceCodexOAuthParallelism } from '../../../../../lib/server/workspace-codex-oauth'
 import { findAdminManagedWorkspaceSummary } from '../../../../../lib/server/workspaces'
 
 interface StartWorkspaceCodexOAuthBody {
@@ -194,9 +193,6 @@ export const Route = createFileRoute(
               connectionId,
               flowId: 'codex-oauth',
               actor,
-              parallelism: getWorkspaceCodexOAuthParallelism(
-                targetEmails.length,
-              ),
               configs: targetEmails.map((email) => ({
                 email,
                 ...(workspace.workspaceId

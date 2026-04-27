@@ -119,6 +119,7 @@ export const Route = createFileRoute('/api/cli/events')({
                 workerId: connection.workerId || undefined,
                 cliName,
                 target,
+                browserLimit: connection.browserLimit,
                 connectedAt: connection.connectedAt.toISOString(),
               },
             })

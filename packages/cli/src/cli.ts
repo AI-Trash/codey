@@ -52,8 +52,7 @@ import {
   type FlowProgressUpdate,
 } from './modules/flow-cli/helpers'
 import {
-  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
-  MAX_CLI_FLOW_TASK_PARALLELISM,
+  DEFAULT_CLI_BROWSER_LIMIT,
   normalizeCliFlowTaskPayload,
   type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
@@ -577,6 +576,7 @@ async function runDaemonCommand(
       cliName,
       target,
     })
+    const taskScheduler = new FlowTaskScheduler<void>()
     const runtimeReporter = new CliConnectionRuntimeReporter({
       authState,
       onError: (error) => {
@@ -591,8 +591,12 @@ async function runDaemonCommand(
           ),
         )
       },
+      onBrowserLimit: (browserLimit) => {
+        taskScheduler.setBrowserLimit(browserLimit)
+        syncRuntimeReporterState()
+        void tryClaimTasks()
+      },
     })
-    const taskScheduler = new FlowTaskScheduler<void>()
     const taskLeaseReporters = new Map<string, CliFlowTaskLeaseReporter>()
     let outstandingStartedAt: string | undefined
     let connectionId: string | undefined
@@ -627,7 +631,7 @@ async function runDaemonCommand(
           phase: 'listening',
           activeTaskCount: snapshot.activeCount,
           pendingTaskCount: snapshot.pendingCount,
-          parallelism: snapshot.parallelism,
+          browserLimit: snapshot.browserLimit,
           flowId: lastRuntimeState?.flowId || null,
           taskId: lastRuntimeState?.notificationId || null,
           status: lastRuntimeState?.status || null,
@@ -648,7 +652,7 @@ async function runDaemonCommand(
             ? lastRuntimeState?.notificationId || null
             : null,
         runtimeFlowStatus: 'running',
-        runtimeFlowMessage: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (parallelism ${snapshot.parallelism || DEFAULT_CLI_FLOW_TASK_PARALLELISM})`,
+        runtimeFlowMessage: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (browser limit ${snapshot.browserLimit || DEFAULT_CLI_BROWSER_LIMIT})`,
         runtimeFlowStartedAt:
           outstandingStartedAt || lastRuntimeState?.startedAt || null,
         runtimeFlowCompletedAt: null,
@@ -659,7 +663,7 @@ async function runDaemonCommand(
         phase: 'running',
         activeTaskCount: snapshot.activeCount,
         pendingTaskCount: snapshot.pendingCount,
-        parallelism: snapshot.parallelism,
+        browserLimit: snapshot.browserLimit,
         flowId:
           snapshot.activeCount + snapshot.pendingCount > 1
             ? 'task-queue'
@@ -669,7 +673,7 @@ async function runDaemonCommand(
             ? lastRuntimeState?.notificationId || null
             : null,
         status: 'running',
-        message: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (parallelism ${snapshot.parallelism || DEFAULT_CLI_FLOW_TASK_PARALLELISM})`,
+        message: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (browser limit ${snapshot.browserLimit || DEFAULT_CLI_BROWSER_LIMIT})`,
         startedAt: outstandingStartedAt || lastRuntimeState?.startedAt || null,
         completedAt: null,
       })
@@ -706,7 +710,6 @@ async function runDaemonCommand(
       const scheduled = taskScheduler.enqueue({
         taskId: task.notificationId,
         batchId: task.batch?.batchId,
-        parallelism: task.batch?.parallelism,
         run: async () =>
           withObservabilityContext(
             {
@@ -901,12 +904,17 @@ async function runDaemonCommand(
       try {
         while (
           connectionId &&
-          getClaimedTaskCount() < MAX_CLI_FLOW_TASK_PARALLELISM
+          getClaimedTaskCount() < taskScheduler.getBrowserLimit()
         ) {
-          const claimedTask = await claimCliFlowTask({
+          const claimResult = await claimCliFlowTask({
             connectionId,
             authState,
           })
+          if (claimResult.browserLimit !== undefined) {
+            taskScheduler.setBrowserLimit(claimResult.browserLimit)
+            syncRuntimeReporterState()
+          }
+          const claimedTask = claimResult.task
           if (!claimedTask) {
             break
           }
@@ -1013,6 +1021,9 @@ async function runDaemonCommand(
         {
           onConnection: (connection) => {
             connectionId = connection.connectionId
+            if (connection.browserLimit !== undefined) {
+              taskScheduler.setBrowserLimit(connection.browserLimit)
+            }
             runtimeReporter.setConnectionId(connection.connectionId)
             if (claimInterval) {
               clearInterval(claimInterval)

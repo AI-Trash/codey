@@ -57,6 +57,7 @@ export const Route = createFileRoute(
 
           return json({
             ok: true,
+            browserLimit: connection.browserLimit,
             task: task
               ? {
                   id: task.id,

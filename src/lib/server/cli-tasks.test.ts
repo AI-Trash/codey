@@ -40,6 +40,7 @@ function createCliConnectionSummary(
     registeredFlows: string[]
     storageStateIdentityIds: string[]
     storageStateEmails: string[]
+    browserLimit: number
     connectionPath: string
     status: 'active' | 'offline'
     connectedAt: string
@@ -69,6 +70,7 @@ function createCliConnectionSummary(
     registeredFlows: ['chatgpt-register'],
     storageStateIdentityIds: [],
     storageStateEmails: [],
+    browserLimit: 10,
     connectionPath: '/tmp/codey',
     status: 'active' as const,
     connectedAt: '2026-04-24T00:00:00.000Z',
@@ -208,7 +210,7 @@ describe('cli flow task dispatch', () => {
     expect(insertedEvents).toHaveLength(5)
   })
 
-  it('splits requested parallelism across the available CLI workers', async () => {
+  it('spreads batch work across unique CLI workers without per-batch parallelism', async () => {
     const anchorConnection = createCliConnectionSummary({
       id: 'connection-a',
       workerId: 'worker-a',
@@ -246,24 +248,18 @@ describe('cli flow task dispatch', () => {
       'worker-a',
       'worker-b',
     ])
-
-    const workerParallelism = Object.fromEntries(
-      insertedTasks.map((task) => [
-        String(task.workerId),
-        (
-          task.payload as {
-            batch?: {
-              parallelism?: number
+    expect(
+      insertedTasks.map(
+        (task) =>
+          (
+            task.payload as {
+              batch?: {
+                parallelism?: number
+              }
             }
-          }
-        ).batch?.parallelism || 1,
-      ]),
-    )
-
-    expect(workerParallelism).toEqual({
-      'worker-a': 2,
-      'worker-b': 1,
-    })
+          ).batch?.parallelism,
+      ),
+    ).toEqual([undefined, undefined, undefined, undefined])
   })
 
   it('prioritizes a CLI worker that reports local storage state for the requested identity', async () => {

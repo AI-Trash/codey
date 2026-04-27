@@ -2420,9 +2420,6 @@ function AdminWorkspacesPage() {
           variant="plain"
           actions={
             <>
-              <Button asChild variant="outline">
-                <a href="/admin">{m.admin_back_to_operations()}</a>
-              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -2558,7 +2555,19 @@ function AdminWorkspacesPage() {
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {workspace.teamTrialPaypalUrl ? (
+                              <Button asChild variant="secondary" size="sm">
+                                <a
+                                  href={workspace.teamTrialPaypalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <ExternalLinkIcon />
+                                  {m.admin_workspace_team_trial_paypal_button()}
+                                </a>
+                              </Button>
+                            ) : null}
                             <Button
                               type="button"
                               variant="outline"

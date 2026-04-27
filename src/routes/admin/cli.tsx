@@ -2,9 +2,7 @@ import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   createCliFlowTaskRequest,
-  DEFAULT_CLI_FLOW_TASK_PARALLELISM,
   MAX_CLI_FLOW_TASK_BATCH_SIZE,
-  MAX_CLI_FLOW_TASK_PARALLELISM,
   type CliFlowCommandId,
   type CliFlowConfigById,
   type CliFlowConfigFieldDefinition,
@@ -23,6 +21,7 @@ import {
   BotIcon,
   BriefcaseIcon,
   RefreshCcwIcon,
+  SettingsIcon,
 } from 'lucide-react'
 
 import {
@@ -103,7 +102,6 @@ type DispatchSubmission<TFlowId extends CliFlowCommandId> = {
   config: CliFlowConfigById[TFlowId]
   configs?: CliFlowConfigById[TFlowId][]
   repeatCount: number
-  parallelism: number
 }
 
 const loadAdminCliConnections = createServerFn({ method: 'GET' }).handler(
@@ -154,6 +152,7 @@ type CliConnectionSummary = {
   registeredFlows: string[]
   storageStateIdentityIds: string[]
   storageStateEmails: string[]
+  browserLimit: number
   connectionPath: string
   status: 'active' | 'offline'
   connectedAt: string
@@ -193,6 +192,8 @@ function AdminCliConnectionsPage() {
   const [state, setState] = useState(data.state as CliConnectionState)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [selectedConnection, setSelectedConnection] =
+    useState<CliConnectionSummary | null>(null)
+  const [selectedSettingsConnection, setSelectedSettingsConnection] =
     useState<CliConnectionSummary | null>(null)
 
   async function refreshConnections() {
@@ -304,6 +305,9 @@ function AdminCliConnectionsPage() {
         onDispatch={(connection) => {
           setSelectedConnection(connection)
         }}
+        onSettings={(connection) => {
+          setSelectedSettingsConnection(connection)
+        }}
       />
 
       <CliTaskDialog
@@ -344,6 +348,25 @@ function AdminCliConnectionsPage() {
           setSelectedConnection(null)
         }}
       />
+
+      <CliSettingsDialog
+        connection={selectedSettingsConnection}
+        open={Boolean(selectedSettingsConnection)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedSettingsConnection(null)
+          }
+        }}
+        onSaved={(connection) => {
+          setState((current) => ({
+            ...current,
+            activeConnections: current.activeConnections.map((candidate) =>
+              candidate.id === connection.id ? connection : candidate,
+            ),
+          }))
+          setSelectedSettingsConnection(null)
+        }}
+      />
     </div>
   )
 }
@@ -355,6 +378,7 @@ function CliConnectionsTableCard(props: {
   emptyDescription: string
   connections: CliConnectionSummary[]
   onDispatch?: (connection: CliConnectionSummary) => void
+  onSettings?: (connection: CliConnectionSummary) => void
 }) {
   return (
     <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -423,6 +447,11 @@ function CliConnectionsTableCard(props: {
                                   count: String(dispatchableCount),
                                 })}
                               </span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                {m.admin_cli_browser_limit_summary({
+                                  count: String(connection.browserLimit),
+                                })}
+                              </span>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -438,27 +467,50 @@ function CliConnectionsTableCard(props: {
                             />
                           </TableCell>
                           {props.onDispatch ? (
-                            <TableCell className="w-14">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    size="icon-sm"
-                                    variant="outline"
-                                    aria-label={m.admin_cli_dispatch_action()}
-                                    title={m.admin_cli_dispatch_action()}
-                                    disabled={dispatchableCount === 0}
-                                    onClick={() => {
-                                      props.onDispatch?.(connection)
-                                    }}
-                                  >
-                                    <BriefcaseIcon />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent sideOffset={6}>
-                                  {m.admin_cli_dispatch_action()}
-                                </TooltipContent>
-                              </Tooltip>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                {props.onSettings ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        type="button"
+                                        size="icon-sm"
+                                        variant="outline"
+                                        aria-label={m.admin_cli_settings_action()}
+                                        title={m.admin_cli_settings_action()}
+                                        onClick={() => {
+                                          props.onSettings?.(connection)
+                                        }}
+                                      >
+                                        <SettingsIcon />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent sideOffset={6}>
+                                      {m.admin_cli_settings_action()}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : null}
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      size="icon-sm"
+                                      variant="outline"
+                                      aria-label={m.admin_cli_dispatch_action()}
+                                      title={m.admin_cli_dispatch_action()}
+                                      disabled={dispatchableCount === 0}
+                                      onClick={() => {
+                                        props.onDispatch?.(connection)
+                                      }}
+                                    >
+                                      <BriefcaseIcon />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent sideOffset={6}>
+                                    {m.admin_cli_dispatch_action()}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
                             </TableCell>
                           ) : null}
                         </TableRow>
@@ -480,6 +532,153 @@ function CliConnectionsTableCard(props: {
   )
 }
 
+function CliSettingsDialog(props: {
+  connection: CliConnectionSummary | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSaved: (connection: CliConnectionSummary) => void
+}) {
+  const [browserLimit, setBrowserLimit] = useState('10')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setBrowserLimit(
+      props.connection?.browserLimit
+        ? String(props.connection.browserLimit)
+        : '10',
+    )
+    setSubmitting(false)
+  }, [props.connection?.id, props.connection?.browserLimit])
+
+  async function submitSettings() {
+    if (!props.connection) {
+      return
+    }
+
+    const parsed = readBrowserLimitInput(browserLimit)
+    if (!parsed) {
+      showAppToast({
+        kind: 'error',
+        title: m.admin_cli_settings_error_title(),
+        description: m.admin_cli_browser_limit_error(),
+      })
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const response = await fetch(
+        `/api/admin/cli-connections/${encodeURIComponent(props.connection.id)}/settings`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            browserLimit: parsed,
+          }),
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      const result = (await response.json()) as {
+        connection?: CliConnectionSummary | null
+      }
+      if (!result.connection) {
+        throw new Error(m.admin_cli_settings_error_fallback())
+      }
+
+      showAppToast({
+        kind: 'success',
+        description: m.admin_cli_settings_success(),
+      })
+      props.onSaved(result.connection)
+    } catch (error) {
+      showAppToast({
+        kind: 'error',
+        title: m.admin_cli_settings_error_title(),
+        description: getToastErrorDescription(
+          error,
+          m.admin_cli_settings_error_fallback(),
+        ),
+      })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="max-w-[min(560px,calc(100%-2rem))] gap-5">
+        <DialogHeader>
+          <DialogTitle>{m.admin_cli_settings_title()}</DialogTitle>
+          <DialogDescription>
+            {props.connection
+              ? m.admin_cli_settings_description({
+                  cli: props.connection.cliName || m.admin_cli_unknown_cli(),
+                })
+              : m.admin_cli_settings_idle_description()}
+          </DialogDescription>
+        </DialogHeader>
+
+        {props.connection ? (
+          <FieldSet>
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="cli-browser-limit">
+                  {m.admin_cli_browser_limit_label()}
+                </FieldLabel>
+                <Input
+                  id="cli-browser-limit"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  value={browserLimit}
+                  disabled={submitting}
+                  onChange={(event) => {
+                    setBrowserLimit(event.currentTarget.value)
+                  }}
+                />
+                <FieldDescription>
+                  {m.admin_cli_browser_limit_description()}
+                </FieldDescription>
+              </Field>
+            </FieldGroup>
+          </FieldSet>
+        ) : null}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              props.onOpenChange(false)
+            }}
+            disabled={submitting}
+          >
+            {m.ui_close()}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              void submitSettings()
+            }}
+            disabled={!props.connection || submitting}
+          >
+            {submitting
+              ? m.admin_cli_settings_submitting()
+              : m.admin_cli_settings_submit()}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function CliTaskDialog(props: {
   connection: CliConnectionSummary | null
   open: boolean
@@ -497,16 +696,12 @@ function CliTaskDialog(props: {
     '',
   )
   const [dispatchCount, setDispatchCount] = useState('1')
-  const [dispatchParallelism, setDispatchParallelism] = useState(
-    String(DEFAULT_CLI_FLOW_TASK_PARALLELISM),
-  )
   const [draftValues, setDraftValues] = useState<DraftOptionState>({})
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     setSelectedFlowId(availableFlows[0] || '')
     setDispatchCount('1')
-    setDispatchParallelism(String(DEFAULT_CLI_FLOW_TASK_PARALLELISM))
     setDraftValues({})
     setSubmitting(false)
   }, [props.connection?.id, availableFlows])
@@ -540,7 +735,6 @@ function CliTaskDialog(props: {
         selectedFlowId,
         draftValues,
         dispatchCount,
-        dispatchParallelism,
       )
       const response = await fetch(
         `/api/admin/cli-connections/${encodeURIComponent(props.connection.id)}/tasks`,
@@ -554,7 +748,6 @@ function CliTaskDialog(props: {
             ...createCliFlowTaskRequest(selectedFlowId, submission.config),
             ...(submission.configs ? { configs: submission.configs } : {}),
             repeatCount: submission.repeatCount,
-            parallelism: submission.parallelism,
           }),
         },
       )
@@ -622,9 +815,6 @@ function CliTaskDialog(props: {
                     onValueChange={(value) => {
                       setSelectedFlowId(value as CliFlowCommandId)
                       setDispatchCount('1')
-                      setDispatchParallelism(
-                        String(DEFAULT_CLI_FLOW_TASK_PARALLELISM),
-                      )
                     }}
                     disabled={!availableFlows.length || submitting}
                   >
@@ -707,28 +897,6 @@ function CliTaskDialog(props: {
                           </FieldDescription>
                         </Field>
                       ) : null}
-                      <Field>
-                        <FieldLabel htmlFor="dispatch-parallelism">
-                          {m.admin_cli_dispatch_parallelism_label()}
-                        </FieldLabel>
-                        <Input
-                          id="dispatch-parallelism"
-                          type="number"
-                          inputMode="numeric"
-                          min={1}
-                          max={MAX_CLI_FLOW_TASK_PARALLELISM}
-                          value={dispatchParallelism}
-                          disabled={submitting}
-                          onChange={(event) => {
-                            setDispatchParallelism(event.currentTarget.value)
-                          }}
-                        />
-                        <FieldDescription>
-                          {m.admin_cli_dispatch_parallelism_description({
-                            max: String(MAX_CLI_FLOW_TASK_PARALLELISM),
-                          })}
-                        </FieldDescription>
-                      </Field>
                     </FieldGroup>
                   </FieldSet>
                 </CardContent>
@@ -1238,49 +1406,10 @@ function readDispatchCount(flowId: CliFlowCommandId, rawValue: string): number {
   return parsed
 }
 
-function readDispatchParallelism(
-  batchMode: DispatchBatchMode,
-  rawValue: string,
-  repeatCount: number,
-): number {
-  if (batchMode === 'none') {
-    return DEFAULT_CLI_FLOW_TASK_PARALLELISM
-  }
-
-  const normalized = rawValue.trim()
-  if (!normalized) {
-    return DEFAULT_CLI_FLOW_TASK_PARALLELISM
-  }
-
-  const parsed = Number.parseInt(normalized, 10)
-  if (
-    !Number.isInteger(parsed) ||
-    parsed < 1 ||
-    parsed > MAX_CLI_FLOW_TASK_PARALLELISM
-  ) {
-    throw new Error(
-      m.admin_cli_dispatch_parallelism_error({
-        max: String(MAX_CLI_FLOW_TASK_PARALLELISM),
-      }),
-    )
-  }
-
-  if (parsed > repeatCount) {
-    throw new Error(
-      m.admin_cli_dispatch_parallelism_count_error({
-        count: String(repeatCount),
-      }),
-    )
-  }
-
-  return parsed
-}
-
 function buildDispatchSubmission<TFlowId extends CliFlowCommandId>(
   flowId: TFlowId,
   draftValues: DraftOptionState,
   rawDispatchCount: string,
-  rawDispatchParallelism: string,
 ): DispatchSubmission<TFlowId> {
   const config = buildDispatchConfig(flowId, draftValues)
   const batchState = resolveDispatchBatchState(
@@ -1316,11 +1445,6 @@ function buildDispatchSubmission<TFlowId extends CliFlowCommandId>(
       config: sharedConfig as CliFlowConfigById[TFlowId],
       configs,
       repeatCount: configs.length,
-      parallelism: readDispatchParallelism(
-        batchState.mode,
-        rawDispatchParallelism,
-        configs.length,
-      ),
     }
   }
 
@@ -1328,12 +1452,21 @@ function buildDispatchSubmission<TFlowId extends CliFlowCommandId>(
   return {
     config,
     repeatCount,
-    parallelism: readDispatchParallelism(
-      batchState.mode,
-      rawDispatchParallelism,
-      repeatCount,
-    ),
   }
+}
+
+function readBrowserLimitInput(rawValue: string): number | null {
+  const normalized = rawValue.trim()
+  if (!normalized) {
+    return null
+  }
+
+  const parsed = Number.parseInt(normalized, 10)
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return null
+  }
+
+  return parsed
 }
 
 function buildDispatchConfig<TFlowId extends CliFlowCommandId>(
