@@ -32,6 +32,10 @@ type FakeInvitePageEvent =
     }
 
 class FakeInvitePage {
+  constructor(
+    private readonly accountCookieValue = '11111111-1111-4111-8111-111111111111',
+  ) {}
+
   readonly fetchCalls: Array<{
     url: string
     method: string
@@ -55,7 +59,7 @@ class FakeInvitePage {
       cookies: async () => [
         {
           name: '_account',
-          value: 'workspace-123',
+          value: this.accountCookieValue,
         },
       ],
     }
@@ -206,19 +210,22 @@ describe('workspace invite helpers', () => {
     expect(
       selectInviteCapableAccount(
         {
-          account_ordering: ['workspace-1', 'personal-1'],
+          account_ordering: [
+            '11111111-1111-4111-8111-111111111111',
+            '33333333-3333-4333-8333-333333333333',
+          ],
           accounts: {
-            'workspace-1': {
+            '11111111-1111-4111-8111-111111111111': {
               account: {
-                account_id: 'workspace-1',
+                account_id: '11111111-1111-4111-8111-111111111111',
                 structure: 'workspace',
                 plan_type: 'team',
               },
               can_access_with_session: true,
             },
-            'personal-1': {
+            '33333333-3333-4333-8333-333333333333': {
               account: {
-                account_id: 'personal-1',
+                account_id: '33333333-3333-4333-8333-333333333333',
                 structure: 'personal',
                 plan_type: 'free',
               },
@@ -226,28 +233,31 @@ describe('workspace invite helpers', () => {
             },
           },
         },
-        'workspace-1',
+        '11111111-1111-4111-8111-111111111111',
       ),
-    ).toBe('workspace-1')
+    ).toBe('11111111-1111-4111-8111-111111111111')
   })
 
   it('falls back to the first invite-capable workspace account', () => {
     expect(
       selectInviteCapableAccount(
         {
-          account_ordering: ['personal-1', 'workspace-2'],
+          account_ordering: [
+            '33333333-3333-4333-8333-333333333333',
+            '22222222-2222-4222-8222-222222222222',
+          ],
           accounts: {
-            'personal-1': {
+            '33333333-3333-4333-8333-333333333333': {
               account: {
-                account_id: 'personal-1',
+                account_id: '33333333-3333-4333-8333-333333333333',
                 structure: 'personal',
                 plan_type: 'free',
               },
               can_access_with_session: true,
             },
-            'workspace-2': {
+            '22222222-2222-4222-8222-222222222222': {
               account: {
-                account_id: 'workspace-2',
+                account_id: '22222222-2222-4222-8222-222222222222',
                 structure: 'workspace',
                 plan_type: 'team',
               },
@@ -255,9 +265,61 @@ describe('workspace invite helpers', () => {
             },
           },
         },
-        'personal-1',
+        '33333333-3333-4333-8333-333333333333',
       ),
-    ).toBe('workspace-2')
+    ).toBe('22222222-2222-4222-8222-222222222222')
+  })
+
+  it('uses the UUID workspace account path when account checks return org aliases', async () => {
+    const page = new FakeInvitePage('org-workspace')
+
+    page.responses.push(
+      jsonApiResponse({
+        account_ordering: ['org-workspace'],
+        accounts: {
+          'org-workspace': {
+            account: {
+              account_id: 'org-workspace',
+              workspace_id: '11111111-1111-4111-8111-111111111111',
+              structure: 'workspace',
+              plan_type: 'team',
+            },
+            can_access_with_session: true,
+          },
+        },
+      }),
+      jsonApiResponse({
+        items: [],
+      }),
+      jsonApiResponse({
+        account_invites: [],
+        total: 0,
+      }),
+      jsonApiResponse({
+        account_invites: [
+          {
+            email_address: 'new@example.com',
+          },
+        ],
+        errored_emails: [],
+      }),
+    )
+
+    const result = await inviteWorkspaceMembers(page as never, [
+      'new@example.com',
+    ])
+
+    expect(result.accountId).toBe('11111111-1111-4111-8111-111111111111')
+    expect(
+      page.fetchCalls.some((call) => call.url.includes('org-workspace')),
+    ).toBe(false)
+    expect(
+      page.fetchCalls.some((call) =>
+        call.url.includes(
+          '/accounts/11111111-1111-4111-8111-111111111111/users',
+        ),
+      ),
+    ).toBe(true)
   })
 
   it('plans removals by prioritizing deactivated non-owners first', () => {
@@ -376,11 +438,11 @@ describe('workspace invite helpers', () => {
 
     page.responses.push(
       jsonApiResponse({
-        account_ordering: ['workspace-123'],
+        account_ordering: ['11111111-1111-4111-8111-111111111111'],
         accounts: {
-          'workspace-123': {
+          '11111111-1111-4111-8111-111111111111': {
             account: {
-              account_id: 'workspace-123',
+              account_id: '11111111-1111-4111-8111-111111111111',
               structure: 'workspace',
               plan_type: 'team',
             },
@@ -441,11 +503,11 @@ describe('workspace invite helpers', () => {
 
     page.responses.push(
       jsonApiResponse({
-        account_ordering: ['workspace-123'],
+        account_ordering: ['11111111-1111-4111-8111-111111111111'],
         accounts: {
-          'workspace-123': {
+          '11111111-1111-4111-8111-111111111111': {
             account: {
-              account_id: 'workspace-123',
+              account_id: '11111111-1111-4111-8111-111111111111',
               structure: 'workspace',
               plan_type: 'team',
             },
@@ -483,11 +545,11 @@ describe('workspace invite helpers', () => {
 
     page.responses.push(
       jsonApiResponse({
-        account_ordering: ['workspace-123'],
+        account_ordering: ['11111111-1111-4111-8111-111111111111'],
         accounts: {
-          'workspace-123': {
+          '11111111-1111-4111-8111-111111111111': {
             account: {
-              account_id: 'workspace-123',
+              account_id: '11111111-1111-4111-8111-111111111111',
               structure: 'workspace',
               plan_type: 'team',
             },
@@ -577,11 +639,11 @@ describe('workspace invite helpers', () => {
 
     page.responses.push(
       jsonApiResponse({
-        account_ordering: ['workspace-123'],
+        account_ordering: ['11111111-1111-4111-8111-111111111111'],
         accounts: {
-          'workspace-123': {
+          '11111111-1111-4111-8111-111111111111': {
             account: {
-              account_id: 'workspace-123',
+              account_id: '11111111-1111-4111-8111-111111111111',
               structure: 'workspace',
               plan_type: 'team',
             },
@@ -673,11 +735,11 @@ describe('workspace invite helpers', () => {
 
     page.responses.push(
       jsonApiResponse({
-        account_ordering: ['workspace-123'],
+        account_ordering: ['11111111-1111-4111-8111-111111111111'],
         accounts: {
-          'workspace-123': {
+          '11111111-1111-4111-8111-111111111111': {
             account: {
-              account_id: 'workspace-123',
+              account_id: '11111111-1111-4111-8111-111111111111',
               structure: 'workspace',
               plan_type: 'team',
             },

@@ -18,6 +18,8 @@ const PENDING_INVITES_PAGE_LIMIT = 100
 const PENDING_INVITES_SCAN_LIMIT = 250
 const WORKSPACE_USERS_PAGE_LIMIT = 25
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+const UUID_ACCOUNT_ID_PATTERN =
+  /^(?:urn:uuid:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
 const FORWARDABLE_API_HEADERS: Array<[source: string, target: string]> = [
   ['authorization', 'Authorization'],
@@ -88,7 +90,10 @@ export interface ChatGPTAccountsCheckResponse {
     string,
     {
       account?: {
+        id?: string
         account_id?: string
+        workspace_id?: string | null
+        organization_id?: string | null
         structure?: string | null
         plan_type?: string | null
         is_deactivated?: boolean | null
@@ -249,33 +254,46 @@ export function selectInviteCapableAccount(
   payload: ChatGPTAccountsCheckResponse,
   currentAccountId?: string,
 ): string | undefined {
-  const entries = new Map<
-    string,
-    NonNullable<ChatGPTAccountsCheckResponse['accounts']>[string]
-  >()
+  const entries: ResolvedAccountCheckEntry[] = []
+  const entriesByReference = new Map<string, ResolvedAccountCheckEntry>()
 
   for (const [key, entry] of Object.entries(payload.accounts || {})) {
-    const accountId = entry?.account?.account_id || key
-    if (!accountId || accountId === 'default') continue
-    entries.set(accountId, entry)
+    const accountId = resolveWorkspaceAccountPathId(key, entry)
+    if (!accountId) continue
+
+    const resolvedEntry = {
+      accountId,
+      entry,
+      references: readAccountCheckReferenceIds(key, entry),
+    }
+    entries.push(resolvedEntry)
+
+    for (const reference of resolvedEntry.references) {
+      entriesByReference.set(reference, resolvedEntry)
+    }
   }
 
   const orderedIds = dedupe([
     currentAccountId,
     ...(payload.account_ordering || []),
-    ...entries.keys(),
-  ])
+    ...entries.flatMap((entry) => entry.references),
+  ]).map(normalizeAccountLookupKey)
 
   const currentEntry = currentAccountId
-    ? entries.get(currentAccountId)
+    ? entriesByReference.get(normalizeAccountLookupKey(currentAccountId))
     : undefined
   if (currentAccountId && isInviteCapableAccount(currentEntry)) {
-    return currentAccountId
+    return currentEntry.accountId
   }
 
-  for (const accountId of orderedIds) {
-    if (isInviteCapableAccount(entries.get(accountId))) {
-      return accountId
+  const visitedAccountIds = new Set<string>()
+  for (const referenceId of orderedIds) {
+    const entry = entriesByReference.get(referenceId)
+    if (!entry || visitedAccountIds.has(entry.accountId)) continue
+    visitedAccountIds.add(entry.accountId)
+
+    if (isInviteCapableAccount(entry)) {
+      return entry.accountId
     }
   }
 
@@ -365,7 +383,7 @@ async function inviteMembersViaApi(
   } = {},
 ): Promise<ApiInviteAttempt> {
   const accountId =
-    options.accountId ||
+    normalizeWorkspaceAccountPathId(options.accountId) ||
     (await resolveWorkspaceAccountId(page, options.requestHeaders))
   if (!accountId) {
     return {
@@ -694,13 +712,13 @@ async function captureApiContextFromAdmin(
     if (!url.startsWith(`${CHATGPT_BACKEND_ORIGIN}/backend-api/`)) return
 
     const headers = request.headers()
-    if (!headers.authorization && !headers['chatgpt-account-id']) return
+    const accountId =
+      extractAccountIdFromUrl(url) ||
+      normalizeWorkspaceAccountPathId(headers['chatgpt-account-id'])
+    if (!headers.authorization && !accountId) return
 
     captures.push({
-      accountId:
-        extractAccountIdFromUrl(url) ||
-        headers['chatgpt-account-id'] ||
-        undefined,
+      accountId,
       headers,
     })
   }
@@ -723,7 +741,9 @@ async function resolveWorkspaceAccountId(
   page: Page,
   requestHeaders?: Record<string, string>,
 ): Promise<string | undefined> {
-  const currentAccountId = await readCurrentAccountCookie(page)
+  const currentAccountId = normalizeWorkspaceAccountPathId(
+    await readCurrentAccountCookie(page),
+  )
   const timezoneOffsetMinutes = await page
     .evaluate(() => new Date().getTimezoneOffset())
     .catch(() => new Date().getTimezoneOffset())
@@ -1356,7 +1376,9 @@ function isMissingPendingInviteResponse(
 
 function extractAccountIdFromUrl(url: string): string | undefined {
   const match = url.match(/\/backend-api\/accounts\/([^/?]+)/i)
-  return match?.[1]
+  return normalizeWorkspaceAccountPathId(
+    match ? decodeURIComponent(match[1]) : undefined,
+  )
 }
 
 function pickBestCapturedApiContext(
@@ -1378,14 +1400,71 @@ async function readCurrentAccountCookie(
   return cookie?.value || undefined
 }
 
-function isInviteCapableAccount(
-  entry?: NonNullable<ChatGPTAccountsCheckResponse['accounts']>[string],
-): boolean {
+type AccountCheckEntry = NonNullable<
+  ChatGPTAccountsCheckResponse['accounts']
+>[string]
+
+interface ResolvedAccountCheckEntry {
+  accountId: string
+  entry: AccountCheckEntry
+  references: string[]
+}
+
+function normalizeWorkspaceAccountPathId(value: unknown): string | undefined {
+  const trimmed = typeof value === 'string' ? value.trim() : ''
+  if (!trimmed || trimmed === 'default') {
+    return undefined
+  }
+
+  if (!UUID_ACCOUNT_ID_PATTERN.test(trimmed)) {
+    return undefined
+  }
+
+  return trimmed.replace(/^urn:uuid:/i, '').toLowerCase()
+}
+
+function normalizeAccountLookupKey(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : ''
+}
+
+function readAccountCheckReferenceIds(
+  key: string,
+  entry: AccountCheckEntry,
+): string[] {
   const account = entry?.account
-  if (!account?.account_id) return false
+  return dedupe(
+    [
+      key,
+      account?.account_id,
+      account?.id,
+      account?.workspace_id || undefined,
+      account?.organization_id || undefined,
+    ]
+      .map(normalizeAccountLookupKey)
+      .filter(Boolean),
+  )
+}
+
+function resolveWorkspaceAccountPathId(
+  key: string,
+  entry: AccountCheckEntry,
+): string | undefined {
+  const account = entry?.account
+  return (
+    normalizeWorkspaceAccountPathId(account?.account_id) ||
+    normalizeWorkspaceAccountPathId(account?.workspace_id) ||
+    normalizeWorkspaceAccountPathId(account?.id) ||
+    normalizeWorkspaceAccountPathId(key)
+  )
+}
+
+function isInviteCapableAccount(resolved?: ResolvedAccountCheckEntry): boolean {
+  const account = resolved?.entry.account
+  if (!account) return false
+  if (!resolved?.accountId) return false
   if (account.is_deactivated) return false
   if (account.structure !== 'workspace') return false
-  return entry?.can_access_with_session !== false
+  return resolved.entry.can_access_with_session !== false
 }
 
 function getWorkspaceUserEmail(member: ChatGPTWorkspaceUserRecord): string {
