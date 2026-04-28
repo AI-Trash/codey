@@ -13,6 +13,32 @@ import { decryptSecret, encryptSecret } from './encrypted-secrets'
 import { createId } from './security'
 
 const SUB2API_SERVICE_KIND = 'sub2api' as const
+const ASTRBOT_SERVICE_KIND = 'astrbot' as const
+const DEFAULT_ASTRBOT_BASE_URL = 'http://astrbot:6185'
+const DEFAULT_ASTRBOT_MESSAGE_PATH = '/api/v1/im/message'
+const DEFAULT_ASTRBOT_TIMEOUT_MS = 5_000
+
+type AstrBotAuthMode = Extract<
+  ExternalServiceAuthMode,
+  'api_key' | 'bearer_token'
+>
+
+interface AstrBotServiceSettings {
+  umo?: string
+  messagePath: string
+  timeoutMs: number
+  messageTemplate?: string
+}
+
+export interface AstrBotPayPalNotificationConfig {
+  baseUrl: string
+  messagePath: string
+  umo: string
+  timeoutMs: number
+  apiKey?: string
+  bearerToken?: string
+  messageTemplate?: string
+}
 
 export interface ManagedSub2ApiServiceSummary {
   id: string | null
@@ -36,6 +62,24 @@ export interface ManagedSub2ApiServiceSummary {
   autoFillRelatedModels: boolean
   confirmMixedChannelRisk: boolean
   openaiOAuthResponsesWebSocketV2Mode: Sub2ApiConfig['openaiOAuthResponsesWebSocketV2Mode']
+  updatedByUserId: string | null
+  createdAt: Date | null
+  updatedAt: Date | null
+}
+
+export interface ManagedAstrBotServiceSummary {
+  id: string | null
+  kind: typeof ASTRBOT_SERVICE_KIND
+  enabled: boolean
+  configured: boolean
+  baseUrl: string
+  authMode: AstrBotAuthMode
+  hasApiKey: boolean
+  hasBearerToken: boolean
+  umo: string
+  messagePath: string
+  timeoutMs: number
+  messageTemplate: string
   updatedByUserId: string | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -65,6 +109,19 @@ export interface UpsertSub2ApiServiceInput {
   updatedByUserId?: string
 }
 
+export interface UpsertAstrBotServiceInput {
+  enabled?: boolean
+  baseUrl?: string | null
+  authMode?: AstrBotAuthMode
+  apiKey?: string | null
+  bearerToken?: string | null
+  umo?: string | null
+  messagePath?: string | null
+  timeoutMs?: number | null
+  messageTemplate?: string | null
+  updatedByUserId?: string
+}
+
 function normalizeOptionalText(
   value: string | null | undefined,
 ): string | undefined {
@@ -76,6 +133,20 @@ function normalizeOptionalText(
   return normalized || undefined
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value
+    : undefined
+}
+
+function readRecordString(
+  record: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = record?.[key]
+  return typeof value === 'string' ? normalizeOptionalText(value) : undefined
+}
+
 function resolveOptionalTextUpdate(
   nextValue: string | null | undefined,
   existingValue: string | null | undefined,
@@ -85,6 +156,46 @@ function resolveOptionalTextUpdate(
   }
 
   return normalizeOptionalText(nextValue)
+}
+
+function normalizeAstrBotBaseUrl(value?: string | null): string {
+  const normalized = normalizeOptionalText(value) || DEFAULT_ASTRBOT_BASE_URL
+  return normalized.replace(/\/+$/, '')
+}
+
+function normalizeAstrBotMessagePath(value?: string | null): string {
+  const normalized =
+    normalizeOptionalText(value) || DEFAULT_ASTRBOT_MESSAGE_PATH
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
+function normalizeAstrBotTimeoutMs(value: unknown): number {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : Number.NaN
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_ASTRBOT_TIMEOUT_MS
+  }
+
+  return Math.min(Math.floor(parsed), 60_000)
+}
+
+function resolveAstrBotTimeoutMsUpdate(
+  nextValue: number | null | undefined,
+  existingValue: number,
+): number {
+  if (nextValue === undefined) {
+    return normalizeAstrBotTimeoutMs(existingValue)
+  }
+
+  if (nextValue === null) {
+    return DEFAULT_ASTRBOT_TIMEOUT_MS
+  }
+
+  return normalizeAstrBotTimeoutMs(nextValue)
 }
 
 function normalizeSecret(value: string | null | undefined): string | undefined {
@@ -288,6 +399,97 @@ function toSummary(
   }
 }
 
+function readAstrBotServiceSettings(
+  row: Pick<ExternalServiceConfigRow, 'settings'> | null | undefined,
+): AstrBotServiceSettings {
+  const settings = asRecord(row?.settings)
+  return {
+    umo: readRecordString(settings, 'umo'),
+    messagePath: normalizeAstrBotMessagePath(
+      readRecordString(settings, 'messagePath'),
+    ),
+    timeoutMs: normalizeAstrBotTimeoutMs(settings?.timeoutMs),
+    messageTemplate: readRecordString(settings, 'messageTemplate'),
+  }
+}
+
+function resolveAstrBotAuthMode(
+  row:
+    | Pick<
+        ExternalServiceConfigRow,
+        'authMode' | 'apiKeyCiphertext' | 'bearerTokenCiphertext'
+      >
+    | null
+    | undefined,
+): AstrBotAuthMode {
+  if (row?.authMode === 'bearer_token') {
+    return 'bearer_token'
+  }
+
+  if (row?.authMode === 'api_key') {
+    return 'api_key'
+  }
+
+  if (row?.bearerTokenCiphertext && !row.apiKeyCiphertext) {
+    return 'bearer_token'
+  }
+
+  return 'api_key'
+}
+
+function isAstrBotConfigReady(
+  row:
+    | Pick<
+        ExternalServiceConfigRow,
+        | 'enabled'
+        | 'authMode'
+        | 'apiKeyCiphertext'
+        | 'bearerTokenCiphertext'
+        | 'settings'
+      >
+    | null
+    | undefined,
+): boolean {
+  if (!row?.enabled) {
+    return false
+  }
+
+  const settings = readAstrBotServiceSettings(row)
+  if (!settings.umo) {
+    return false
+  }
+
+  const authMode = resolveAstrBotAuthMode(row)
+  return authMode === 'api_key'
+    ? Boolean(row.apiKeyCiphertext)
+    : Boolean(row.bearerTokenCiphertext)
+}
+
+function toAstrBotSummary(
+  row: ExternalServiceConfigRow | null | undefined,
+): ManagedAstrBotServiceSummary {
+  const settings = readAstrBotServiceSettings(row)
+  const authMode = resolveAstrBotAuthMode(row)
+
+  return {
+    id: row?.id ?? null,
+    kind: ASTRBOT_SERVICE_KIND,
+    enabled: row?.enabled ?? false,
+    configured: isAstrBotConfigReady(row),
+    baseUrl: normalizeAstrBotBaseUrl(row?.baseUrl),
+    authMode,
+    hasApiKey: Boolean(row?.apiKeyCiphertext),
+    hasBearerToken: Boolean(row?.bearerTokenCiphertext),
+    umo: settings.umo ?? '',
+    messagePath: settings.messagePath,
+    timeoutMs: settings.timeoutMs,
+    messageTemplate: settings.messageTemplate ?? '',
+    updatedByUserId: row?.updatedByUserId ?? null,
+    createdAt: row?.createdAt ?? null,
+    updatedAt: row?.updatedAt ?? null,
+  }
+}
+
 async function findSub2ApiServiceRow(): Promise<ExternalServiceConfigRow | null> {
   return (
     (await getDb().query.externalServiceConfigs.findFirst({
@@ -296,8 +498,20 @@ async function findSub2ApiServiceRow(): Promise<ExternalServiceConfigRow | null>
   )
 }
 
+async function findAstrBotServiceRow(): Promise<ExternalServiceConfigRow | null> {
+  return (
+    (await getDb().query.externalServiceConfigs.findFirst({
+      where: eq(externalServiceConfigs.kind, ASTRBOT_SERVICE_KIND),
+    })) ?? null
+  )
+}
+
 export async function getSub2ApiServiceSummary(): Promise<ManagedSub2ApiServiceSummary> {
   return toSummary(await findSub2ApiServiceRow())
+}
+
+export async function getAstrBotServiceSummary(): Promise<ManagedAstrBotServiceSummary> {
+  return toAstrBotSummary(await findAstrBotServiceRow())
 }
 
 export async function hasEnabledSub2ApiServiceConfig(): Promise<boolean> {
@@ -459,6 +673,172 @@ export async function upsertSub2ApiServiceConfig(
   }
 
   return toSummary(row)
+}
+
+export async function upsertAstrBotServiceConfig(
+  input: UpsertAstrBotServiceInput,
+): Promise<ManagedAstrBotServiceSummary> {
+  const existing = await findAstrBotServiceRow()
+  const existingSettings = readAstrBotServiceSettings(existing)
+  const now = new Date()
+  const existingAuthMode = resolveAstrBotAuthMode(existing)
+  const authMode = input.authMode ?? existingAuthMode
+  const enabled = input.enabled ?? existing?.enabled ?? false
+  const baseUrl = normalizeAstrBotBaseUrl(
+    resolveOptionalTextUpdate(input.baseUrl, existing?.baseUrl),
+  )
+  const umo = resolveOptionalTextUpdate(input.umo, existingSettings.umo)
+  const messagePath = normalizeAstrBotMessagePath(
+    resolveOptionalTextUpdate(input.messagePath, existingSettings.messagePath),
+  )
+  const timeoutMs = resolveAstrBotTimeoutMsUpdate(
+    input.timeoutMs,
+    existingSettings.timeoutMs,
+  )
+  const messageTemplate = resolveOptionalTextUpdate(
+    input.messageTemplate,
+    existingSettings.messageTemplate,
+  )
+
+  const nextApiKey =
+    authMode === 'api_key' ? normalizeSecret(input.apiKey) : undefined
+  const nextBearerToken =
+    authMode === 'bearer_token' ? normalizeSecret(input.bearerToken) : undefined
+
+  const apiKeyCiphertext =
+    authMode === 'api_key'
+      ? nextApiKey
+        ? encryptSecret(nextApiKey, 'manage AstrBot API keys')
+        : existingAuthMode === 'api_key'
+          ? (existing?.apiKeyCiphertext ?? undefined)
+          : undefined
+      : undefined
+
+  const bearerTokenCiphertext =
+    authMode === 'bearer_token'
+      ? nextBearerToken
+        ? encryptSecret(nextBearerToken, 'manage AstrBot bearer tokens')
+        : existingAuthMode === 'bearer_token'
+          ? (existing?.bearerTokenCiphertext ?? undefined)
+          : undefined
+      : undefined
+
+  if (enabled) {
+    if (!umo) {
+      throw new Error(
+        'AstrBot target UMO is required before enabling PayPal notifications.',
+      )
+    }
+
+    if (authMode === 'api_key' && !apiKeyCiphertext) {
+      throw new Error(
+        'AstrBot API key is required before enabling api-key auth.',
+      )
+    }
+
+    if (authMode === 'bearer_token' && !bearerTokenCiphertext) {
+      throw new Error(
+        'AstrBot bearer token is required before enabling bearer-token auth.',
+      )
+    }
+  }
+
+  const settings = {
+    ...(umo ? { umo } : {}),
+    messagePath,
+    timeoutMs,
+    ...(messageTemplate ? { messageTemplate } : {}),
+  }
+
+  const payload = {
+    kind: ASTRBOT_SERVICE_KIND,
+    enabled,
+    baseUrl,
+    authMode,
+    apiKeyCiphertext: apiKeyCiphertext ?? null,
+    bearerTokenCiphertext: bearerTokenCiphertext ?? null,
+    email: null,
+    passwordCiphertext: null,
+    loginPath: null,
+    refreshTokenPath: null,
+    accountsPath: null,
+    clientId: null,
+    proxyId: null,
+    concurrency: null,
+    priority: null,
+    groupIds: null,
+    autoFillRelatedModels: null,
+    confirmMixedChannelRisk: null,
+    openaiOAuthResponsesWebSocketV2Mode: null,
+    settings,
+    updatedByUserId: input.updatedByUserId?.trim() || null,
+    updatedAt: now,
+  }
+
+  const [row] = existing
+    ? await getDb()
+        .update(externalServiceConfigs)
+        .set(payload)
+        .where(eq(externalServiceConfigs.id, existing.id))
+        .returning()
+    : await getDb()
+        .insert(externalServiceConfigs)
+        .values({
+          id: createId(),
+          ...payload,
+          createdAt: now,
+        })
+        .returning()
+
+  if (!row) {
+    throw new Error('Unable to save AstrBot configuration.')
+  }
+
+  return toAstrBotSummary(row)
+}
+
+export async function getAstrBotPayPalNotificationConfig(): Promise<AstrBotPayPalNotificationConfig | null> {
+  const row = await findAstrBotServiceRow()
+  if (!row?.enabled) {
+    return null
+  }
+
+  const settings = readAstrBotServiceSettings(row)
+  if (!settings.umo) {
+    throw new Error('AstrBot target UMO is not configured.')
+  }
+
+  const baseConfig = {
+    baseUrl: normalizeAstrBotBaseUrl(row.baseUrl),
+    messagePath: settings.messagePath,
+    umo: settings.umo,
+    timeoutMs: settings.timeoutMs,
+    messageTemplate: settings.messageTemplate,
+  }
+  const authMode = resolveAstrBotAuthMode(row)
+
+  if (authMode === 'api_key') {
+    if (!row.apiKeyCiphertext) {
+      throw new Error('AstrBot API key is not configured.')
+    }
+
+    return {
+      ...baseConfig,
+      apiKey: decryptSecret(row.apiKeyCiphertext, 'decrypt an AstrBot API key'),
+    }
+  }
+
+  if (!row.bearerTokenCiphertext) {
+    throw new Error('AstrBot bearer token is not configured.')
+  }
+
+  return {
+    ...baseConfig,
+    bearerToken: decryptSecret(
+      row.bearerTokenCiphertext,
+      'decrypt an AstrBot bearer token',
+    ),
+  }
 }
 
 export async function getCliSub2ApiConfig(): Promise<Sub2ApiConfig> {

@@ -218,6 +218,13 @@
       "when": 1777300000000,
       "tag": "0030_workspace_invite_authorize_workflows",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1777350000000,
+      "tag": "0031_astrbot_external_service",
+      "breakpoints": true
     }
   ]
 }

@@ -104,7 +104,7 @@ Managed ChatGPT identities and captured session snapshots are now stored directl
 
 Invited OpenAI workspace memberships are also stored in Postgres. `flow chatgpt-invite` syncs the invited workspace ID together with the invited email addresses into Codey, and `/admin/workspaces` lets you review or edit those associations.
 
-When a ChatGPT Team trial flow captures a PayPal billing-agreement link, Codey can send it to AstrBot with AstrBot's OpenAPI proactive message endpoint. Set `ASTRBOT_PAYPAL_UMO` plus either `ASTRBOT_API_KEY` or `ASTRBOT_BEARER_TOKEN`; `ASTRBOT_BASE_URL` defaults to `http://astrbot:6185`, `ASTRBOT_SEND_MESSAGE_PATH` defaults to `/api/v1/im/message`, and `ASTRBOT_TIMEOUT_MS` defaults to `5000`.
+When a ChatGPT Team trial flow captures a PayPal billing-agreement link, Codey can send it to AstrBot with AstrBot's OpenAPI proactive message endpoint. Configure AstrBot in `/admin/external-services` instead of environment variables: set the base URL, auth mode, target UMO, message path, timeout, and optional PayPal message template there. Codey stores the AstrBot secret server-side with the same encrypted-secret storage used by other managed external services.
 
 OIDC signing keys are now managed in Postgres. The app auto-generates an initial signing key on first boot, caches the published JWKS set in memory, and rotates keys automatically. Optional tuning:
 

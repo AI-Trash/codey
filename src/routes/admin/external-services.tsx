@@ -11,7 +11,7 @@ const loadExternalServices = createServerFn({ method: 'GET' }).handler(
     const [
       { getRequest },
       { requireAdminPermission },
-      { getSub2ApiServiceSummary },
+      { getAstrBotServiceSummary, getSub2ApiServiceSummary },
     ] = await Promise.all([
       import('@tanstack/react-start/server'),
       import('../../lib/server/auth'),
@@ -26,6 +26,7 @@ const loadExternalServices = createServerFn({ method: 'GET' }).handler(
       return {
         authorized: true as const,
         sub2api: await getSub2ApiServiceSummary(),
+        astrbot: await getAstrBotServiceSummary(),
       }
     } catch {
       return { authorized: false as const }
@@ -54,7 +55,10 @@ function AdminExternalServicesPage() {
         variant="plain"
       />
 
-      <ExternalServicesPageContent initialSub2Api={data.sub2api} />
+      <ExternalServicesPageContent
+        initialSub2Api={data.sub2api}
+        initialAstrBot={data.astrbot}
+      />
     </div>
   )
 }

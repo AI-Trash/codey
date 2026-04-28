@@ -1,29 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { sendAstrBotPayPalNotification } from './astrbot'
+const mocks = vi.hoisted(() => ({
+  getAstrBotPayPalNotificationConfig: vi.fn(),
+}))
 
-const ORIGINAL_ENV = process.env
+vi.mock('./external-service-configs', () => ({
+  getAstrBotPayPalNotificationConfig: mocks.getAstrBotPayPalNotificationConfig,
+}))
 
 describe('AstrBot PayPal notifications', () => {
   beforeEach(() => {
-    process.env = { ...ORIGINAL_ENV }
-    delete process.env.ASTRBOT_BASE_URL
-    delete process.env.ASTRBOT_API_KEY
-    delete process.env.ASTRBOT_BEARER_TOKEN
-    delete process.env.ASTRBOT_PAYPAL_UMO
-    delete process.env.ASTRBOT_SEND_MESSAGE_PATH
-    delete process.env.ASTRBOT_TIMEOUT_MS
-    delete process.env.ASTRBOT_PAYPAL_MESSAGE_TEMPLATE
-  })
-
-  afterEach(() => {
+    vi.resetAllMocks()
     vi.unstubAllGlobals()
-    process.env = ORIGINAL_ENV
   })
 
-  it('skips sending when no AstrBot target is configured', async () => {
+  it('skips sending when no managed AstrBot target is configured', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
+    mocks.getAstrBotPayPalNotificationConfig.mockResolvedValue(null)
+
+    const { sendAstrBotPayPalNotification } = await import('./astrbot')
 
     await expect(
       sendAstrBotPayPalNotification({
@@ -44,8 +40,15 @@ describe('AstrBot PayPal notifications', () => {
       }),
     )
     vi.stubGlobal('fetch', fetchMock)
-    process.env.ASTRBOT_API_KEY = 'astrbot-key'
-    process.env.ASTRBOT_PAYPAL_UMO = 'webchat:FriendMessage:operator'
+    mocks.getAstrBotPayPalNotificationConfig.mockResolvedValue({
+      baseUrl: 'http://astrbot:6185',
+      messagePath: '/api/v1/im/message',
+      umo: 'webchat:FriendMessage:operator',
+      timeoutMs: 5_000,
+      apiKey: 'astrbot-key',
+    })
+
+    const { sendAstrBotPayPalNotification } = await import('./astrbot')
 
     const result = await sendAstrBotPayPalNotification({
       paypalUrl: 'https://www.paypal.com/pay?token=BA-123ABC',
@@ -103,12 +106,16 @@ describe('AstrBot PayPal notifications', () => {
   it('supports bearer token auth and message templates', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
     vi.stubGlobal('fetch', fetchMock)
-    process.env.ASTRBOT_BASE_URL = 'http://astrbot:6185/'
-    process.env.ASTRBOT_BEARER_TOKEN = 'bearer-token'
-    process.env.ASTRBOT_PAYPAL_UMO = 'webchat:FriendMessage:operator'
-    process.env.ASTRBOT_SEND_MESSAGE_PATH = 'api/v1/im/message'
-    process.env.ASTRBOT_PAYPAL_MESSAGE_TEMPLATE =
-      'Pay {ownerEmail}: {paypalUrl}'
+    mocks.getAstrBotPayPalNotificationConfig.mockResolvedValue({
+      baseUrl: 'http://astrbot:6185',
+      messagePath: '/api/v1/im/message',
+      umo: 'webchat:FriendMessage:operator',
+      timeoutMs: 5_000,
+      bearerToken: 'bearer-token',
+      messageTemplate: 'Pay {ownerEmail}: {paypalUrl}',
+    })
+
+    const { sendAstrBotPayPalNotification } = await import('./astrbot')
 
     await sendAstrBotPayPalNotification({
       paypalUrl: 'https://www.paypal.com/pay?token=BA-123ABC',

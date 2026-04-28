@@ -79,6 +79,7 @@ export type WorkspaceInviteAuthorizeWorkflowPhase =
   | 'FAILED'
 export const externalServiceKindEnum = pgEnum('external_service_kind', [
   'sub2api',
+  'astrbot',
 ])
 export const externalServiceAuthModeEnum = pgEnum(
   'external_service_auth_mode',
@@ -854,6 +855,7 @@ export const externalServiceConfigs = pgTable(
     openaiOAuthResponsesWebSocketV2Mode: text(
       'openai_oauth_responses_websocket_v2_mode',
     ).$type<'off' | 'ctx_pool' | 'passthrough'>(),
+    settings: jsonb('settings').$type<Record<string, unknown>>(),
     updatedByUserId: text('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
