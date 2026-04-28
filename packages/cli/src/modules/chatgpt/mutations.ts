@@ -26,7 +26,6 @@ import {
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
   CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS,
-  CHATGPT_CHECKOUT_PAYPAL_SELECTORS,
   CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
   CHATGPT_TEAM_PRICING_PROMO_URL,
   COMPLETE_ACCOUNT_SELECTORS,
@@ -84,6 +83,30 @@ const STRIPE_ADDRESS_FIELD_SELECTORS = [
 const PAYPAL_HOST_PATTERN = /(^|\.)paypal\.com$/i
 const PAYPAL_CAPTURE_POLL_MS = 250
 const PAYPAL_PAYMENT_METHOD_POLL_MS = 250
+const PAYPAL_PAYMENT_METHOD_SETTLE_MS = 1500
+const CHATGPT_CHECKOUT_PAYPAL_SELECTED_PAYMENT_METHOD_SELECTORS = [
+  '[role="tab"][value="paypal" i][aria-selected="true"]',
+  '[role="tab"][data-testid="paypal" i][aria-selected="true"]',
+  '[role="tab"][aria-controls="paypal-panel" i][aria-selected="true"]',
+  'button[value="paypal" i][aria-selected="true"]',
+  'button[data-testid="paypal" i][aria-selected="true"]',
+  'button#paypal-tab[aria-selected="true"]',
+  'input[value="paypal" i]:checked',
+  '[role="radio"][aria-checked="true"]:has-text("PayPal")',
+  '[role="tab"][aria-selected="true"]:has-text("PayPal")',
+] as const
+const CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTION_STATE_SELECTORS = [
+  '[role="tab"][value="paypal" i][aria-selected]',
+  '[role="tab"][data-testid="paypal" i][aria-selected]',
+  '[role="tab"][aria-controls="paypal-panel" i][aria-selected]',
+  '[role="tab"][value="card" i][aria-selected]',
+  '[role="tab"][data-testid="card" i][aria-selected]',
+  'button#paypal-tab[aria-selected]',
+  'button#card-tab[aria-selected]',
+  'input[value="paypal" i]',
+] as const
+
+type CheckoutLocatorScope = Page | Frame
 
 export interface OpenAIWorkspaceSelectionResult {
   availableWorkspaces: number
@@ -895,16 +918,15 @@ export async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
   const deadline = Date.now() + timeoutMs
 
   do {
-    if (await clickIfPresent(page, CHATGPT_CHECKOUT_PAYPAL_SELECTORS)) {
-      await sleep(500)
-      return true
-    }
+    for (const scope of getPrioritizedCheckoutScopes(page)) {
+      if (await isPaypalPaymentMethodSelected(scope)) {
+        return true
+      }
 
-    for (const frame of getPrioritizedCheckoutFrames(page)) {
       for (const locator of getChatGPTCheckoutPaypalPaymentMethodLocators(
-        frame,
+        scope,
       )) {
-        if (await clickPaypalLocatorIfPresent(locator)) {
+        if (await clickPaypalLocatorIfPresent(locator, scope)) {
           await sleep(500)
           return true
         }
@@ -919,6 +941,10 @@ export async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
   return false
 }
 
+function getPrioritizedCheckoutScopes(page: Page): CheckoutLocatorScope[] {
+  return [page, ...getPrioritizedCheckoutFrames(page)]
+}
+
 function getPrioritizedCheckoutFrames(page: Page): Frame[] {
   const frames = page.frames()
   const paymentFrames = frames.filter(isStripePaymentFrame)
@@ -931,36 +957,146 @@ function isStripePaymentFrame(frame: Frame): boolean {
 }
 
 function getChatGPTCheckoutPaypalPaymentMethodLocators(
-  frame: Frame,
+  scope: CheckoutLocatorScope,
 ): Locator[] {
   return [
-    frame.getByRole('radio', { name: /paypal/i }),
-    frame.getByRole('tab', { name: /paypal/i }),
-    frame.getByRole('button', { name: /paypal/i }),
+    scope.getByRole('radio', { name: /paypal/i }),
+    scope.getByRole('tab', { name: /paypal/i }),
+    scope.getByRole('button', { name: /paypal/i }),
     ...CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS.map((selector) =>
-      frame.locator(selector),
+      scope.locator(selector),
     ),
-    frame.getByText(/paypal/i),
-    frame.locator('label:has-text("PayPal")'),
+    scope.getByText(/paypal/i),
+    scope.locator('label:has-text("PayPal")'),
   ]
 }
 
-async function clickPaypalLocatorIfPresent(locator: Locator): Promise<boolean> {
+async function clickPaypalLocatorIfPresent(
+  locator: Locator,
+  scope: CheckoutLocatorScope,
+): Promise<boolean> {
   const count = await locator.count().catch(() => 0)
   if (count < 1) {
     return false
   }
 
   const candidate = locator.first()
+  if (await isPaypalLocatorSelected(candidate)) {
+    return true
+  }
+
   const visible = await candidate.isVisible().catch(() => false)
   if (!visible) {
     return false
   }
 
+  const hadSelectionState = await hasPaymentMethodSelectionState(scope)
   await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
-  return candidate
+  const clicked = await candidate
     .click()
     .then(() => true)
+    .catch(() => false)
+  if (!clicked) {
+    return false
+  }
+
+  if (!hadSelectionState) {
+    return true
+  }
+
+  if (
+    await waitForPaypalPaymentMethodSelected(
+      scope,
+      PAYPAL_PAYMENT_METHOD_SETTLE_MS,
+    )
+  ) {
+    return true
+  }
+
+  if (await hasPaymentMethodSelectionState(scope)) {
+    return false
+  }
+
+  return true
+}
+
+async function waitForPaypalPaymentMethodSelected(
+  scope: CheckoutLocatorScope,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs)
+
+  do {
+    if (await isPaypalPaymentMethodSelected(scope)) {
+      return true
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+    await sleep(Math.min(PAYPAL_PAYMENT_METHOD_POLL_MS, remainingMs))
+  } while (Date.now() <= deadline)
+
+  return isPaypalPaymentMethodSelected(scope)
+}
+
+async function isPaypalPaymentMethodSelected(
+  scope: CheckoutLocatorScope,
+): Promise<boolean> {
+  for (const selector of CHATGPT_CHECKOUT_PAYPAL_SELECTED_PAYMENT_METHOD_SELECTORS) {
+    const locator = scope.locator(selector).first()
+    const count = await locator.count().catch(() => 0)
+    if (count < 1) continue
+    const visible = await locator.isVisible().catch(() => false)
+    if (visible) return true
+  }
+
+  for (const locator of [
+    scope.getByRole('radio', { name: /paypal/i }),
+    scope.getByRole('tab', { name: /paypal/i }),
+  ]) {
+    const candidate = locator.first()
+    const count = await candidate.count().catch(() => 0)
+    if (count < 1) continue
+    const visible = await candidate.isVisible().catch(() => false)
+    if (visible && (await isPaypalLocatorSelected(candidate))) {
+      return true
+    }
+  }
+
+  return false
+}
+
+async function hasPaymentMethodSelectionState(
+  scope: CheckoutLocatorScope,
+): Promise<boolean> {
+  for (const selector of CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTION_STATE_SELECTORS) {
+    const locator = scope.locator(selector).first()
+    const count = await locator.count().catch(() => 0)
+    if (count < 1) continue
+    const visible = await locator.isVisible().catch(() => false)
+    if (visible) return true
+  }
+
+  return false
+}
+
+async function isPaypalLocatorSelected(locator: Locator): Promise<boolean> {
+  if (typeof locator.evaluate !== 'function') {
+    return false
+  }
+
+  return locator
+    .evaluate((element) => {
+      const selectionRoot = element.closest(
+        '[role="tab"], [role="radio"], button, input',
+      ) as (HTMLElement & { checked?: boolean }) | null
+      const candidate = selectionRoot ?? (element as HTMLElement)
+      return (
+        candidate.getAttribute('aria-selected') === 'true' ||
+        candidate.getAttribute('aria-checked') === 'true' ||
+        candidate.checked === true
+      )
+    })
     .catch(() => false)
 }
 

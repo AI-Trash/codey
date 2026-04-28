@@ -19,7 +19,10 @@ afterEach(() => {
 class FakeCheckoutLocator {
   clicks = 0
 
-  constructor(private readonly visible: boolean | (() => boolean) = false) {}
+  constructor(
+    private readonly visible: boolean | (() => boolean) = false,
+    private readonly onClick?: () => void,
+  ) {}
 
   first(): FakeCheckoutLocator {
     return this
@@ -40,11 +43,18 @@ class FakeCheckoutLocator {
       throw new Error('Locator is not visible')
     }
     this.clicks += 1
+    this.onClick?.()
   }
 
   private isCurrentlyVisible(): boolean {
     return typeof this.visible === 'function' ? this.visible() : this.visible
   }
+}
+
+interface FakeCheckoutFrameOptions {
+  paypalSelectorLocator?: FakeCheckoutLocator
+  hasPaymentSelectionState?: () => boolean
+  paypalSelected?: () => boolean
 }
 
 class FakeCheckoutFrame {
@@ -53,6 +63,7 @@ class FakeCheckoutFrame {
   constructor(
     private readonly paypalTabLocator: FakeCheckoutLocator,
     private readonly frameUrl = 'https://js.stripe.com/v3/elements-inner-payment-test.html',
+    private readonly options: FakeCheckoutFrameOptions = {},
   ) {}
 
   url(): string {
@@ -67,7 +78,34 @@ class FakeCheckoutFrame {
     return this.hiddenLocator
   }
 
-  locator(): FakeCheckoutLocator {
+  locator(selector = ''): FakeCheckoutLocator {
+    const normalizedSelector = selector.toLowerCase()
+    if (
+      normalizedSelector.includes('[aria-selected="true"]') ||
+      normalizedSelector.includes('[aria-checked="true"]') ||
+      normalizedSelector.includes(':checked')
+    ) {
+      return new FakeCheckoutLocator(() =>
+        Boolean(this.options.paypalSelected?.()),
+      )
+    }
+    if (
+      normalizedSelector.includes('[aria-selected]') ||
+      normalizedSelector.includes('[aria-checked]')
+    ) {
+      return new FakeCheckoutLocator(() =>
+        Boolean(this.options.hasPaymentSelectionState?.()),
+      )
+    }
+    if (
+      normalizedSelector.includes('value="paypal"') ||
+      normalizedSelector.includes('data-testid="paypal"') ||
+      normalizedSelector.includes('aria-controls="paypal-panel"') ||
+      normalizedSelector.includes('#paypal-tab')
+    ) {
+      return this.options.paypalSelectorLocator ?? this.hiddenLocator
+    }
+
     return this.hiddenLocator
   }
 }
@@ -172,6 +210,33 @@ describe('paypal payment method selection', () => {
     ).resolves.toBe(true)
 
     expect(paypalTabLocator.clicks).toBe(1)
+  })
+
+  it('switches card and PayPal Stripe tablists to the PayPal tab', async () => {
+    let paypalSelected = false
+    const paypalSelectorLocator = new FakeCheckoutLocator(true, () => {
+      paypalSelected = true
+    })
+    const page = new FakeCheckoutPage([
+      new FakeCheckoutFrame(
+        new FakeCheckoutLocator(false),
+        'https://js.stripe.com/v3/elements-inner-payment-test.html',
+        {
+          paypalSelectorLocator,
+          hasPaymentSelectionState: () => true,
+          paypalSelected: () => paypalSelected,
+        },
+      ),
+    ])
+
+    await expect(
+      selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page as never, {
+        timeoutMs: 1000,
+      }),
+    ).resolves.toBe(true)
+
+    expect(paypalSelectorLocator.clicks).toBe(1)
+    expect(paypalSelected).toBe(true)
   })
 })
 
