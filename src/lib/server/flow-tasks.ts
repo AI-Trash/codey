@@ -3,6 +3,7 @@ import '@tanstack/react-start/server-only'
 import { and, asc, eq, gt, lt, or, sql } from 'drizzle-orm'
 
 import { sanitizeSummaryString } from '../../../packages/cli/src/utils/redaction'
+import { sendAstrBotPayPalNotification } from './astrbot'
 import { getDb } from './db/client'
 import {
   cliConnections,
@@ -15,6 +16,7 @@ import {
 } from './db/schema'
 import { createId } from './security'
 import {
+  normalizeTeamTrialPaypalUrl,
   recordWorkspaceInvitesFromFlowTask,
   recordWorkspaceTeamTrialPaypalUrlFromFlowTask,
 } from './workspaces'
@@ -40,6 +42,16 @@ function normalizeWorkerId(value: string | null | undefined): string | null {
 function normalizeTaskText(value: string | null | undefined): string | null {
   const normalized = normalizeWorkerId(value)
   return normalized ? sanitizeSummaryString(normalized) : null
+}
+
+function readPayPalApprovalUrl(
+  result: Record<string, unknown> | null | undefined,
+): string | null {
+  return normalizeTeamTrialPaypalUrl(
+    typeof result?.paypalApprovalUrl === 'string'
+      ? result.paypalApprovalUrl
+      : null,
+  )
 }
 
 function normalizeRetryMaxAttempts(value?: number | null): number {
@@ -332,8 +344,12 @@ export async function completeFlowTask(input: {
   })
 
   if (input.status === 'SUCCEEDED' && input.result) {
+    let teamTrialWorkspace: Awaited<
+      ReturnType<typeof recordWorkspaceTeamTrialPaypalUrlFromFlowTask>
+    > = null
+
     try {
-      await recordWorkspaceTeamTrialPaypalUrlFromFlowTask({
+      teamTrialWorkspace = await recordWorkspaceTeamTrialPaypalUrlFromFlowTask({
         payload: updated.payload,
         result: input.result,
         capturedAt: now,
@@ -345,6 +361,54 @@ export async function completeFlowTask(input: {
       })
     } catch (error) {
       console.error('Unable to persist flow task completion result', error)
+      await appendFlowTaskEvent({
+        taskId: updated.id,
+        cliConnectionId: connection.id,
+        type: 'LOG',
+        status: updated.status,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Unable to persist flow task completion result',
+      })
+    }
+
+    const paypalUrl = readPayPalApprovalUrl(input.result)
+    if (updated.flowType === 'chatgpt-team-trial' && paypalUrl) {
+      try {
+        const notification = await sendAstrBotPayPalNotification({
+          paypalUrl,
+          workspace: teamTrialWorkspace,
+          capturedAt: now,
+        })
+        if (notification) {
+          await appendFlowTaskEvent({
+            taskId: updated.id,
+            cliConnectionId: connection.id,
+            type: 'LOG',
+            status: updated.status,
+            message: `Sent PayPal link to AstrBot target ${notification.umo}`,
+            payload: {
+              astrbot: {
+                endpoint: notification.endpoint,
+                umo: notification.umo,
+              },
+            },
+          })
+        }
+      } catch (error) {
+        console.error('Unable to send PayPal link to AstrBot', error)
+        await appendFlowTaskEvent({
+          taskId: updated.id,
+          cliConnectionId: connection.id,
+          type: 'LOG',
+          status: updated.status,
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Unable to send PayPal link to AstrBot',
+        })
+      }
     }
   }
 
