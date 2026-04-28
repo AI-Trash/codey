@@ -17,6 +17,7 @@ import {
   createManagedWorkspace,
   deleteManagedWorkspace,
   getTeamTrialPaypalLinkExpiresAt,
+  listAdminManagedWorkspaceAssociationsForIdentity,
   listAdminManagedWorkspaceSummaries,
   normalizeTeamTrialPaypalUrl,
   resetManagedWorkspaceAuthorizationStatuses,
@@ -511,6 +512,125 @@ describe('managed workspace authorization summaries', () => {
         }),
       }),
     ])
+  })
+
+  it('lists workspaces owned by and joined by a managed identity', async () => {
+    const now = new Date('2026-04-23T00:00:00.000Z')
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedIdentities: {
+          findFirst: vi.fn().mockResolvedValue({
+            email: 'member@example.com',
+          }),
+        },
+        managedWorkspaces: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'workspace-record-owner',
+              workspaceId: 'ws_owner',
+              label: 'Owner workspace',
+              ownerIdentity: {
+                identityId: 'identity-1',
+                email: 'member@example.com',
+                label: 'Target identity',
+              },
+              createdAt: now,
+              updatedAt: now,
+              members: [],
+            },
+            {
+              id: 'workspace-record-member',
+              workspaceId: 'ws_member',
+              label: 'Member workspace',
+              ownerIdentity: {
+                identityId: 'owner-2',
+                email: 'owner@example.com',
+                label: 'Owner',
+              },
+              createdAt: now,
+              updatedAt: now,
+              members: [
+                {
+                  id: 'member-row-1',
+                  email: 'member@example.com',
+                  identityId: 'identity-1',
+                  identity: {
+                    identityId: 'identity-1',
+                    email: 'member@example.com',
+                    label: 'Target identity',
+                  },
+                },
+              ],
+            },
+            {
+              id: 'workspace-record-email-member',
+              workspaceId: 'ws_email_member',
+              label: 'Email-linked workspace',
+              ownerIdentity: {
+                identityId: 'owner-3',
+                email: 'owner-3@example.com',
+                label: 'Owner 3',
+              },
+              createdAt: now,
+              updatedAt: now,
+              members: [
+                {
+                  id: 'member-row-2',
+                  email: 'member@example.com',
+                  identityId: null,
+                  identity: null,
+                },
+              ],
+            },
+            {
+              id: 'workspace-record-unrelated',
+              workspaceId: 'ws_unrelated',
+              label: 'Unrelated workspace',
+              ownerIdentity: {
+                identityId: 'owner-4',
+                email: 'owner-4@example.com',
+                label: 'Owner 4',
+              },
+              createdAt: now,
+              updatedAt: now,
+              members: [],
+            },
+          ]),
+        },
+        managedIdentitySessions: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      },
+    })
+
+    await expect(
+      listAdminManagedWorkspaceAssociationsForIdentity('identity-1'),
+    ).resolves.toEqual({
+      ownedWorkspaces: [
+        expect.objectContaining({
+          id: 'workspace-record-owner',
+        }),
+      ],
+      memberWorkspaces: [
+        expect.objectContaining({
+          workspace: expect.objectContaining({
+            id: 'workspace-record-member',
+          }),
+          member: expect.objectContaining({
+            id: 'member-row-1',
+          }),
+        }),
+        expect.objectContaining({
+          workspace: expect.objectContaining({
+            id: 'workspace-record-email-member',
+          }),
+          member: expect.objectContaining({
+            id: 'member-row-2',
+          }),
+        }),
+      ],
+    })
   })
 
   it('resets all stored workspace authorization statuses for the owner and members', async () => {

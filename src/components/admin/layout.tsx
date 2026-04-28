@@ -91,6 +91,33 @@ export type AdminShellUser = {
 function getAdminNavigation(currentUser?: AdminShellUser | null) {
   const navigation = []
 
+  if (hasAdminPermission(currentUser, 'MANAGED_IDENTITIES')) {
+    navigation.push({
+      label: m.admin_nav_workspaces(),
+      to: '/admin/workspaces',
+      icon: AppWindowIcon,
+      matches: (pathname: string) => pathname === '/admin/workspaces',
+    })
+    navigation.push({
+      label: m.admin_nav_identities(),
+      to: '/admin/identities',
+      icon: FingerprintIcon,
+      matches: (pathname: string) =>
+        pathname === '/admin/identities' ||
+        pathname.startsWith('/admin/identities/'),
+    })
+  }
+
+  if (hasAdminPermission(currentUser, 'CLI_OPERATIONS')) {
+    navigation.push({
+      label: m.admin_nav_flows(),
+      to: '/admin/flows',
+      icon: ActivityIcon,
+      matches: (pathname: string) =>
+        pathname === '/admin/flows' || pathname.startsWith('/admin/flows/'),
+    })
+  }
+
   if (hasAdminPermission(currentUser, 'MAIL_INBOX')) {
     navigation.push({
       label: m.admin_nav_mail_inbox(),
@@ -101,34 +128,12 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
     })
   }
 
-  if (hasAdminPermission(currentUser, 'MANAGED_IDENTITIES')) {
-    navigation.push({
-      label: m.admin_nav_identities(),
-      to: '/admin/identities',
-      icon: FingerprintIcon,
-      matches: (pathname: string) => pathname === '/admin/identities',
-    })
-    navigation.push({
-      label: m.admin_nav_workspaces(),
-      to: '/admin/workspaces',
-      icon: AppWindowIcon,
-      matches: (pathname: string) => pathname === '/admin/workspaces',
-    })
-  }
-
   if (hasAdminPermission(currentUser, 'CLI_OPERATIONS')) {
     navigation.push({
       label: m.admin_nav_cli_connections(),
       to: '/admin/cli',
       icon: BotIcon,
       matches: (pathname: string) => pathname === '/admin/cli',
-    })
-    navigation.push({
-      label: m.admin_nav_flows(),
-      to: '/admin/flows',
-      icon: ActivityIcon,
-      matches: (pathname: string) =>
-        pathname === '/admin/flows' || pathname.startsWith('/admin/flows/'),
     })
   }
 
@@ -619,6 +624,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/identities') {
     return m.admin_nav_identities()
+  }
+
+  if (pathname.startsWith('/admin/identities/')) {
+    return m.admin_nav_identity_details()
   }
 
   if (pathname === '/admin/workspaces') {

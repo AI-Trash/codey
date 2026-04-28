@@ -47,6 +47,7 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
     return {
       authorized: true as const,
       clients: (await listOAuthClients()) as ManagedOAuthClient[],
+      appBaseUrl: env.appBaseUrl || new URL(request.url).origin,
       supportedScopes: env.oauthSupportedScopes.length
         ? env.oauthSupportedScopes
         : DEFAULT_OAUTH_SUPPORTED_SCOPES,
@@ -58,6 +59,7 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
     return {
       authorized: false as const,
       clients: [] as ManagedOAuthClient[],
+      appBaseUrl: 'http://localhost:3000',
       supportedScopes: [] as string[],
       verificationDomains: [] as ManagedVerificationDomainOption[],
       canManageDomains: false,
@@ -147,6 +149,7 @@ function AdminAppsListPage() {
         onOpenChange={setCreateDialogOpen}
         supportedScopes={data.supportedScopes}
         verificationDomains={data.verificationDomains}
+        appBaseUrl={data.appBaseUrl}
         onClientCreated={(client) => {
           setClients((current) => [
             client,

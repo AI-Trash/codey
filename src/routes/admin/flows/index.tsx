@@ -9,7 +9,6 @@ import {
   SearchIcon,
   ShieldIcon,
   Trash2Icon,
-  UserRoundIcon,
 } from 'lucide-react'
 
 import type {
@@ -384,16 +383,6 @@ function AdminFlowsPage() {
         .build(),
       dtf
         .text()
-        .id('operator')
-        .accessor(
-          (task) =>
-            task.connection?.userLabel || m.admin_dashboard_unknown_user(),
-        )
-        .displayName(m.admin_cli_table_operator())
-        .icon(UserRoundIcon)
-        .build(),
-      dtf
-        .text()
         .id('target')
         .accessor((task) => task.target || m.oauth_none())
         .displayName(m.admin_dashboard_table_target())
@@ -506,7 +495,7 @@ function AdminFlowsPage() {
               />
             }
             renderTable={({ rows, selection }) => (
-              <Table className="min-w-[1320px]">
+              <Table className="min-w-[1120px]">
                 <TableHeader>
                   <TableRow>
                     <AdminTableSelectionHead
@@ -515,7 +504,6 @@ function AdminFlowsPage() {
                     />
                     <TableHead>{m.admin_session_table_flow()}</TableHead>
                     <TableHead>{m.admin_cli_table_cli()}</TableHead>
-                    <TableHead>{m.admin_cli_table_operator()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_target()}</TableHead>
                     <TableHead>{m.oauth_clients_table_updated()}</TableHead>
                     <TableHead>{m.oauth_clients_table_status()}</TableHead>
@@ -569,17 +557,6 @@ function AdminFlowsPage() {
                           </div>
                           <p className="text-sm text-muted-foreground">
                             {task.connection?.id || m.oauth_none()}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="align-top">
-                        <div className="max-w-[260px] space-y-1">
-                          <div className="font-medium text-foreground">
-                            {task.connection?.userLabel ||
-                              m.admin_dashboard_unknown_user()}
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {task.connection?.authClientId || m.oauth_none()}
                           </p>
                         </div>
                       </TableCell>

@@ -40,12 +40,15 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
 
     try {
       const admin = await requireAdminPermission(request, 'OAUTH_CLIENTS')
+      const env = getAppEnv()
+      const appBaseUrl = env.appBaseUrl || new URL(request.url).origin
 
       const client = await getOAuthClientSummaryById(data.clientId)
       if (!client) {
         return {
           authorized: true as const,
           client: null,
+          appBaseUrl,
           supportedScopes: [] as string[],
           verificationDomains: [] as ManagedVerificationDomainOption[],
           canManageDomains: hasAdminPermission(
@@ -55,11 +58,10 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
         }
       }
 
-      const env = getAppEnv()
-
       return {
         authorized: true as const,
         client: client as ManagedOAuthClient,
+        appBaseUrl,
         supportedScopes: env.oauthSupportedScopes.length
           ? env.oauthSupportedScopes
           : DEFAULT_OAUTH_SUPPORTED_SCOPES,
@@ -131,6 +133,7 @@ function AdminAppsDetailPage() {
         initialClient={data.client}
         supportedScopes={data.supportedScopes}
         verificationDomains={data.verificationDomains}
+        appBaseUrl={data.appBaseUrl}
       />
     </>
   )

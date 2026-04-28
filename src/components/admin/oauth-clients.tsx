@@ -11,6 +11,7 @@ import {
 import {
   AppWindowIcon,
   CalendarIcon,
+  ClipboardCopyIcon,
   GlobeIcon,
   KeyRoundIcon,
   ListIcon,
@@ -110,6 +111,8 @@ type OAuthClientPayload = {
   clientCredentialsEnabled: boolean
   deviceFlowEnabled: boolean
 }
+
+const DEFAULT_APP_BASE_URL = 'http://localhost:3000'
 
 export function AdminAuthRequired() {
   return (
@@ -370,12 +373,14 @@ export function CreateOAuthClientDialog({
   onOpenChange,
   supportedScopes,
   verificationDomains,
+  appBaseUrl,
   onClientCreated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   supportedScopes: string[]
   verificationDomains: ManagedVerificationDomainOption[]
+  appBaseUrl: string
   onClientCreated?: (client: ManagedOAuthClient) => void
 }) {
   const [form, setForm] = useState<OAuthClientFormValues>(() =>
@@ -516,6 +521,10 @@ export function CreateOAuthClientDialog({
                   clientId={created.client.clientId}
                   secret={created.clientSecret}
                   preview={created.client.clientSecretPreview}
+                  tokenEndpointAuthMethod={
+                    created.client.tokenEndpointAuthMethod
+                  }
+                  appBaseUrl={appBaseUrl}
                   footer={
                     <div className="flex flex-wrap gap-2">
                       <Button asChild size="sm">
@@ -549,10 +558,12 @@ export function EditOAuthClientPageContent({
   initialClient,
   supportedScopes,
   verificationDomains,
+  appBaseUrl,
 }: {
   initialClient: ManagedOAuthClient
   supportedScopes: string[]
   verificationDomains: ManagedVerificationDomainOption[]
+  appBaseUrl: string
 }) {
   const [client, setClient] = useState(initialClient)
   const [form, setForm] = useState<OAuthClientFormValues>(() =>
@@ -560,6 +571,7 @@ export function EditOAuthClientPageContent({
   )
   const [saving, setSaving] = useState(false)
   const [revealing, setRevealing] = useState(false)
+  const [copyingEnv, setCopyingEnv] = useState(false)
   const [visibleSecret, setVisibleSecret] = useState<string | null>(null)
 
   useEffect(() => {
@@ -614,23 +626,35 @@ export function EditOAuthClientPageContent({
     }
   }
 
+  async function loadCurrentSecret() {
+    const response = await fetch(
+      `/api/admin/oauth-clients/${client.id}?includeSecret=true`,
+    )
+    if (!response.ok) {
+      throw new Error(await response.text())
+    }
+
+    const data = (await response.json()) as {
+      client: ManagedOAuthClient
+      clientSecret?: string
+    }
+    if (!data.clientSecret) {
+      throw new Error('OAuth client secret is unavailable.')
+    }
+
+    setClient(data.client)
+    return {
+      client: data.client,
+      secret: data.clientSecret,
+    }
+  }
+
   async function revealSecret() {
     setRevealing(true)
 
     try {
-      const response = await fetch(
-        `/api/admin/oauth-clients/${client.id}?includeSecret=true`,
-      )
-      if (!response.ok) {
-        throw new Error(await response.text())
-      }
-
-      const data = (await response.json()) as {
-        client: ManagedOAuthClient
-        clientSecret?: string
-      }
-      setVisibleSecret(data.clientSecret || null)
-      setClient(data.client)
+      const data = await loadCurrentSecret()
+      setVisibleSecret(data.secret)
       showAppToast({
         kind: 'success',
         title: m.oauth_saved_title(),
@@ -647,6 +671,40 @@ export function EditOAuthClientPageContent({
       })
     } finally {
       setRevealing(false)
+    }
+  }
+
+  async function copyEnv() {
+    setCopyingEnv(true)
+
+    try {
+      ensureClipboardAvailable()
+      const data = visibleSecret
+        ? { client, secret: visibleSecret }
+        : await loadCurrentSecret()
+
+      await writeClipboardText(
+        buildOAuthClientEnv({
+          appBaseUrl,
+          clientId: data.client.clientId,
+          clientSecret: data.secret,
+          tokenEndpointAuthMethod: data.client.tokenEndpointAuthMethod,
+        }),
+      )
+      showAppToast({
+        kind: 'success',
+        description: m.oauth_env_copy_success(),
+      })
+    } catch (copyError) {
+      showAppToast({
+        kind: 'error',
+        description: getToastErrorDescription(
+          copyError,
+          m.oauth_env_copy_error(),
+        ),
+      })
+    } finally {
+      setCopyingEnv(false)
     }
   }
 
@@ -769,18 +827,31 @@ export function EditOAuthClientPageContent({
                 })}
               </Badge>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={saving || revealing}
-              onClick={() => {
-                void revealSecret()
-              }}
-            >
-              {revealing
-                ? m.oauth_revealing()
-                : m.oauth_reveal_current_secret()}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving || revealing || copyingEnv}
+                onClick={() => {
+                  void revealSecret()
+                }}
+              >
+                {revealing
+                  ? m.oauth_revealing()
+                  : m.oauth_reveal_current_secret()}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving || revealing || copyingEnv}
+                onClick={() => {
+                  void copyEnv()
+                }}
+              >
+                <ClipboardCopyIcon />
+                {copyingEnv ? m.oauth_copying_env() : m.oauth_copy_env_button()}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -791,6 +862,8 @@ export function EditOAuthClientPageContent({
             clientId={client.clientId}
             secret={visibleSecret}
             preview={client.clientSecretPreview}
+            tokenEndpointAuthMethod={client.tokenEndpointAuthMethod}
+            appBaseUrl={appBaseUrl}
           />
         ) : null}
       </div>
@@ -1037,6 +1110,8 @@ function SecretPanel({
   clientId,
   secret,
   preview,
+  tokenEndpointAuthMethod,
+  appBaseUrl,
   footer,
 }: {
   title: string
@@ -1044,8 +1119,17 @@ function SecretPanel({
   clientId: string
   secret: string
   preview: string
+  tokenEndpointAuthMethod: ManagedOAuthClient['tokenEndpointAuthMethod']
+  appBaseUrl: string
   footer?: ReactNode
 }) {
+  const envValue = buildOAuthClientEnv({
+    appBaseUrl,
+    clientId,
+    clientSecret: secret,
+    tokenEndpointAuthMethod,
+  })
+
   return (
     <Card>
       <CardHeader className="gap-3">
@@ -1057,9 +1141,12 @@ function SecretPanel({
               <InfoTooltip content={body} label={title} className="mt-0.5" />
             </div>
           </div>
-          <Badge variant="outline">
-            {m.oauth_secret_preview_badge({ preview })}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">
+              {m.oauth_secret_preview_badge({ preview })}
+            </Badge>
+            <CopyEnvButton value={envValue} />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -1072,6 +1159,40 @@ function SecretPanel({
         {footer}
       </CardContent>
     </Card>
+  )
+}
+
+function CopyEnvButton({ value }: { value: string }) {
+  async function handleCopy() {
+    try {
+      await writeClipboardText(value)
+      showAppToast({
+        kind: 'success',
+        description: m.oauth_env_copy_success(),
+      })
+    } catch (copyError) {
+      showAppToast({
+        kind: 'error',
+        description: getToastErrorDescription(
+          copyError,
+          m.oauth_env_copy_error(),
+        ),
+      })
+    }
+  }
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      onClick={() => {
+        void handleCopy()
+      }}
+    >
+      <ClipboardCopyIcon />
+      {m.oauth_copy_env_button()}
+    </Button>
   )
 }
 
@@ -1258,4 +1379,51 @@ function normalizeDate(value: string | Date | null | undefined) {
 
   const normalized = value instanceof Date ? value : new Date(value)
   return Number.isNaN(normalized.getTime()) ? undefined : normalized
+}
+
+function buildOAuthClientEnv(input: {
+  appBaseUrl: string
+  clientId: string
+  clientSecret: string
+  tokenEndpointAuthMethod: ManagedOAuthClient['tokenEndpointAuthMethod']
+}) {
+  const appBaseUrl = input.appBaseUrl.trim() || DEFAULT_APP_BASE_URL
+  const lines = [
+    ['VERIFICATION_PROVIDER', 'app'],
+    ['CODEY_APP_BASE_URL', appBaseUrl],
+    ['CODEY_APP_CLIENT_ID', input.clientId],
+    ['CODEY_APP_CLIENT_SECRET', input.clientSecret],
+    ['CODEY_APP_TOKEN_ENDPOINT_AUTH_METHOD', input.tokenEndpointAuthMethod],
+    ['CODEY_APP_CLI_EVENTS_PATH', '/api/cli/events'],
+    ['CODEY_APP_DEVICE_START_PATH', '/api/device'],
+    ['CODEY_APP_DEVICE_STATUS_PATH', '/api/device/{deviceCode}'],
+    ['CODEY_APP_DEVICE_EVENTS_PATH', '/api/device/{deviceCode}/events'],
+    ['CODEY_APP_RESERVE_EMAIL_PATH', '/api/verification/email-reservations'],
+    ['CODEY_APP_CODE_PATH', '/api/verification/codes'],
+    ['CODEY_APP_EVENTS_PATH', '/api/verification/events'],
+  ] as const
+
+  return `${lines
+    .map(([name, value]) => `${name}=${formatEnvValue(value)}`)
+    .join('\n')}\n`
+}
+
+function formatEnvValue(value: string) {
+  if (/^[A-Za-z0-9_./:@{}-]+$/.test(value)) {
+    return value
+  }
+
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+async function writeClipboardText(value: string) {
+  ensureClipboardAvailable()
+
+  await navigator.clipboard.writeText(value)
+}
+
+function ensureClipboardAvailable() {
+  if (typeof navigator === 'undefined' || !navigator.clipboard) {
+    throw new Error(m.clipboard_copy_error())
+  }
 }

@@ -71,6 +71,16 @@ export interface AdminManagedWorkspaceSummary {
 
 export type ResolvedManagedWorkspaceAssociation = AdminManagedWorkspaceSummary
 
+export interface AdminManagedIdentityMemberWorkspaceSummary {
+  workspace: AdminManagedWorkspaceSummary
+  member: AdminManagedWorkspaceMemberSummary
+}
+
+export interface AdminManagedIdentityWorkspaceAssociations {
+  ownedWorkspaces: AdminManagedWorkspaceSummary[]
+  memberWorkspaces: AdminManagedIdentityMemberWorkspaceSummary[]
+}
+
 interface ManagedIdentityLookupRow {
   identityId: string
   email: string
@@ -1115,6 +1125,62 @@ export async function findAdminManagedWorkspaceSummary(
     row,
     authorizationsByWorkspaceIdentity,
   )
+}
+
+export async function listAdminManagedWorkspaceAssociationsForIdentity(
+  identityId: string,
+): Promise<AdminManagedIdentityWorkspaceAssociations> {
+  const normalizedIdentityId = normalizeOptionalIdentityId(identityId)
+  if (!normalizedIdentityId) {
+    return {
+      ownedWorkspaces: [],
+      memberWorkspaces: [],
+    }
+  }
+
+  const identity = await getDb().query.managedIdentities.findFirst({
+    where: eq(managedIdentities.identityId, normalizedIdentityId),
+    columns: {
+      email: true,
+    },
+  })
+  if (!identity) {
+    return {
+      ownedWorkspaces: [],
+      memberWorkspaces: [],
+    }
+  }
+
+  const identityEmail = normalizeEmail(identity.email)
+  const workspaces = await listAdminManagedWorkspaceSummaries()
+  const ownedWorkspaces: AdminManagedWorkspaceSummary[] = []
+  const memberWorkspaces: AdminManagedIdentityMemberWorkspaceSummary[] = []
+
+  for (const workspace of workspaces) {
+    if (workspace.owner?.identityId === normalizedIdentityId) {
+      ownedWorkspaces.push(workspace)
+    }
+
+    const member =
+      workspace.members.find(
+        (entry) => entry.identityId === normalizedIdentityId,
+      ) ||
+      workspace.members.find(
+        (entry) => normalizeEmail(entry.email) === identityEmail,
+      )
+
+    if (member) {
+      memberWorkspaces.push({
+        workspace,
+        member,
+      })
+    }
+  }
+
+  return {
+    ownedWorkspaces,
+    memberWorkspaces,
+  }
 }
 
 export async function createManagedWorkspace(input: {

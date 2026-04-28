@@ -573,6 +573,12 @@ function isWorkspaceAuthorized(
   return authorization?.state === 'authorized'
 }
 
+function getWorkspaceAuthorizedMemberCount(workspace: WorkspaceSummary) {
+  return workspace.members.filter((member) =>
+    isWorkspaceAuthorized(member.authorization),
+  ).length
+}
+
 function canResetWorkspaceAuthorization(
   authorization?: WorkspaceAuthorizationSummary | null,
   identityId?: string | null,
@@ -994,41 +1000,6 @@ function WorkspacePaypalAction(props: {
       <ExternalLinkIcon />
       {m.admin_workspace_team_trial_paypal_button()}
     </Button>
-  )
-}
-
-function WorkspaceMembersPreview(props: { workspace: WorkspaceSummary }) {
-  if (!props.workspace.members.length) {
-    return (
-      <span className="text-sm text-muted-foreground">{m.oauth_none()}</span>
-    )
-  }
-
-  const visibleMembers = props.workspace.members.slice(0, 2)
-  const hiddenCount = props.workspace.members.length - visibleMembers.length
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        {visibleMembers.map((member) => (
-          <Badge key={member.id} variant="secondary" className="max-w-full">
-            <span className="truncate">
-              {member.identityLabel || member.email}
-            </span>
-          </Badge>
-        ))}
-        {hiddenCount > 0 ? (
-          <Badge variant="outline">
-            {m.admin_workspace_member_more({
-              count: String(hiddenCount),
-            })}
-          </Badge>
-        ) : null}
-      </div>
-      <div className="text-xs text-muted-foreground">
-        {props.workspace.memberCount} {m.admin_workspace_members_label()}
-      </div>
-    </div>
   )
 }
 
@@ -2778,7 +2749,7 @@ function AdminWorkspacesPage() {
           <CardContent className="flex min-h-0 flex-1 flex-col">
             {filteredWorkspaces.length ? (
               <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
-                <Table className="min-w-[1280px]">
+                <Table className="min-w-[1120px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>{m.admin_workspace_table_label()}</TableHead>
@@ -2786,7 +2757,6 @@ function AdminWorkspacesPage() {
                         {m.admin_workspace_table_workspace_id()}
                       </TableHead>
                       <TableHead>{m.admin_workspace_table_owner()}</TableHead>
-                      <TableHead>{m.admin_workspace_table_members()}</TableHead>
                       <TableHead>
                         {m.admin_workspace_table_updated_at()}
                       </TableHead>
@@ -2821,8 +2791,16 @@ function AdminWorkspacesPage() {
                                 {getWorkspaceDisplayLabel(workspace)}
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                {workspace.memberCount}{' '}
-                                {m.admin_workspace_members_label()}
+                                {m.admin_workspace_member_authorization_summary(
+                                  {
+                                    count: String(workspace.memberCount),
+                                    authorized: String(
+                                      getWorkspaceAuthorizedMemberCount(
+                                        workspace,
+                                      ),
+                                    ),
+                                  },
+                                )}
                               </div>
                             </div>
                           </TableCell>
@@ -2851,18 +2829,12 @@ function AdminWorkspacesPage() {
                                 <div className="text-sm text-muted-foreground">
                                   {workspace.owner.email}
                                 </div>
-                                <WorkspaceAuthorizationBadge
-                                  authorization={workspace.owner.authorization}
-                                />
                               </div>
                             ) : (
                               <span className="text-sm text-muted-foreground">
                                 {m.admin_workspace_owner_missing()}
                               </span>
                             )}
-                          </TableCell>
-                          <TableCell className="align-top">
-                            <WorkspaceMembersPreview workspace={workspace} />
                           </TableCell>
                           <TableCell className="align-top text-sm text-muted-foreground">
                             <div className="flex items-center gap-2">

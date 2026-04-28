@@ -13,6 +13,7 @@ import {
   CalendarIcon,
   ClipboardCopyIcon,
   DownloadIcon,
+  EyeIcon,
   SearchIcon,
   ShieldIcon,
   SquarePenIcon,
@@ -853,10 +854,34 @@ function IdentityRowActions(props: {
   return (
     <TooltipProvider>
       <div className="flex items-start gap-2">
+        <IdentityDetailAction summary={props.summary} />
         <IdentityEditAction summary={props.summary} onSaved={props.onSaved} />
         <IdentityDeleteAction summary={props.summary} />
       </div>
     </TooltipProvider>
+  )
+}
+
+function IdentityDetailAction(props: { summary: IdentitySummary }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          asChild
+          size="icon-sm"
+          variant="outline"
+          aria-label={m.admin_identity_detail_button()}
+          title={m.admin_identity_detail_button()}
+        >
+          <a href={`/admin/identities/${encodeURIComponent(props.summary.id)}`}>
+            <EyeIcon />
+          </a>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent sideOffset={6}>
+        {m.admin_identity_detail_button()}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
