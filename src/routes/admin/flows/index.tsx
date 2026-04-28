@@ -6,7 +6,6 @@ import {
   ActivityIcon,
   BotIcon,
   CalendarIcon,
-  SearchIcon,
   ShieldIcon,
   Trash2Icon,
 } from 'lucide-react'
@@ -382,13 +381,6 @@ function AdminFlowsPage() {
         .icon(BotIcon)
         .build(),
       dtf
-        .text()
-        .id('target')
-        .accessor((task) => task.target || m.oauth_none())
-        .displayName(m.admin_dashboard_table_target())
-        .icon(SearchIcon)
-        .build(),
-      dtf
         .date()
         .id('updatedAt')
         .accessor((task) => normalizeDate(task.updatedAt))
@@ -495,7 +487,7 @@ function AdminFlowsPage() {
               />
             }
             renderTable={({ rows, selection }) => (
-              <Table className="min-w-[1120px]">
+              <Table className="min-w-[960px]">
                 <TableHeader>
                   <TableRow>
                     <AdminTableSelectionHead
@@ -504,7 +496,6 @@ function AdminFlowsPage() {
                     />
                     <TableHead>{m.admin_session_table_flow()}</TableHead>
                     <TableHead>{m.admin_cli_table_cli()}</TableHead>
-                    <TableHead>{m.admin_dashboard_table_target()}</TableHead>
                     <TableHead>{m.oauth_clients_table_updated()}</TableHead>
                     <TableHead>{m.oauth_clients_table_status()}</TableHead>
                     <TableHead>{m.admin_dashboard_table_manage()}</TableHead>
@@ -559,9 +550,6 @@ function AdminFlowsPage() {
                             {task.connection?.id || m.oauth_none()}
                           </p>
                         </div>
-                      </TableCell>
-                      <TableCell className="align-top text-sm text-muted-foreground">
-                        {task.target || m.oauth_none()}
                       </TableCell>
                       <TableCell className="align-top text-sm text-muted-foreground">
                         {formatAdminDate(task.updatedAt) || m.status_unknown()}

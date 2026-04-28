@@ -11,6 +11,7 @@ import {
 import {
   type AdminCliConnectionSummary,
   getAdminCliConnectionSummaryById,
+  listAdminCliConnectionState,
   listAdminCliConnectionStateForActor,
   type CliConnectionActorScope,
   isCliConnectionOwnedByActor,
@@ -271,6 +272,58 @@ function supportsEmailBatchDispatch(
   return flowId === 'chatgpt-invite' || flowId === 'codex-oauth'
 }
 
+function inferActorScopeFromConnection(
+  connection: AdminCliConnectionSummary,
+): CliConnectionActorScope | undefined {
+  if (connection.userId) {
+    return {
+      userId: connection.userId,
+      githubLogin: connection.githubLogin,
+      email: connection.email,
+    }
+  }
+
+  if (connection.target) {
+    return {
+      githubLogin: connection.target,
+      email: connection.target,
+    }
+  }
+
+  return undefined
+}
+
+async function listEligibleConnectionsForDispatch(input: {
+  connection: AdminCliConnectionSummary
+  flowId: string
+  actor?: CliConnectionActorScope
+}) {
+  const actor = input.actor || inferActorScopeFromConnection(input.connection)
+  if (actor) {
+    return (
+      await listAdminCliConnectionStateForActor(actor)
+    ).activeConnections.filter(
+      (candidate) =>
+        candidate.status === 'active' &&
+        candidate.registeredFlows.includes(input.flowId),
+    )
+  }
+
+  if (isSharedCliConnection(input.connection)) {
+    return (
+      await listAdminCliConnectionState()
+    ).activeConnections.filter(
+      (candidate) =>
+        candidate.status === 'active' &&
+        candidate.authClientId === input.connection.authClientId &&
+        isSharedCliConnection(candidate) &&
+        candidate.registeredFlows.includes(input.flowId),
+    )
+  }
+
+  return [input.connection]
+}
+
 function validateBatchedCliFlowConfigs<
   TFlowId extends CliFlowCommandId,
 >(input: {
@@ -385,15 +438,11 @@ async function resolveDispatchableCliFlow(input: {
     throw new Error('Unsupported flow type.')
   }
 
-  const eligibleConnections = input.actor
-    ? (
-        await listAdminCliConnectionStateForActor(input.actor)
-      ).activeConnections.filter(
-        (candidate) =>
-          candidate.status === 'active' &&
-          candidate.registeredFlows.includes(input.flowId),
-      )
-    : [connection]
+  const eligibleConnections = await listEligibleConnectionsForDispatch({
+    connection,
+    flowId: input.flowId,
+    actor: input.actor,
+  })
 
   if (
     !eligibleConnections.some((candidate) => candidate.id === connection.id)

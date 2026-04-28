@@ -508,7 +508,7 @@
   "admin_flow_force_clear_success": "Force-cleared {count} flow tasks.",
   "admin_flow_force_clear_empty": "There are no flow tasks to force-clear right now.",
   "admin_flow_force_clear_error": "Unable to force-clear flow tasks.",
-  "admin_flow_search_placeholder": "Search flow, task ID, CLI, target, or log message",
+  "admin_flow_search_placeholder": "Search flow, task ID, CLI, or log message",
   "admin_flow_list_title": "Recent runs",
   "admin_flow_list_description": "Choose a flow task to inspect its status, connection context, and latest log timeline.",
   "admin_flow_list_empty_title": "No flow runs yet",

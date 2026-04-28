@@ -66,6 +66,7 @@ import {
   FlowTaskSchedulerCancelledError,
 } from '../flow-cli/task-scheduler'
 import { assertFlowTaskExecutionSucceeded } from '../flow-cli/task-completion'
+import { getFlowTaskFullRetryDecision } from '../flow-cli/task-retry'
 import { PromptCanceledError } from './prompt-io'
 import { PromptShell } from './prompt-shell'
 
@@ -787,11 +788,20 @@ export async function runPromptDashboard(input: {
               const completedAt = new Date().toISOString()
               const interrupted =
                 error instanceof FlowInterruptedError || isAbortError(error)
+              const retryDecision = interrupted
+                ? undefined
+                : getFlowTaskFullRetryDecision({
+                    flowId: task.flowId,
+                    error,
+                  })
+              const failureMessage = retryDecision
+                ? retryDecision.message
+                : sanitized.message
 
               updateState((state) =>
                 failDashboardFlow(state, {
                   flowId: task.flowId,
-                  message: sanitized.message,
+                  message: failureMessage,
                   completedAt,
                 }),
               )
@@ -799,7 +809,7 @@ export async function runPromptDashboard(input: {
                 runtimeFlowId: task.flowId,
                 runtimeTaskId: task.notificationId,
                 runtimeFlowStatus: 'failed',
-                runtimeFlowMessage: sanitized.message,
+                runtimeFlowMessage: failureMessage,
                 runtimeFlowStartedAt: startedAt,
                 runtimeFlowCompletedAt: completedAt,
               })
@@ -808,7 +818,8 @@ export async function runPromptDashboard(input: {
                   await task.leaseReporter.complete({
                     status: interrupted ? 'CANCELED' : 'FAILED',
                     error: interrupted ? undefined : sanitized.message,
-                    message: sanitized.message,
+                    message: failureMessage,
+                    ...(retryDecision ? { retry: retryDecision } : {}),
                   })
                 } catch (leaseError) {
                   logTaskLeaseError(

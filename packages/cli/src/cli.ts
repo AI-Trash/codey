@@ -61,7 +61,7 @@ import {
 import { normalizeFlowCliArgsForCommand } from './modules/flow-cli/parse-argv'
 import { runPromptDashboard } from './modules/tui/dashboard'
 import { runWithSession } from './modules/flow-cli/run-with-session'
-import { isOpenAIAddPhoneRequiredError } from './state-machine'
+import { getFlowTaskFullRetryDecision } from './modules/flow-cli/task-retry'
 import {
   buildFailedFlowCommandExecution,
   buildFlowCommandExecutionResult,
@@ -87,8 +87,6 @@ import { FlowTaskScheduler } from './modules/flow-cli/task-scheduler'
 initializeCliFileLogging({
   rootDir: resolveWorkspaceRoot(fileURLToPath(import.meta.url)),
 })
-
-const CHATGPT_INVITE_ADD_PHONE_RETRY_MAX_ATTEMPTS = 2
 
 async function runFlowCommand(
   subcommand: CliFlowCommandId,
@@ -282,16 +280,6 @@ function buildFlowTaskCompletionResult(
       ? { paypalBaTokenCaptured: result.paypalBaTokenCaptured }
       : {}),
   }
-}
-
-function shouldResetFlowTaskForFullRetry(input: {
-  flowId: CliFlowCommandId
-  error: unknown
-}): boolean {
-  return (
-    input.flowId === 'chatgpt-invite' &&
-    isOpenAIAddPhoneRequiredError(input.error)
-  )
 }
 
 async function executeFlowSubcommand(
@@ -824,11 +812,18 @@ async function runDaemonCommand(
                 }
               } catch (error) {
                 const sanitized = sanitizeErrorForOutput(error)
+                const retryDecision = getFlowTaskFullRetryDecision({
+                  flowId: task.flowId,
+                  error,
+                })
+                const failureMessage = retryDecision
+                  ? retryDecision.message
+                  : sanitized.message
                 lastRuntimeState = {
                   flowId: task.flowId,
                   notificationId: task.notificationId,
                   status: 'failed',
-                  message: sanitized.message,
+                  message: failureMessage,
                   startedAt,
                   completedAt: new Date().toISOString(),
                 }
@@ -847,29 +842,11 @@ async function runDaemonCommand(
                 )
                 if (task.leaseReporter) {
                   try {
-                    const retryThroughCodeyApp =
-                      shouldResetFlowTaskForFullRetry({
-                        flowId: task.flowId,
-                        error,
-                      })
-                    const retryMessage =
-                      'OpenAI requested a phone number during the invite flow; resetting the Codey task for a full retry.'
                     await task.leaseReporter.complete({
                       status: 'FAILED',
                       error: sanitized.message,
-                      message: retryThroughCodeyApp
-                        ? retryMessage
-                        : sanitized.message,
-                      ...(retryThroughCodeyApp
-                        ? {
-                            retry: {
-                              reason: 'chatgpt-invite:add-phone-required',
-                              message: retryMessage,
-                              maxAttempts:
-                                CHATGPT_INVITE_ADD_PHONE_RETRY_MAX_ATTEMPTS,
-                            },
-                          }
-                        : {}),
+                      message: failureMessage,
+                      ...(retryDecision ? { retry: retryDecision } : {}),
                     })
                   } catch (leaseError) {
                     logTaskLeaseError(

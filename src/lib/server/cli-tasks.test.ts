@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   isCliConnectionOwnedByActor: vi.fn(),
   isSharedCliConnection: vi.fn(),
+  listAdminCliConnectionState: vi.fn(),
   listAdminCliConnectionStateForActor: vi.fn(),
 }))
 
@@ -21,6 +22,7 @@ vi.mock('./cli-connections', () => ({
   getAdminCliConnectionSummaryById: mocks.getAdminCliConnectionSummaryById,
   isCliConnectionOwnedByActor: mocks.isCliConnectionOwnedByActor,
   isSharedCliConnection: mocks.isSharedCliConnection,
+  listAdminCliConnectionState: mocks.listAdminCliConnectionState,
   listAdminCliConnectionStateForActor:
     mocks.listAdminCliConnectionStateForActor,
 }))
@@ -260,6 +262,128 @@ describe('cli flow task dispatch', () => {
           ).batch?.parallelism,
       ),
     ).toEqual([undefined, undefined, undefined, undefined])
+  })
+
+  it('infers the dispatch scope for internal batch work without an explicit actor', async () => {
+    const anchorConnection = createCliConnectionSummary({
+      id: 'connection-a',
+      workerId: 'worker-a',
+      cliName: 'CLI A',
+      registeredFlows: ['codex-oauth'],
+      lastSeenAt: '2026-04-24T00:00:05.000Z',
+    })
+    const connectionB = createCliConnectionSummary({
+      id: 'connection-b',
+      workerId: 'worker-b',
+      cliName: 'CLI B',
+      registeredFlows: ['codex-oauth'],
+      lastSeenAt: '2026-04-24T00:00:04.000Z',
+    })
+    const connectionC = createCliConnectionSummary({
+      id: 'connection-c',
+      workerId: 'worker-c',
+      cliName: 'CLI C',
+      registeredFlows: ['codex-oauth'],
+      lastSeenAt: '2026-04-24T00:00:03.000Z',
+    })
+    const { insertedTasks } = createTransactionRecorder()
+
+    mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
+    mocks.listAdminCliConnectionStateForActor.mockResolvedValue({
+      snapshotAt: '2026-04-24T00:00:06.000Z',
+      activeConnections: [connectionB, connectionC, anchorConnection],
+    })
+
+    const result = await dispatchCliFlowTasks({
+      connectionId: anchorConnection.id,
+      flowId: 'codex-oauth',
+      configs: Array.from({ length: 10 }, (_, index) => ({
+        email: `person-${index + 1}@example.com`,
+      })),
+    })
+
+    expect(mocks.listAdminCliConnectionStateForActor).toHaveBeenCalledWith({
+      userId: 'user-1',
+      githubLogin: 'octocat',
+      email: 'octocat@example.com',
+    })
+    expect(result.assignedCliCount).toBe(3)
+    expect(insertedTasks.map((task) => task.workerId)).toEqual([
+      'worker-a',
+      'worker-b',
+      'worker-c',
+      'worker-a',
+      'worker-b',
+      'worker-c',
+      'worker-a',
+      'worker-b',
+      'worker-c',
+      'worker-a',
+    ])
+  })
+
+  it('spreads internal batch work across shared service-client CLIs', async () => {
+    const anchorConnection = createCliConnectionSummary({
+      id: 'connection-a',
+      workerId: 'worker-a',
+      userId: null,
+      authClientId: 'oauth-client-1',
+      target: null,
+      cliName: 'Shared CLI A',
+      registeredFlows: ['codex-oauth'],
+      lastSeenAt: '2026-04-24T00:00:05.000Z',
+    })
+    const connectionB = createCliConnectionSummary({
+      id: 'connection-b',
+      workerId: 'worker-b',
+      userId: null,
+      authClientId: 'oauth-client-1',
+      target: null,
+      cliName: 'Shared CLI B',
+      registeredFlows: ['codex-oauth'],
+      lastSeenAt: '2026-04-24T00:00:04.000Z',
+    })
+    const otherClientConnection = createCliConnectionSummary({
+      id: 'connection-c',
+      workerId: 'worker-c',
+      userId: null,
+      authClientId: 'oauth-client-2',
+      target: null,
+      cliName: 'Shared CLI C',
+      registeredFlows: ['codex-oauth'],
+      lastSeenAt: '2026-04-24T00:00:03.000Z',
+    })
+    const { insertedTasks } = createTransactionRecorder()
+
+    mocks.isSharedCliConnection.mockImplementation(
+      (connection: { userId: string | null; target: string | null }) =>
+        !connection.userId && !connection.target,
+    )
+    mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
+    mocks.listAdminCliConnectionState.mockResolvedValue({
+      snapshotAt: '2026-04-24T00:00:06.000Z',
+      activeConnections: [
+        connectionB,
+        otherClientConnection,
+        anchorConnection,
+      ],
+    })
+
+    const result = await dispatchCliFlowTasks({
+      connectionId: anchorConnection.id,
+      flowId: 'codex-oauth',
+      configs: Array.from({ length: 4 }, (_, index) => ({
+        email: `shared-${index + 1}@example.com`,
+      })),
+    })
+
+    expect(result.assignedCliCount).toBe(2)
+    expect(insertedTasks.map((task) => task.workerId)).toEqual([
+      'worker-a',
+      'worker-b',
+      'worker-a',
+      'worker-b',
+    ])
   })
 
   it('prioritizes a CLI worker that reports local storage state for the requested identity', async () => {

@@ -513,7 +513,7 @@
   "admin_flow_force_clear_success": "已强制清空 {count} 条流程任务。",
   "admin_flow_force_clear_empty": "当前没有流程任务可强制清空。",
   "admin_flow_force_clear_error": "强制清空流程任务失败。",
-  "admin_flow_search_placeholder": "搜索流程、任务 ID、CLI、目标或日志消息",
+  "admin_flow_search_placeholder": "搜索流程、任务 ID、CLI 或日志消息",
   "admin_flow_list_title": "最近运行",
   "admin_flow_list_description": "选择一个流程任务，查看它的状态、连接上下文和最近日志时间线。",
   "admin_flow_list_empty_title": "还没有流程运行记录",
