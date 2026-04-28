@@ -360,8 +360,16 @@ export interface CliFlowTaskWorkspaceMetadata {
   }
 }
 
+export interface CliFlowTaskIdentityMaintenanceMetadata {
+  kind: 'identity-maintenance'
+  runId?: string
+  identityId: string
+  email?: string
+}
+
 export interface CliFlowTaskMetadata {
   workspace?: CliFlowTaskWorkspaceMetadata
+  identityMaintenance?: CliFlowTaskIdentityMaintenanceMetadata
 }
 
 export const DEFAULT_CLI_FLOW_TASK_COUNT = 1
@@ -992,10 +1000,55 @@ function normalizeCliFlowTaskMetadata(
   }
 
   const workspace = isRecord(value.workspace) ? value.workspace : undefined
-  if (!workspace) {
+  const identityMaintenance = isRecord(value.identityMaintenance)
+    ? value.identityMaintenance
+    : undefined
+  const normalizedIdentityMaintenance = identityMaintenance
+    ? normalizeCliFlowTaskIdentityMaintenanceMetadata(identityMaintenance)
+    : undefined
+
+  if (!workspace && !normalizedIdentityMaintenance) {
     return undefined
   }
 
+  const normalizedWorkspace = workspace
+    ? normalizeCliFlowTaskWorkspaceMetadata(workspace)
+    : undefined
+
+  return {
+    ...(normalizedWorkspace ? { workspace: normalizedWorkspace } : {}),
+    ...(normalizedIdentityMaintenance
+      ? { identityMaintenance: normalizedIdentityMaintenance }
+      : {}),
+  }
+}
+
+function normalizeCliFlowTaskIdentityMaintenanceMetadata(
+  value: Record<string, unknown>,
+): CliFlowTaskIdentityMaintenanceMetadata | undefined {
+  if (value.kind !== 'identity-maintenance') {
+    return undefined
+  }
+
+  const identityId = normalizeOptionalMetadataString(value.identityId)
+  if (!identityId) {
+    return undefined
+  }
+
+  const runId = normalizeOptionalMetadataString(value.runId)
+  const email = normalizeOptionalMetadataString(value.email)
+
+  return {
+    kind: 'identity-maintenance',
+    identityId,
+    ...(runId ? { runId } : {}),
+    ...(email ? { email } : {}),
+  }
+}
+
+function normalizeCliFlowTaskWorkspaceMetadata(
+  workspace: Record<string, unknown>,
+): CliFlowTaskWorkspaceMetadata | undefined {
   const recordId = normalizeOptionalMetadataString(workspace.recordId)
   const workspaceId = normalizeOptionalMetadataString(workspace.workspaceId)
   const label = normalizeOptionalMetadataString(workspace.label)
@@ -1041,7 +1094,7 @@ function normalizeCliFlowTaskMetadata(
   }
 
   return Object.keys(normalizedWorkspace).length
-    ? { workspace: normalizedWorkspace }
+    ? normalizedWorkspace
     : undefined
 }
 

@@ -225,6 +225,13 @@
       "when": 1777350000000,
       "tag": "0031_astrbot_external_service",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1777353600000,
+      "tag": "0032_identity_maintenance_runs",
+      "breakpoints": true
     }
   ]
 }

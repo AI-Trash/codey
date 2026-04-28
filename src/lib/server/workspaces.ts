@@ -1127,6 +1127,24 @@ export async function findAdminManagedWorkspaceSummary(
   )
 }
 
+export async function findAdminManagedWorkspaceSummaryByOwnerIdentity(
+  ownerIdentityId: string,
+): Promise<AdminManagedWorkspaceSummary | null> {
+  const identityId = normalizeOptionalIdentityId(ownerIdentityId)
+  if (!identityId) {
+    return null
+  }
+
+  const workspace = await getDb().query.managedWorkspaces.findFirst({
+    where: eq(managedWorkspaces.ownerIdentityId, identityId),
+    columns: {
+      id: true,
+    },
+  })
+
+  return workspace ? findAdminManagedWorkspaceSummary(workspace.id) : null
+}
+
 export async function listAdminManagedWorkspaceAssociationsForIdentity(
   identityId: string,
 ): Promise<AdminManagedIdentityWorkspaceAssociations> {

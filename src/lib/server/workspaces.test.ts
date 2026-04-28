@@ -17,6 +17,7 @@ import {
   createManagedWorkspace,
   deleteManagedWorkspace,
   deleteManagedWorkspaceForOwnerIdentity,
+  findAdminManagedWorkspaceSummaryByOwnerIdentity,
   getTeamTrialPaypalLinkExpiresAt,
   listAdminManagedWorkspaceAssociationsForIdentity,
   listAdminManagedWorkspaceSummaries,
@@ -907,6 +908,54 @@ describe('managed workspace authorization summaries', () => {
     )
 
     expect(deleteReturning).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads a managed workspace summary by owner identity before cleanup', async () => {
+    const now = new Date('2026-04-23T00:00:00.000Z')
+    const findFirstWorkspace = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: 'workspace-record-1',
+      })
+      .mockResolvedValueOnce({
+        id: 'workspace-record-1',
+        workspaceId: 'ws_alpha',
+        label: 'Alpha',
+        ownerIdentity: {
+          identityId: 'owner-identity-1',
+          email: 'owner@example.com',
+          label: 'Owner',
+        },
+        createdAt: now,
+        updatedAt: now,
+        members: [],
+      })
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedWorkspaces: {
+          findFirst: findFirstWorkspace,
+        },
+        managedIdentitySessions: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      },
+    })
+
+    await expect(
+      findAdminManagedWorkspaceSummaryByOwnerIdentity(' owner-identity-1 '),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'workspace-record-1',
+        workspaceId: 'ws_alpha',
+        owner: expect.objectContaining({
+          identityId: 'owner-identity-1',
+          email: 'owner@example.com',
+        }),
+      }),
+    )
+
+    expect(findFirstWorkspace).toHaveBeenCalledTimes(2)
   })
 
   it('archives the owner and removes remaining workspace associations when deleting a workspace', async () => {

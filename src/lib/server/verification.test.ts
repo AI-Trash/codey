@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   createId: vi.fn(() => 'generated-id'),
-  deleteManagedWorkspaceForOwnerIdentity: vi.fn(),
+  deleteManagedWorkspace: vi.fn(),
+  findAdminManagedWorkspaceSummaryByOwnerIdentity: vi.fn(),
   getDb: vi.fn(),
   hasAdminInboxEmailSubscribers: vi.fn(() => false),
+  removeDisabledSub2ApiAccountsForWorkspace: vi.fn(),
+  sendAstrBotWorkspaceRemovalNotification: vi.fn(),
   publishAdminInboxEmailEvent: vi.fn(),
   publishVerificationCodeEvent: vi.fn(),
 }))
@@ -27,8 +30,19 @@ vi.mock('./verification-events', () => ({
 }))
 
 vi.mock('./workspaces', () => ({
-  deleteManagedWorkspaceForOwnerIdentity:
-    mocks.deleteManagedWorkspaceForOwnerIdentity,
+  deleteManagedWorkspace: mocks.deleteManagedWorkspace,
+  findAdminManagedWorkspaceSummaryByOwnerIdentity:
+    mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity,
+}))
+
+vi.mock('./sub2api-codex-oauth', () => ({
+  removeDisabledSub2ApiAccountsForWorkspace:
+    mocks.removeDisabledSub2ApiAccountsForWorkspace,
+}))
+
+vi.mock('./astrbot', () => ({
+  sendAstrBotWorkspaceRemovalNotification:
+    mocks.sendAstrBotWorkspaceRemovalNotification,
 }))
 
 import {
@@ -98,8 +112,50 @@ describe('ChatGPT Business trial-ended email handling', () => {
     }
     const insertChain = createEmailInsertChain(emailRecord)
 
-    mocks.deleteManagedWorkspaceForOwnerIdentity.mockResolvedValue({
+    const workspace = {
       id: 'workspace-record-1',
+      workspaceId: 'ws_alpha',
+      label: 'Alpha',
+      teamTrialPaypalUrl: null,
+      teamTrialPaypalCapturedAt: null,
+      teamTrialPaypalExpiresAt: null,
+      owner: {
+        identityId: 'owner-identity-1',
+        email: 'owner@example.com',
+        identityLabel: 'Owner',
+        authorization: {
+          state: 'missing' as const,
+          expiresAt: null,
+          lastSeenAt: null,
+        },
+      },
+      memberCount: 0,
+      members: [],
+      createdAt: '2026-04-28T00:00:00.000Z',
+      updatedAt: '2026-04-28T00:00:00.000Z',
+    }
+    const sub2ApiCleanup = {
+      workspaceId: 'ws_alpha',
+      removedAccounts: [
+        {
+          accountId: 501,
+          name: 'owner@example.com + ws_alpha',
+          status: 'disabled',
+        },
+      ],
+    }
+    mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity.mockResolvedValue(
+      workspace,
+    )
+    mocks.deleteManagedWorkspace.mockResolvedValue({
+      id: 'workspace-record-1',
+    })
+    mocks.removeDisabledSub2ApiAccountsForWorkspace.mockResolvedValue(
+      sub2ApiCleanup,
+    )
+    mocks.sendAstrBotWorkspaceRemovalNotification.mockResolvedValue({
+      endpoint: 'http://astrbot:6185/api/v1/im/message',
+      umo: 'webchat:FriendMessage:operator',
     })
     mocks.getDb.mockReturnValue({
       query: {
@@ -130,13 +186,37 @@ describe('ChatGPT Business trial-ended email handling', () => {
       codeRecord: null,
       workspaceCleanup: {
         reason: 'chatgpt_business_trial_ended',
+        reasonMessage:
+          'Received ChatGPT Business trial-ended email: Your ChatGPT Business trial has ended',
         ownerIdentityId: 'owner-identity-1',
+        workspaceId: 'ws_alpha',
         deletedWorkspaceId: 'workspace-record-1',
+        sub2ApiCleanup,
+        astrbotNotification: {
+          endpoint: 'http://astrbot:6185/api/v1/im/message',
+          umo: 'webchat:FriendMessage:operator',
+        },
       },
     })
 
-    expect(mocks.deleteManagedWorkspaceForOwnerIdentity).toHaveBeenCalledWith(
-      'owner-identity-1',
+    expect(
+      mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity,
+    ).toHaveBeenCalledWith('owner-identity-1')
+    expect(mocks.deleteManagedWorkspace).toHaveBeenCalledWith(
+      'workspace-record-1',
+    )
+    expect(
+      mocks.removeDisabledSub2ApiAccountsForWorkspace,
+    ).toHaveBeenCalledWith({
+      workspaceId: 'ws_alpha',
+    })
+    expect(mocks.sendAstrBotWorkspaceRemovalNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace,
+        reason:
+          'Received ChatGPT Business trial-ended email: Your ChatGPT Business trial has ended',
+        sub2ApiCleanup,
+      }),
     )
     expect(insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -166,7 +246,9 @@ describe('ChatGPT Business trial-ended email handling', () => {
     })
     const insertChain = createEmailInsertChain(emailRecord)
 
-    mocks.deleteManagedWorkspaceForOwnerIdentity.mockResolvedValue(null)
+    mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity.mockResolvedValue(
+      null,
+    )
     mocks.getDb.mockReturnValue({
       query: {
         verificationEmailReservations: {
@@ -187,14 +269,16 @@ describe('ChatGPT Business trial-ended email handling', () => {
     ).resolves.toMatchObject({
       workspaceCleanup: {
         ownerIdentityId: 'owner-identity-2',
+        workspaceId: null,
         deletedWorkspaceId: null,
       },
     })
 
     expect(findManagedIdentity).toHaveBeenCalledTimes(1)
-    expect(mocks.deleteManagedWorkspaceForOwnerIdentity).toHaveBeenCalledWith(
-      'owner-identity-2',
-    )
+    expect(
+      mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity,
+    ).toHaveBeenCalledWith('owner-identity-2')
+    expect(mocks.deleteManagedWorkspace).not.toHaveBeenCalled()
   })
 
   it('does not cleanup workspaces for unrelated email subjects', async () => {
@@ -240,6 +324,9 @@ describe('ChatGPT Business trial-ended email handling', () => {
       workspaceCleanup: null,
     })
 
-    expect(mocks.deleteManagedWorkspaceForOwnerIdentity).not.toHaveBeenCalled()
+    expect(
+      mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity,
+    ).not.toHaveBeenCalled()
+    expect(mocks.deleteManagedWorkspace).not.toHaveBeenCalled()
   })
 })

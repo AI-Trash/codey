@@ -104,6 +104,8 @@ Managed ChatGPT identities and captured session snapshots are now stored directl
 
 Invited OpenAI workspace memberships are also stored in Postgres. `flow chatgpt-invite` syncs the invited workspace ID together with the invited email addresses into Codey, and `/admin/workspaces` lets you review or edit those associations.
 
+Codey can keep non-owner managed identities warm by dispatching low-priority `chatgpt-login` maintenance tasks to connected CLIs with spare browser capacity. Maintenance runs are recorded in Postgres so the same identity is not maintained again until the configured interval has passed. When normal dispatched work would be blocked by the browser limit, Codey cancels queued maintenance tasks and asks connected CLIs to stop maintenance work that is occupying needed slots.
+
 When a ChatGPT Team trial flow captures a PayPal billing-agreement link, Codey can send it to AstrBot with AstrBot's OpenAPI proactive message endpoint. Configure AstrBot in `/admin/external-services` instead of environment variables: set the base URL, auth mode, target UMO, message path, timeout, and optional PayPal message template there. Codey stores the AstrBot secret server-side with the same encrypted-secret storage used by other managed external services.
 
 OIDC signing keys are now managed in Postgres. The app auto-generates an initial signing key on first boot, caches the published JWKS set in memory, and rotates keys automatically. Optional tuning:
@@ -114,6 +116,18 @@ OAUTH_SIGNING_KEY_RETENTION_DAYS=7
 ```
 
 `OAUTH_JWKS_JSON` is no longer required. If you already have an existing key set, you can provide it once as a migration seed and the app will import it into the database when the signing-key table is empty.
+
+Identity maintenance tuning is optional:
+
+```env
+IDENTITY_MAINTENANCE_ENABLED=true
+IDENTITY_MAINTENANCE_SCHEDULER_INTERVAL_MS=60000
+IDENTITY_MAINTENANCE_MIN_INTERVAL_MS=43200000
+IDENTITY_MAINTENANCE_MAX_ASSIGNED_TASKS_PER_CLI=0
+IDENTITY_MAINTENANCE_MIN_IDLE_BROWSER_SLOTS=0
+IDENTITY_MAINTENANCE_MAX_TASKS_PER_CLI=1
+IDENTITY_MAINTENANCE_MAX_TASKS_PER_TICK=3
+```
 
 Typical legacy Exchange setup:
 

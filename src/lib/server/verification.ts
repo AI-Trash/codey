@@ -35,9 +35,14 @@ import {
   hasAdminInboxEmailSubscribers,
   publishAdminInboxEmailEvent,
 } from './admin-inbox-events'
+import { sendAstrBotWorkspaceRemovalNotification } from './astrbot'
 import { publishVerificationCodeEvent } from './verification-events'
 import { resolveReservationVerificationDomain } from './verification-domains'
-import { deleteManagedWorkspaceForOwnerIdentity } from './workspaces'
+import { removeDisabledSub2ApiAccountsForWorkspace } from './sub2api-codex-oauth'
+import {
+  deleteManagedWorkspace,
+  findAdminManagedWorkspaceSummaryByOwnerIdentity,
+} from './workspaces'
 import { getDb } from './db/client'
 import { createId } from './security'
 import { extractVerificationCodeFromText } from '../shared/verification-code'
@@ -129,6 +134,8 @@ type EmailIngestReservation = {
   identityId: string | null
 }
 
+const CHATGPT_BUSINESS_TRIAL_ENDED_CLEANUP_REASON =
+  'chatgpt_business_trial_ended'
 const DEFAULT_ADMIN_INBOX_PAGE_SIZE = 25
 const MAX_ADMIN_INBOX_PAGE_SIZE = 100
 const RESERVATION_MAILBOX_ADJECTIVES = [
@@ -732,13 +739,92 @@ async function cleanupExpiredChatGptBusinessTrialWorkspace(params: {
     return null
   }
 
-  const deletedWorkspace =
-    await deleteManagedWorkspaceForOwnerIdentity(ownerIdentityId)
+  const reasonMessage = params.subject?.trim()
+    ? `Received ChatGPT Business trial-ended email: ${params.subject.trim()}`
+    : 'Received ChatGPT Business trial-ended email'
+  const workspace =
+    await findAdminManagedWorkspaceSummaryByOwnerIdentity(ownerIdentityId)
+
+  if (!workspace) {
+    return {
+      reason: CHATGPT_BUSINESS_TRIAL_ENDED_CLEANUP_REASON,
+      reasonMessage,
+      ownerIdentityId,
+      workspaceId: null,
+      deletedWorkspaceId: null,
+      sub2ApiCleanup: null,
+      sub2ApiCleanupError: null,
+      astrbotNotification: null,
+      astrbotNotificationError: null,
+    }
+  }
+
+  const deletedWorkspace = await deleteManagedWorkspace(workspace.id)
+  if (!deletedWorkspace) {
+    return {
+      reason: CHATGPT_BUSINESS_TRIAL_ENDED_CLEANUP_REASON,
+      reasonMessage,
+      ownerIdentityId,
+      workspaceId: workspace.workspaceId,
+      deletedWorkspaceId: null,
+      sub2ApiCleanup: null,
+      sub2ApiCleanupError: null,
+      astrbotNotification: null,
+      astrbotNotificationError: null,
+    }
+  }
+
+  let sub2ApiCleanup: Awaited<
+    ReturnType<typeof removeDisabledSub2ApiAccountsForWorkspace>
+  > = null
+  let sub2ApiCleanupError: string | null = null
+
+  try {
+    sub2ApiCleanup = await removeDisabledSub2ApiAccountsForWorkspace({
+      workspaceId: workspace.workspaceId,
+    })
+  } catch (error) {
+    sub2ApiCleanupError =
+      error instanceof Error ? error.message : 'Unknown Sub2API cleanup error'
+    console.error(
+      'Unable to remove disabled Sub2API accounts for deleted workspace',
+      error,
+    )
+  }
+
+  let astrbotNotification: Awaited<
+    ReturnType<typeof sendAstrBotWorkspaceRemovalNotification>
+  > = null
+  let astrbotNotificationError: string | null = null
+
+  try {
+    astrbotNotification = await sendAstrBotWorkspaceRemovalNotification({
+      workspace,
+      reason: reasonMessage,
+      sub2ApiCleanup,
+      sub2ApiCleanupError,
+    })
+  } catch (error) {
+    astrbotNotificationError =
+      error instanceof Error
+        ? error.message
+        : 'Unknown AstrBot notification error'
+    console.error(
+      'Unable to send deleted workspace notification to AstrBot',
+      error,
+    )
+  }
 
   return {
-    reason: 'chatgpt_business_trial_ended',
+    reason: CHATGPT_BUSINESS_TRIAL_ENDED_CLEANUP_REASON,
+    reasonMessage,
     ownerIdentityId,
-    deletedWorkspaceId: deletedWorkspace?.id || null,
+    workspaceId: workspace.workspaceId,
+    deletedWorkspaceId: deletedWorkspace.id,
+    sub2ApiCleanup,
+    sub2ApiCleanupError,
+    astrbotNotification,
+    astrbotNotificationError,
   }
 }
 

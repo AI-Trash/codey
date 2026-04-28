@@ -136,4 +136,69 @@ describe('AstrBot PayPal notifications', () => {
       'Pay unknown owner: https://www.paypal.com/pay?token=BA-123ABC',
     )
   })
+
+  it('sends workspace removal notifications with the cleanup reason', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    mocks.getAstrBotPayPalNotificationConfig.mockResolvedValue({
+      baseUrl: 'http://astrbot:6185',
+      messagePath: '/api/v1/im/message',
+      umo: 'webchat:FriendMessage:operator',
+      timeoutMs: 5_000,
+      apiKey: 'astrbot-key',
+    })
+
+    const { sendAstrBotWorkspaceRemovalNotification } =
+      await import('./astrbot')
+
+    await expect(
+      sendAstrBotWorkspaceRemovalNotification({
+        workspace: {
+          id: 'workspace-record-1',
+          workspaceId: 'ws_alpha',
+          label: 'Alpha',
+          teamTrialPaypalUrl: null,
+          teamTrialPaypalCapturedAt: null,
+          teamTrialPaypalExpiresAt: null,
+          owner: {
+            identityId: 'identity-1',
+            email: 'owner@example.com',
+            identityLabel: 'Owner',
+            authorization: {
+              state: 'missing',
+              expiresAt: null,
+              lastSeenAt: null,
+            },
+          },
+          memberCount: 0,
+          members: [],
+          createdAt: '2026-04-28T00:00:00.000Z',
+          updatedAt: '2026-04-28T00:00:00.000Z',
+        },
+        reason:
+          'Received ChatGPT Business trial-ended email: Your ChatGPT Business trial has ended',
+        removedAt: new Date('2026-04-28T00:00:00.000Z'),
+        sub2ApiCleanup: {
+          removedAccounts: [
+            {
+              accountId: 501,
+              name: 'owner@example.com + ws_alpha',
+              status: 'disabled',
+            },
+          ],
+        },
+      }),
+    ).resolves.toEqual({
+      endpoint: 'http://astrbot:6185/api/v1/im/message',
+      umo: 'webchat:FriendMessage:operator',
+    })
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1].body)
+    expect(body.message).toContain(
+      'Reason: Received ChatGPT Business trial-ended email: Your ChatGPT Business trial has ended',
+    )
+    expect(body.message).toContain('Workspace ID: ws_alpha')
+    expect(body.message).toContain('Owner: owner@example.com')
+    expect(body.message).toContain('Sub2API disabled accounts removed: 1 (501)')
+  })
 })

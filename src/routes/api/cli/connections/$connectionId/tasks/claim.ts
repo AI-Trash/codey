@@ -51,13 +51,15 @@ export const Route = createFileRoute(
         }
 
         try {
-          const task = await claimNextFlowTaskForConnection({
+          const claimResult = await claimNextFlowTaskForConnection({
             connectionId: params.connectionId,
           })
+          const task = claimResult.task
 
           return json({
             ok: true,
             browserLimit: connection.browserLimit,
+            canceledTaskIds: claimResult.canceledTaskIds,
             task: task
               ? {
                   id: task.id,

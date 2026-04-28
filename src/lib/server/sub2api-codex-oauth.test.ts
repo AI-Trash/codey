@@ -15,6 +15,7 @@ vi.mock('./external-service-configs', () => ({
 describe('syncManagedCodexOAuthSessionToSub2Api', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('returns null when the managed Sub2API config is disabled', async () => {
@@ -148,6 +149,111 @@ describe('syncManagedCodexOAuthSessionToSub2Api', () => {
         }),
       }),
     )
+  })
+
+  it('removes disabled Sub2API accounts matched by notes workspace metadata', async () => {
+    mocks.hasEnabledSub2ApiServiceConfig.mockResolvedValue(true)
+    mocks.getCliSub2ApiConfig.mockResolvedValue({
+      baseUrl: 'https://sub2api.example.com',
+      bearerToken: 'sub2api-bearer',
+    })
+
+    const fetchMock = vi.fn<typeof fetch>()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              items: [
+                {
+                  id: 501,
+                  name: 'Disabled matching account',
+                  status: 'disabled',
+                  notes: JSON.stringify({
+                    workspaceId: 'ws-primary',
+                    email: 'owner@example.com',
+                  }),
+                },
+                {
+                  id: 502,
+                  name: 'Active matching account',
+                  status: 'active',
+                  notes: JSON.stringify({
+                    workspaceId: 'ws-primary',
+                    email: 'owner@example.com',
+                  }),
+                },
+                {
+                  id: 503,
+                  name: 'Different workspace',
+                  status: 'disabled',
+                  notes: JSON.stringify({
+                    workspaceId: 'ws-secondary',
+                    email: 'owner@example.com',
+                  }),
+                },
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            message: 'success',
+            data: {
+              message: 'Account deleted successfully',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { removeDisabledSub2ApiAccountsForWorkspace } =
+      await import('./sub2api-codex-oauth')
+
+    await expect(
+      removeDisabledSub2ApiAccountsForWorkspace({
+        workspaceId: 'ws-primary',
+      }),
+    ).resolves.toEqual({
+      workspaceId: 'ws-primary',
+      removedAccounts: [
+        {
+          accountId: 501,
+          name: 'Disabled matching account',
+          status: 'disabled',
+        },
+      ],
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://sub2api.example.com/api/v1/admin/accounts?page=1&page_size=1000&platform=openai&type=oauth&status=disabled',
+      expect.objectContaining({
+        method: 'GET',
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://sub2api.example.com/api/v1/admin/accounts/501',
+      expect.objectContaining({
+        method: 'DELETE',
+      }),
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('removes duplicate Sub2API accounts matched by notes metadata before creating a fresh account', async () => {

@@ -594,6 +594,63 @@ export const managedIdentitySessions = pgTable(
   ],
 )
 
+export const identityMaintenanceRuns = pgTable(
+  'identity_maintenance_runs',
+  {
+    id: text('id').primaryKey(),
+    identityId: text('identity_id')
+      .notNull()
+      .references(() => managedIdentities.identityId, {
+        onDelete: 'cascade',
+      }),
+    email: text('email').notNull(),
+    flowTaskId: text('flow_task_id').references(() => flowTasks.id, {
+      onDelete: 'set null',
+    }),
+    cliConnectionId: text('cli_connection_id').references(
+      () => cliConnections.id,
+      {
+        onDelete: 'set null',
+      },
+    ),
+    workerId: text('worker_id').notNull(),
+    status: flowTaskStatusEnum('status').default('QUEUED').notNull(),
+    lastMessage: text('last_message'),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp('completed_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+  },
+  (table) => [
+    uniqueIndex('identity_maintenance_runs_flow_task_unique').on(
+      table.flowTaskId,
+    ),
+    index('identity_maintenance_runs_identity_status_updated_idx').on(
+      table.identityId,
+      table.status,
+      table.updatedAt,
+    ),
+    index('identity_maintenance_runs_worker_status_idx').on(
+      table.workerId,
+      table.status,
+    ),
+    index('identity_maintenance_runs_created_at_idx').on(table.createdAt),
+  ],
+)
+
 export const managedWorkspaces = pgTable(
   'managed_workspaces',
   {
@@ -1113,6 +1170,16 @@ export const managedIdentitySessionsRelations = relations(
   }),
 )
 
+export const identityMaintenanceRunsRelations = relations(
+  identityMaintenanceRuns,
+  ({ one }) => ({
+    identity: one(managedIdentities, {
+      fields: [identityMaintenanceRuns.identityId],
+      references: [managedIdentities.identityId],
+    }),
+  }),
+)
+
 export const managedWorkspacesRelations = relations(
   managedWorkspaces,
   ({ many, one }) => ({
@@ -1211,6 +1278,8 @@ export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect
 export type ManagedIdentitySessionRow =
   typeof managedIdentitySessions.$inferSelect
+export type IdentityMaintenanceRunRow =
+  typeof identityMaintenanceRuns.$inferSelect
 export type ManagedWorkspaceRow = typeof managedWorkspaces.$inferSelect
 export type ManagedWorkspaceMemberRow =
   typeof managedWorkspaceMembers.$inferSelect

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   createId: vi.fn(),
+  cancelIdentityMaintenanceForNormalDispatch: vi.fn(),
   getAdminCliConnectionSummaryById: vi.fn(),
   getDb: vi.fn(),
   isCliConnectionOwnedByActor: vi.fn(),
@@ -25,6 +26,11 @@ vi.mock('./cli-connections', () => ({
   listAdminCliConnectionState: mocks.listAdminCliConnectionState,
   listAdminCliConnectionStateForActor:
     mocks.listAdminCliConnectionStateForActor,
+}))
+
+vi.mock('./identity-maintenance', () => ({
+  cancelIdentityMaintenanceForNormalDispatch:
+    mocks.cancelIdentityMaintenanceForNormalDispatch,
 }))
 
 import { dispatchCliFlowTasks } from './cli-tasks'
@@ -134,6 +140,7 @@ describe('cli flow task dispatch', () => {
 
     let nextId = 0
     mocks.createId.mockImplementation(() => `generated-${++nextId}`)
+    mocks.cancelIdentityMaintenanceForNormalDispatch.mockResolvedValue([])
     mocks.isCliConnectionOwnedByActor.mockReturnValue(true)
     mocks.isSharedCliConnection.mockReturnValue(false)
   })
@@ -362,11 +369,7 @@ describe('cli flow task dispatch', () => {
     mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
     mocks.listAdminCliConnectionState.mockResolvedValue({
       snapshotAt: '2026-04-24T00:00:06.000Z',
-      activeConnections: [
-        connectionB,
-        otherClientConnection,
-        anchorConnection,
-      ],
+      activeConnections: [connectionB, otherClientConnection, anchorConnection],
     })
 
     const result = await dispatchCliFlowTasks({

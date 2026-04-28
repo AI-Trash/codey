@@ -162,4 +162,43 @@ describe('flow task scheduler', () => {
     await first
     await scheduler.waitForIdle()
   })
+
+  it('can cancel only queued identity maintenance tasks', async () => {
+    const scheduler = new FlowTaskScheduler<string>({ browserLimit: 1 })
+    let releaseFirst: (() => void) | undefined
+
+    const first = scheduler.enqueue({
+      taskId: 'task-1',
+      run: async () => {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve
+        })
+        return 'task-1'
+      },
+    })
+    const maintenance = scheduler.enqueue({
+      taskId: 'maintenance-1',
+      kind: 'identity-maintenance',
+      run: async () => 'maintenance-1',
+    })
+    const normal = scheduler.enqueue({
+      taskId: 'task-2',
+      run: async () => 'task-2',
+    })
+
+    await Promise.resolve()
+    const snapshot = scheduler.getSnapshot()
+    expect(snapshot.pendingMaintenanceCount).toBe(1)
+    expect(
+      scheduler.clearPendingTaskIds(['maintenance-1'], 'maintenance canceled'),
+    ).toBe(1)
+    await expect(maintenance).rejects.toBeInstanceOf(
+      FlowTaskSchedulerCancelledError,
+    )
+
+    releaseFirst?.()
+    await first
+    await expect(normal).resolves.toBe('task-2')
+    await scheduler.waitForIdle()
+  })
 })

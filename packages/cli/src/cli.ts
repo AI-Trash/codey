@@ -60,7 +60,10 @@ import {
 } from './modules/flow-cli/flow-registry'
 import { normalizeFlowCliArgsForCommand } from './modules/flow-cli/parse-argv'
 import { runPromptDashboard } from './modules/tui/dashboard'
-import { runWithSession } from './modules/flow-cli/run-with-session'
+import {
+  FlowInterruptedError,
+  runWithSession,
+} from './modules/flow-cli/run-with-session'
 import { getFlowTaskFullRetryDecision } from './modules/flow-cli/task-retry'
 import {
   buildFailedFlowCommandExecution,
@@ -82,7 +85,10 @@ import {
   withObservabilityContext,
 } from './utils/observability'
 import { resolveWorkspaceRoot } from './utils/workspace-root'
-import { FlowTaskScheduler } from './modules/flow-cli/task-scheduler'
+import {
+  FlowTaskScheduler,
+  FlowTaskSchedulerCancelledError,
+} from './modules/flow-cli/task-scheduler'
 
 initializeCliFileLogging({
   rootDir: resolveWorkspaceRoot(fileURLToPath(import.meta.url)),
@@ -586,6 +592,8 @@ async function runDaemonCommand(
       },
     })
     const taskLeaseReporters = new Map<string, CliFlowTaskLeaseReporter>()
+    const activeFlowAbortControllers = new Map<string, AbortController>()
+    const serverCanceledTaskIds = new Set<string>()
     let outstandingStartedAt: string | undefined
     let connectionId: string | undefined
     let claimInFlight = false
@@ -672,6 +680,10 @@ async function runDaemonCommand(
       return snapshot.activeCount + snapshot.pendingCount
     }
 
+    const canClaimMoreTasks = () =>
+      getClaimedTaskCount() < taskScheduler.getBrowserLimit() ||
+      taskScheduler.hasMaintenanceTasks()
+
     const logTaskLeaseError = (taskId: string, error: Error) => {
       writeCliStderrLine(
         JSON.stringify(
@@ -698,6 +710,9 @@ async function runDaemonCommand(
       const scheduled = taskScheduler.enqueue({
         taskId: task.notificationId,
         batchId: task.batch?.batchId,
+        kind: task.metadata?.identityMaintenance
+          ? 'identity-maintenance'
+          : 'default',
         run: async () =>
           withObservabilityContext(
             {
@@ -708,6 +723,11 @@ async function runDaemonCommand(
             },
             async () => {
               const startedAt = new Date().toISOString()
+              const flowAbortController = new AbortController()
+              activeFlowAbortControllers.set(
+                task.notificationId,
+                flowAbortController,
+              )
               if (
                 !outstandingStartedAt ||
                 Date.parse(startedAt) < Date.parse(outstandingStartedAt)
@@ -743,28 +763,35 @@ async function runDaemonCommand(
               )
 
               try {
-                const execution = await executeFlowSubcommand(task.flowId, {
-                  ...task.config,
-                  ...(task.metadata ? { taskMetadata: task.metadata } : {}),
-                  progressReporter: (update) => {
-                    consoleProgressReporter(update)
+                const execution = await executeFlowSubcommand(
+                  task.flowId,
+                  {
+                    ...task.config,
+                    ...(task.metadata ? { taskMetadata: task.metadata } : {}),
+                    progressReporter: (update) => {
+                      consoleProgressReporter(update)
 
-                    const message = formatRuntimeProgressMessage(update)
-                    if (!message) {
-                      return
-                    }
+                      const message = formatRuntimeProgressMessage(update)
+                      if (!message) {
+                        return
+                      }
 
-                    lastRuntimeState = {
-                      flowId: task.flowId,
-                      notificationId: task.notificationId,
-                      status: update.status === 'failed' ? 'failed' : 'running',
-                      message,
-                      startedAt,
-                    }
-                    syncRuntimeReporterState()
-                    task.leaseReporter?.reportProgress(message)
+                      lastRuntimeState = {
+                        flowId: task.flowId,
+                        notificationId: task.notificationId,
+                        status:
+                          update.status === 'failed' ? 'failed' : 'running',
+                        message,
+                        startedAt,
+                      }
+                      syncRuntimeReporterState()
+                      task.leaseReporter?.reportProgress(message)
+                    },
                   },
-                })
+                  {
+                    abortSignal: flowAbortController.signal,
+                  },
+                )
                 assertFlowTaskExecutionSucceeded(task.flowId, execution)
 
                 lastRuntimeState = {
@@ -812,6 +839,9 @@ async function runDaemonCommand(
                 }
               } catch (error) {
                 const sanitized = sanitizeErrorForOutput(error)
+                const serverCanceled = serverCanceledTaskIds.has(
+                  task.notificationId,
+                )
                 const retryDecision = getFlowTaskFullRetryDecision({
                   flowId: task.flowId,
                   error,
@@ -840,11 +870,11 @@ async function runDaemonCommand(
                     2,
                   ),
                 )
-                if (task.leaseReporter) {
+                if (task.leaseReporter && !serverCanceled) {
                   try {
                     await task.leaseReporter.complete({
-                      status: 'FAILED',
-                      error: sanitized.message,
+                      status: serverCanceled ? 'CANCELED' : 'FAILED',
+                      error: serverCanceled ? undefined : sanitized.message,
                       message: failureMessage,
                       ...(retryDecision ? { retry: retryDecision } : {}),
                     })
@@ -856,8 +886,12 @@ async function runDaemonCommand(
                   } finally {
                     taskLeaseReporters.delete(task.notificationId)
                   }
+                } else if (serverCanceled) {
+                  taskLeaseReporters.delete(task.notificationId)
                 }
               } finally {
+                activeFlowAbortControllers.delete(task.notificationId)
+                serverCanceledTaskIds.delete(task.notificationId)
                 await runtimeReporter.flush()
                 setRuntimeConfig(config)
               }
@@ -872,6 +906,36 @@ async function runDaemonCommand(
       })
     }
 
+    const cancelServerCanceledTasks = (taskIds: string[]) => {
+      const normalizedTaskIds = Array.from(
+        new Set(taskIds.map((taskId) => taskId.trim()).filter(Boolean)),
+      )
+      if (!normalizedTaskIds.length) {
+        return
+      }
+
+      for (const taskId of normalizedTaskIds) {
+        serverCanceledTaskIds.add(taskId)
+      }
+
+      taskScheduler.clearPendingTaskIds(
+        normalizedTaskIds,
+        'Identity maintenance canceled because normal flow work needs browser capacity.',
+      )
+      for (const taskId of normalizedTaskIds) {
+        const controller = activeFlowAbortControllers.get(taskId)
+        if (controller && !controller.signal.aborted) {
+          controller.abort(
+            new FlowInterruptedError(
+              'Identity maintenance canceled because normal flow work needs browser capacity.',
+            ),
+          )
+        }
+      }
+
+      syncRuntimeReporterState()
+    }
+
     const tryClaimTasks = async () => {
       if (!connectionId || claimInFlight) {
         return
@@ -879,10 +943,7 @@ async function runDaemonCommand(
 
       claimInFlight = true
       try {
-        while (
-          connectionId &&
-          getClaimedTaskCount() < taskScheduler.getBrowserLimit()
-        ) {
+        while (connectionId && canClaimMoreTasks()) {
           const claimResult = await claimCliFlowTask({
             connectionId,
             authState,
@@ -891,6 +952,7 @@ async function runDaemonCommand(
             taskScheduler.setBrowserLimit(claimResult.browserLimit)
             syncRuntimeReporterState()
           }
+          cancelServerCanceledTasks(claimResult.canceledTaskIds)
           const claimedTask = claimResult.task
           if (!claimedTask) {
             break
@@ -932,6 +994,13 @@ async function runDaemonCommand(
             metadata: taskPayload.metadata,
             leaseReporter,
           }).catch((error) => {
+            if (error instanceof FlowTaskSchedulerCancelledError) {
+              if (serverCanceledTaskIds.delete(claimedTask.id)) {
+                taskLeaseReporters.delete(claimedTask.id)
+                return
+              }
+            }
+
             writeCliStderrLine(
               JSON.stringify(
                 {

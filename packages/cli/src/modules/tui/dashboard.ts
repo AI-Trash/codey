@@ -16,6 +16,7 @@ import {
   type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
   type CliFlowTaskExternalServices,
+  type CliFlowTaskMetadata,
 } from '../flow-cli/flow-registry'
 import {
   formatFlowCompletionSummary,
@@ -362,6 +363,7 @@ export async function runPromptDashboard(input: {
   let streamAbortController: AbortController | null = null
   const activeFlowAbortControllers = new Map<string, AbortController>()
   const taskLeaseReporters = new Map<string, CliFlowTaskLeaseReporter>()
+  const serverCanceledTaskIds = new Set<string>()
   const taskScheduler = new FlowTaskScheduler<{
     interrupted: boolean
   }>()
@@ -491,6 +493,10 @@ export async function runPromptDashboard(input: {
     const snapshot = taskScheduler.getSnapshot()
     return snapshot.activeCount + snapshot.pendingCount
   }
+
+  const canClaimMoreTasks = () =>
+    getClaimedTaskCount() < taskScheduler.getBrowserLimit() ||
+    taskScheduler.hasMaintenanceTasks()
 
   const logTaskLeaseError = (taskId: string, error: Error) => {
     updateState((state) =>
@@ -644,11 +650,15 @@ export async function runPromptDashboard(input: {
     message: string
     batch?: CliFlowTaskBatchMetadata
     externalServices?: CliFlowTaskExternalServices
+    metadata?: CliFlowTaskMetadata
     leaseReporter?: CliFlowTaskLeaseReporter
   }) => {
     const scheduled = taskScheduler.enqueue({
       taskId: task.notificationId,
       batchId: task.batch?.batchId,
+      kind: task.metadata?.identityMaintenance
+        ? 'identity-maintenance'
+        : 'default',
       run: async (): Promise<{
         interrupted: boolean
       }> =>
@@ -788,6 +798,9 @@ export async function runPromptDashboard(input: {
               const completedAt = new Date().toISOString()
               const interrupted =
                 error instanceof FlowInterruptedError || isAbortError(error)
+              const serverCanceled = serverCanceledTaskIds.has(
+                task.notificationId,
+              )
               const retryDecision = interrupted
                 ? undefined
                 : getFlowTaskFullRetryDecision({
@@ -813,7 +826,7 @@ export async function runPromptDashboard(input: {
                 runtimeFlowStartedAt: startedAt,
                 runtimeFlowCompletedAt: completedAt,
               })
-              if (task.leaseReporter) {
+              if (task.leaseReporter && !serverCanceled) {
                 try {
                   await task.leaseReporter.complete({
                     status: interrupted ? 'CANCELED' : 'FAILED',
@@ -829,6 +842,8 @@ export async function runPromptDashboard(input: {
                 } finally {
                   taskLeaseReporters.delete(task.notificationId)
                 }
+              } else if (serverCanceled) {
+                taskLeaseReporters.delete(task.notificationId)
               }
               return {
                 interrupted,
@@ -836,6 +851,7 @@ export async function runPromptDashboard(input: {
             } finally {
               flowSettled = true
               activeFlowAbortControllers.delete(task.notificationId)
+              serverCanceledTaskIds.delete(task.notificationId)
               await runtimeReporter?.flush()
               setRuntimeConfig(input.config)
             }
@@ -859,6 +875,45 @@ export async function runPromptDashboard(input: {
     })
   }
 
+  const cancelServerCanceledTasks = (taskIds: string[]) => {
+    const normalizedTaskIds = Array.from(
+      new Set(taskIds.map((taskId) => taskId.trim()).filter(Boolean)),
+    )
+    if (!normalizedTaskIds.length) {
+      return
+    }
+
+    for (const taskId of normalizedTaskIds) {
+      serverCanceledTaskIds.add(taskId)
+    }
+
+    const cleared = taskScheduler.clearPendingTaskIds(
+      normalizedTaskIds,
+      'Identity maintenance canceled because normal flow work needs browser capacity.',
+    )
+    for (const taskId of normalizedTaskIds) {
+      const controller = activeFlowAbortControllers.get(taskId)
+      if (controller && !controller.signal.aborted) {
+        controller.abort(
+          new FlowInterruptedError(
+            'Identity maintenance canceled because normal flow work needs browser capacity.',
+          ),
+        )
+      }
+    }
+
+    if (cleared) {
+      updateState((state) =>
+        appendDashboardEvent(
+          state,
+          `Canceled ${cleared} queued identity maintenance task${cleared === 1 ? '' : 's'}.`,
+        ),
+      )
+    }
+    syncDashboardTaskState()
+    syncRuntimeReporterState()
+  }
+
   const tryClaimTasks = async () => {
     const authState = currentClaimAuthState
     if (!claimConnectionId || !authState || claimInFlight) {
@@ -867,10 +922,7 @@ export async function runPromptDashboard(input: {
 
     claimInFlight = true
     try {
-      while (
-        claimConnectionId &&
-        getClaimedTaskCount() < taskScheduler.getBrowserLimit()
-      ) {
+      while (claimConnectionId && canClaimMoreTasks()) {
         const claimResult = await claimCliFlowTask({
           connectionId: claimConnectionId,
           authState,
@@ -879,6 +931,7 @@ export async function runPromptDashboard(input: {
           taskScheduler.setBrowserLimit(claimResult.browserLimit)
           syncRuntimeReporterState()
         }
+        cancelServerCanceledTasks(claimResult.canceledTaskIds)
         const claimedTask = claimResult.task
         if (!claimedTask) {
           break
@@ -918,9 +971,15 @@ export async function runPromptDashboard(input: {
           message: claimedTask.title || 'Task started',
           batch: taskPayload.batch,
           externalServices: taskPayload.externalServices,
+          metadata: taskPayload.metadata,
           leaseReporter,
         }).catch((error) => {
           if (error instanceof FlowTaskSchedulerCancelledError) {
+            if (serverCanceledTaskIds.delete(claimedTask.id)) {
+              taskLeaseReporters.delete(claimedTask.id)
+              return
+            }
+
             void leaseReporter
               .complete({
                 status: 'CANCELED',

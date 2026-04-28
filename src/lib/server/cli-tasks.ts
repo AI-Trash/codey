@@ -20,6 +20,7 @@ import {
 import { getDb } from './db/client'
 import { flowTaskEvents, flowTasks } from './db/schema'
 import { getCliConnectionTaskWorkerId } from './flow-tasks'
+import { cancelIdentityMaintenanceForNormalDispatch } from './identity-maintenance'
 import { createId } from './security'
 
 export { MAX_CLI_FLOW_TASK_BATCH_SIZE }
@@ -310,9 +311,7 @@ async function listEligibleConnectionsForDispatch(input: {
   }
 
   if (isSharedCliConnection(input.connection)) {
-    return (
-      await listAdminCliConnectionState()
-    ).activeConnections.filter(
+    return (await listAdminCliConnectionState()).activeConnections.filter(
       (candidate) =>
         candidate.status === 'active' &&
         candidate.authClientId === input.connection.authClientId &&
@@ -568,6 +567,16 @@ export async function dispatchCliFlowTasks(input: {
 
     return insertedTasks
   })
+  try {
+    await cancelIdentityMaintenanceForNormalDispatch(
+      dispatchTargets.map((target) => ({
+        workerId: target.workerId,
+        browserLimit: target.connection.browserLimit,
+      })),
+    )
+  } catch (error) {
+    console.error('Unable to cancel identity maintenance tasks', error)
+  }
 
   return {
     tasks,

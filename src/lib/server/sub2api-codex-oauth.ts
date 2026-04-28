@@ -13,6 +13,17 @@ export interface SyncedSub2ApiAccountResult {
   email: string
 }
 
+export interface RemovedDisabledSub2ApiWorkspaceAccount {
+  accountId: number
+  name?: string | null
+  status?: string | null
+}
+
+export interface RemovedDisabledSub2ApiWorkspaceAccountsResult {
+  workspaceId: string
+  removedAccounts: RemovedDisabledSub2ApiWorkspaceAccount[]
+}
+
 interface Sub2ApiEnvelope<T> {
   code?: number
   message?: string
@@ -46,6 +57,7 @@ interface Sub2ApiTokenInfo {
 interface Sub2ApiAccountRecord {
   id: number
   name?: string
+  status?: string | null
   notes?: string | null
   credentials?: Record<string, unknown>
 }
@@ -413,6 +425,9 @@ async function listSub2ApiOpenAiOAuthAccounts(
   config: Sub2ApiConfig,
   authHeaders: HeadersInit,
   accountsPath: string,
+  filters?: {
+    status?: string
+  },
 ): Promise<Sub2ApiAccountRecord[]> {
   const accounts: Sub2ApiAccountRecord[] = []
   let page = 1
@@ -424,6 +439,9 @@ async function listSub2ApiOpenAiOAuthAccounts(
       platform: 'openai',
       type: 'oauth',
     })
+    if (filters?.status) {
+      searchParams.set('status', filters.status)
+    }
     const result = await requestSub2ApiJson<
       Sub2ApiPaginatedData<Sub2ApiAccountRecord>
     >(config, authHeaders, {
@@ -446,6 +464,74 @@ async function listSub2ApiOpenAiOAuthAccounts(
   }
 
   return accounts
+}
+
+function isDisabledSub2ApiAccount(account: Sub2ApiAccountRecord): boolean {
+  return asNonEmptyString(account.status)?.toLowerCase() === 'disabled'
+}
+
+function findDisabledSub2ApiAccountsByWorkspaceId(
+  accounts: Sub2ApiAccountRecord[],
+  workspaceId: string,
+): Sub2ApiAccountRecord[] {
+  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId)
+  if (!normalizedWorkspaceId) {
+    return []
+  }
+
+  return accounts.filter((account) => {
+    const metadata = parseSub2ApiAccountNotes(account.notes)
+    return (
+      isDisabledSub2ApiAccount(account) &&
+      metadata?.workspaceId === normalizedWorkspaceId
+    )
+  })
+}
+
+export async function removeDisabledSub2ApiAccountsForWorkspace(input: {
+  workspaceId?: string | null
+}): Promise<RemovedDisabledSub2ApiWorkspaceAccountsResult | null> {
+  const workspaceId = normalizeWorkspaceId(input.workspaceId)
+  if (!workspaceId) {
+    return null
+  }
+
+  if (!(await hasEnabledSub2ApiServiceConfig())) {
+    return null
+  }
+
+  const config = await getCliSub2ApiConfig()
+  const accountsPath =
+    config.accountsPath?.trim() || DEFAULT_SUB2API_ACCOUNTS_PATH
+  const authHeaders = await resolveSub2ApiAuthHeaders(config)
+  const disabledAccounts = await listSub2ApiOpenAiOAuthAccounts(
+    config,
+    authHeaders,
+    accountsPath,
+    { status: 'disabled' },
+  )
+  const matchedAccounts = findDisabledSub2ApiAccountsByWorkspaceId(
+    disabledAccounts,
+    workspaceId,
+  )
+  const removedAccounts: RemovedDisabledSub2ApiWorkspaceAccount[] = []
+
+  for (const account of matchedAccounts) {
+    await requestSub2ApiJson<Record<string, unknown>>(config, authHeaders, {
+      method: 'DELETE',
+      pathname: `${accountsPath.replace(/\/+$/, '')}/${account.id}`,
+    })
+    removedAccounts.push({
+      accountId: account.id,
+      name: account.name ?? null,
+      status: account.status ?? null,
+    })
+  }
+
+  return {
+    workspaceId,
+    removedAccounts,
+  }
 }
 
 export async function syncManagedCodexOAuthSessionToSub2Api(input: {

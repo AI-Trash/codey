@@ -17,6 +17,22 @@ export interface AstrBotPayPalNotificationResult {
   umo: string
 }
 
+export type AstrBotNotificationResult = AstrBotPayPalNotificationResult
+
+export interface AstrBotWorkspaceRemovalNotificationInput {
+  workspace: AdminManagedWorkspaceSummary
+  reason: string
+  removedAt?: Date
+  sub2ApiCleanup?: {
+    removedAccounts?: Array<{
+      accountId: number
+      name?: string | null
+      status?: string | null
+    }>
+  } | null
+  sub2ApiCleanupError?: string | null
+}
+
 function buildEndpoint(config: AstrBotPayPalNotificationConfig): string {
   return `${config.baseUrl}${config.messagePath}`
 }
@@ -65,6 +81,40 @@ function buildPayPalNotificationMessage(
   ].join('\n')
 }
 
+function buildWorkspaceRemovalNotificationMessage(
+  input: AstrBotWorkspaceRemovalNotificationInput,
+): string {
+  const workspaceLabel =
+    input.workspace.label ||
+    input.workspace.workspaceId ||
+    input.workspace.id ||
+    'unknown workspace'
+  const ownerEmail = input.workspace.owner?.email || 'unknown owner'
+  const removedAt = (input.removedAt || new Date()).toISOString()
+  const removedAccounts = input.sub2ApiCleanup?.removedAccounts || []
+  const removedAccountIds = removedAccounts
+    .map((account) => account.accountId)
+    .join(', ')
+  const sub2ApiLine = input.sub2ApiCleanupError
+    ? `Sub2API disabled account cleanup failed: ${input.sub2ApiCleanupError}`
+    : input.sub2ApiCleanup
+      ? `Sub2API disabled accounts removed: ${removedAccounts.length}${
+          removedAccountIds ? ` (${removedAccountIds})` : ''
+        }`
+      : 'Sub2API disabled account cleanup: skipped'
+
+  return [
+    'Codey removed a managed ChatGPT Business workspace.',
+    `Reason: ${input.reason}`,
+    `Workspace: ${workspaceLabel}`,
+    `Workspace ID: ${input.workspace.workspaceId || ''}`,
+    `Workspace record: ${input.workspace.id}`,
+    `Owner: ${ownerEmail}`,
+    `Removed at: ${removedAt}`,
+    sub2ApiLine,
+  ].join('\n')
+}
+
 async function readResponseBody(response: Response): Promise<string> {
   const contentType = response.headers.get('content-type') || ''
   if (contentType.includes('application/json')) {
@@ -82,17 +132,14 @@ async function readResponseBody(response: Response): Promise<string> {
   }
 }
 
-export async function sendAstrBotPayPalNotification(
-  input: AstrBotPayPalNotificationInput,
-): Promise<AstrBotPayPalNotificationResult | null> {
-  const config = await getAstrBotPayPalNotificationConfig()
-  if (!config) {
-    return null
-  }
-
+async function sendAstrBotMessageWithConfig(
+  config: AstrBotPayPalNotificationConfig,
+  message: string,
+  label: string,
+): Promise<AstrBotNotificationResult | null> {
   if (!config.apiKey && !config.bearerToken) {
     throw new Error(
-      'AstrBot API key or bearer token is required in External services before PayPal notifications can be sent.',
+      `AstrBot API key or bearer token is required in External services before ${label} can be sent.`,
     )
   }
 
@@ -119,14 +166,12 @@ export async function sendAstrBotPayPalNotification(
       signal: controller.signal,
       body: JSON.stringify({
         umo: config.umo,
-        message: buildPayPalNotificationMessage(input, config.messageTemplate),
+        message,
       }),
     })
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(
-        `AstrBot PayPal notification timed out after ${config.timeoutMs}ms.`,
-      )
+      throw new Error(`AstrBot ${label} timed out after ${config.timeoutMs}ms.`)
     }
 
     throw error
@@ -137,7 +182,7 @@ export async function sendAstrBotPayPalNotification(
   if (!response.ok) {
     const responseBody = await readResponseBody(response)
     throw new Error(
-      `AstrBot PayPal notification failed with HTTP ${response.status}${
+      `AstrBot ${label} failed with HTTP ${response.status}${
         responseBody ? `: ${responseBody.slice(0, 500)}` : ''
       }`,
     )
@@ -147,4 +192,34 @@ export async function sendAstrBotPayPalNotification(
     endpoint,
     umo: config.umo,
   }
+}
+
+export async function sendAstrBotPayPalNotification(
+  input: AstrBotPayPalNotificationInput,
+): Promise<AstrBotPayPalNotificationResult | null> {
+  const config = await getAstrBotPayPalNotificationConfig()
+  if (!config) {
+    return null
+  }
+
+  return sendAstrBotMessageWithConfig(
+    config,
+    buildPayPalNotificationMessage(input, config.messageTemplate),
+    'PayPal notification',
+  )
+}
+
+export async function sendAstrBotWorkspaceRemovalNotification(
+  input: AstrBotWorkspaceRemovalNotificationInput,
+): Promise<AstrBotNotificationResult | null> {
+  const config = await getAstrBotPayPalNotificationConfig()
+  if (!config) {
+    return null
+  }
+
+  return sendAstrBotMessageWithConfig(
+    config,
+    buildWorkspaceRemovalNotificationMessage(input),
+    'workspace removal notification',
+  )
 }

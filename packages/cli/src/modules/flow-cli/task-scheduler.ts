@@ -11,12 +11,15 @@ export interface FlowTaskSchedulerTask<TResult> {
   taskId: string
   batchId?: string
   parallelism?: number
+  kind?: 'default' | 'identity-maintenance'
   run: () => Promise<TResult>
 }
 
 export interface FlowTaskSchedulerSnapshot {
   activeCount: number
   pendingCount: number
+  activeMaintenanceCount: number
+  pendingMaintenanceCount: number
   browserLimit: number
 }
 
@@ -44,6 +47,10 @@ function normalizeBrowserLimit(value: number | undefined): number {
 
 export class FlowTaskScheduler<TResult> {
   private readonly batches = new Map<string, FlowTaskSchedulerBatch<TResult>>()
+  private readonly activeEntries = new Map<
+    string,
+    FlowTaskSchedulerEntry<TResult>
+  >()
   private readonly idleResolvers: Array<() => void> = []
   private nextOrder = 0
   private activeCount = 0
@@ -98,20 +105,38 @@ export class FlowTaskScheduler<TResult> {
     return this.getPendingCount() > 0
   }
 
+  hasMaintenanceTasks(): boolean {
+    return (
+      this.getPendingCount(isIdentityMaintenanceTask) +
+        this.getActiveCount(isIdentityMaintenanceTask) >
+      0
+    )
+  }
+
   getSnapshot(): FlowTaskSchedulerSnapshot {
     return {
       activeCount: this.activeCount,
       pendingCount: this.getPendingCount(),
+      activeMaintenanceCount: this.getActiveCount(isIdentityMaintenanceTask),
+      pendingMaintenanceCount: this.getPendingCount(isIdentityMaintenanceTask),
       browserLimit: this.browserLimit,
     }
   }
 
-  clearPending(message?: string): number {
+  clearPending(
+    message?: string,
+    predicate?: (task: FlowTaskSchedulerTask<TResult>) => boolean,
+  ): number {
     let cleared = 0
     const error = new FlowTaskSchedulerCancelledError(message)
 
     for (const [batchId, batch] of this.batches.entries()) {
-      const pending = batch.queue.splice(0)
+      const pending = predicate
+        ? batch.queue.filter((entry) => predicate(entry))
+        : batch.queue.splice(0)
+      if (predicate) {
+        batch.queue = batch.queue.filter((entry) => !predicate(entry))
+      }
       cleared += pending.length
 
       for (const entry of pending) {
@@ -127,6 +152,17 @@ export class FlowTaskScheduler<TResult> {
     return cleared
   }
 
+  clearPendingTaskIds(taskIds: Iterable<string>, message?: string): number {
+    const taskIdSet = new Set(
+      [...taskIds].map((taskId) => taskId.trim()).filter(Boolean),
+    )
+    if (!taskIdSet.size) {
+      return 0
+    }
+
+    return this.clearPending(message, (task) => taskIdSet.has(task.taskId))
+  }
+
   async waitForIdle(): Promise<void> {
     if (!this.hasActiveTasks() && !this.hasPendingTasks()) {
       return
@@ -137,10 +173,30 @@ export class FlowTaskScheduler<TResult> {
     })
   }
 
-  private getPendingCount(): number {
+  private getPendingCount(
+    predicate?: (task: FlowTaskSchedulerTask<TResult>) => boolean,
+  ): number {
     let count = 0
     for (const batch of this.batches.values()) {
-      count += batch.queue.length
+      count += predicate
+        ? batch.queue.filter((entry) => predicate(entry)).length
+        : batch.queue.length
+    }
+    return count
+  }
+
+  private getActiveCount(
+    predicate?: (task: FlowTaskSchedulerTask<TResult>) => boolean,
+  ): number {
+    if (!predicate) {
+      return this.activeCount
+    }
+
+    let count = 0
+    for (const entry of this.activeEntries.values()) {
+      if (predicate(entry)) {
+        count += 1
+      }
     }
     return count
   }
@@ -189,6 +245,7 @@ export class FlowTaskScheduler<TResult> {
       }
 
       this.activeCount += 1
+      this.activeEntries.set(nextEntry.taskId, nextEntry)
       void this.runEntry(candidate.batch, nextEntry)
     }
 
@@ -205,6 +262,7 @@ export class FlowTaskScheduler<TResult> {
       entry.reject(error)
     } finally {
       this.activeCount = Math.max(this.activeCount - 1, 0)
+      this.activeEntries.delete(entry.taskId)
 
       if (!batch.queue.length) {
         this.batches.delete(batch.id)
@@ -223,4 +281,10 @@ export class FlowTaskScheduler<TResult> {
       resolve()
     }
   }
+}
+
+function isIdentityMaintenanceTask<TResult>(
+  task: FlowTaskSchedulerTask<TResult>,
+): boolean {
+  return task.kind === 'identity-maintenance'
 }
