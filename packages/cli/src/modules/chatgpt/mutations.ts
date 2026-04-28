@@ -25,6 +25,7 @@ import {
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
+  CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS,
   CHATGPT_CHECKOUT_PAYPAL_SELECTORS,
   CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
   CHATGPT_TEAM_PRICING_PROMO_URL,
@@ -865,7 +866,7 @@ function isBillingStateRequired(country: string): boolean {
   ].includes(country.trim().toUpperCase())
 }
 
-async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
+export async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
   page: Page,
 ): Promise<boolean> {
   if (await clickIfPresent(page, CHATGPT_CHECKOUT_PAYPAL_SELECTORS)) {
@@ -874,35 +875,32 @@ async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
   }
 
   for (const frame of page.frames()) {
-    if (
-      await clickPaypalLocatorIfPresent(
-        frame.getByRole('radio', { name: /paypal/i }),
-      )
-    ) {
-      await sleep(500)
-      return true
-    }
-
-    if (
-      await clickPaypalLocatorIfPresent(
-        frame.getByRole('button', { name: /paypal/i }),
-      )
-    ) {
-      await sleep(500)
-      return true
-    }
-
-    if (
-      await clickPaypalLocatorIfPresent(
-        frame.locator('label:has-text("PayPal")'),
-      )
-    ) {
-      await sleep(500)
-      return true
+    for (const locator of getChatGPTCheckoutPaypalPaymentMethodLocators(
+      frame,
+    )) {
+      if (await clickPaypalLocatorIfPresent(locator)) {
+        await sleep(500)
+        return true
+      }
     }
   }
 
   return false
+}
+
+function getChatGPTCheckoutPaypalPaymentMethodLocators(
+  frame: Frame,
+): Locator[] {
+  return [
+    frame.getByRole('radio', { name: /paypal/i }),
+    frame.getByRole('tab', { name: /paypal/i }),
+    frame.getByRole('button', { name: /paypal/i }),
+    ...CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS.map((selector) =>
+      frame.locator(selector),
+    ),
+    frame.getByText(/paypal/i),
+    frame.locator('label:has-text("PayPal")'),
+  ]
 }
 
 async function clickPaypalLocatorIfPresent(locator: Locator): Promise<boolean> {

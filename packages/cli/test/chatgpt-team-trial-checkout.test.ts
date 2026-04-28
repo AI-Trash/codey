@@ -5,13 +5,83 @@ import {
   DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS,
   resolveChatGPTTeamTrialBillingAddress,
 } from '../src/flows/chatgpt-team-trial'
-import { extractPaypalBillingAgreementLink } from '../src/modules/chatgpt/mutations'
+import {
+  extractPaypalBillingAgreementLink,
+  selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
+} from '../src/modules/chatgpt/mutations'
 
 const baseConfig = resolveConfig()
 
 afterEach(() => {
   setRuntimeConfig(baseConfig)
 })
+
+class FakeCheckoutLocator {
+  clicks = 0
+
+  constructor(private readonly visible = false) {}
+
+  first(): FakeCheckoutLocator {
+    return this
+  }
+
+  async count(): Promise<number> {
+    return this.visible ? 1 : 0
+  }
+
+  async isVisible(): Promise<boolean> {
+    return this.visible
+  }
+
+  async scrollIntoViewIfNeeded(): Promise<void> {}
+
+  async click(): Promise<void> {
+    if (!this.visible) {
+      throw new Error('Locator is not visible')
+    }
+    this.clicks += 1
+  }
+}
+
+class FakeCheckoutFrame {
+  private readonly hiddenLocator = new FakeCheckoutLocator(false)
+
+  constructor(private readonly paypalTabLocator: FakeCheckoutLocator) {}
+
+  getByRole(role: string): FakeCheckoutLocator {
+    return role === 'tab' ? this.paypalTabLocator : this.hiddenLocator
+  }
+
+  getByText(): FakeCheckoutLocator {
+    return this.hiddenLocator
+  }
+
+  locator(): FakeCheckoutLocator {
+    return this.hiddenLocator
+  }
+}
+
+class FakeCheckoutPage {
+  private readonly hiddenLocator = new FakeCheckoutLocator(false)
+
+  constructor(private readonly checkoutFrames: FakeCheckoutFrame[]) {}
+
+  frames(): FakeCheckoutFrame[] {
+    return this.checkoutFrames
+  }
+
+  getByRole(): FakeCheckoutLocator {
+    return this.hiddenLocator
+  }
+
+  getByText(): FakeCheckoutLocator {
+    return this.hiddenLocator
+  }
+
+  locator(): FakeCheckoutLocator {
+    return this.hiddenLocator
+  }
+}
 
 describe('chatgpt team trial checkout defaults', () => {
   it('uses the configured Netherlands billing address by default', () => {
@@ -61,6 +131,19 @@ describe('chatgpt team trial checkout defaults', () => {
       city: 'CLI city',
       postalCode: 'CLI POST',
     })
+  })
+})
+
+describe('paypal payment method selection', () => {
+  it('switches Stripe checkout payment tabs to PayPal inside frames', async () => {
+    const paypalTabLocator = new FakeCheckoutLocator(true)
+    const page = new FakeCheckoutPage([new FakeCheckoutFrame(paypalTabLocator)])
+
+    await expect(
+      selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page as never),
+    ).resolves.toBe(true)
+
+    expect(paypalTabLocator.clicks).toBe(1)
   })
 })
 

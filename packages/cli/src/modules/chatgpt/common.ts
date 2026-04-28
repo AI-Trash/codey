@@ -48,11 +48,22 @@ export const CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS: SelectorTarget[] 
     'iframe[title*="address" i]',
   ]
 
+export const CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS = [
+  '[role="tab"][value="paypal" i]',
+  '[role="tab"][data-testid="paypal" i]',
+  '[role="tab"][aria-controls="paypal-panel" i]',
+  'button[value="paypal" i]',
+  'button[data-testid="paypal" i]',
+  'button#paypal-tab',
+  'input[value="paypal" i]',
+] as const
+
 export const CHATGPT_CHECKOUT_PAYPAL_SELECTORS: SelectorTarget[] = [
   { role: 'radio', options: { name: /paypal/i } },
+  { role: 'tab', options: { name: /paypal/i } },
   { role: 'button', options: { name: /paypal/i } },
+  ...CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS,
   { text: /paypal/i },
-  'input[value="paypal" i]',
 ]
 
 export const CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS: SelectorTarget[] = [
