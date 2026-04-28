@@ -12,6 +12,9 @@ catalogs:
     '@cloudflare/workers-types':
       specifier: ^4.20260415.1
       version: 4.20260415.1
+    '@codey/state-machine':
+      specifier: 1.0.0
+      version: 1.0.0
     '@hookform/resolvers':
       specifier: ^5.2.2
       version: 5.2.2
@@ -218,6 +221,9 @@ importers:
       '@base-ui/react':
         specifier: 'catalog:'
         version: 1.4.0(@date-fns/tz@1.4.1)(@types/react@19.2.14)(date-fns@4.1.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@codey/state-machine':
+        specifier: 'catalog:'
+        version: link:packages/state-machine
       '@hookform/resolvers':
         specifier: 'catalog:'
         version: 5.2.2(react-hook-form@7.72.1(react@19.2.5))
@@ -396,6 +402,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@codey/state-machine':
+        specifier: 'catalog:'
+        version: link:../state-machine
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
@@ -433,6 +442,12 @@ importers:
       wrangler:
         specifier: 'catalog:'
         version: 4.82.2(@cloudflare/workers-types@4.20260415.1)
+
+  packages/state-machine:
+    dependencies:
+      xstate:
+        specifier: 'catalog:'
+        version: 5.30.0
 
 packages:
 

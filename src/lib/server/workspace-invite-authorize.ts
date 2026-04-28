@@ -1,5 +1,15 @@
 import '@tanstack/react-start/server-only'
 
+import {
+  assignContextFromInput,
+  composeStateMachineConfig,
+  createGuardedCaseTransitions,
+  createPatchTransitionMap,
+  createStateMachine,
+  declareStateMachineStates,
+  type StateMachineController,
+  type StateMachineSnapshot,
+} from '@codey/state-machine'
 import { and, desc, eq, sql, type SQL } from 'drizzle-orm'
 
 import type { CliFlowTaskMetadata } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
@@ -18,6 +28,7 @@ import {
   type FlowTaskRow,
   type FlowTaskStatus,
   type WorkspaceInviteAuthorizeWorkflowRow,
+  type WorkspaceInviteAuthorizeWorkflowStatus,
 } from './db/schema'
 import { updateManagedIdentity } from './identities'
 import { createId } from './security'
@@ -41,9 +52,203 @@ type FinalFlowTaskStatus = Extract<
   'SUCCEEDED' | 'FAILED' | 'CANCELED'
 >
 
+export type WorkspaceInviteAuthorizeMachineState =
+  | 'idle'
+  | 'invite'
+  | 'authorize'
+  | 'completed'
+  | 'failed'
+
+export type WorkspaceInviteAuthorizeMachineEvent =
+  | 'machine.started'
+  | 'workflow.started'
+  | 'workflow.invite.completed'
+  | 'workflow.authorize.completed'
+  | 'workflow.completed'
+  | 'workflow.failed'
+  | 'context.updated'
+
+export interface WorkspaceInviteAuthorizeMachineContext {
+  workflowId?: string
+  status?: WorkspaceInviteAuthorizeWorkflowStatus
+  phase?: WorkspaceInviteAuthorizeWorkflowRow['phase']
+  lastMessage?: string | null
+  lastError?: string | null
+}
+
+export type WorkspaceInviteAuthorizeMachine = StateMachineController<
+  WorkspaceInviteAuthorizeMachineState,
+  WorkspaceInviteAuthorizeMachineContext,
+  WorkspaceInviteAuthorizeMachineEvent
+>
+
+export type WorkspaceInviteAuthorizeMachineSnapshot = StateMachineSnapshot<
+  WorkspaceInviteAuthorizeMachineState,
+  WorkspaceInviteAuthorizeMachineContext,
+  WorkspaceInviteAuthorizeMachineEvent
+>
+
+type WorkflowMachineOutcome = 'invite' | 'authorize' | 'completed' | 'failed'
+
+interface WorkflowMachineOutcomeInput {
+  outcome: WorkflowMachineOutcome
+  message?: string | null
+  error?: string | null
+}
+
 interface WorkflowTaskMetadata {
   workflowId: string
   phase: WorkflowTaskPhase
+}
+
+function isWorkflowMachineOutcomeInput(
+  value: unknown,
+): value is WorkflowMachineOutcomeInput {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    typeof (value as Partial<WorkflowMachineOutcomeInput>).outcome === 'string',
+  )
+}
+
+const workspaceWorkflowStates = [
+  'idle',
+  'invite',
+  'authorize',
+  'completed',
+  'failed',
+] as const satisfies readonly WorkspaceInviteAuthorizeMachineState[]
+
+function createWorkspaceWorkflowOutcomeTransitions() {
+  return createGuardedCaseTransitions<
+    WorkspaceInviteAuthorizeMachineState,
+    WorkspaceInviteAuthorizeMachineContext,
+    WorkspaceInviteAuthorizeMachineEvent,
+    WorkflowMachineOutcomeInput
+  >({
+    isInput: isWorkflowMachineOutcomeInput,
+    cases: [
+      {
+        priority: 40,
+        when: ({ input }) => input.outcome === 'completed',
+        target: 'completed',
+        actions: assignContextFromInput(
+          isWorkflowMachineOutcomeInput,
+          (_context, { input }) => ({
+            status: 'COMPLETED',
+            phase: 'COMPLETED',
+            lastMessage: input.message,
+            lastError: null,
+          }),
+        ),
+      },
+      {
+        priority: 30,
+        when: ({ input }) => input.outcome === 'failed',
+        target: 'failed',
+        actions: assignContextFromInput(
+          isWorkflowMachineOutcomeInput,
+          (_context, { input }) => ({
+            status: 'FAILED',
+            phase: 'FAILED',
+            lastMessage: input.message,
+            lastError: input.error ?? input.message,
+          }),
+        ),
+      },
+      {
+        priority: 20,
+        when: ({ input }) => input.outcome === 'authorize',
+        target: 'authorize',
+        actions: assignContextFromInput(
+          isWorkflowMachineOutcomeInput,
+          (_context, { input }) => ({
+            status: 'RUNNING',
+            phase: 'AUTHORIZE',
+            lastMessage: input.message,
+            lastError: null,
+          }),
+        ),
+      },
+      {
+        priority: 10,
+        when: ({ input }) => input.outcome === 'invite',
+        target: 'invite',
+        actions: assignContextFromInput(
+          isWorkflowMachineOutcomeInput,
+          (_context, { input }) => ({
+            status: 'RUNNING',
+            phase: 'INVITE',
+            lastMessage: input.message,
+            lastError: null,
+          }),
+        ),
+      },
+    ],
+  })
+}
+
+function getWorkflowMachineState(
+  workflow: WorkspaceInviteAuthorizeWorkflowRow,
+): WorkspaceInviteAuthorizeMachineState {
+  if (workflow.status === 'COMPLETED' || workflow.phase === 'COMPLETED') {
+    return 'completed'
+  }
+  if (workflow.status === 'FAILED' || workflow.phase === 'FAILED') {
+    return 'failed'
+  }
+  if (workflow.phase === 'AUTHORIZE') {
+    return 'authorize'
+  }
+  if (workflow.phase === 'INVITE') {
+    return 'invite'
+  }
+  return 'idle'
+}
+
+export function createWorkspaceInviteAuthorizeMachine(
+  workflow?: WorkspaceInviteAuthorizeWorkflowRow,
+): WorkspaceInviteAuthorizeMachine {
+  const initialState = workflow ? getWorkflowMachineState(workflow) : 'idle'
+
+  return createStateMachine<
+    WorkspaceInviteAuthorizeMachineState,
+    WorkspaceInviteAuthorizeMachineContext,
+    WorkspaceInviteAuthorizeMachineEvent
+  >(
+    composeStateMachineConfig({
+      id: 'workflow.workspace_invite_authorize',
+      initialState,
+      initialContext: {
+        workflowId: workflow?.id,
+        status: workflow?.status,
+        phase: workflow?.phase,
+        lastMessage: workflow?.lastMessage,
+        lastError: workflow?.lastError,
+      },
+      historyLimit: 80,
+      states: declareStateMachineStates<
+        WorkspaceInviteAuthorizeMachineState,
+        WorkspaceInviteAuthorizeMachineContext,
+        WorkspaceInviteAuthorizeMachineEvent
+      >(workspaceWorkflowStates),
+      on: {
+        ...createPatchTransitionMap<
+          WorkspaceInviteAuthorizeMachineState,
+          WorkspaceInviteAuthorizeMachineContext,
+          WorkspaceInviteAuthorizeMachineEvent
+        >({
+          'workflow.started': 'invite',
+          'workflow.completed': 'completed',
+          'workflow.failed': 'failed',
+        }),
+        'workflow.invite.completed':
+          createWorkspaceWorkflowOutcomeTransitions(),
+        'workflow.authorize.completed':
+          createWorkspaceWorkflowOutcomeTransitions(),
+      },
+    }),
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -369,6 +574,81 @@ async function transitionWorkflowPhase(input: {
   return workflow || null
 }
 
+async function applyWorkflowMachineOutcome(input: {
+  workflow: WorkspaceInviteAuthorizeWorkflowRow
+  event: Extract<
+    WorkspaceInviteAuthorizeMachineEvent,
+    'workflow.invite.completed' | 'workflow.authorize.completed'
+  >
+  outcome: WorkflowMachineOutcome
+  message: string
+  error?: string | null
+}): Promise<WorkspaceInviteAuthorizeWorkflowRow | null> {
+  const machine = createWorkspaceInviteAuthorizeMachine(input.workflow)
+  machine.start(machine.getSnapshot().context, {
+    source: 'workspace-invite-authorize',
+  })
+  const snapshot = await machine.send(input.event, {
+    outcome: input.outcome,
+    message: input.message,
+    error: input.error,
+  } satisfies WorkflowMachineOutcomeInput)
+
+  if (snapshot.state === 'failed') {
+    await markWorkflowFailed({
+      workflowId: input.workflow.id,
+      message: snapshot.context.lastError || input.message,
+    })
+    return null
+  }
+
+  if (snapshot.state === 'completed') {
+    await markWorkflowCompleted({
+      workflowId: input.workflow.id,
+      message: snapshot.context.lastMessage || input.message,
+    })
+    return null
+  }
+
+  if (snapshot.state === 'authorize') {
+    if (input.workflow.phase === 'AUTHORIZE') {
+      await updateWorkflowMessage({
+        workflowId: input.workflow.id,
+        phase: 'AUTHORIZE',
+        message: snapshot.context.lastMessage || input.message,
+      })
+      return input.workflow
+    }
+
+    return transitionWorkflowPhase({
+      workflowId: input.workflow.id,
+      from: input.workflow.phase,
+      to: 'AUTHORIZE',
+      message: snapshot.context.lastMessage || input.message,
+    })
+  }
+
+  if (snapshot.state === 'invite') {
+    if (input.workflow.phase === 'INVITE') {
+      await updateWorkflowMessage({
+        workflowId: input.workflow.id,
+        phase: 'INVITE',
+        message: snapshot.context.lastMessage || input.message,
+      })
+      return input.workflow
+    }
+
+    return transitionWorkflowPhase({
+      workflowId: input.workflow.id,
+      from: input.workflow.phase,
+      to: 'INVITE',
+      message: snapshot.context.lastMessage || input.message,
+    })
+  }
+
+  return input.workflow
+}
+
 function workflowTaskFilter(input: {
   workflowId: string
   phase: WorkflowTaskPhase
@@ -597,9 +877,12 @@ async function handleInviteTaskCompletion(input: {
   }
 
   if (input.status !== 'SUCCEEDED') {
-    await markWorkflowFailed({
-      workflowId: input.workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow: input.workflow,
+      event: 'workflow.invite.completed',
+      outcome: 'failed',
       message: input.error || 'ChatGPT invite task did not complete.',
+      error: input.error,
     })
     return
   }
@@ -610,8 +893,10 @@ async function handleInviteTaskCompletion(input: {
       input.workflow.managedWorkspaceId,
     )
     if (!workspace) {
-      await markWorkflowFailed({
-        workflowId: input.workflow.id,
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.invite.completed',
+        outcome: 'failed',
         message: 'Workspace not found after invite errors.',
       })
       return
@@ -622,8 +907,10 @@ async function handleInviteTaskCompletion(input: {
       emails: erroredEmails,
     })
     if (!reviewCount) {
-      await markWorkflowFailed({
-        workflowId: input.workflow.id,
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.invite.completed',
+        outcome: 'failed',
         message: `ChatGPT invite failed for ${erroredEmails.length} member email(s), but no matching managed member identity could be replaced.`,
       })
       return
@@ -633,17 +920,27 @@ async function handleInviteTaskCompletion(input: {
       const refreshedWorkspace = await loadEnsuredWorkflowWorkspace(
         input.workflow,
       )
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.invite.completed',
+        outcome: 'invite',
+        message:
+          'Replacing failed invite members; queuing refreshed ChatGPT invite.',
+      })
       await dispatchInviteTask({
         workflow: input.workflow,
         workspace: refreshedWorkspace,
       })
     } catch (error) {
-      await markWorkflowFailed({
-        workflowId: input.workflow.id,
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.invite.completed',
+        outcome: 'failed',
         message:
           error instanceof Error
             ? error.message
             : 'Unable to replace failed invite members.',
+        error: error instanceof Error ? error.message : undefined,
       })
     }
     return
@@ -653,12 +950,15 @@ async function handleInviteTaskCompletion(input: {
   try {
     workspace = await loadEnsuredWorkflowWorkspace(input.workflow)
   } catch (error) {
-    await markWorkflowFailed({
-      workflowId: input.workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow: input.workflow,
+      event: 'workflow.invite.completed',
+      outcome: 'failed',
       message:
         error instanceof Error
           ? error.message
           : 'Unable to prepare workspace member identities after invite.',
+      error: error instanceof Error ? error.message : undefined,
     })
     return
   }
@@ -670,26 +970,36 @@ async function handleInviteTaskCompletion(input: {
     }))
   ) {
     try {
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.invite.completed',
+        outcome: 'invite',
+        message:
+          'Workspace members changed after invite; queuing refreshed ChatGPT invite.',
+      })
       await dispatchInviteTask({
         workflow: input.workflow,
         workspace,
       })
     } catch (error) {
-      await markWorkflowFailed({
-        workflowId: input.workflow.id,
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.invite.completed',
+        outcome: 'failed',
         message:
           error instanceof Error
             ? error.message
             : 'Unable to queue refreshed ChatGPT invite task.',
+        error: error instanceof Error ? error.message : undefined,
       })
     }
     return
   }
 
-  const authorizationWorkflow = await transitionWorkflowPhase({
-    workflowId: input.workflow.id,
-    from: 'INVITE',
-    to: 'AUTHORIZE',
+  const authorizationWorkflow = await applyWorkflowMachineOutcome({
+    workflow: input.workflow,
+    event: 'workflow.invite.completed',
+    outcome: 'authorize',
     message: 'Workspace invite completed; queuing Codex OAuth authorization.',
   })
   if (!authorizationWorkflow) {
@@ -706,8 +1016,10 @@ async function queuePendingAuthorizationTasks(
   const targetMemberCount = getWorkflowTargetMemberCount(workflow)
   const targets = getWorkspaceAuthorizationTargets(workspace)
   if (!workspace.owner || workspace.members.length !== targetMemberCount) {
-    await markWorkflowFailed({
-      workflowId: workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow,
+      event: 'workflow.authorize.completed',
+      outcome: 'failed',
       message:
         'Workspace owner and all members are required before authorization.',
     })
@@ -718,8 +1030,10 @@ async function queuePendingAuthorizationTasks(
     (target) => target.authorization.state !== 'authorized',
   )
   if (!unauthorizedTargets.length) {
-    await markWorkflowCompleted({
-      workflowId: workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow,
+      event: 'workflow.authorize.completed',
+      outcome: 'completed',
       message: 'Workspace owner and all members are authorized.',
     })
     return
@@ -732,12 +1046,15 @@ async function queuePendingAuthorizationTasks(
       emails: unauthorizedTargets.map((target) => target.email),
     })
   } catch (error) {
-    await markWorkflowFailed({
-      workflowId: workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow,
+      event: 'workflow.authorize.completed',
+      outcome: 'failed',
       message:
         error instanceof Error
           ? error.message
           : 'Unable to queue Codex OAuth authorization tasks.',
+      error: error instanceof Error ? error.message : undefined,
     })
   }
 }
@@ -763,12 +1080,15 @@ async function handleAuthorizationTaskCompletion(input: {
   try {
     workspace = await loadEnsuredWorkflowWorkspace(input.workflow)
   } catch (error) {
-    await markWorkflowFailed({
-      workflowId: input.workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow: input.workflow,
+      event: 'workflow.authorize.completed',
+      outcome: 'failed',
       message:
         error instanceof Error
           ? error.message
           : 'Unable to prepare workspace member identities during authorization.',
+      error: error instanceof Error ? error.message : undefined,
     })
     return
   }
@@ -779,10 +1099,10 @@ async function handleAuthorizationTaskCompletion(input: {
       workspace,
     }))
   ) {
-    const inviteWorkflow = await transitionWorkflowPhase({
-      workflowId: input.workflow.id,
-      from: 'AUTHORIZE',
-      to: 'INVITE',
+    const inviteWorkflow = await applyWorkflowMachineOutcome({
+      workflow: input.workflow,
+      event: 'workflow.authorize.completed',
+      outcome: 'invite',
       message:
         'Workspace members changed during authorization; queuing refreshed ChatGPT invite.',
     })
@@ -796,12 +1116,15 @@ async function handleAuthorizationTaskCompletion(input: {
         workspace,
       })
     } catch (error) {
-      await markWorkflowFailed({
-        workflowId: input.workflow.id,
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.authorize.completed',
+        outcome: 'failed',
         message:
           error instanceof Error
             ? error.message
             : 'Unable to queue refreshed ChatGPT invite task.',
+        error: error instanceof Error ? error.message : undefined,
       })
     }
     return
@@ -810,8 +1133,10 @@ async function handleAuthorizationTaskCompletion(input: {
   const targets = getWorkspaceAuthorizationTargets(workspace)
   const targetMemberCount = getWorkflowTargetMemberCount(input.workflow)
   if (!workspace.owner || workspace.members.length !== targetMemberCount) {
-    await markWorkflowFailed({
-      workflowId: input.workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow: input.workflow,
+      event: 'workflow.authorize.completed',
+      outcome: 'failed',
       message:
         'Workspace owner and all members are required before authorization can complete.',
     })
@@ -822,8 +1147,10 @@ async function handleAuthorizationTaskCompletion(input: {
     (target) => target.authorization.state !== 'authorized',
   )
   if (!unauthorizedTargets.length) {
-    await markWorkflowCompleted({
-      workflowId: input.workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow: input.workflow,
+      event: 'workflow.authorize.completed',
+      outcome: 'completed',
       message: 'Workspace owner and all members are authorized.',
     })
     return
@@ -851,18 +1178,27 @@ async function handleAuthorizationTaskCompletion(input: {
 
   if (retryableTargets.length) {
     try {
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.authorize.completed',
+        outcome: 'authorize',
+        message: `Queuing ${retryableTargets.length} remaining Codex OAuth authorization task(s).`,
+      })
       await dispatchAuthorizationTasks({
         workflow: input.workflow,
         workspace,
         emails: retryableTargets.map((target) => target.email),
       })
     } catch (error) {
-      await markWorkflowFailed({
-        workflowId: input.workflow.id,
+      await applyWorkflowMachineOutcome({
+        workflow: input.workflow,
+        event: 'workflow.authorize.completed',
+        outcome: 'failed',
         message:
           error instanceof Error
             ? error.message
             : 'Unable to queue remaining Codex OAuth authorization tasks.',
+        error: error instanceof Error ? error.message : undefined,
       })
     }
     return
@@ -875,8 +1211,10 @@ async function handleAuthorizationTaskCompletion(input: {
     return
   }
 
-  await markWorkflowFailed({
-    workflowId: input.workflow.id,
+  await applyWorkflowMachineOutcome({
+    workflow: input.workflow,
+    event: 'workflow.authorize.completed',
+    outcome: 'failed',
     message:
       'Workspace authorization is incomplete after the allowed Codex OAuth attempts.',
   })
@@ -930,6 +1268,27 @@ export async function startWorkspaceInviteAuthorizeWorkflow(input: {
     throw new Error('Unable to create workspace invite and authorize workflow.')
   }
 
+  const machine = createWorkspaceInviteAuthorizeMachine(workflow)
+  machine.start(
+    {
+      workflowId: workflow.id,
+      status: 'RUNNING',
+      phase: 'INVITE',
+      lastMessage: workflow.lastMessage,
+    },
+    {
+      source: 'startWorkspaceInviteAuthorizeWorkflow',
+    },
+  )
+  await machine.send('workflow.started', {
+    patch: {
+      workflowId: workflow.id,
+      status: 'RUNNING',
+      phase: 'INVITE',
+      lastMessage: workflow.lastMessage,
+    },
+  })
+
   try {
     const result = await dispatchInviteTask({
       workflow,
@@ -952,12 +1311,15 @@ export async function startWorkspaceInviteAuthorizeWorkflow(input: {
       connectionLabel: getConnectionLabel(connection),
     }
   } catch (error) {
-    await markWorkflowFailed({
-      workflowId: workflow.id,
+    await applyWorkflowMachineOutcome({
+      workflow,
+      event: 'workflow.invite.completed',
+      outcome: 'failed',
       message:
         error instanceof Error
           ? error.message
           : 'Unable to queue ChatGPT invite.',
+      error: error instanceof Error ? error.message : undefined,
     })
     throw error
   }

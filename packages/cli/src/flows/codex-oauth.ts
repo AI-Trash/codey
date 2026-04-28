@@ -6,9 +6,6 @@ import {
   composeStateMachineConfig,
   createGuardedCaseTransitions,
   createOpenAIAddPhoneFailureFragment,
-  createPatchTransitionMap,
-  createRetryTransition,
-  createSelfPatchTransitionMap,
   createStateMachine,
   declareStateMachineStates,
   defineStateMachineFragment,
@@ -65,6 +62,7 @@ import {
   type VerificationProvider,
 } from '../modules/verification'
 import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
+import { createFlowLifecycleFragment } from './machine-fragments'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
 
@@ -352,31 +350,16 @@ function createCodexOAuthSurfaceTransitions<Result>() {
 }
 
 function createCodexOAuthLifecycleFragment<Result>() {
-  return defineStateMachineFragment<
+  return createFlowLifecycleFragment<
     CodexOAuthFlowState,
     CodexOAuthFlowContext<Result>,
     CodexOAuthFlowEvent
   >({
-    on: {
-      ...createPatchTransitionMap<
-        CodexOAuthFlowState,
-        CodexOAuthFlowContext<Result>,
-        CodexOAuthFlowEvent
-      >(codexOAuthEventTargets),
-      'codex.oauth.retry.requested': createRetryTransition<
-        CodexOAuthFlowState,
-        CodexOAuthFlowContext<Result>,
-        CodexOAuthFlowEvent
-      >({
-        target: 'retrying',
-        defaultMessage: 'Retrying Codex OAuth login handoff',
-      }),
-      ...createSelfPatchTransitionMap<
-        CodexOAuthFlowState,
-        CodexOAuthFlowContext<Result>,
-        CodexOAuthFlowEvent
-      >([...codexOAuthMutableContextEvents]),
-    },
+    eventTargets: codexOAuthEventTargets,
+    mutableContextEvents: codexOAuthMutableContextEvents,
+    retryEvent: 'codex.oauth.retry.requested',
+    retryTarget: 'retrying',
+    defaultRetryMessage: 'Retrying Codex OAuth login handoff',
   })
 }
 
@@ -1567,6 +1550,9 @@ async function resolveCodexOAuthNextStep(
             priority: 22,
             guard: ({ input }) => input.kind === 'surface-candidates',
             run: async ({ input }) => {
+              if (input.kind !== 'surface-candidates') {
+                throw new Error('Codex OAuth reached an unsupported surface.')
+              }
               throw new Error(
                 `Codex OAuth reached unsupported surface candidates: ${input.candidates.join(', ')}`,
               )
@@ -1577,6 +1563,11 @@ async function resolveCodexOAuthNextStep(
             priority: 21,
             guard: ({ input }) => input.kind === 'post-login-candidates',
             run: async ({ input }) => {
+              if (input.kind !== 'post-login-candidates') {
+                throw new Error(
+                  'Codex OAuth reached an unsupported post-email login step.',
+                )
+              }
               throw new Error(
                 `Codex OAuth reached unsupported post-email login candidates: ${input.candidates.join(', ')}`,
               )

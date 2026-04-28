@@ -6,9 +6,6 @@ import {
   composeStateMachineConfig,
   createGuardedCaseTransitions,
   createOpenAIAddPhoneFailureFragment,
-  createPatchTransitionMap,
-  createRetryTransition,
-  createSelfPatchTransitionMap,
   createStateMachine,
   declareStateMachineStates,
   defineStateMachineFragment,
@@ -59,6 +56,7 @@ import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
+import { createFlowLifecycleFragment } from './machine-fragments'
 import {
   attachStateMachineProgressReporter,
   parseBooleanFlag,
@@ -355,31 +353,16 @@ function createChatGPTLoginEmailSubmittedTransitions<Result>() {
 }
 
 function createChatGPTLoginLifecycleFragment<Result>() {
-  return defineStateMachineFragment<
+  return createFlowLifecycleFragment<
     ChatGPTLoginFlowState,
     ChatGPTLoginFlowContext<Result>,
     ChatGPTLoginFlowEvent
   >({
-    on: {
-      ...createPatchTransitionMap<
-        ChatGPTLoginFlowState,
-        ChatGPTLoginFlowContext<Result>,
-        ChatGPTLoginFlowEvent
-      >(chatgptLoginEventTargets),
-      'chatgpt.retry.requested': createRetryTransition<
-        ChatGPTLoginFlowState,
-        ChatGPTLoginFlowContext<Result>,
-        ChatGPTLoginFlowEvent
-      >({
-        target: 'retrying',
-        defaultMessage: 'Retrying ChatGPT login',
-      }),
-      ...createSelfPatchTransitionMap<
-        ChatGPTLoginFlowState,
-        ChatGPTLoginFlowContext<Result>,
-        ChatGPTLoginFlowEvent
-      >([...chatgptLoginMutableContextEvents]),
-    },
+    eventTargets: chatgptLoginEventTargets,
+    mutableContextEvents: chatgptLoginMutableContextEvents,
+    retryEvent: 'chatgpt.retry.requested',
+    retryTarget: 'retrying',
+    defaultRetryMessage: 'Retrying ChatGPT login',
   })
 }
 

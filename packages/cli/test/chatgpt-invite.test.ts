@@ -84,6 +84,45 @@ describe('inviteChatGPTWorkspaceMembers', () => {
       failedInviteEmails: ['b@example.com'],
     })
     expect(result.invites.accountId).toBe('workspace-123')
+    expect(result.machine).toMatchObject({
+      state: 'completed',
+      context: {
+        workspaceId: 'workspace-123',
+        lastMessage: 'ChatGPT workspace invite flow completed',
+      },
+    })
+  })
+
+  it('tracks retry bookkeeping on the invite machine', async () => {
+    const { createChatGPTInviteMachine } =
+      await import('../src/flows/chatgpt-invite')
+    const machine = createChatGPTInviteMachine()
+
+    machine.start()
+    await machine.send('chatgpt.invites.started', {
+      target: 'inviting-members',
+      patch: {
+        workspaceId: 'workspace-123',
+      },
+    })
+    const snapshot = await machine.send('chatgpt.retry.requested', {
+      reason: 'storage-state-save',
+      message: 'Continuing after storage save failed',
+      patch: {
+        workspaceId: 'workspace-123',
+      },
+    })
+
+    expect(snapshot).toMatchObject({
+      state: 'retrying',
+      context: {
+        workspaceId: 'workspace-123',
+        retryCount: 1,
+        retryReason: 'storage-state-save',
+        retryFromState: 'inviting-members',
+        lastMessage: 'Continuing after storage save failed',
+      },
+    })
   })
 
   it('reports a selected workspace id before the invite API finishes resolving account id', async () => {

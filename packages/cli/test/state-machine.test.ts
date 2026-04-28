@@ -11,6 +11,7 @@ import {
   OPENAI_ADD_PHONE_ERROR_MESSAGE,
   OPENAI_ADD_PHONE_URL,
   runGuardedBranches,
+  runStateMachineEffects,
   type StateMachineRaisedErrorArgs,
 } from '../src/state-machine'
 
@@ -315,6 +316,53 @@ describe('state machine', () => {
       state: 'fatal',
       context: {
         url: 'https://auth.openai.com/add-phone',
+      },
+    })
+  })
+
+  it('runs state effects and lets emitted events choose the next state', async () => {
+    const machine = createStateMachine<
+      'idle' | 'observing' | 'done',
+      {
+        observed?: boolean
+      },
+      'observe' | 'finish'
+    >({
+      id: 'effect.machine',
+      initialState: 'idle',
+      initialContext: {},
+      on: {
+        observe: {
+          target: 'observing',
+        },
+        finish: {
+          target: 'done',
+          actions: assignContextFromInput(
+            (value): value is { observed: boolean } =>
+              Boolean(value && typeof value === 'object'),
+            (_context, { input }) => ({
+              observed: input.observed,
+            }),
+          ),
+        },
+      },
+    })
+
+    machine.start()
+    await machine.send('observe')
+    const snapshot = await runStateMachineEffects(machine, {
+      observing: async () => ({
+        event: 'finish',
+        input: {
+          observed: true,
+        },
+      }),
+    })
+
+    expect(snapshot).toMatchObject({
+      state: 'done',
+      context: {
+        observed: true,
       },
     })
   })

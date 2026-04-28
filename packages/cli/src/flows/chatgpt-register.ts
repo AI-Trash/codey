@@ -6,9 +6,6 @@ import {
   composeStateMachineConfig,
   createGuardedCaseTransitions,
   createOpenAIAddPhoneFailureFragment,
-  createPatchTransitionMap,
-  createRetryTransition,
-  createSelfPatchTransitionMap,
   createStateMachine,
   declareStateMachineStates,
   defineStateMachineFragment,
@@ -82,6 +79,7 @@ import {
   runSingleFileFlowFromCommandLine,
   type SingleFileFlowDefinition,
 } from '../modules/flow-cli/single-file'
+import { createFlowLifecycleFragment } from './machine-fragments'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
 
@@ -466,31 +464,16 @@ function createChatGPTRegistrationLoginSurfaceTransitions<Result>() {
 }
 
 function createChatGPTRegistrationLifecycleFragment<Result>() {
-  return defineStateMachineFragment<
+  return createFlowLifecycleFragment<
     ChatGPTRegistrationFlowState,
     ChatGPTRegistrationFlowContext<Result>,
     ChatGPTRegistrationFlowEvent
   >({
-    on: {
-      ...createPatchTransitionMap<
-        ChatGPTRegistrationFlowState,
-        ChatGPTRegistrationFlowContext<Result>,
-        ChatGPTRegistrationFlowEvent
-      >(chatgptRegistrationEventTargets),
-      'chatgpt.retry.requested': createRetryTransition<
-        ChatGPTRegistrationFlowState,
-        ChatGPTRegistrationFlowContext<Result>,
-        ChatGPTRegistrationFlowEvent
-      >({
-        target: 'retrying',
-        defaultMessage: 'Retrying ChatGPT registration',
-      }),
-      ...createSelfPatchTransitionMap<
-        ChatGPTRegistrationFlowState,
-        ChatGPTRegistrationFlowContext<Result>,
-        ChatGPTRegistrationFlowEvent
-      >([...chatgptRegistrationMutableContextEvents]),
-    },
+    eventTargets: chatgptRegistrationEventTargets,
+    mutableContextEvents: chatgptRegistrationMutableContextEvents,
+    retryEvent: 'chatgpt.retry.requested',
+    retryTarget: 'retrying',
+    defaultRetryMessage: 'Retrying ChatGPT registration',
   })
 }
 

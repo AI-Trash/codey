@@ -4,6 +4,7 @@ packages:
 linkWorkspacePackages: true
 
 catalog:
+  '@codey/state-machine': '1.0.0'
   '@base-ui/react': '^1.4.0'
   '@cloudflare/workers-types': '^4.20260415.1'
   '@hookform/resolvers': '^5.2.2'

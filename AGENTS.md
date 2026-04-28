@@ -29,6 +29,9 @@
 ## Flow state machines
 
 - Treat flow branching as a state-machine concern. Do not add new `if/else` trees in flow runners to decide between states such as email/password/verification/retry.
+- Flow runners must not own next-state selection. Runners should execute the side effects for the current state or selected transition, observe the page/API result, and send that observation back to the machine as an event/input; the machine must select the next state.
+- When a reusable sequence of flow states is needed, extract a state-machine fragment or child machine and compose it with `composeStateMachineConfig()` instead of wrapping the sequence in a procedural helper that hides branching, retry, or reentry logic.
+- Reusing the same state set across different flows is allowed only when the state names, transition semantics, and required context fields mean the same thing in every caller. If the same labels would require different guards, retry behavior, side effects, or reporting semantics, create separate domain-specific states/fragments or parameterize the shared fragment with an explicit typed context contract.
 - Encode branch selection as guarded transitions with explicit priority. When multiple transitions exist for the same event, guards must be evaluated in priority order and only the first passing transition should be selected.
 - Keep guards pure. In `packages/cli`, guards should consume query results or candidate lists returned by `queries.ts`; prefer helpers such as `get*Candidates()` / `waitFor*Candidates()` over embedding DOM checks directly in mutation code.
 - Keep retry and fallback bookkeeping in machine context, not in ad-hoc local variables only. This includes `retryCount`, `retryReason`, `retryFromState`, `lastAttempt`, and `lastMessage`.

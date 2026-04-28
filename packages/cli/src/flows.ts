@@ -12,6 +12,7 @@ export {
   inviteChatGPTWorkspaceMembers,
   loginChatGPTAndInviteMembers,
   chatgptInviteFlow,
+  createChatGPTInviteMachine,
 } from './flows/chatgpt-invite'
 export {
   runChatGPTTeamTrial,

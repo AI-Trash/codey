@@ -3,15 +3,12 @@ import path from 'path'
 import { pathToFileURL } from 'url'
 import {
   composeStateMachineConfig,
-  createPatchTransitionMap,
-  createRetryTransition,
-  createSelfPatchTransitionMap,
   createStateMachine,
   declareStateMachineStates,
-  defineStateMachineFragment,
   type StateMachineController,
   type StateMachineSnapshot,
 } from '../state-machine'
+import { createFlowLifecycleFragment } from './machine-fragments'
 import {
   CHATGPT_TEAM_PRICING_PROMO_URL,
   clickChatGPTCheckoutSubscribeAndCapturePaypalLink,
@@ -198,31 +195,16 @@ const chatgptTeamTrialStates = [
 ] as const satisfies readonly ChatGPTTeamTrialFlowState[]
 
 function createChatGPTTeamTrialLifecycleFragment<Result>() {
-  return defineStateMachineFragment<
+  return createFlowLifecycleFragment<
     ChatGPTTeamTrialFlowState,
     ChatGPTTeamTrialFlowContext<Result>,
     ChatGPTTeamTrialFlowEvent
   >({
-    on: {
-      ...createPatchTransitionMap<
-        ChatGPTTeamTrialFlowState,
-        ChatGPTTeamTrialFlowContext<Result>,
-        ChatGPTTeamTrialFlowEvent
-      >(chatgptTeamTrialEventTargets),
-      'chatgpt.retry.requested': createRetryTransition<
-        ChatGPTTeamTrialFlowState,
-        ChatGPTTeamTrialFlowContext<Result>,
-        ChatGPTTeamTrialFlowEvent
-      >({
-        target: 'retrying',
-        defaultMessage: 'Retrying ChatGPT Team trial flow',
-      }),
-      ...createSelfPatchTransitionMap<
-        ChatGPTTeamTrialFlowState,
-        ChatGPTTeamTrialFlowContext<Result>,
-        ChatGPTTeamTrialFlowEvent
-      >([...chatgptTeamTrialMutableContextEvents]),
-    },
+    eventTargets: chatgptTeamTrialEventTargets,
+    mutableContextEvents: chatgptTeamTrialMutableContextEvents,
+    retryEvent: 'chatgpt.retry.requested',
+    retryTarget: 'retrying',
+    defaultRetryMessage: 'Retrying ChatGPT Team trial flow',
   })
 }
 
@@ -609,7 +591,7 @@ export async function runChatGPTTeamTrial(
       identity: completedLogin?.storedIdentity,
       progressReporter: options.progressReporter,
     })
-    machine.fail('failed', error, {
+    machine.fail(error, 'failed', {
       event: 'chatgpt.failed',
       patch: {
         url: page.url(),

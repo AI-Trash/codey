@@ -16,6 +16,7 @@
     "test": "vitest run --config ./vitest.config.ts"
   },
   "dependencies": {
+    "@codey/state-machine": "catalog:",
     "dotenv": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:",

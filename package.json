@@ -19,9 +19,12 @@
     "flow": "pnpm --filter ./packages/cli exec jiti src/cli.ts flow",
     "lint": "oxlint --config ./.oxlintrc.json .",
     "lint:fix": "oxlint --config ./.oxlintrc.json . --fix",
-    "test": "pnpm --filter ./packages/cli run test"
+    "test": "pnpm --filter ./packages/cli run test",
+    "test:app": "vitest run src --passWithNoTests",
+    "test:all": "pnpm test && pnpm test:app"
   },
   "dependencies": {
+    "@codey/state-machine": "catalog:",
     "@base-ui/react": "catalog:",
     "@hookform/resolvers": "catalog:",
     "@paper-design/shaders-react": "catalog:",
