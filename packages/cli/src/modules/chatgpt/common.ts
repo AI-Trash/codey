@@ -48,6 +48,14 @@ export const CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS: SelectorTarget[] 
     'iframe[title*="address" i]',
   ]
 
+export const CHATGPT_CHECKOUT_PAYMENT_METHOD_FRAME_SELECTORS: SelectorTarget[] =
+  [
+    'iframe[src*="elements-inner-payment"]',
+    'iframe[title*="付款"]',
+    'iframe[title*="支付"]',
+    'iframe[title*="payment" i]',
+  ]
+
 export const CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS = [
   '[role="tab"][value="paypal" i]',
   '[role="tab"][data-testid="paypal" i]',

@@ -9,6 +9,7 @@ import {
   extractPaypalBillingAgreementLink,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
 } from '../src/modules/chatgpt/mutations'
+import { waitForChatGPTCheckoutReady } from '../src/modules/chatgpt/queries'
 
 const baseConfig = resolveConfig()
 
@@ -55,6 +56,12 @@ interface FakeCheckoutFrameOptions {
   paypalSelectorLocator?: FakeCheckoutLocator
   hasPaymentSelectionState?: () => boolean
   paypalSelected?: () => boolean
+}
+
+interface FakeCheckoutPageOptions {
+  url?: string
+  paymentMethodFrameVisible?: boolean
+  billingAddressFrameVisible?: boolean
 }
 
 class FakeCheckoutFrame {
@@ -113,7 +120,14 @@ class FakeCheckoutFrame {
 class FakeCheckoutPage {
   private readonly hiddenLocator = new FakeCheckoutLocator(false)
 
-  constructor(private readonly checkoutFrames: FakeCheckoutFrame[]) {}
+  constructor(
+    private readonly checkoutFrames: FakeCheckoutFrame[],
+    private readonly options: FakeCheckoutPageOptions = {},
+  ) {}
+
+  url(): string {
+    return this.options.url ?? 'https://chatgpt.com/checkout/team/cs_test_123'
+  }
 
   frames(): FakeCheckoutFrame[] {
     return this.checkoutFrames
@@ -127,7 +141,19 @@ class FakeCheckoutPage {
     return this.hiddenLocator
   }
 
-  locator(): FakeCheckoutLocator {
+  locator(selector = ''): FakeCheckoutLocator {
+    const normalizedSelector = selector.toLowerCase()
+    if (normalizedSelector.includes('elements-inner-payment')) {
+      return new FakeCheckoutLocator(
+        Boolean(this.options.paymentMethodFrameVisible),
+      )
+    }
+    if (normalizedSelector.includes('elements-inner-address')) {
+      return new FakeCheckoutLocator(
+        Boolean(this.options.billingAddressFrameVisible),
+      )
+    }
+
     return this.hiddenLocator
   }
 }
@@ -180,6 +206,19 @@ describe('chatgpt team trial checkout defaults', () => {
       city: 'CLI city',
       postalCode: 'CLI POST',
     })
+  })
+})
+
+describe('checkout readiness', () => {
+  it('treats the payment method frame as ready before the billing address frame appears', async () => {
+    const page = new FakeCheckoutPage([], {
+      paymentMethodFrameVisible: true,
+      billingAddressFrameVisible: false,
+    })
+
+    await expect(waitForChatGPTCheckoutReady(page as never, 100)).resolves.toBe(
+      true,
+    )
   })
 })
 

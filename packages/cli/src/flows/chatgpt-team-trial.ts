@@ -18,6 +18,7 @@ import {
   clickTeamPricingFreeTrial,
   fillChatGPTCheckoutBillingAddress,
   gotoTeamPricingPromo,
+  selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
   type ChatGPTTeamTrialBillingAddress,
   waitForAuthenticatedSession,
   waitForChatGPTCheckoutReady,
@@ -61,6 +62,8 @@ export type ChatGPTTeamTrialFlowState =
   | 'claiming-trial'
   | 'trial-claimed'
   | 'checkout-ready'
+  | 'selecting-paypal-payment-method'
+  | 'paypal-payment-method-selected'
   | 'filling-billing-address'
   | 'billing-address-filled'
   | 'subscribing'
@@ -79,6 +82,8 @@ export type ChatGPTTeamTrialFlowEvent =
   | 'chatgpt.trial.claiming'
   | 'chatgpt.trial.claimed'
   | 'chatgpt.checkout.ready'
+  | 'chatgpt.paypal_payment_method.selecting'
+  | 'chatgpt.paypal_payment_method.selected'
   | 'chatgpt.billing_address.filling'
   | 'chatgpt.billing_address.filled'
   | 'chatgpt.subscription.submitting'
@@ -98,6 +103,7 @@ export interface ChatGPTTeamTrialFlowContext<Result = unknown> {
   login?: ChatGPTLoginFlowResult
   checkoutUrl?: string
   billingCountry?: string
+  paypalPaymentMethodSelected?: boolean
   billingAddressFilled?: boolean
   subscribeClicked?: boolean
   paypalBaTokenCaptured?: boolean
@@ -153,6 +159,8 @@ const chatgptTeamTrialEventTargets = {
   'chatgpt.trial.claiming': 'claiming-trial',
   'chatgpt.trial.claimed': 'trial-claimed',
   'chatgpt.checkout.ready': 'checkout-ready',
+  'chatgpt.paypal_payment_method.selecting': 'selecting-paypal-payment-method',
+  'chatgpt.paypal_payment_method.selected': 'paypal-payment-method-selected',
   'chatgpt.billing_address.filling': 'filling-billing-address',
   'chatgpt.billing_address.filled': 'billing-address-filled',
   'chatgpt.subscription.submitting': 'subscribing',
@@ -178,6 +186,8 @@ const chatgptTeamTrialStates = [
   'claiming-trial',
   'trial-claimed',
   'checkout-ready',
+  'selecting-paypal-payment-method',
+  'paypal-payment-method-selected',
   'filling-billing-address',
   'billing-address-filled',
   'subscribing',
@@ -458,6 +468,41 @@ export async function runChatGPTTeamTrial(
 
     await sendTeamTrialMachine(
       machine,
+      'selecting-paypal-payment-method',
+      'chatgpt.paypal_payment_method.selecting',
+      {
+        email: login.email,
+        url: checkoutUrl,
+        checkoutUrl,
+        lastMessage:
+          'Selecting PayPal payment method before filling billing address',
+      },
+    )
+    const paypalPaymentMethodSelected =
+      await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+        timeoutMs: 30000,
+      })
+    if (!paypalPaymentMethodSelected) {
+      throw new Error(
+        'ChatGPT checkout PayPal payment method was not visible before billing address.',
+      )
+    }
+
+    await sendTeamTrialMachine(
+      machine,
+      'paypal-payment-method-selected',
+      'chatgpt.paypal_payment_method.selected',
+      {
+        email: login.email,
+        url: page.url(),
+        checkoutUrl,
+        paypalPaymentMethodSelected: true,
+        lastMessage: 'ChatGPT checkout PayPal payment method selected',
+      },
+    )
+
+    await sendTeamTrialMachine(
+      machine,
       'filling-billing-address',
       'chatgpt.billing_address.filling',
       {
@@ -465,6 +510,7 @@ export async function runChatGPTTeamTrial(
         url: checkoutUrl,
         checkoutUrl,
         billingCountry: billingAddress.country,
+        paypalPaymentMethodSelected: true,
         lastMessage: 'Filling ChatGPT checkout billing address',
       },
     )

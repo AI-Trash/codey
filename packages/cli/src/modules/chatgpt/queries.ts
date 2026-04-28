@@ -17,6 +17,8 @@ import {
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
   CHATGPT_CHECKOUT_ORIGIN,
+  CHATGPT_CHECKOUT_PAYMENT_METHOD_FRAME_SELECTORS,
+  CHATGPT_CHECKOUT_PAYPAL_SELECTORS,
   CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
   CHATGPT_HOME_URL,
   CHATGPT_TEAM_PRICING_PROMO_URL,
@@ -1083,13 +1085,14 @@ export async function waitForChatGPTCheckoutReady(
     return false
   }
 
+  const checkoutReadySelectors = [
+    ...CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
+    ...CHATGPT_CHECKOUT_PAYMENT_METHOD_FRAME_SELECTORS,
+    ...CHATGPT_CHECKOUT_PAYPAL_SELECTORS,
+  ]
+
   do {
-    if (
-      await isAnySelectorVisible(
-        page,
-        CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
-      )
-    ) {
+    if (await isAnySelectorVisible(page, checkoutReadySelectors)) {
       return true
     }
 
@@ -1098,10 +1101,7 @@ export async function waitForChatGPTCheckoutReady(
     await sleep(Math.min(250, remainingMs))
   } while (Date.now() <= deadline)
 
-  return isAnySelectorVisible(
-    page,
-    CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
-  )
+  return isAnySelectorVisible(page, checkoutReadySelectors)
 }
 
 export async function waitForChatGPTCheckoutSubscribeReady(
