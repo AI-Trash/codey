@@ -9,6 +9,17 @@ export class ChatGPTAccountDeactivatedError extends Error {
   }
 }
 
+export class OpenAIBrowserChallengeError extends Error {
+  readonly code = 'openai_browser_challenge'
+
+  constructor(
+    message = 'OpenAI served a browser verification interstitial instead of a supported ChatGPT login surface.',
+  ) {
+    super(message)
+    this.name = 'OpenAIBrowserChallengeError'
+  }
+}
+
 export function isChatGPTAccountDeactivatedError(
   error: unknown,
   seen = new Set<unknown>(),

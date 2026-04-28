@@ -6,7 +6,10 @@ import {
   waitForEnabledSelector,
   waitForEditableSelector,
   waitForLoginEmailFormReady,
+  waitForLoginSurfaceCandidates,
+  waitForRegistrationEntryCandidates,
 } from '../src/modules/chatgpt/queries'
+import { OpenAIBrowserChallengeError } from '../src/modules/chatgpt/errors'
 
 class FakeLocator {
   editableChecks = 0
@@ -76,6 +79,7 @@ class FakePage {
       placeholder?: FakeLocator
       testId?: FakeLocator
     } = {},
+    private readonly pageTitle = '',
   ) {}
 
   locator(selector: string): FakeLocator {
@@ -84,6 +88,10 @@ class FakePage {
 
   url(): string {
     return this.currentUrl
+  }
+
+  async title(): Promise<string> {
+    return this.pageTitle
   }
 
   getByRole(): FakeLocator {
@@ -239,5 +247,43 @@ describe('waitForEditableSelector', () => {
     await expect(isOpenAIWorkspacePickerReady(page as never)).resolves.toBe(
       true,
     )
+  })
+
+  it('fails fast when registration entry is blocked by a browser challenge', async () => {
+    const challengeMarker = new FakeLocator({
+      count: 1,
+      visible: false,
+    })
+    const page = new FakePage(
+      {
+        'input[name="cf-turnstile-response"]': challengeMarker,
+      },
+      'https://chatgpt.com/auth/login',
+      {},
+      '请稍候…',
+    )
+
+    await expect(
+      waitForRegistrationEntryCandidates(page as never, 1000),
+    ).rejects.toBeInstanceOf(OpenAIBrowserChallengeError)
+  })
+
+  it('fails fast when login entry is blocked by a browser challenge', async () => {
+    const challengeMarker = new FakeLocator({
+      count: 1,
+      visible: false,
+    })
+    const page = new FakePage(
+      {
+        'input[name="cf-turnstile-response"]': challengeMarker,
+      },
+      'https://chatgpt.com/auth/login',
+      {},
+      'Just a moment...',
+    )
+
+    await expect(
+      waitForLoginSurfaceCandidates(page as never, 1000),
+    ).rejects.toBeInstanceOf(OpenAIBrowserChallengeError)
   })
 })

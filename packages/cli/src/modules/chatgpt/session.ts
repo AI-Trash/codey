@@ -10,6 +10,8 @@ const CHATGPT_CAPTURE_ORIGINS = [
 const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
 const CLIENT_ID_PATTERN =
   /(?:["'](?:client_id|clientId)["']\s*:\s*["']|[?&]client_id=)([^"'&\s<>{}]+)/g
+const TOKEN_FIELD_PATTERN =
+  /["'](access_token|accessToken|refresh_token|refreshToken|id_token|idToken)["']\s*:\s*["']([^"']+)["']/g
 const MAX_CAPTURED_TEXT_LENGTH = 750_000
 
 interface ChatGPTTokenPayload {
@@ -17,6 +19,13 @@ interface ChatGPTTokenPayload {
   refresh_token?: string
   id_token?: string
   client_id?: string
+}
+
+interface ChatGPTTokenPayloadCandidate {
+  accessToken?: string
+  refreshToken?: string
+  idToken?: string
+  clientId?: string
 }
 
 type JwtClaims = Record<string, unknown>
@@ -225,9 +234,13 @@ function parseTokenPayload(text: string): ChatGPTTokenPayload | null {
     return null
   }
 
-  const accessToken = asTrimmedString(parsed.access_token)
-  const refreshToken = asTrimmedString(parsed.refresh_token)
-  const idToken = asTrimmedString(parsed.id_token)
+  const accessToken =
+    asTrimmedString(parsed.access_token) || asTrimmedString(parsed.accessToken)
+  const refreshToken =
+    asTrimmedString(parsed.refresh_token) ||
+    asTrimmedString(parsed.refreshToken)
+  const idToken =
+    asTrimmedString(parsed.id_token) || asTrimmedString(parsed.idToken)
   const clientId =
     asTrimmedString(parsed.client_id) || asTrimmedString(parsed.clientId)
 
@@ -240,6 +253,187 @@ function parseTokenPayload(text: string): ChatGPTTokenPayload | null {
     refresh_token: refreshToken,
     id_token: idToken,
     client_id: clientId,
+  }
+}
+
+function readTokenPayloadCandidate(
+  value: Record<string, unknown>,
+  inheritedClientId?: string,
+): ChatGPTTokenPayloadCandidate | null {
+  const accessToken =
+    asTrimmedString(value.access_token) || asTrimmedString(value.accessToken)
+  const refreshToken =
+    asTrimmedString(value.refresh_token) || asTrimmedString(value.refreshToken)
+  const idToken =
+    asTrimmedString(value.id_token) || asTrimmedString(value.idToken)
+  const clientId =
+    asTrimmedString(value.client_id) ||
+    asTrimmedString(value.clientId) ||
+    inheritedClientId
+
+  if (!accessToken && !refreshToken && !idToken) {
+    return null
+  }
+
+  return {
+    accessToken,
+    refreshToken,
+    idToken,
+    clientId,
+  }
+}
+
+function collectTokenPayloadCandidatesFromValue(
+  value: unknown,
+  accumulator: ChatGPTTokenPayloadCandidate[] = [],
+  inheritedClientId?: string,
+): ChatGPTTokenPayloadCandidate[] {
+  if (!value) {
+    return accumulator
+  }
+
+  if (typeof value === 'string') {
+    const parsed = parseJson(value)
+    if (parsed) {
+      collectTokenPayloadCandidatesFromValue(
+        parsed,
+        accumulator,
+        inheritedClientId,
+      )
+    }
+
+    const urlSearchParams = parseUrlSearchParams(value)
+    if (urlSearchParams) {
+      collectTokenPayloadCandidatesFromValue(
+        Object.fromEntries(urlSearchParams.entries()),
+        accumulator,
+        inheritedClientId,
+      )
+    }
+
+    return accumulator
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectTokenPayloadCandidatesFromValue(
+        item,
+        accumulator,
+        inheritedClientId,
+      )
+    }
+    return accumulator
+  }
+
+  if (!isRecord(value)) {
+    return accumulator
+  }
+
+  const clientId =
+    asTrimmedString(value.client_id) ||
+    asTrimmedString(value.clientId) ||
+    inheritedClientId
+  const candidate = readTokenPayloadCandidate(value, clientId)
+  if (candidate) {
+    accumulator.push(candidate)
+  }
+
+  for (const entry of Object.values(value)) {
+    collectTokenPayloadCandidatesFromValue(entry, accumulator, clientId)
+  }
+
+  return accumulator
+}
+
+function collectTokenPayloadCandidatesFromText(
+  text: string | undefined,
+  parsedJson?: Record<string, unknown> | null,
+): ChatGPTTokenPayloadCandidate[] {
+  if (!text) {
+    return []
+  }
+
+  const candidates = collectTokenPayloadCandidatesFromValue(parsedJson || {})
+  const parsedPayload = parseTokenPayload(text)
+  if (parsedPayload) {
+    candidates.push({
+      accessToken: parsedPayload.access_token,
+      refreshToken: parsedPayload.refresh_token,
+      idToken: parsedPayload.id_token,
+      clientId: parsedPayload.client_id,
+    })
+  }
+
+  const limitedText = text.slice(0, MAX_CAPTURED_TEXT_LENGTH)
+  const clientId = scanClientIds(limitedText)[0]
+  for (const match of limitedText.matchAll(TOKEN_FIELD_PATTERN)) {
+    const token = asTrimmedString(match[2])
+    if (!token) {
+      continue
+    }
+
+    const key = match[1]
+    candidates.push({
+      accessToken:
+        key === 'access_token' || key === 'accessToken' ? token : undefined,
+      refreshToken:
+        key === 'refresh_token' || key === 'refreshToken' ? token : undefined,
+      idToken: key === 'id_token' || key === 'idToken' ? token : undefined,
+      clientId,
+    })
+  }
+
+  const urlSearchParams = parseUrlSearchParams(limitedText)
+  if (urlSearchParams) {
+    candidates.push(
+      ...collectTokenPayloadCandidatesFromValue(
+        Object.fromEntries(urlSearchParams.entries()),
+      ),
+    )
+  }
+
+  return dedupeTokenPayloadCandidates(candidates)
+}
+
+function dedupeTokenPayloadCandidates(
+  candidates: ChatGPTTokenPayloadCandidate[],
+): ChatGPTTokenPayloadCandidate[] {
+  const seen = new Set<string>()
+  const deduped: ChatGPTTokenPayloadCandidate[] = []
+
+  for (const candidate of candidates) {
+    const key = JSON.stringify([
+      candidate.accessToken || '',
+      candidate.refreshToken || '',
+      candidate.idToken || '',
+      candidate.clientId || '',
+    ])
+    if (seen.has(key)) {
+      continue
+    }
+
+    seen.add(key)
+    deduped.push(candidate)
+  }
+
+  return deduped
+}
+
+function parseUrlSearchParams(text: string): URLSearchParams | null {
+  if (
+    !/(?:^|[?&])(?:access_token|accessToken|refresh_token|refreshToken|id_token|idToken|client_id|clientId)=/.test(
+      text,
+    )
+  ) {
+    return null
+  }
+
+  try {
+    const normalized = text.startsWith('?') ? text.slice(1) : text
+    const params = new URLSearchParams(normalized)
+    return Array.from(params.keys()).length > 0 ? params : null
+  } catch {
+    return null
   }
 }
 
@@ -439,6 +633,56 @@ async function readCurrentAccountCookie(
   return asTrimmedString(cookie?.value)
 }
 
+async function readBrowserStorageTokenSources(page: Page): Promise<unknown[]> {
+  const sources: unknown[] = []
+
+  try {
+    const pageStorage = await page.evaluate(() => {
+      const readStorage = (storage: Storage) =>
+        Array.from({ length: storage.length }, (_, index) => {
+          const key = storage.key(index)
+          return key ? [key, storage.getItem(key)] : null
+        }).filter(Boolean)
+
+      return {
+        localStorage: readStorage(window.localStorage),
+        sessionStorage: readStorage(window.sessionStorage),
+      }
+    })
+    sources.push(pageStorage)
+  } catch {}
+
+  try {
+    const storageState = (await page.context().storageState({
+      indexedDB: true,
+    })) as unknown
+    const stateRecord = isRecord(storageState) ? storageState : undefined
+    const origins = Array.isArray(stateRecord?.origins)
+      ? stateRecord.origins
+      : []
+
+    for (const origin of origins) {
+      if (!isRecord(origin)) {
+        continue
+      }
+
+      if (Array.isArray(origin.localStorage)) {
+        for (const item of origin.localStorage) {
+          if (isRecord(item)) {
+            sources.push(item.value)
+          }
+        }
+      }
+
+      if (Array.isArray(origin.indexedDB)) {
+        sources.push(origin.indexedDB)
+      }
+    }
+  } catch {}
+
+  return sources
+}
+
 function getOrCreateBucket(
   buckets: Map<string, SessionBucket>,
   clientId: string,
@@ -539,6 +783,39 @@ export function createChatGPTSessionCapture(page: Page): ChatGPTSessionCapture {
       ...collectClientIdsFromValue(parsedBody),
     ])
 
+    for (const tokenPayload of collectTokenPayloadCandidatesFromText(
+      postData,
+      parsedBody,
+    )) {
+      recordObservedToken({
+        kind: 'access_token',
+        token: tokenPayload.accessToken,
+        url,
+        observedAt,
+        clientIdHint: tokenPayload.clientId || clientIdHint,
+        sessionIdHint,
+        accountIdHint,
+      })
+      recordObservedToken({
+        kind: 'refresh_token',
+        token: tokenPayload.refreshToken,
+        url,
+        observedAt,
+        clientIdHint: tokenPayload.clientId || clientIdHint,
+        sessionIdHint,
+        accountIdHint,
+      })
+      recordObservedToken({
+        kind: 'id_token',
+        token: tokenPayload.idToken,
+        url,
+        observedAt,
+        clientIdHint: tokenPayload.clientId || clientIdHint,
+        sessionIdHint,
+        accountIdHint,
+      })
+    }
+
     if (sessionIdHint) {
       observedSessionIds.add(sessionIdHint)
     }
@@ -587,7 +864,10 @@ export function createChatGPTSessionCapture(page: Page): ChatGPTSessionCapture {
             MAX_CAPTURED_TEXT_LENGTH,
           )
           const parsedJson = parseJson(text)
-          const parsedTokenPayload = parseTokenPayload(text)
+          const tokenPayloads = collectTokenPayloadCandidatesFromText(
+            text,
+            parsedJson,
+          )
           const request = response.request()
           const requestPostData = request.postData() || ''
           const requestJson = parseJson(requestPostData)
@@ -599,32 +879,32 @@ export function createChatGPTSessionCapture(page: Page): ChatGPTSessionCapture {
 
           recordClientIds([
             requestClientId,
-            parsedTokenPayload?.client_id,
+            ...tokenPayloads.map((payload) => payload.clientId),
             ...scanClientIds(text),
             ...collectClientIdsFromValue(parsedJson),
           ])
 
-          if (parsedTokenPayload) {
+          for (const tokenPayload of tokenPayloads) {
             recordObservedToken({
               kind: 'access_token',
-              token: parsedTokenPayload.access_token,
+              token: tokenPayload.accessToken,
               url,
               observedAt,
-              clientIdHint: parsedTokenPayload.client_id || requestClientId,
+              clientIdHint: tokenPayload.clientId || requestClientId,
             })
             recordObservedToken({
               kind: 'refresh_token',
-              token: parsedTokenPayload.refresh_token,
+              token: tokenPayload.refreshToken,
               url,
               observedAt,
-              clientIdHint: parsedTokenPayload.client_id || requestClientId,
+              clientIdHint: tokenPayload.clientId || requestClientId,
             })
             recordObservedToken({
               kind: 'id_token',
-              token: parsedTokenPayload.id_token,
+              token: tokenPayload.idToken,
               url,
               observedAt,
-              clientIdHint: parsedTokenPayload.client_id || requestClientId,
+              clientIdHint: tokenPayload.clientId || requestClientId,
             })
           }
 
@@ -680,6 +960,46 @@ export function createChatGPTSessionCapture(page: Page): ChatGPTSessionCapture {
           })
         }
       } catch {}
+
+      const storageTokenSources = await readBrowserStorageTokenSources(page)
+      for (const source of storageTokenSources) {
+        recordClientIds(collectClientIdsFromValue(source))
+
+        for (const tokenPayload of collectTokenPayloadCandidatesFromValue(
+          source,
+        )) {
+          recordObservedToken({
+            kind: 'access_token',
+            token: tokenPayload.accessToken,
+            url: 'browser-storage',
+            observedAt: capturedAt,
+            clientIdHint: tokenPayload.clientId,
+          })
+          recordObservedToken({
+            kind: 'refresh_token',
+            token: tokenPayload.refreshToken,
+            url: 'browser-storage',
+            observedAt: capturedAt,
+            clientIdHint: tokenPayload.clientId,
+          })
+          recordObservedToken({
+            kind: 'id_token',
+            token: tokenPayload.idToken,
+            url: 'browser-storage',
+            observedAt: capturedAt,
+            clientIdHint: tokenPayload.clientId,
+          })
+        }
+
+        for (const token of scanJwtTokensInValue(source)) {
+          recordObservedToken({
+            kind: 'jwt',
+            token,
+            url: 'browser-storage',
+            observedAt: capturedAt,
+          })
+        }
+      }
 
       const onlyObservedClientId =
         observedClientIds.size === 1

@@ -42,7 +42,10 @@ import {
   TEAM_PRICING_FREE_TRIAL_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
 } from './common'
-import { ChatGPTAccountDeactivatedError } from './errors'
+import {
+  ChatGPTAccountDeactivatedError,
+  OpenAIBrowserChallengeError,
+} from './errors'
 
 export type ChatGPTPostEmailLoginStep =
   | 'authenticated'
@@ -87,6 +90,16 @@ const CHATGPT_BACKEND_ME_PATH = '/backend-api/me'
 const CHATGPT_BACKEND_ME_URL = `${CHATGPT_BACKEND_ORIGIN}${CHATGPT_BACKEND_ME_PATH}`
 const CHATGPT_BACKEND_ME_ROUTE = '/backend-api/me'
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
+const OPENAI_BROWSER_CHALLENGE_TITLE_PATTERN =
+  /请稍候|稍候|just a moment|verify you are human|checking your browser/i
+const OPENAI_BROWSER_CHALLENGE_BODY_PATTERN =
+  /请稍候|稍候|just a moment|verify you are human|checking your browser|正在检查|checking/i
+const OPENAI_BROWSER_CHALLENGE_MARKER_SELECTORS: SelectorTarget[] = [
+  'input[name="cf-turnstile-response"]',
+  'input[id^="cf-chl-widget"]',
+  'iframe[src*="challenges.cloudflare.com"]',
+  'script[src*="challenges.cloudflare.com"]',
+]
 const CHATGPT_BACKEND_FORWARDABLE_HEADERS: Array<
   [source: string, target: string]
 > = [
@@ -134,6 +147,73 @@ async function hasVisibleLoginAction(page: Page): Promise<boolean> {
   return (
     (await isAnySelectorVisible(page, LOGIN_CONTINUE_SELECTORS)) ||
     (await isAnySelectorVisible(page, LOGIN_ENTRY_SELECTORS))
+  )
+}
+
+async function readPageTitle(page: Page): Promise<string> {
+  const maybeTitle = (page as { title?: () => Promise<string> }).title
+  if (typeof maybeTitle !== 'function') {
+    return ''
+  }
+
+  return maybeTitle.call(page).catch(() => '')
+}
+
+async function readBodyText(page: Page): Promise<string> {
+  const locator = page.locator('body') as {
+    innerText?: (options?: { timeout?: number }) => Promise<string>
+  }
+  if (typeof locator.innerText !== 'function') {
+    return ''
+  }
+
+  return locator.innerText({ timeout: 500 }).catch(() => '')
+}
+
+async function hasSupportedChatGPTSurface(page: Page): Promise<boolean> {
+  return (
+    (await isLoginEmailFieldReady(page)) ||
+    (await isAnySelectorVisible(page, LOGIN_ENTRY_SELECTORS)) ||
+    (await isAnySelectorVisible(page, SIGNUP_ENTRY_SELECTORS)) ||
+    (await isAnySelectorVisible(page, CHATGPT_AUTHENTICATED_SELECTORS))
+  )
+}
+
+export async function isOpenAIBrowserChallengePage(
+  page: Page,
+): Promise<boolean> {
+  const hasChallengeMarker = await waitForAnySelectorState(
+    page,
+    OPENAI_BROWSER_CHALLENGE_MARKER_SELECTORS,
+    'attached',
+    1,
+  )
+  if (!hasChallengeMarker || (await hasSupportedChatGPTSurface(page))) {
+    return false
+  }
+
+  const title = await readPageTitle(page)
+  if (OPENAI_BROWSER_CHALLENGE_TITLE_PATTERN.test(title)) {
+    return true
+  }
+
+  const bodyText = await readBodyText(page)
+  return (
+    bodyText.trim() === '' ||
+    OPENAI_BROWSER_CHALLENGE_BODY_PATTERN.test(bodyText)
+  )
+}
+
+export async function throwIfOpenAIBrowserChallengePage(
+  page: Page,
+  surfaceName: string,
+): Promise<void> {
+  if (!(await isOpenAIBrowserChallengePage(page))) {
+    return
+  }
+
+  throw new OpenAIBrowserChallengeError(
+    `${surfaceName} was blocked by an OpenAI/Cloudflare browser verification interstitial. This commonly happens in headless Chromium; Playwright does not guarantee headed and headless browser parity. Run this flow with --headless false or HEADLESS=false so the visible browser can complete the verification page.`,
   )
 }
 
@@ -1143,9 +1223,17 @@ export async function waitForRegistrationEntryCandidates(
     if (candidates.length > 0) {
       return candidates
     }
+    await throwIfOpenAIBrowserChallengePage(
+      page,
+      'ChatGPT registration entry page',
+    )
     await sleep(250)
   }
 
+  await throwIfOpenAIBrowserChallengePage(
+    page,
+    'ChatGPT registration entry page',
+  )
   return getRegistrationEntryCandidates(page)
 }
 
@@ -1377,9 +1465,14 @@ export async function waitForLoginEntryCandidates(
     if (candidates.length > 0) {
       return candidates
     }
+    await throwIfOpenAIBrowserChallengePage(
+      page,
+      'ChatGPT login entry page',
+    )
     await sleep(250)
   }
 
+  await throwIfOpenAIBrowserChallengePage(page, 'ChatGPT login entry page')
   return getLoginEntryCandidates(page)
 }
 
@@ -1400,9 +1493,11 @@ export async function waitForCodexOAuthSurfaceCandidates(
     if (candidates.length > 0) {
       return candidates
     }
+    await throwIfOpenAIBrowserChallengePage(page, 'Codex OAuth entry page')
     await sleep(250)
   }
 
+  await throwIfOpenAIBrowserChallengePage(page, 'Codex OAuth entry page')
   return getCodexOAuthSurfaceCandidates(page)
 }
 
@@ -1441,9 +1536,14 @@ export async function waitForLoginSurfaceCandidates(
     if (candidates.length > 0) {
       return candidates
     }
+    await throwIfOpenAIBrowserChallengePage(
+      page,
+      'ChatGPT login entry page',
+    )
     await sleep(250)
   }
 
+  await throwIfOpenAIBrowserChallengePage(page, 'ChatGPT login entry page')
   return getLoginSurfaceCandidates(page)
 }
 
