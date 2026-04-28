@@ -3,6 +3,7 @@ import '@tanstack/react-start/server-only'
 import {
   and,
   asc,
+  desc,
   eq,
   gt,
   inArray,
@@ -306,7 +307,10 @@ async function listCandidateIdentities(input: {
       identityId: true,
       email: true,
     },
-    orderBy: [asc(managedIdentities.lastSeenAt), asc(managedIdentities.email)],
+    orderBy: [
+      desc(managedIdentities.createdAt),
+      desc(managedIdentities.identityId),
+    ],
     limit: input.limit,
   })
 
@@ -338,6 +342,7 @@ function buildMaintenanceTask(input: {
       {
         identityId: input.identity.identityId,
         email: input.identity.email,
+        headless: true,
         restoreStorageState: true,
       },
       undefined,
