@@ -19,34 +19,45 @@ afterEach(() => {
 class FakeCheckoutLocator {
   clicks = 0
 
-  constructor(private readonly visible = false) {}
+  constructor(private readonly visible: boolean | (() => boolean) = false) {}
 
   first(): FakeCheckoutLocator {
     return this
   }
 
   async count(): Promise<number> {
-    return this.visible ? 1 : 0
+    return this.isCurrentlyVisible() ? 1 : 0
   }
 
   async isVisible(): Promise<boolean> {
-    return this.visible
+    return this.isCurrentlyVisible()
   }
 
   async scrollIntoViewIfNeeded(): Promise<void> {}
 
   async click(): Promise<void> {
-    if (!this.visible) {
+    if (!this.isCurrentlyVisible()) {
       throw new Error('Locator is not visible')
     }
     this.clicks += 1
+  }
+
+  private isCurrentlyVisible(): boolean {
+    return typeof this.visible === 'function' ? this.visible() : this.visible
   }
 }
 
 class FakeCheckoutFrame {
   private readonly hiddenLocator = new FakeCheckoutLocator(false)
 
-  constructor(private readonly paypalTabLocator: FakeCheckoutLocator) {}
+  constructor(
+    private readonly paypalTabLocator: FakeCheckoutLocator,
+    private readonly frameUrl = 'https://js.stripe.com/v3/elements-inner-payment-test.html',
+  ) {}
+
+  url(): string {
+    return this.frameUrl
+  }
 
   getByRole(role: string): FakeCheckoutLocator {
     return role === 'tab' ? this.paypalTabLocator : this.hiddenLocator
@@ -141,6 +152,23 @@ describe('paypal payment method selection', () => {
 
     await expect(
       selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page as never),
+    ).resolves.toBe(true)
+
+    expect(paypalTabLocator.clicks).toBe(1)
+  })
+
+  it('waits for PayPal tabs to render in Stripe payment frames', async () => {
+    let visibilityChecks = 0
+    const paypalTabLocator = new FakeCheckoutLocator(() => {
+      visibilityChecks += 1
+      return visibilityChecks > 1
+    })
+    const page = new FakeCheckoutPage([new FakeCheckoutFrame(paypalTabLocator)])
+
+    await expect(
+      selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page as never, {
+        timeoutMs: 1000,
+      }),
     ).resolves.toBe(true)
 
     expect(paypalTabLocator.clicks).toBe(1)

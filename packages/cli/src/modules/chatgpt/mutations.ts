@@ -74,6 +74,7 @@ const AUTH_INPUT_TYPING_OPTIONS = {
   strategy: 'sequential',
 } as const
 const STRIPE_ADDRESS_FRAME_URL_PATTERN = /elements-inner-address/i
+const STRIPE_PAYMENT_FRAME_URL_PATTERN = /elements-inner-payment/i
 const STRIPE_ADDRESS_FIELD_SELECTORS = [
   'input[name="addressLine1"]',
   'input[name="line1"]',
@@ -82,6 +83,7 @@ const STRIPE_ADDRESS_FIELD_SELECTORS = [
 ] as const
 const PAYPAL_HOST_PATTERN = /(^|\.)paypal\.com$/i
 const PAYPAL_CAPTURE_POLL_MS = 250
+const PAYPAL_PAYMENT_METHOD_POLL_MS = 250
 
 export interface OpenAIWorkspaceSelectionResult {
   availableWorkspaces: number
@@ -204,7 +206,9 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
   const capture = createPaypalBillingAgreementLinkCapture(page)
 
   try {
-    await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page)
+    await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+      timeoutMs: Math.min(10000, timeoutMs),
+    })
 
     let clickAttempt = 0
     while (Date.now() < deadline) {
@@ -219,7 +223,9 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
         Math.min(10000, remainingMs),
       )
       if (!ready) {
-        await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page)
+        await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+          timeoutMs: Math.min(2500, Math.max(1, deadline - Date.now())),
+        })
         const observed = await capture
           .wait(Math.min(1500, Math.max(1, deadline - Date.now())))
           .catch(() => undefined)
@@ -227,7 +233,20 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
         continue
       }
 
-      await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page)
+      const paypalSelected =
+        await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+          timeoutMs: Math.min(5000, Math.max(1, deadline - Date.now())),
+        })
+      if (!paypalSelected) {
+        const observed = await capture
+          .wait(Math.min(1500, Math.max(1, deadline - Date.now())))
+          .catch(() => undefined)
+        if (observed) {
+          return observed
+        }
+        continue
+      }
+
       clickAttempt += 1
       await clickChatGPTCheckoutSubscribe(page).catch(() => undefined)
       const observed = await capture
@@ -868,24 +887,47 @@ function isBillingStateRequired(country: string): boolean {
 
 export async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
   page: Page,
+  options: {
+    timeoutMs?: number
+  } = {},
 ): Promise<boolean> {
-  if (await clickIfPresent(page, CHATGPT_CHECKOUT_PAYPAL_SELECTORS)) {
-    await sleep(500)
-    return true
-  }
+  const timeoutMs = Math.max(0, options.timeoutMs ?? 0)
+  const deadline = Date.now() + timeoutMs
 
-  for (const frame of page.frames()) {
-    for (const locator of getChatGPTCheckoutPaypalPaymentMethodLocators(
-      frame,
-    )) {
-      if (await clickPaypalLocatorIfPresent(locator)) {
-        await sleep(500)
-        return true
+  do {
+    if (await clickIfPresent(page, CHATGPT_CHECKOUT_PAYPAL_SELECTORS)) {
+      await sleep(500)
+      return true
+    }
+
+    for (const frame of getPrioritizedCheckoutFrames(page)) {
+      for (const locator of getChatGPTCheckoutPaypalPaymentMethodLocators(
+        frame,
+      )) {
+        if (await clickPaypalLocatorIfPresent(locator)) {
+          await sleep(500)
+          return true
+        }
       }
     }
-  }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+    await sleep(Math.min(PAYPAL_PAYMENT_METHOD_POLL_MS, remainingMs))
+  } while (Date.now() <= deadline)
 
   return false
+}
+
+function getPrioritizedCheckoutFrames(page: Page): Frame[] {
+  const frames = page.frames()
+  const paymentFrames = frames.filter(isStripePaymentFrame)
+  const otherFrames = frames.filter((frame) => !paymentFrames.includes(frame))
+  return [...paymentFrames, ...otherFrames]
+}
+
+function isStripePaymentFrame(frame: Frame): boolean {
+  return STRIPE_PAYMENT_FRAME_URL_PATTERN.test(frame.url())
 }
 
 function getChatGPTCheckoutPaypalPaymentMethodLocators(
