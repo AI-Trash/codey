@@ -1716,6 +1716,28 @@ export async function deleteManagedWorkspace(id: string) {
   return record ?? null
 }
 
+export async function deleteManagedWorkspaceForOwnerIdentity(
+  ownerIdentityId: string,
+) {
+  const identityId = normalizeOptionalIdentityId(ownerIdentityId)
+  if (!identityId) {
+    return null
+  }
+
+  const workspace = await getDb().query.managedWorkspaces.findFirst({
+    where: eq(managedWorkspaces.ownerIdentityId, identityId),
+    columns: {
+      id: true,
+    },
+  })
+
+  if (!workspace) {
+    return null
+  }
+
+  return deleteManagedWorkspace(workspace.id)
+}
+
 async function archiveDeletedWorkspaceOwnerIdentity(ownerIdentityId: string) {
   const identityId = normalizeOptionalIdentityId(ownerIdentityId)
   if (!identityId) {

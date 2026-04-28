@@ -16,6 +16,7 @@ import {
 import {
   createManagedWorkspace,
   deleteManagedWorkspace,
+  deleteManagedWorkspaceForOwnerIdentity,
   getTeamTrialPaypalLinkExpiresAt,
   listAdminManagedWorkspaceAssociationsForIdentity,
   listAdminManagedWorkspaceSummaries,
@@ -1018,5 +1019,26 @@ describe('managed workspace authorization summaries', () => {
     expect(workspaceSet).toHaveBeenNthCalledWith(2, {
       updatedAt: expect.any(Date),
     })
+  })
+
+  it('does not archive an identity when cleanup finds no owned workspace', async () => {
+    const findOwnerWorkspace = vi.fn().mockResolvedValue(null)
+    const updateRecord = vi.fn()
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        managedWorkspaces: {
+          findFirst: findOwnerWorkspace,
+        },
+      },
+      update: updateRecord,
+    })
+
+    await expect(
+      deleteManagedWorkspaceForOwnerIdentity('owner-identity-2'),
+    ).resolves.toBeNull()
+
+    expect(findOwnerWorkspace).toHaveBeenCalledTimes(1)
+    expect(updateRecord).not.toHaveBeenCalled()
   })
 })

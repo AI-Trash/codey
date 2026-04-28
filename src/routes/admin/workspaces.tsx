@@ -289,11 +289,6 @@ type WorkspaceTeamTrialDraft =
       reason: 'owner' | 'member'
     }
 
-function createDefaultWorkspaceLabel() {
-  const now = new Date()
-  return formatAdminDate(now) || now.toISOString()
-}
-
 function createWorkspaceEditorState(
   summary?: WorkspaceSummary | null,
 ): WorkspaceEditorState {
@@ -302,7 +297,7 @@ function createWorkspaceEditorState(
   return {
     id: summary?.id,
     workspaceId: summary?.workspaceId || '',
-    label: summary ? summary.label || '' : createDefaultWorkspaceLabel(),
+    label: summary?.label || '',
     ownerIdentityId: summary?.owner?.identityId || '',
     memberIdentityIds: members.flatMap((member) =>
       member.identityId ? [member.identityId] : [],
@@ -335,7 +330,7 @@ function createWorkspaceSummarySaveKey(workspace: WorkspaceSummary): string {
 function sortWorkspaceSummaries(workspaces: WorkspaceSummary[]) {
   return [...workspaces].sort((left, right) => {
     return (
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
     )
   })
 }
@@ -506,7 +501,7 @@ function createWorkspaceTeamTrialDraft(input: {
     ok: true,
     editor: {
       workspaceId: '',
-      label: createDefaultWorkspaceLabel(),
+      label: '',
       ownerIdentityId: owner.id,
       memberIdentityIds: memberSelection.identityIds,
       legacyMemberEmails: [],
@@ -2390,7 +2385,9 @@ function WorkspaceOperationsSection(props: {
 function AdminWorkspacesPage() {
   const data = Route.useLoaderData()
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>(() =>
-    'workspaces' in data ? (data.workspaces as WorkspaceSummary[]) : [],
+    'workspaces' in data
+      ? sortWorkspaceSummaries(data.workspaces as WorkspaceSummary[])
+      : [],
   )
   const [identitySummaries, setIdentitySummaries] = useState<IdentitySummary[]>(
     () =>
@@ -2758,7 +2755,7 @@ function AdminWorkspacesPage() {
                       </TableHead>
                       <TableHead>{m.admin_workspace_table_owner()}</TableHead>
                       <TableHead>
-                        {m.admin_workspace_table_updated_at()}
+                        {m.admin_workspace_created_at_label()}
                       </TableHead>
                       <TableHead>{m.admin_dashboard_table_manage()}</TableHead>
                     </TableRow>
@@ -2839,7 +2836,7 @@ function AdminWorkspacesPage() {
                           <TableCell className="align-top text-sm text-muted-foreground">
                             <div className="flex items-center gap-2">
                               <CalendarIcon className="size-4" />
-                              {formatAdminDate(workspace.updatedAt)}
+                              {formatAdminDate(workspace.createdAt)}
                             </div>
                           </TableCell>
                           <TableCell className="align-top">

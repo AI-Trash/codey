@@ -37,6 +37,7 @@ import {
 } from './admin-inbox-events'
 import { publishVerificationCodeEvent } from './verification-events'
 import { resolveReservationVerificationDomain } from './verification-domains'
+import { deleteManagedWorkspaceForOwnerIdentity } from './workspaces'
 import { getDb } from './db/client'
 import { createId } from './security'
 import { extractVerificationCodeFromText } from '../shared/verification-code'
@@ -116,6 +117,16 @@ type AdminInboxManagedIdentitySummary = {
   label: string | null
   email: string
   status: string
+}
+
+type ParsedEmailContent = {
+  subject: string | null
+  htmlBody: string | null
+  textBody: string | null
+}
+
+type EmailIngestReservation = {
+  identityId: string | null
 }
 
 const DEFAULT_ADMIN_INBOX_PAGE_SIZE = 25
@@ -580,7 +591,9 @@ function isLikelyRawEmailSource(value: string | null | undefined) {
   return headerCount >= 2
 }
 
-function parseEmailBodiesFromRawPayload(rawPayload: string | null | undefined) {
+function parseEmailContentFromRawPayload(
+  rawPayload: string | null | undefined,
+): ParsedEmailContent | null {
   const rawSource = normalizeStoredEmailContent(rawPayload)
   if (!rawSource || !isLikelyRawEmailSource(rawSource)) {
     return null
@@ -589,6 +602,7 @@ function parseEmailBodiesFromRawPayload(rawPayload: string | null | undefined) {
   try {
     const parsedMail = extractLetterMail(rawSource)
     return {
+      subject: normalizeStoredEmailContent(parsedMail.subject),
       htmlBody: normalizeStoredEmailContent(parsedMail.html),
       textBody: normalizeStoredEmailContent(parsedMail.text),
     }
@@ -601,17 +615,130 @@ function resolveVerificationEmailBodies(params: {
   textBody?: string | null
   htmlBody?: string | null
   rawPayload?: string | null
+  parsedEmail?: ParsedEmailContent | null
 }) {
-  const parsedBodies = parseEmailBodiesFromRawPayload(params.rawPayload)
+  const parsedEmail =
+    params.parsedEmail ?? parseEmailContentFromRawPayload(params.rawPayload)
   const normalizedHtml = normalizeStoredEmailContent(params.htmlBody)
   const normalizedText = normalizeStoredEmailContent(params.textBody)
 
   return {
-    htmlBody: normalizedHtml || parsedBodies?.htmlBody,
+    htmlBody: normalizedHtml || parsedEmail?.htmlBody,
     textBody:
       normalizedText && !isLikelyRawEmailSource(normalizedText)
         ? normalizedText
-        : parsedBodies?.textBody,
+        : parsedEmail?.textBody,
+  }
+}
+
+function isMimeEncodedSubject(value: string) {
+  return /=\?[^?]+\?[bq]\?[^?]+\?=/i.test(value)
+}
+
+function resolveVerificationEmailSubject(params: {
+  subject?: string | null
+  parsedEmail?: ParsedEmailContent | null
+}) {
+  const subject = normalizeStoredEmailContent(params.subject)
+  if (subject && !isMimeEncodedSubject(subject)) {
+    return subject
+  }
+
+  return params.parsedEmail?.subject || subject || null
+}
+
+function normalizeSubjectForMatching(subject: string) {
+  let normalized = subject.normalize('NFKC').toLowerCase()
+  normalized = normalized.replace(/\s+/g, ' ').trim()
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const withoutPrefix = normalized
+      .replace(/^(?:re|fw|fwd|回复|答复|转发)\s*[:：]\s*/i, '')
+      .trim()
+    if (withoutPrefix === normalized) {
+      break
+    }
+    normalized = withoutPrefix
+  }
+
+  return normalized
+}
+
+export function isChatGptBusinessTrialEndedSubject(
+  subject?: string | null,
+): boolean {
+  if (!subject) {
+    return false
+  }
+
+  const normalized = normalizeSubjectForMatching(subject)
+  const hasChatGptBusinessProduct = /chatgpt\s*(?:business|team)\b/.test(
+    normalized,
+  )
+  if (!hasChatGptBusinessProduct) {
+    return false
+  }
+
+  const englishTrialEnded =
+    /\btrial\b.{0,80}\b(?:has\s+)?(?:ended|expired)\b/.test(normalized) ||
+    /\btrial\b.{0,80}\bis\s+over\b/.test(normalized)
+  const chineseTrialEnded =
+    /(?:免费)?试用期?\s*(?:现已|已|已经)?\s*(?:结束|到期|过期)了?/.test(
+      normalized,
+    )
+
+  return englishTrialEnded || chineseTrialEnded
+}
+
+async function resolveManagedIdentityIdForIngestedRecipient(params: {
+  recipient: string
+  reservation?: EmailIngestReservation | null
+}) {
+  const reservationIdentityId = params.reservation?.identityId?.trim()
+  if (reservationIdentityId) {
+    return reservationIdentityId
+  }
+
+  const recipient = params.recipient.trim().toLowerCase()
+  if (!recipient) {
+    return null
+  }
+
+  const managedIdentity = await getDb().query.managedIdentities.findFirst({
+    where: eq(managedIdentities.email, recipient),
+    columns: {
+      identityId: true,
+    },
+  })
+
+  return managedIdentity?.identityId || null
+}
+
+async function cleanupExpiredChatGptBusinessTrialWorkspace(params: {
+  recipient: string
+  subject?: string | null
+  reservation?: EmailIngestReservation | null
+}) {
+  if (!isChatGptBusinessTrialEndedSubject(params.subject)) {
+    return null
+  }
+
+  const ownerIdentityId = await resolveManagedIdentityIdForIngestedRecipient({
+    recipient: params.recipient,
+    reservation: params.reservation,
+  })
+
+  if (!ownerIdentityId) {
+    return null
+  }
+
+  const deletedWorkspace =
+    await deleteManagedWorkspaceForOwnerIdentity(ownerIdentityId)
+
+  return {
+    reason: 'chatgpt_business_trial_ended',
+    ownerIdentityId,
+    deletedWorkspaceId: deletedWorkspace?.id || null,
   }
 }
 
@@ -860,10 +987,16 @@ export async function ingestCloudflareEmail(params: {
   const reservation = await db.query.verificationEmailReservations.findFirst({
     where: eq(verificationEmailReservations.email, params.recipient),
   })
+  const parsedEmail = parseEmailContentFromRawPayload(params.rawPayload)
+  const subject = resolveVerificationEmailSubject({
+    subject: params.subject,
+    parsedEmail,
+  })
   const resolvedBodies = resolveVerificationEmailBodies({
     textBody: params.textBody,
     htmlBody: params.htmlBody,
     rawPayload: params.rawPayload,
+    parsedEmail,
   })
 
   const receivedAt = params.receivedAt
@@ -881,7 +1014,7 @@ export async function ingestCloudflareEmail(params: {
       reservationId: reservation?.id,
       messageId: params.messageId,
       recipient: params.recipient,
-      subject: params.subject,
+      subject,
       textBody: resolvedBodies.textBody,
       htmlBody: resolvedBodies.htmlBody,
       rawPayload: params.rawPayload,
@@ -913,6 +1046,12 @@ export async function ingestCloudflareEmail(params: {
 
     codeRecord = insertedCode[0] || null
   }
+
+  const workspaceCleanup = await cleanupExpiredChatGptBusinessTrialWorkspace({
+    recipient: params.recipient,
+    subject,
+    reservation,
+  })
 
   if (codeRecord && reservation) {
     publishVerificationCodeEvent(
@@ -954,6 +1093,7 @@ export async function ingestCloudflareEmail(params: {
   return {
     emailRecord,
     codeRecord,
+    workspaceCleanup,
   }
 }
 
