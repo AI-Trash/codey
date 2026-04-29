@@ -1074,6 +1074,11 @@ export async function registerChatGPT(
         source: 'registerChatGPT',
       },
     )
+    if (claimTrial) {
+      options.progressReporter?.({
+        message: 'ChatGPT trial continuation is enabled',
+      })
+    }
 
     await verificationProvider.primeInbox()
 

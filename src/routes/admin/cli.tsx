@@ -690,9 +690,11 @@ function CliTaskDialog(props: {
     result: DispatchResultSummary,
   ) => void
 }) {
+  const registeredFlowKey = props.connection?.registeredFlows.join('\n') || ''
   const availableFlows = useMemo(() => {
     return props.connection ? getDispatchableFlowIds(props.connection) : []
-  }, [props.connection])
+  }, [props.connection?.id, registeredFlowKey])
+  const availableFlowKey = availableFlows.join('\n')
   const [selectedFlowId, setSelectedFlowId] = useState<CliFlowCommandId | ''>(
     '',
   )
@@ -701,11 +703,22 @@ function CliTaskDialog(props: {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    setSelectedFlowId(availableFlows[0] || '')
+    const nextAvailableFlows = props.connection
+      ? getDispatchableFlowIds(props.connection)
+      : []
+    setSelectedFlowId(nextAvailableFlows[0] || '')
     setDispatchCount('1')
     setDraftValues({})
     setSubmitting(false)
-  }, [props.connection?.id, availableFlows])
+  }, [props.connection?.id, props.open])
+
+  useEffect(() => {
+    setSelectedFlowId((current) =>
+      current && availableFlows.includes(current)
+        ? current
+        : availableFlows[0] || '',
+    )
+  }, [availableFlowKey, availableFlows])
 
   const batchState = useMemo(
     () => resolveDispatchBatchState(selectedFlowId, draftValues, dispatchCount),

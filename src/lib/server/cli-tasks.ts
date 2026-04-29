@@ -67,6 +67,20 @@ function buildTaskBody(input: {
   return `${base} Batch item ${input.sequence} of ${input.total}.`
 }
 
+function buildFlowTaskPayloadConfig(
+  flowId: CliFlowCommandId,
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  if (flowId !== 'chatgpt-register' || config.claimTrial !== true) {
+    return config
+  }
+
+  return {
+    ...config,
+    claimTeamTrial: true,
+  }
+}
+
 function resolveRequestedTaskCount(input: {
   count?: number | null
   maxTaskCount?: number | null
@@ -537,7 +551,7 @@ export async function dispatchCliFlowTasks(input: {
       lastMessage: body,
       payload: createCliFlowTaskPayload(
         flowDefinition.id,
-        config,
+        buildFlowTaskPayloadConfig(flowDefinition.id, config) as typeof config,
         {
           ...(batchId ? { batchId } : {}),
           ...(count > 1 ? { sequence, total: count } : {}),

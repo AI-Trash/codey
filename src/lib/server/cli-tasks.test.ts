@@ -145,6 +145,42 @@ describe('cli flow task dispatch', () => {
     mocks.isSharedCliConnection.mockReturnValue(false)
   })
 
+  it('adds the legacy register trial alias to queued payloads', async () => {
+    const anchorConnection = createCliConnectionSummary({
+      id: 'connection-a',
+      workerId: 'worker-a',
+      cliName: 'CLI A',
+    })
+    const { insertedTasks } = createTransactionRecorder()
+
+    mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
+    mocks.listAdminCliConnectionStateForActor.mockResolvedValue({
+      snapshotAt: '2026-04-24T00:00:06.000Z',
+      activeConnections: [anchorConnection],
+    })
+
+    await dispatchCliFlowTasks({
+      connectionId: anchorConnection.id,
+      flowId: 'chatgpt-register',
+      config: {
+        claimTrial: true,
+      },
+      actor: {
+        userId: 'user-1',
+      },
+    })
+
+    expect(insertedTasks[0]?.payload).toEqual(
+      expect.objectContaining({
+        flowId: 'chatgpt-register',
+        config: expect.objectContaining({
+          claimTrial: true,
+          claimTeamTrial: true,
+        }),
+      }),
+    )
+  })
+
   it('spreads batch work across unique eligible CLI workers', async () => {
     const anchorConnection = createCliConnectionSummary({
       id: 'connection-a',
