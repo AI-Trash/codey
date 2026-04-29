@@ -37,7 +37,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'record'
   | 'restoreStorageState'
   | 'password'
-  | 'claimTeamTrial'
+  | 'claimTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'identityId'
@@ -66,7 +66,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'record'
   | 'restoreStorageState'
   | 'password'
-  | 'claimTeamTrial'
+  | 'claimTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'identityId'
@@ -95,7 +95,7 @@ export type CliFlowConfigFieldKey =
   | 'record'
   | 'restoreStorageState'
   | 'password'
-  | 'claimTeamTrial'
+  | 'claimTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'identityId'
@@ -215,9 +215,9 @@ export interface ChatGPTRegisterFlowConfig
   password?: string
 
   /**
-   * Continue into the ChatGPT Team trial checkout handoff after registration.
+   * Continue into the first eligible ChatGPT trial checkout after registration.
    */
-  claimTeamTrial?: boolean
+  claimTrial?: boolean
 
   /**
    * Maximum time to wait for the verification email, in milliseconds.
@@ -251,7 +251,7 @@ export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
 }
 
 /**
- * Configuration for signing in and completing the Team trial checkout handoff.
+ * Configuration for signing in and completing the trial checkout handoff.
  */
 export interface ChatGPTTeamTrialFlowConfig
   extends ChatGPTLoginFlowConfig, ChatGPTTeamTrialBillingFlowConfig {}
@@ -474,11 +474,11 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'password',
   },
   {
-    key: 'claimTeamTrial',
-    cliFlag: '--claimTeamTrial',
+    key: 'claimTrial',
+    cliFlag: '--claimTrial',
     type: 'boolean',
-    displayNameKey: 'claimTeamTrial',
-    descriptionKey: 'claimTeamTrial',
+    displayNameKey: 'claimTrial',
+    descriptionKey: 'claimTrial',
   },
   {
     key: 'verificationTimeoutMs',
@@ -622,7 +622,7 @@ export const cliFlowDefinitions = [
     descriptionKey: 'chatgptRegister',
     configKeys: [
       'password',
-      'claimTeamTrial',
+      'claimTrial',
       'verificationTimeoutMs',
       'pollIntervalMs',
       'billingName',
@@ -968,7 +968,12 @@ export function normalizeCliFlowConfig<TFlowId extends CliFlowCommandId>(
   }
 
   for (const field of allowedFields) {
-    const normalized = normalizeCliFlowConfigFieldValue(field, input[field.key])
+    const rawValue =
+      input[field.key] ??
+      (flowId === 'chatgpt-register' && field.key === 'claimTrial'
+        ? input.claimTeamTrial
+        : undefined)
+    const normalized = normalizeCliFlowConfigFieldValue(field, rawValue)
 
     if (normalized !== undefined) {
       output[field.key] = normalized

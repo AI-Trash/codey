@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveConfig, setRuntimeConfig } from '../src/config'
 import {
   DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
@@ -6,15 +6,19 @@ import {
   resolveChatGPTTeamTrialBillingAddress,
 } from '../src/flows/chatgpt-team-trial'
 import {
+  buildChatGPTTrialPricingPromoUrl,
   extractPaypalBillingAgreementLink,
+  getChatGPTTrialPricingFreeTrialSelectors,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
-} from '../src/modules/chatgpt/mutations'
+  selectEligibleChatGPTTrialPromoCoupon,
+} from '../src/modules/chatgpt/shared'
 import { waitForChatGPTCheckoutReady } from '../src/modules/chatgpt/queries'
 
 const baseConfig = resolveConfig()
 
 afterEach(() => {
   setRuntimeConfig(baseConfig)
+  vi.unstubAllGlobals()
 })
 
 class FakeCheckoutLocator {
@@ -206,6 +210,66 @@ describe('chatgpt team trial checkout defaults', () => {
       city: 'CLI city',
       postalCode: 'CLI POST',
     })
+  })
+})
+
+describe('trial coupon pricing helpers', () => {
+  it('builds pricing URLs for both trial coupons', () => {
+    expect(buildChatGPTTrialPricingPromoUrl('team-1-month-free')).toBe(
+      'https://chatgpt.com/?promo_campaign=team-1-month-free#pricing',
+    )
+    expect(buildChatGPTTrialPricingPromoUrl('plus-1-month-free')).toBe(
+      'https://chatgpt.com/?promo_campaign=plus-1-month-free#pricing',
+    )
+  })
+
+  it('uses separate pricing selectors for Team and Plus trial coupons', () => {
+    expect(
+      getChatGPTTrialPricingFreeTrialSelectors('team-1-month-free'),
+    ).toContain('button[data-testid="select-plan-button-teams-create"]')
+    expect(
+      getChatGPTTrialPricingFreeTrialSelectors('plus-1-month-free'),
+    ).toContain('button[data-testid="select-plan-button-plus"]')
+  })
+
+  it('checks Team before Plus and selects the first eligible coupon', async () => {
+    const requestedUrls: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      requestedUrls.push(String(url))
+      const coupon = new URL(String(url)).searchParams.get('coupon')
+      return {
+        ok: true,
+        status: 200,
+        url: String(url),
+        text: async () =>
+          JSON.stringify({
+            coupon,
+            state: coupon === 'plus-1-month-free' ? 'eligible' : 'ineligible',
+          }),
+      }
+    })
+    const page = {
+      async evaluate<T>(
+        callback: (input: {
+          url: string
+          headers: Record<string, string>
+        }) => Promise<T>,
+        input: { url: string; headers: Record<string, string> },
+      ): Promise<T> {
+        return callback(input)
+      },
+    }
+
+    const selection = await selectEligibleChatGPTTrialPromoCoupon(page as never)
+
+    expect(selection.selected).toMatchObject({
+      coupon: 'plus-1-month-free',
+      eligible: true,
+      state: 'eligible',
+    })
+    expect(
+      requestedUrls.map((url) => new URL(url).searchParams.get('coupon')),
+    ).toEqual(['team-1-month-free', 'plus-1-month-free'])
   })
 })
 

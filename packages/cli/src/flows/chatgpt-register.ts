@@ -84,10 +84,10 @@ import { createFlowLifecycleFragment } from './machine-fragments'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
 import {
-  completeChatGPTTeamTrialAfterAuthenticatedSession,
+  completeChatGPTTrialAfterAuthenticatedSession,
   createChatGPTTeamTrialMachine,
   type ChatGPTTeamTrialFlowSnapshot,
-  type ChatGPTTeamTrialPostLoginResult,
+  type ChatGPTTrialPostLoginResult,
 } from './chatgpt-team-trial'
 
 export type ChatGPTRegistrationFlowKind = 'chatgpt-registration'
@@ -143,7 +143,7 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   url?: string
   title?: string
   email?: string
-  claimTeamTrial?: boolean
+  claimTrial?: boolean
   postEmailStep?: ChatGPTPostEmailLoginStep
   prefix?: string
   verificationCode?: string
@@ -152,7 +152,7 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   assertionObserved?: boolean
   storedIdentity?: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
-  teamTrial?: ChatGPTRegistrationTeamTrialResult
+  trial?: ChatGPTRegistrationTrialResult
   registration?: RegistrationResult
   mailbox?: string
   retryCount?: number
@@ -181,14 +181,15 @@ export type ChatGPTRegistrationFlowSnapshot<Result = unknown> =
 
 export interface ChatGPTRegistrationFlowOptions {
   password?: string
+  claimTrial?: string | boolean
   claimTeamTrial?: string | boolean
   verificationTimeoutMs?: number
   pollIntervalMs?: number
   machine?: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>
 }
 
-export interface ChatGPTRegistrationTeamTrialResult extends ChatGPTTeamTrialPostLoginResult {
-  machine: ChatGPTTeamTrialFlowSnapshot<ChatGPTRegistrationTeamTrialResult>
+export interface ChatGPTRegistrationTrialResult extends ChatGPTTrialPostLoginResult {
+  machine: ChatGPTTeamTrialFlowSnapshot<ChatGPTRegistrationTrialResult>
 }
 
 export interface ChatGPTRegistrationFlowResult {
@@ -202,7 +203,7 @@ export interface ChatGPTRegistrationFlowResult {
   registration: RegistrationResult
   storedIdentity?: StoredChatGPTIdentitySummary
   storedSession?: StoredChatGPTSessionSummary
-  teamTrial?: ChatGPTRegistrationTeamTrialResult
+  trial?: ChatGPTRegistrationTrialResult
   machine: ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>
 }
 
@@ -1053,8 +1054,9 @@ export async function registerChatGPT(
   const verificationTimeoutMs =
     parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000
   const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
-  const claimTeamTrial =
-    parseBooleanFlag(options.claimTeamTrial, false) ?? false
+  const claimTrial =
+    parseBooleanFlag(options.claimTrial ?? options.claimTeamTrial, false) ??
+    false
   const startedAt = new Date().toISOString()
   const sessionCapture = createChatGPTSessionCapture(page)
   let storedIdentityForStatusReport: StoredChatGPTIdentitySummary | undefined
@@ -1065,7 +1067,7 @@ export async function registerChatGPT(
         email,
         prefix,
         mailbox,
-        claimTeamTrial,
+        claimTrial,
         url: CHATGPT_ENTRY_LOGIN_URL,
       },
       {
@@ -1452,76 +1454,76 @@ export async function registerChatGPT(
       })
     }
 
-    let teamTrial: ChatGPTRegistrationTeamTrialResult | undefined
-    if (claimTeamTrial) {
+    let trial: ChatGPTRegistrationTrialResult | undefined
+    if (claimTrial) {
       await sendRegistrationMachine(
         machine,
         'persisting-identity',
         'context.updated',
         {
-          claimTeamTrial,
+          claimTrial,
           url: page.url(),
           lastMessage:
-            'Continuing newly registered ChatGPT session into Team trial checkout',
+            'Continuing newly registered ChatGPT session into trial checkout',
         },
       )
 
-      const teamTrialMachine =
-        createChatGPTTeamTrialMachine<ChatGPTRegistrationTeamTrialResult>()
-      const detachTeamTrialProgress = attachStateMachineProgressReporter(
-        teamTrialMachine,
+      const trialMachine =
+        createChatGPTTeamTrialMachine<ChatGPTRegistrationTrialResult>()
+      const detachTrialProgress = attachStateMachineProgressReporter(
+        trialMachine,
         options.progressReporter,
       )
 
       try {
-        teamTrialMachine.start(
+        trialMachine.start(
           {
             email,
             url: page.url(),
             lastMessage:
-              'Starting ChatGPT Team trial continuation after registration',
+              'Starting ChatGPT trial continuation after registration',
           },
           {
-            source: 'registerChatGPT.teamTrial',
+            source: 'registerChatGPT.trial',
           },
         )
-        await teamTrialMachine.send('chatgpt.login.completed', {
+        await trialMachine.send('chatgpt.login.completed', {
           target: 'home-ready',
           patch: {
             email,
             url: page.url(),
             title: await page.title(),
             lastMessage:
-              'Using newly registered ChatGPT session for Team trial checkout',
+              'Using newly registered ChatGPT session for trial checkout',
           },
         })
 
-        const postLoginTeamTrial =
-          await completeChatGPTTeamTrialAfterAuthenticatedSession(page, {
+        const postLoginTrial =
+          await completeChatGPTTrialAfterAuthenticatedSession(page, {
             email,
             options,
-            machine: teamTrialMachine,
+            machine: trialMachine,
             storageStateIdentity: storedIdentity,
             storageStateFlowType: 'chatgpt-register',
           })
 
-        teamTrial = {
-          ...postLoginTeamTrial,
+        trial = {
+          ...postLoginTrial,
           machine:
-            undefined as unknown as ChatGPTTeamTrialFlowSnapshot<ChatGPTRegistrationTeamTrialResult>,
+            undefined as unknown as ChatGPTTeamTrialFlowSnapshot<ChatGPTRegistrationTrialResult>,
         }
-        const teamTrialSnapshot = teamTrialMachine.succeed('completed', {
+        const trialSnapshot = trialMachine.succeed('completed', {
           event: 'chatgpt.completed',
           patch: {
-            ...postLoginTeamTrial,
-            result: teamTrial,
+            ...postLoginTrial,
+            result: trial,
             lastMessage:
-              'ChatGPT Team trial checkout continuation completed after registration',
+              'ChatGPT trial checkout continuation completed after registration',
           },
         })
-        teamTrial.machine = teamTrialSnapshot
+        trial.machine = trialSnapshot
       } catch (error) {
-        teamTrialMachine.fail(error, 'failed', {
+        trialMachine.fail(error, 'failed', {
           event: 'chatgpt.failed',
           patch: {
             email,
@@ -1531,7 +1533,7 @@ export async function registerChatGPT(
         })
         throw error
       } finally {
-        detachTeamTrialProgress()
+        detachTrialProgress()
       }
 
       await sendRegistrationMachine(
@@ -1539,12 +1541,12 @@ export async function registerChatGPT(
         'persisting-identity',
         'context.updated',
         {
-          claimTeamTrial,
-          teamTrial,
+          claimTrial,
+          trial,
           url: page.url(),
-          lastMessage: teamTrial
-            ? 'ChatGPT Team trial PayPal link captured after registration'
-            : 'ChatGPT Team trial continuation finished without a captured link',
+          lastMessage: trial
+            ? 'ChatGPT trial PayPal link captured after registration'
+            : 'ChatGPT trial continuation finished without a captured link',
         },
       )
     }
@@ -1561,7 +1563,7 @@ export async function registerChatGPT(
       registration,
       storedIdentity,
       storedSession,
-      teamTrial,
+      trial,
       machine:
         undefined as unknown as ChatGPTRegistrationFlowSnapshot<ChatGPTRegistrationFlowResult>,
     }
@@ -1574,13 +1576,13 @@ export async function registerChatGPT(
         verificationCode: submittedVerificationCode,
         storedIdentity,
         storedSession,
-        teamTrial,
-        claimTeamTrial,
+        trial,
+        claimTrial,
         registration: result.registration,
         url: result.url,
         title: result.title,
-        lastMessage: claimTeamTrial
-          ? 'ChatGPT registration and Team trial checkout completed'
+        lastMessage: claimTrial
+          ? 'ChatGPT registration and trial checkout completed'
           : 'ChatGPT registration completed',
       },
     })

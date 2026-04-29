@@ -3,8 +3,35 @@ import type { SelectorTarget } from '../../types'
 import { logCliEvent } from '../../utils/observability'
 
 export const CHATGPT_HOME_URL = 'https://chatgpt.com/'
-export const CHATGPT_TEAM_PRICING_PROMO_URL =
-  'https://chatgpt.com/?promo_campaign=team-1-month-free#pricing'
+export const CHATGPT_TEAM_TRIAL_PROMO_COUPON = 'team-1-month-free'
+export const CHATGPT_PLUS_TRIAL_PROMO_COUPON = 'plus-1-month-free'
+export const CHATGPT_TRIAL_PROMO_COUPONS = [
+  CHATGPT_TEAM_TRIAL_PROMO_COUPON,
+  CHATGPT_PLUS_TRIAL_PROMO_COUPON,
+] as const
+export type ChatGPTTrialPromoCoupon =
+  (typeof CHATGPT_TRIAL_PROMO_COUPONS)[number]
+export type ChatGPTTrialPromoPlan = 'team' | 'plus'
+export const CHATGPT_TRIAL_PROMO_PLAN_BY_COUPON = {
+  [CHATGPT_TEAM_TRIAL_PROMO_COUPON]: 'team',
+  [CHATGPT_PLUS_TRIAL_PROMO_COUPON]: 'plus',
+} as const satisfies Record<ChatGPTTrialPromoCoupon, ChatGPTTrialPromoPlan>
+export function getChatGPTTrialPromoPlan(
+  coupon: ChatGPTTrialPromoCoupon,
+): ChatGPTTrialPromoPlan {
+  return CHATGPT_TRIAL_PROMO_PLAN_BY_COUPON[coupon]
+}
+export function buildChatGPTTrialPricingPromoUrl(
+  coupon: ChatGPTTrialPromoCoupon,
+): string {
+  return `https://chatgpt.com/?promo_campaign=${coupon}#pricing`
+}
+export const CHATGPT_TEAM_PRICING_PROMO_URL = buildChatGPTTrialPricingPromoUrl(
+  CHATGPT_TEAM_TRIAL_PROMO_COUPON,
+)
+export const CHATGPT_PLUS_PRICING_PROMO_URL = buildChatGPTTrialPricingPromoUrl(
+  CHATGPT_PLUS_TRIAL_PROMO_COUPON,
+)
 export const CHATGPT_ENTRY_LOGIN_URL = 'https://chatgpt.com/auth/login'
 export const CHATGPT_LOGIN_URL =
   'https://auth.openai.com/log-in-or-create-account'
@@ -32,14 +59,41 @@ export const ONBOARDING_IDLE_WAIT_BEFORE_MIN_CLICKS_MS = 10000
 export const ONBOARDING_IDLE_WAIT_AFTER_MIN_CLICKS_MS = 3000
 export const DEFAULT_EVENT_TIMEOUT_MS = 5000
 
-export const TEAM_PRICING_FREE_TRIAL_SELECTORS: SelectorTarget[] = [
-  'button[data-testid="select-plan-button-teams-create"]',
+export const PLUS_PRICING_FREE_TRIAL_SELECTORS: SelectorTarget[] = [
+  'button[data-testid="select-plan-button-plus"]',
+  'button[data-testid="select-plan-button-plus-create"]',
+  'button[data-testid*="plus" i]',
+  '[data-testid*="plus" i] button',
+  'a[href*="promo_campaign=plus-1-month-free"]',
   {
     role: 'button',
-    options: { name: /领取免费试用|free trial|try for free|start trial/i },
+    options: {
+      name: /plus.*(?:领取免费试用|免费试用|free trial|try for free|start trial)|(?:领取免费试用|免费试用|free trial|try for free|start trial).*plus/i,
+    },
   },
-  { text: /领取免费试用|free trial|try for free|start trial/i },
 ]
+
+export const TEAM_PRICING_FREE_TRIAL_SELECTORS: SelectorTarget[] = [
+  'button[data-testid="select-plan-button-teams-create"]',
+  'button[data-testid="select-plan-button-team-create"]',
+  'button[data-testid*="team" i]',
+  '[data-testid*="team" i] button',
+  'a[href*="promo_campaign=team-1-month-free"]',
+  {
+    role: 'button',
+    options: {
+      name: /team.*(?:领取免费试用|免费试用|free trial|try for free|start trial)|(?:领取免费试用|免费试用|free trial|try for free|start trial).*team/i,
+    },
+  },
+]
+
+export function getChatGPTTrialPricingFreeTrialSelectors(
+  coupon: ChatGPTTrialPromoCoupon,
+): SelectorTarget[] {
+  return coupon === CHATGPT_PLUS_TRIAL_PROMO_COUPON
+    ? PLUS_PRICING_FREE_TRIAL_SELECTORS
+    : TEAM_PRICING_FREE_TRIAL_SELECTORS
+}
 
 export const CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS: SelectorTarget[] =
   [

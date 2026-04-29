@@ -30,7 +30,7 @@ describe('chatgpt team trial machine', () => {
       target: 'pricing-ready',
       patch: {
         url: 'https://chatgpt.com/?promo_campaign=team-1-month-free#pricing',
-        lastMessage: 'ChatGPT Team pricing free trial button is ready',
+        lastMessage: 'ChatGPT team pricing free trial button is ready',
       },
     })
 
@@ -38,7 +38,7 @@ describe('chatgpt team trial machine', () => {
       target: 'trial-claimed',
       patch: {
         url: 'https://chatgpt.com/business/checkout',
-        lastMessage: 'ChatGPT Team free trial button clicked',
+        lastMessage: 'ChatGPT team free trial button clicked',
       },
     })
 
@@ -47,7 +47,7 @@ describe('chatgpt team trial machine', () => {
       context: {
         email: 'person@example.com',
         url: 'https://chatgpt.com/business/checkout',
-        lastMessage: 'ChatGPT Team free trial button clicked',
+        lastMessage: 'ChatGPT team free trial button clicked',
       },
     })
   })

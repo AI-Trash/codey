@@ -261,27 +261,31 @@ function buildFlowTaskCompletionResult(
     }
   }
 
-  const teamTrialResult =
+  const trialResult =
     flowId === 'chatgpt-team-trial'
       ? result
-      : flowId === 'chatgpt-register' && isRecord(result.teamTrial)
-        ? result.teamTrial
+      : flowId === 'chatgpt-register'
+        ? isRecord(result.trial)
+          ? result.trial
+          : isRecord(result.teamTrial)
+            ? result.teamTrial
+            : null
         : null
-  if (!teamTrialResult) {
+  if (!trialResult) {
     return undefined
   }
 
   const paypalApprovalUrl =
-    typeof teamTrialResult.paypalApprovalUrl === 'string'
-      ? teamTrialResult.paypalApprovalUrl.trim()
+    typeof trialResult.paypalApprovalUrl === 'string'
+      ? trialResult.paypalApprovalUrl.trim()
       : ''
   if (!paypalApprovalUrl) {
     return undefined
   }
 
   const paypalApprovalUrlPath =
-    typeof teamTrialResult.paypalApprovalUrlPath === 'string'
-      ? teamTrialResult.paypalApprovalUrlPath.trim()
+    typeof trialResult.paypalApprovalUrlPath === 'string'
+      ? trialResult.paypalApprovalUrlPath.trim()
       : ''
 
   return {
@@ -289,8 +293,8 @@ function buildFlowTaskCompletionResult(
       flowId === 'chatgpt-register' ? 'chatgpt-register' : 'chatgpt-team-trial',
     paypalApprovalUrl,
     ...(paypalApprovalUrlPath ? { paypalApprovalUrlPath } : {}),
-    ...(typeof teamTrialResult.paypalBaTokenCaptured === 'boolean'
-      ? { paypalBaTokenCaptured: teamTrialResult.paypalBaTokenCaptured }
+    ...(typeof trialResult.paypalBaTokenCaptured === 'boolean'
+      ? { paypalBaTokenCaptured: trialResult.paypalBaTokenCaptured }
       : {}),
   }
 }
@@ -1195,8 +1199,8 @@ withCommonOptions(
     )
     .option('--password <password>', 'Optional password override')
     .option(
-      '--claimTeamTrial <bool>',
-      'Continue into the ChatGPT Team trial checkout after registration',
+      '--claimTrial <bool>',
+      'Continue into the first eligible ChatGPT trial checkout after registration',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
@@ -1283,7 +1287,7 @@ withCommonOptions(
   flowCli
     .command(
       'chatgpt-team-trial',
-      'Sign in to ChatGPT and claim the Team free trial offer',
+      'Sign in to ChatGPT and claim the first eligible free trial offer',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(

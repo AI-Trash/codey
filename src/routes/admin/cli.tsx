@@ -1039,7 +1039,7 @@ function DispatchOptionField(props: {
     )
   }
 
-  if (props.option.key === 'claimTeamTrial') {
+  if (props.option.key === 'claimTrial') {
     return (
       <Field>
         <div className="flex h-10 items-center justify-between gap-3 rounded-md border px-3">
@@ -1581,7 +1581,7 @@ const optionDisplayNameMap: Record<
   record: () => m.admin_cli_option_record_name(),
   restoreStorageState: () => m.admin_cli_option_restore_storage_state_name(),
   password: () => m.admin_cli_option_password_name(),
-  claimTeamTrial: () => m.admin_cli_option_claim_team_trial_name(),
+  claimTrial: () => m.admin_cli_option_claim_trial_name(),
   verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
   identityId: () => m.admin_cli_option_identity_id_name(),
@@ -1617,7 +1617,7 @@ const optionDescriptionMap: Record<
   restoreStorageState: () =>
     m.admin_cli_option_restore_storage_state_description(),
   password: () => m.admin_cli_option_password_description(),
-  claimTeamTrial: () => m.admin_cli_option_claim_team_trial_description(),
+  claimTrial: () => m.admin_cli_option_claim_trial_description(),
   verificationTimeoutMs: () =>
     m.admin_cli_option_verification_timeout_description(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),

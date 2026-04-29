@@ -40,6 +40,7 @@ export interface FlowOptions extends CommonOptions {
   pollIntervalMs?: number
   authorizeUrlOnly?: boolean
   password?: string
+  claimTrial?: string | boolean
   claimTeamTrial?: string | boolean
   identityId?: string
   email?: string
@@ -340,7 +341,7 @@ export function formatFlowCompletionSummary(
   }
 
   if (pageName === 'chatgpt-register') {
-    const teamTrial = asRecord(record.teamTrial)
+    const trial = asRecord(record.trial) || asRecord(record.teamTrial)
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'verified', asBoolean(record.verified))
     appendSummaryLine(lines, 'identity', asRecord(record.storedIdentity)?.id)
@@ -351,12 +352,9 @@ export function formatFlowCompletionSummary(
         asRecord(record.storedSession)?.sessionId ||
         asRecord(record.storedSession)?.accountId,
     )
-    appendExactSummaryLine(lines, 'paypal url', teamTrial?.paypalApprovalUrl)
-    appendSummaryLine(
-      lines,
-      'paypal url file',
-      teamTrial?.paypalApprovalUrlPath,
-    )
+    appendSummaryLine(lines, 'trial', trial?.plan || trial?.coupon)
+    appendExactSummaryLine(lines, 'paypal url', trial?.paypalApprovalUrl)
+    appendSummaryLine(lines, 'paypal url file', trial?.paypalApprovalUrlPath)
     appendSummaryLine(lines, 'page', record.url)
     appendArtifactSummaryLines(lines, record)
     return lines.join('\n')

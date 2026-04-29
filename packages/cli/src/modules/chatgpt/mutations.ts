@@ -27,7 +27,6 @@ import {
   CHATGPT_LOGIN_URL,
   CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS,
   CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
-  CHATGPT_TEAM_PRICING_PROMO_URL,
   COMPLETE_ACCOUNT_SELECTORS,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
@@ -36,11 +35,13 @@ import {
   PASSWORD_SUBMIT_SELECTORS,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   buildProfileName,
+  buildChatGPTTrialPricingPromoUrl,
+  getChatGPTTrialPricingFreeTrialSelectors,
   REGISTRATION_CONTINUE_SELECTORS,
   REGISTRATION_EMAIL_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
-  TEAM_PRICING_FREE_TRIAL_SELECTORS,
   CHATGPT_HOME_URL,
+  type ChatGPTTrialPromoCoupon,
 } from './common'
 import type { SelectorTarget } from '../../types'
 import { toLocator } from '../../utils/selectors'
@@ -63,7 +64,7 @@ import {
   waitForPasswordInputReady,
   waitForPasswordSubmissionOutcome,
   waitForPostEmailLoginStep,
-  waitForTeamPricingFreeTrialReady,
+  waitForTrialPricingFreeTrialReady,
   waitForVerificationCode,
   waitForVerificationCodeInputReady,
 } from './queries'
@@ -163,7 +164,14 @@ export async function gotoLoginEntry(page: Page): Promise<void> {
 }
 
 export async function gotoTeamPricingPromo(page: Page): Promise<void> {
-  await page.goto(CHATGPT_TEAM_PRICING_PROMO_URL, {
+  await gotoTrialPricingPromo(page, 'team-1-month-free')
+}
+
+export async function gotoTrialPricingPromo(
+  page: Page,
+  coupon: ChatGPTTrialPromoCoupon,
+): Promise<void> {
+  await page.goto(buildChatGPTTrialPricingPromoUrl(coupon), {
     waitUntil: 'domcontentloaded',
   })
   await page.locator('body').waitFor({ state: 'visible' })
@@ -171,14 +179,19 @@ export async function gotoTeamPricingPromo(page: Page): Promise<void> {
 }
 
 export async function clickTeamPricingFreeTrial(page: Page): Promise<void> {
-  const ready = await waitForTeamPricingFreeTrialReady(page, 30000)
+  await clickTrialPricingFreeTrial(page, 'team-1-month-free')
+}
+
+export async function clickTrialPricingFreeTrial(
+  page: Page,
+  coupon: ChatGPTTrialPromoCoupon,
+): Promise<void> {
+  const ready = await waitForTrialPricingFreeTrialReady(page, coupon, 30000)
   if (!ready) {
-    throw new Error(
-      'ChatGPT Team pricing free trial button did not become ready.',
-    )
+    throw new Error('ChatGPT pricing free trial button did not become ready.')
   }
 
-  await clickAny(page, TEAM_PRICING_FREE_TRIAL_SELECTORS)
+  await clickAny(page, getChatGPTTrialPricingFreeTrialSelectors(coupon))
   await page.waitForLoadState('domcontentloaded').catch(() => undefined)
 }
 
@@ -188,7 +201,7 @@ export async function fillChatGPTCheckoutBillingAddress(
 ): Promise<void> {
   const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
   if (!checkoutReady) {
-    throw new Error('ChatGPT Team trial checkout did not become ready.')
+    throw new Error('ChatGPT trial checkout did not become ready.')
   }
 
   const frame = await waitForStripeBillingAddressFrame(page, 30000)

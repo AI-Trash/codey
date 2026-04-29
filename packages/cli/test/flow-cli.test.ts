@@ -85,16 +85,16 @@ describe('flow cli helpers', () => {
     })
   })
 
-  it('parses the register Team trial continuation switch', () => {
+  it('parses the register trial continuation switch', () => {
     expect(
       parseFlowCliArgsForCommand('chatgpt-register', [
-        '--claimTeamTrial',
+        '--claimTrial',
         'true',
         '--billingCountry',
         'NL',
       ]),
     ).toMatchObject({
-      claimTeamTrial: true,
+      claimTrial: true,
       billingCountry: 'NL',
     })
   })
@@ -155,7 +155,7 @@ describe('flow cli helpers', () => {
     expect(summary).not.toContain('?')
   })
 
-  it('prints the captured PayPal URL for register-to-Team-trial runs', () => {
+  it('prints the captured PayPal URL for register-to-trial runs', () => {
     const paypalUrl =
       'https://www.paypal.com/pay?ssrt=1777211592082&token=BA-5YL10191GX878080G&ul=1'
     const summary = formatFlowCompletionSummary('flow:chatgpt-register', {
@@ -167,7 +167,9 @@ describe('flow cli helpers', () => {
         id: 'identity-123',
         email: 'person@example.com',
       },
-      teamTrial: {
+      trial: {
+        coupon: 'team-1-month-free',
+        plan: 'team',
         paypalApprovalUrl: paypalUrl,
         paypalApprovalUrlPath: 'C:/tmp/paypal-link.txt',
       },
@@ -175,6 +177,7 @@ describe('flow cli helpers', () => {
 
     expect(summary).toContain('flow:chatgpt-register completed')
     expect(summary).toContain('email: person@example.com')
+    expect(summary).toContain('trial: team')
     expect(summary).toContain(`paypal url: ${paypalUrl}`)
     expect(summary).toContain('paypal url file: C:/tmp/paypal-link.txt')
     expect(summary).not.toContain('machine')
@@ -274,7 +277,7 @@ describe('flow cli helpers', () => {
     )
   })
 
-  it('prints the captured PayPal URL for ChatGPT Team trial', () => {
+  it('prints the captured PayPal URL for ChatGPT trial', () => {
     const paypalUrl =
       'https://www.paypal.com/pay?ssrt=1777211592082&token=BA-5YL10191GX878080G&ul=1'
     const summary = formatFlowCompletionSummary('flow:chatgpt-team-trial', {

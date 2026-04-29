@@ -21,8 +21,10 @@ import {
   CHATGPT_CHECKOUT_PAYPAL_SELECTORS,
   CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
   CHATGPT_HOME_URL,
-  CHATGPT_TEAM_PRICING_PROMO_URL,
+  CHATGPT_TRIAL_PROMO_COUPONS,
   DEFAULT_EVENT_TIMEOUT_MS,
+  buildChatGPTTrialPricingPromoUrl,
+  getChatGPTTrialPricingFreeTrialSelectors,
   isChatGPTCodexAccountConsentUrl,
   isChatGPTCodexConsentUrl,
   isChatGPTCodexOrganizationUrl,
@@ -39,8 +41,8 @@ import {
   PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
-  TEAM_PRICING_FREE_TRIAL_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
+  type ChatGPTTrialPromoCoupon,
 } from './common'
 import {
   ChatGPTAccountDeactivatedError,
@@ -89,6 +91,10 @@ const CHATGPT_BACKEND_ORIGIN = new URL(CHATGPT_HOME_URL).origin
 const CHATGPT_BACKEND_ME_PATH = '/backend-api/me'
 const CHATGPT_BACKEND_ME_URL = `${CHATGPT_BACKEND_ORIGIN}${CHATGPT_BACKEND_ME_PATH}`
 const CHATGPT_BACKEND_ME_ROUTE = '/backend-api/me'
+const CHATGPT_PROMO_COUPON_CHECK_PATH =
+  '/backend-api/promo_campaign/check_coupon'
+const CHATGPT_PROMO_COUPON_CHECK_ROUTE =
+  '/backend-api/promo_campaign/check_coupon'
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi
 const OPENAI_BROWSER_CHALLENGE_TITLE_PATTERN =
   /请稍候|稍候|just a moment|verify you are human|checking your browser/i
@@ -110,6 +116,7 @@ const CHATGPT_BACKEND_FORWARDABLE_HEADERS: Array<
   ['oai-device-id', 'OAI-Device-Id'],
   ['oai-language', 'OAI-Language'],
   ['oai-session-id', 'OAI-Session-Id'],
+  ['x-oai-is', 'X-OAI-Is'],
 ]
 
 interface CapturedChatGPTBackendApiHeaders {
@@ -125,6 +132,47 @@ interface ChatGPTBackendMeProbeResponse {
   url: string
   text: string
   error?: string
+}
+
+interface ChatGPTBrowserApiResponse<T> {
+  ok: boolean
+  status: number
+  url: string
+  text: string
+  data?: T
+  error?: string
+}
+
+export interface ChatGPTPromoCouponCheckResponse {
+  coupon?: string
+  state?: string
+  redemption?: {
+    redeemed?: boolean | null
+    redeemed_at?: string | null
+    redeemed_by_user?: boolean | null
+    redeemed_by_workspace?: boolean | null
+    user_redeemed_at?: string | null
+    workspace_redeemed_at?: string | null
+    promotion_length_days?: number | null
+    expires_at?: string | null
+  } | null
+  [key: string]: unknown
+}
+
+export interface ChatGPTPromoCouponEligibilityResult {
+  coupon: ChatGPTTrialPromoCoupon
+  eligible: boolean
+  state?: string
+  ok: boolean
+  status: number
+  url: string
+  response?: ChatGPTPromoCouponCheckResponse
+  error?: string
+}
+
+export interface ChatGPTTrialPromoCouponSelection {
+  selected?: ChatGPTPromoCouponEligibilityResult
+  checked: ChatGPTPromoCouponEligibilityResult[]
 }
 
 export interface ChatGPTBackendMeSessionProbe {
@@ -359,6 +407,129 @@ async function fetchChatGPTBackendMe(
     }))
 }
 
+export async function checkChatGPTPromoCouponEligibility(
+  page: Page,
+  coupon: ChatGPTTrialPromoCoupon,
+  options: {
+    requestHeaders?: Record<string, string>
+  } = {},
+): Promise<ChatGPTPromoCouponEligibilityResult> {
+  const requestPath =
+    `${CHATGPT_PROMO_COUPON_CHECK_PATH}?coupon=${encodeURIComponent(coupon)}` +
+    '&is_coupon_from_query_param=true'
+  const requestUrl = `${CHATGPT_BACKEND_ORIGIN}${requestPath}`
+  const response =
+    await fetchChatGPTBrowserJsonApi<ChatGPTPromoCouponCheckResponse>(
+      page,
+      requestUrl,
+      {
+        headers: buildChatGPTPromoCouponCheckHeaders({
+          requestHeaders: options.requestHeaders,
+        }),
+      },
+    )
+  const state =
+    typeof response.data?.state === 'string' ? response.data.state : undefined
+
+  return {
+    coupon,
+    eligible: response.ok && state === 'eligible',
+    state,
+    ok: response.ok,
+    status: response.status,
+    url: response.url,
+    ...(response.data ? { response: response.data } : {}),
+    ...(response.error ? { error: response.error } : {}),
+  }
+}
+
+export async function selectEligibleChatGPTTrialPromoCoupon(
+  page: Page,
+  options: {
+    coupons?: readonly ChatGPTTrialPromoCoupon[]
+    requestHeaders?: Record<string, string>
+  } = {},
+): Promise<ChatGPTTrialPromoCouponSelection> {
+  const checked: ChatGPTPromoCouponEligibilityResult[] = []
+  const coupons = options.coupons ?? CHATGPT_TRIAL_PROMO_COUPONS
+
+  for (const coupon of coupons) {
+    const result = await checkChatGPTPromoCouponEligibility(page, coupon, {
+      requestHeaders: options.requestHeaders,
+    })
+    checked.push(result)
+    if (result.eligible) {
+      return {
+        selected: result,
+        checked,
+      }
+    }
+  }
+
+  return { checked }
+}
+
+async function fetchChatGPTBrowserJsonApi<T>(
+  page: Page,
+  url: string,
+  init: {
+    headers?: Record<string, string>
+  } = {},
+): Promise<ChatGPTBrowserApiResponse<T>> {
+  const response = await page
+    .evaluate(
+      async ({ url: nextUrl, headers }) => {
+        try {
+          const request = await fetch(nextUrl, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers,
+          })
+          const text = await request.text()
+          return {
+            ok: request.ok,
+            status: request.status,
+            url: request.url,
+            text,
+          }
+        } catch (error) {
+          return {
+            ok: false,
+            status: 0,
+            url: nextUrl,
+            text: '',
+            error: error instanceof Error ? error.message : String(error),
+          }
+        }
+      },
+      {
+        url,
+        headers: init.headers || {},
+      },
+    )
+    .catch((error) => ({
+      ok: false,
+      status: 0,
+      url,
+      text: '',
+      error: error instanceof Error ? error.message : String(error),
+    }))
+
+  if (response.error) {
+    return response
+  }
+
+  try {
+    return {
+      ...response,
+      data: response.text ? (JSON.parse(response.text) as T) : undefined,
+    }
+  } catch {
+    return response
+  }
+}
+
 function buildChatGPTBackendMeHeaders(options: {
   accountId?: string
   requestHeaders?: Record<string, string>
@@ -371,6 +542,25 @@ function buildChatGPTBackendMeHeaders(options: {
 
   if (options.accountId) {
     headers['ChatGPT-Account-ID'] = options.accountId
+  }
+
+  for (const [source, target] of CHATGPT_BACKEND_FORWARDABLE_HEADERS) {
+    const value = options.requestHeaders?.[source]
+    if (value) {
+      headers[target] = value
+    }
+  }
+
+  return headers
+}
+
+function buildChatGPTPromoCouponCheckHeaders(options: {
+  requestHeaders?: Record<string, string>
+}): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-OpenAI-Target-Path': CHATGPT_PROMO_COUPON_CHECK_PATH,
+    'X-OpenAI-Target-Route': CHATGPT_PROMO_COUPON_CHECK_ROUTE,
   }
 
   for (const [source, target] of CHATGPT_BACKEND_FORWARDABLE_HEADERS) {
@@ -1128,7 +1318,32 @@ export async function waitForAuthenticatedSession(
 }
 
 export function isChatGPTTeamPricingPromoUrl(url: string): boolean {
-  return url.startsWith(CHATGPT_TEAM_PRICING_PROMO_URL)
+  return isChatGPTTrialPricingPromoUrl(url, 'team-1-month-free')
+}
+
+export function isChatGPTTrialPricingPromoUrl(
+  url: string,
+  coupon?: ChatGPTTrialPromoCoupon,
+): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.origin !== CHATGPT_BACKEND_ORIGIN) {
+      return false
+    }
+    const promoCoupon = parsed.searchParams.get('promo_campaign')
+    if (coupon) {
+      return promoCoupon === coupon
+    }
+    return CHATGPT_TRIAL_PROMO_COUPONS.some(
+      (candidate) => promoCoupon === candidate,
+    )
+  } catch {
+    return coupon
+      ? url.startsWith(buildChatGPTTrialPricingPromoUrl(coupon))
+      : CHATGPT_TRIAL_PROMO_COUPONS.some((candidate) =>
+          url.startsWith(buildChatGPTTrialPricingPromoUrl(candidate)),
+        )
+  }
 }
 
 export function isChatGPTCheckoutUrl(url: string): boolean {
@@ -1147,9 +1362,17 @@ export async function waitForTeamPricingFreeTrialReady(
   page: Page,
   timeoutMs = 30000,
 ): Promise<boolean> {
+  return waitForTrialPricingFreeTrialReady(page, 'team-1-month-free', timeoutMs)
+}
+
+export async function waitForTrialPricingFreeTrialReady(
+  page: Page,
+  coupon: ChatGPTTrialPromoCoupon,
+  timeoutMs = 30000,
+): Promise<boolean> {
   return waitForAnySelectorState(
     page,
-    TEAM_PRICING_FREE_TRIAL_SELECTORS,
+    getChatGPTTrialPricingFreeTrialSelectors(coupon),
     'visible',
     timeoutMs,
   )
@@ -1465,10 +1688,7 @@ export async function waitForLoginEntryCandidates(
     if (candidates.length > 0) {
       return candidates
     }
-    await throwIfOpenAIBrowserChallengePage(
-      page,
-      'ChatGPT login entry page',
-    )
+    await throwIfOpenAIBrowserChallengePage(page, 'ChatGPT login entry page')
     await sleep(250)
   }
 
@@ -1536,10 +1756,7 @@ export async function waitForLoginSurfaceCandidates(
     if (candidates.length > 0) {
       return candidates
     }
-    await throwIfOpenAIBrowserChallengePage(
-      page,
-      'ChatGPT login entry page',
-    )
+    await throwIfOpenAIBrowserChallengePage(page, 'ChatGPT login entry page')
     await sleep(250)
   }
 

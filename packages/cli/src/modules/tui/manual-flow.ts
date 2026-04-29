@@ -26,8 +26,7 @@ const flowDescriptionById: Record<CliFlowCommandId, string> = {
   'chatgpt-register':
     'Create a new ChatGPT account and wait for email verification.',
   'chatgpt-login': 'Sign in with a previously shared ChatGPT identity.',
-  'chatgpt-team-trial':
-    'Sign in and claim the ChatGPT Team pricing free trial.',
+  'chatgpt-team-trial': 'Sign in and claim the first eligible ChatGPT trial.',
   'chatgpt-invite':
     'Sign in with a shared ChatGPT identity and invite workspace members.',
   'codex-oauth': 'Complete Codex OAuth and store the shared session in Codey.',
@@ -43,7 +42,7 @@ const flowOptionLabelByKey: Record<string, string> = {
   record: 'Keep browser open after completion',
   restoreStorageState: 'Restore local ChatGPT storage state',
   password: 'Password override',
-  claimTeamTrial: 'Claim ChatGPT Team trial after registration',
+  claimTrial: 'Claim ChatGPT trial after registration',
   verificationTimeoutMs: 'Verification timeout',
   pollIntervalMs: 'Verification poll interval',
   identityId: 'Shared identity ID',
@@ -76,8 +75,8 @@ const flowOptionDescriptionByKey: Record<string, string> = {
   restoreStorageState:
     'Load a matching local ChatGPT storage state before normal login.',
   password: 'Override the password used by the flow.',
-  claimTeamTrial:
-    'After registration, continue with the ChatGPT Team trial checkout and capture the PayPal approval link.',
+  claimTrial:
+    'After registration, check Team then Plus trial coupons and continue with the first eligible checkout.',
   verificationTimeoutMs:
     'How long to wait for a verification email or approval, in milliseconds.',
   pollIntervalMs:

@@ -15,6 +15,7 @@ export {
   createChatGPTInviteMachine,
 } from './flows/chatgpt-invite'
 export {
+  completeChatGPTTrialAfterAuthenticatedSession,
   completeChatGPTTeamTrialAfterAuthenticatedSession,
   runChatGPTTeamTrial,
   chatgptTeamTrialFlow,
