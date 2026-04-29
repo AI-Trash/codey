@@ -14,11 +14,13 @@ import {
   buildChatGPTTrialPricingPromoUrl,
   clickChatGPTCheckoutSubscribeAndCapturePaypalLink,
   clickTrialPricingFreeTrial,
+  createChatGPTBackendApiHeadersCapture,
   fillChatGPTCheckoutBillingAddress,
   getChatGPTTrialPromoPlan,
   gotoTrialPricingPromo,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
+  type ChatGPTBackendApiHeadersCapture,
   type ChatGPTTeamTrialBillingAddress,
   type ChatGPTTrialPromoCoupon,
   type ChatGPTTrialPromoPlan,
@@ -184,6 +186,7 @@ export interface ChatGPTTeamTrialPostLoginOptions<Result = unknown> {
     email: string
   }
   storageStateFlowType?: string
+  backendApiHeadersCapture?: ChatGPTBackendApiHeadersCapture
 }
 
 const chatgptTeamTrialEventTargets = {
@@ -399,7 +402,9 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
       },
     })
   }
-  const couponSelection = await selectEligibleChatGPTTrialPromoCoupon(page)
+  const couponSelection = await selectEligibleChatGPTTrialPromoCoupon(page, {
+    requestHeaders: input.backendApiHeadersCapture?.get()?.headers,
+  })
   const selectedCoupon = couponSelection.selected?.coupon
   if (!selectedCoupon) {
     throw new Error(
@@ -701,6 +706,7 @@ export async function runChatGPTTeamTrial(
     machine,
     options.progressReporter,
   )
+  const backendApiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
   let completedLogin: ChatGPTLoginFlowResult | undefined
 
   try {
@@ -741,6 +747,7 @@ export async function runChatGPTTeamTrial(
         machine,
         storageStateIdentity: login.storedIdentity,
         storageStateFlowType: 'chatgpt-team-trial',
+        backendApiHeadersCapture,
       })
     const result = {
       pageName: 'chatgpt-team-trial' as const,
@@ -787,6 +794,7 @@ export async function runChatGPTTeamTrial(
     })
     throw error
   } finally {
+    backendApiHeadersCapture.dispose()
     detachProgress()
   }
 }

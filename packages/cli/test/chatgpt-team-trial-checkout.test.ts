@@ -233,9 +233,15 @@ describe('trial coupon pricing helpers', () => {
   })
 
   it('checks Team before Plus and selects the first eligible coupon', async () => {
-    const requestedUrls: string[] = []
-    vi.stubGlobal('fetch', async (url: string) => {
-      requestedUrls.push(String(url))
+    const requested: Array<{
+      url: string
+      headers?: Record<string, string>
+    }> = []
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      requested.push({
+        url: String(url),
+        headers: init?.headers as Record<string, string> | undefined,
+      })
       const coupon = new URL(String(url)).searchParams.get('coupon')
       return {
         ok: true,
@@ -260,7 +266,17 @@ describe('trial coupon pricing helpers', () => {
       },
     }
 
-    const selection = await selectEligibleChatGPTTrialPromoCoupon(page as never)
+    const selection = await selectEligibleChatGPTTrialPromoCoupon(
+      page as never,
+      {
+        requestHeaders: {
+          authorization: 'Bearer access-token',
+          'oai-device-id': 'device-123',
+          'oai-session-id': 'session-123',
+          'x-oai-is': 'ois1.payload',
+        },
+      },
+    )
 
     expect(selection.selected).toMatchObject({
       coupon: 'plus-1-month-free',
@@ -268,8 +284,16 @@ describe('trial coupon pricing helpers', () => {
       state: 'eligible',
     })
     expect(
-      requestedUrls.map((url) => new URL(url).searchParams.get('coupon')),
+      requested.map(({ url }) => new URL(url).searchParams.get('coupon')),
     ).toEqual(['team-1-month-free', 'plus-1-month-free'])
+    expect(requested[1]?.headers).toMatchObject({
+      Authorization: 'Bearer access-token',
+      'OAI-Device-Id': 'device-123',
+      'OAI-Session-Id': 'session-123',
+      'X-OAI-Is': 'ois1.payload',
+      'X-OpenAI-Target-Path': '/backend-api/promo_campaign/check_coupon',
+      'X-OpenAI-Target-Route': '/backend-api/promo_campaign/check_coupon',
+    })
   })
 })
 

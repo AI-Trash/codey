@@ -233,7 +233,7 @@ export async function runWithSession<TResult>(
       keepAlive.markFlowCompleted()
       return result
     } catch (error) {
-      await keepAlive.closeNow()
+      keepAlive.markFlowCompleted()
       throw error
     }
   }

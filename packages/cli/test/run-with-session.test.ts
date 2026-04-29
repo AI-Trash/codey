@@ -288,14 +288,15 @@ describe('runWithSession keep-open mode', () => {
     expect(session.close).toHaveBeenCalledOnce()
   })
 
-  it('detaches keep-open signal listeners when the runner fails', async () => {
+  it('keeps the session open after runner failures in keep-open mode', async () => {
     const browser = new FakeBrowser()
     const context = new FakeContext()
-    const page = createPage(() => false)
+    let pageClosed = false
+    const page = createPage(() => pageClosed)
     const session = {
       browser,
       context: Object.assign(context, {
-        pages: vi.fn(() => [page]),
+        pages: vi.fn(() => (pageClosed ? [] : [page])),
       }),
       page,
       harPath: undefined,
@@ -315,6 +316,14 @@ describe('runWithSession keep-open mode', () => {
         { closeOnComplete: false },
       ),
     ).rejects.toThrow('runner failed')
+
+    expect(session.close).not.toHaveBeenCalled()
+    expect(process.listenerCount('SIGINT')).toBe(initialSigintListeners + 1)
+    expect(process.listenerCount('SIGTERM')).toBe(initialSigtermListeners + 1)
+
+    pageClosed = true
+    page.emit('close')
+    await vi.runAllTimersAsync()
 
     expect(session.close).toHaveBeenCalledOnce()
     expect(process.listenerCount('SIGINT')).toBe(initialSigintListeners)

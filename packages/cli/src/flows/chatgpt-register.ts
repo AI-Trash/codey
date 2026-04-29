@@ -67,6 +67,7 @@ import {
   AGE_GATE_INPUT_SELECTORS,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   clickPasswordTimeoutRetry,
+  createChatGPTBackendApiHeadersCapture,
 } from '../modules/chatgpt/shared'
 import {
   attachStateMachineProgressReporter,
@@ -1059,6 +1060,7 @@ export async function registerChatGPT(
     false
   const startedAt = new Date().toISOString()
   const sessionCapture = createChatGPTSessionCapture(page)
+  const backendApiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
   let storedIdentityForStatusReport: StoredChatGPTIdentitySummary | undefined
 
   try {
@@ -1510,6 +1512,7 @@ export async function registerChatGPT(
             machine: trialMachine,
             storageStateIdentity: storedIdentity,
             storageStateFlowType: 'chatgpt-register',
+            backendApiHeadersCapture,
           })
 
         trial = {
@@ -1615,6 +1618,7 @@ export async function registerChatGPT(
     })
     throw error
   } finally {
+    backendApiHeadersCapture.dispose()
     sessionCapture.dispose()
     detachProgress()
   }

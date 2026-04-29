@@ -645,7 +645,7 @@ export function attachStateMachineProgressReporter<
   })
 }
 
-export function reportError(error: unknown): never {
+export function reportError(error: unknown): void {
   const message = sanitizeErrorForOutput(error).message
   const diagnostics = captureCliDiagnostics({
     reason: 'handled-top-level-error',
@@ -667,7 +667,7 @@ export function reportError(error: unknown): never {
       2,
     ),
   )
-  process.exit(1)
+  process.exitCode = 1
 }
 
 export function execute(task: Promise<void>): void {

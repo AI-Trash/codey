@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createChatGPTBackendMeSessionProbe } from '../src/modules/chatgpt/queries'
+import {
+  createChatGPTBackendApiHeadersCapture,
+  createChatGPTBackendMeSessionProbe,
+} from '../src/modules/chatgpt/queries'
 
 class FakeRequest {
   constructor(
@@ -153,5 +156,42 @@ describe('createChatGPTBackendMeSessionProbe', () => {
     await expect(result).resolves.toBe(false)
     probe.dispose()
     vi.useRealTimers()
+  })
+})
+
+describe('createChatGPTBackendApiHeadersCapture', () => {
+  it('keeps the best captured ChatGPT backend API authorization headers', () => {
+    const page = new FakePage()
+    const capture = createChatGPTBackendApiHeadersCapture(page as never)
+
+    page.emitRequest('https://chatgpt.com/backend-api/conversation_limit', {
+      authorization: 'Bearer first-token',
+      'oai-device-id': 'device-123',
+      'x-oai-is': 'ois1.first',
+    })
+    page.emitRequest('https://chatgpt.com/backend-api/me', {
+      authorization: 'Bearer access-token',
+      'chatgpt-account-id': 'account-request',
+      'oai-client-version': 'prod-version',
+      'oai-device-id': 'device-456',
+      'oai-session-id': 'session-123',
+      'x-oai-is': 'ois1.second',
+    })
+
+    expect(capture.get()).toMatchObject({
+      accountId: 'account-request',
+      isMeRequest: true,
+      headers: {
+        authorization: 'Bearer access-token',
+        'chatgpt-account-id': 'account-request',
+        'oai-client-version': 'prod-version',
+        'oai-device-id': 'device-456',
+        'oai-session-id': 'session-123',
+        'x-oai-is': 'ois1.second',
+      },
+    })
+
+    capture.dispose()
+    expect(page.requestHandlers.size).toBe(0)
   })
 })

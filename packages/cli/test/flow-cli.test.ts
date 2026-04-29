@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { noopFlow } from '../src/flows/noop'
 import {
   attachStateMachineProgressReporter,
@@ -8,6 +8,7 @@ import {
   formatFlowCompletionSummary,
   keepBrowserOpenForHarWhenUnspecified,
   printFlowCompletionSummary,
+  reportError,
   shouldRecordPageContent,
   shouldKeepFlowOpen,
   type FlowOptions,
@@ -413,5 +414,39 @@ describe('flow cli helpers', () => {
     expect(stdout[0]).toContain('flow:chatgpt-login completed')
     expect(stdout[0]).toContain('email: person@example.com')
     expect(stderr).toEqual(['[flow:chatgpt-login] Opening ChatGPT login entry'])
+  })
+
+  it('reports top-level errors without forcing an immediate process exit', async () => {
+    const previousExitCode = process.exitCode
+    process.exitCode = undefined
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((
+      code?: string | number | null | undefined,
+    ) => {
+      throw new Error(`unexpected process.exit(${String(code)})`)
+    }) as typeof process.exit)
+
+    const stderr: string[] = []
+
+    try {
+      await withCliOutput(
+        {
+          stdoutLine: () => {},
+          stderrLine: (line) => {
+            stderr.push(line)
+          },
+        },
+        async () => {
+          reportError(new Error('runner failed'))
+        },
+      )
+
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(process.exitCode).toBe(1)
+      expect(stderr.join('\n')).toContain('"status": "failed"')
+      expect(stderr.join('\n')).toContain('"error": "runner failed"')
+    } finally {
+      process.exitCode = previousExitCode
+      exitSpy.mockRestore()
+    }
   })
 })

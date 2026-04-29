@@ -119,11 +119,16 @@ const CHATGPT_BACKEND_FORWARDABLE_HEADERS: Array<
   ['x-oai-is', 'X-OAI-Is'],
 ]
 
-interface CapturedChatGPTBackendApiHeaders {
+export interface ChatGPTBackendApiHeadersSnapshot {
   headers: Record<string, string>
   accountId?: string
   isMeRequest: boolean
   capturedAt: number
+}
+
+export interface ChatGPTBackendApiHeadersCapture {
+  get(): ChatGPTBackendApiHeadersSnapshot | undefined
+  dispose(): void
 }
 
 interface ChatGPTBackendMeProbeResponse {
@@ -309,7 +314,39 @@ export function createChatGPTBackendMeSessionProbe(
     expectedEmail?: string
   } = {},
 ): ChatGPTBackendMeSessionProbe {
-  const captures: CapturedChatGPTBackendApiHeaders[] = []
+  const apiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
+
+  return {
+    async wait(timeoutMs = DEFAULT_EVENT_TIMEOUT_MS) {
+      const deadline = Date.now() + Math.max(0, timeoutMs)
+
+      do {
+        const capture = apiHeadersCapture.get()
+        const accountId =
+          capture?.accountId || (await readCurrentChatGPTAccountCookie(page))
+        const response = await fetchChatGPTBackendMe(page, {
+          accountId,
+          requestHeaders: capture?.headers,
+        })
+        if (isAuthenticatedChatGPTBackendMeResponse(response, options)) {
+          return true
+        }
+
+        await sleep(Math.min(250, Math.max(1, deadline - Date.now())))
+      } while (Date.now() < deadline)
+
+      return false
+    },
+    dispose() {
+      apiHeadersCapture.dispose()
+    },
+  }
+}
+
+export function createChatGPTBackendApiHeadersCapture(
+  page: Page,
+): ChatGPTBackendApiHeadersCapture {
+  const captures: ChatGPTBackendApiHeadersSnapshot[] = []
   const handleRequest = (request: Request) => {
     const url = request.url()
     if (!url.startsWith(`${CHATGPT_BACKEND_ORIGIN}/backend-api/`)) {
@@ -332,25 +369,8 @@ export function createChatGPTBackendMeSessionProbe(
   page.on('request', handleRequest)
 
   return {
-    async wait(timeoutMs = DEFAULT_EVENT_TIMEOUT_MS) {
-      const deadline = Date.now() + Math.max(0, timeoutMs)
-
-      do {
-        const capture = pickBestChatGPTBackendApiHeaders(captures)
-        const accountId =
-          capture?.accountId || (await readCurrentChatGPTAccountCookie(page))
-        const response = await fetchChatGPTBackendMe(page, {
-          accountId,
-          requestHeaders: capture?.headers,
-        })
-        if (isAuthenticatedChatGPTBackendMeResponse(response, options)) {
-          return true
-        }
-
-        await sleep(Math.min(250, Math.max(1, deadline - Date.now())))
-      } while (Date.now() < deadline)
-
-      return false
+    get() {
+      return pickBestChatGPTBackendApiHeaders(captures)
     },
     dispose() {
       page.off('request', handleRequest)
@@ -691,8 +711,8 @@ function isChatGPTBackendMeUrl(url: string): boolean {
 }
 
 function pickBestChatGPTBackendApiHeaders(
-  captures: CapturedChatGPTBackendApiHeaders[],
-): CapturedChatGPTBackendApiHeaders | undefined {
+  captures: ChatGPTBackendApiHeadersSnapshot[],
+): ChatGPTBackendApiHeadersSnapshot | undefined {
   return [...captures].sort((left, right) => {
     const leftScore =
       Number(left.isMeRequest) * 8 +
