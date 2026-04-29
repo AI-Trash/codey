@@ -68,6 +68,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#/components/ui/select'
+import { Switch } from '#/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -1038,6 +1039,29 @@ function DispatchOptionField(props: {
     )
   }
 
+  if (props.option.key === 'claimTeamTrial') {
+    return (
+      <Field>
+        <div className="flex h-10 items-center justify-between gap-3 rounded-md border px-3">
+          <FieldLabel htmlFor={inputId} className="font-normal">
+            {getOptionDisplayName(props.option)}
+          </FieldLabel>
+          <Switch
+            id={inputId}
+            checked={props.value === 'true'}
+            disabled={props.disabled}
+            onCheckedChange={(checked) => {
+              props.onChange(checked ? 'true' : '')
+            }}
+          />
+        </div>
+        <FieldDescription>
+          {formatOptionDescription(props.option, props.flowId)}
+        </FieldDescription>
+      </Field>
+    )
+  }
+
   if (props.option.type === 'boolean') {
     return (
       <Field>
@@ -1557,6 +1581,7 @@ const optionDisplayNameMap: Record<
   record: () => m.admin_cli_option_record_name(),
   restoreStorageState: () => m.admin_cli_option_restore_storage_state_name(),
   password: () => m.admin_cli_option_password_name(),
+  claimTeamTrial: () => m.admin_cli_option_claim_team_trial_name(),
   verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
   identityId: () => m.admin_cli_option_identity_id_name(),
@@ -1592,6 +1617,7 @@ const optionDescriptionMap: Record<
   restoreStorageState: () =>
     m.admin_cli_option_restore_storage_state_description(),
   password: () => m.admin_cli_option_password_description(),
+  claimTeamTrial: () => m.admin_cli_option_claim_team_trial_description(),
   verificationTimeoutMs: () =>
     m.admin_cli_option_verification_timeout_description(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),

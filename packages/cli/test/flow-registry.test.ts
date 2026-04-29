@@ -8,6 +8,45 @@ import {
 } from '../src/modules/flow-cli/flow-registry'
 
 describe('flow registry', () => {
+  it('exposes the register-to-Team-trial switch for app dispatch', () => {
+    expect(getCliFlowDefinition('chatgpt-register')).toMatchObject({
+      id: 'chatgpt-register',
+      configKeys: [
+        'password',
+        'claimTeamTrial',
+        'verificationTimeoutMs',
+        'pollIntervalMs',
+        'billingName',
+        'billingCountry',
+        'billingAddressLine1',
+        'billingAddressLine2',
+        'billingCity',
+        'billingState',
+        'billingPostalCode',
+      ],
+    })
+
+    expect(
+      normalizeCliFlowTaskPayload({
+        kind: 'flow_task',
+        flowId: 'chatgpt-register',
+        config: {
+          claimTeamTrial: 'true',
+          billingCountry: ' NL ',
+          billingPostalCode: ' 1187 ST ',
+        },
+      }),
+    ).toEqual({
+      kind: 'flow_task',
+      flowId: 'chatgpt-register',
+      config: {
+        claimTeamTrial: true,
+        billingCountry: 'NL',
+        billingPostalCode: '1187 ST',
+      },
+    })
+  })
+
   it('registers the ChatGPT Team trial flow for app dispatch', () => {
     const flowIds = listCliFlowCommandIds()
     const payload = createCliFlowTaskPayload('chatgpt-team-trial', {

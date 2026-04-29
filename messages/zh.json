@@ -467,6 +467,8 @@
   "admin_cli_option_restore_storage_state_description": "在正常登录前加载匹配的本地 ChatGPT storage state。",
   "admin_cli_option_password_name": "密码",
   "admin_cli_option_password_description": "覆盖注册流程默认使用的密码。",
+  "admin_cli_option_claim_team_trial_name": "领取 Team 试用",
+  "admin_cli_option_claim_team_trial_description": "注册完成后继续执行 ChatGPT Team 试用 checkout，并捕获 PayPal 授权链接。",
   "admin_cli_option_verification_timeout_name": "验证码超时（毫秒）",
   "admin_cli_option_verification_timeout_description": "等待验证码的最长时间，单位是毫秒。",
   "admin_cli_option_poll_interval_name": "轮询间隔（毫秒）",

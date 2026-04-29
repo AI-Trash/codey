@@ -467,6 +467,8 @@
   "admin_cli_option_restore_storage_state_description": "Load a matching local ChatGPT storage state before normal login.",
   "admin_cli_option_password_name": "Password",
   "admin_cli_option_password_description": "Override the password used by the registration flow.",
+  "admin_cli_option_claim_team_trial_name": "Claim Team trial",
+  "admin_cli_option_claim_team_trial_description": "After registration, continue with the ChatGPT Team trial checkout and capture the PayPal approval link.",
   "admin_cli_option_verification_timeout_name": "Verification timeout (ms)",
   "admin_cli_option_verification_timeout_description": "Maximum time to wait for a verification code, in milliseconds.",
   "admin_cli_option_poll_interval_name": "Polling interval (ms)",

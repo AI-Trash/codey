@@ -146,6 +146,32 @@ export interface ChatGPTTeamTrialFlowResult {
   machine: ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialFlowResult>
 }
 
+export interface ChatGPTTeamTrialPostLoginResult {
+  url: string
+  title: string
+  email: string
+  authenticated: true
+  pricingUrl: string
+  checkoutUrl: string
+  trialClaimClicked: true
+  billingAddressFilled: true
+  subscribeClicked: true
+  paypalBaTokenCaptured: true
+  paypalApprovalUrl: string
+  paypalApprovalUrlPath: string
+}
+
+export interface ChatGPTTeamTrialPostLoginOptions<Result = unknown> {
+  email: string
+  options?: FlowOptions
+  machine?: ChatGPTTeamTrialFlowMachine<Result>
+  storageStateIdentity?: {
+    id: string
+    email: string
+  }
+  storageStateFlowType?: string
+}
+
 const chatgptTeamTrialEventTargets = {
   'machine.started': 'idle',
   'chatgpt.login.started': 'logging-in',
@@ -208,10 +234,12 @@ function createChatGPTTeamTrialLifecycleFragment<Result>() {
   })
 }
 
-export function createChatGPTTeamTrialMachine(): ChatGPTTeamTrialFlowMachine<ChatGPTTeamTrialFlowResult> {
+export function createChatGPTTeamTrialMachine<
+  Result = ChatGPTTeamTrialFlowResult,
+>(): ChatGPTTeamTrialFlowMachine<Result> {
   return createStateMachine<
     ChatGPTTeamTrialFlowState,
-    ChatGPTTeamTrialFlowContext<ChatGPTTeamTrialFlowResult>,
+    ChatGPTTeamTrialFlowContext<Result>,
     ChatGPTTeamTrialFlowEvent
   >(
     composeStateMachineConfig(
@@ -225,20 +253,20 @@ export function createChatGPTTeamTrialMachine(): ChatGPTTeamTrialFlowMachine<Cha
         historyLimit: 200,
         states: declareStateMachineStates<
           ChatGPTTeamTrialFlowState,
-          ChatGPTTeamTrialFlowContext<ChatGPTTeamTrialFlowResult>,
+          ChatGPTTeamTrialFlowContext<Result>,
           ChatGPTTeamTrialFlowEvent
         >(chatgptTeamTrialStates),
       },
-      createChatGPTTeamTrialLifecycleFragment<ChatGPTTeamTrialFlowResult>(),
+      createChatGPTTeamTrialLifecycleFragment<Result>(),
     ),
   )
 }
 
-async function sendTeamTrialMachine(
-  machine: ChatGPTTeamTrialFlowMachine<ChatGPTTeamTrialFlowResult>,
+async function sendTeamTrialMachine<Result>(
+  machine: ChatGPTTeamTrialFlowMachine<Result>,
   state: ChatGPTTeamTrialFlowState,
   event: ChatGPTTeamTrialFlowEvent,
-  patch?: Partial<ChatGPTTeamTrialFlowContext<ChatGPTTeamTrialFlowResult>>,
+  patch?: Partial<ChatGPTTeamTrialFlowContext<Result>>,
 ): Promise<void> {
   await machine.send(event, {
     target: state,
@@ -302,6 +330,260 @@ function savePaypalApprovalUrl(url: string): string {
   return filePath
 }
 
+export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
+  Result = unknown,
+>(
+  page: Page,
+  input: ChatGPTTeamTrialPostLoginOptions<Result>,
+): Promise<ChatGPTTeamTrialPostLoginResult> {
+  const options = input.options ?? {}
+  const email = input.email
+  const machine = input.machine
+
+  const authenticated = await waitForAuthenticatedSession(page, 30000)
+  if (!authenticated) {
+    throw new Error(
+      'ChatGPT Team trial flow lost the authenticated session before checkout.',
+    )
+  }
+
+  if (machine) {
+    await sendTeamTrialMachine(machine, 'home-ready', 'chatgpt.home.ready', {
+      email,
+      url: page.url(),
+      lastMessage: 'Authenticated ChatGPT home is ready',
+    })
+  }
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'opening-pricing',
+      'chatgpt.pricing.opening',
+      {
+        email,
+        url: CHATGPT_TEAM_PRICING_PROMO_URL,
+        lastMessage: 'Opening ChatGPT Team pricing promo',
+      },
+    )
+  }
+  await gotoTeamPricingPromo(page)
+
+  const pricingReady = await waitForTeamPricingFreeTrialReady(page, 30000)
+  if (!pricingReady) {
+    throw new Error('ChatGPT Team pricing free trial button was not visible.')
+  }
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'pricing-ready',
+      'chatgpt.pricing.ready',
+      {
+        email,
+        url: page.url(),
+        lastMessage: 'ChatGPT Team pricing free trial button is ready',
+      },
+    )
+  }
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'claiming-trial',
+      'chatgpt.trial.claiming',
+      {
+        email,
+        url: page.url(),
+        lastMessage: 'Clicking ChatGPT Team free trial button',
+      },
+    )
+  }
+  await clickTeamPricingFreeTrial(page)
+  const trialClaimTitle = await page.title()
+
+  if (input.storageStateIdentity) {
+    try {
+      await saveLocalChatGPTStorageState(page, {
+        identityId: input.storageStateIdentity.id,
+        email: input.storageStateIdentity.email,
+        flowType: input.storageStateFlowType || 'chatgpt-team-trial',
+      })
+      options.progressReporter?.({
+        message: `Saved local ChatGPT storage state for ${input.storageStateIdentity.email}`,
+      })
+    } catch (error) {
+      options.progressReporter?.({
+        message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
+      })
+    }
+  }
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'trial-claimed',
+      'chatgpt.trial.claimed',
+      {
+        email,
+        url: page.url(),
+        title: trialClaimTitle,
+        lastMessage: 'ChatGPT Team free trial button clicked',
+      },
+    )
+  }
+
+  const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
+  if (!checkoutReady) {
+    throw new Error('ChatGPT Team trial checkout did not become ready.')
+  }
+
+  const checkoutUrl = page.url()
+  const checkoutTitle = await page.title()
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'checkout-ready',
+      'chatgpt.checkout.ready',
+      {
+        email,
+        url: checkoutUrl,
+        checkoutUrl,
+        title: checkoutTitle,
+        lastMessage: 'ChatGPT Team checkout is ready',
+      },
+    )
+  }
+
+  const billingAddress = resolveChatGPTTeamTrialBillingAddress(options)
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'selecting-paypal-payment-method',
+      'chatgpt.paypal_payment_method.selecting',
+      {
+        email,
+        url: checkoutUrl,
+        checkoutUrl,
+        lastMessage:
+          'Selecting PayPal payment method before filling billing address',
+      },
+    )
+  }
+  const paypalPaymentMethodSelected =
+    await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+      timeoutMs: 30000,
+    })
+  if (!paypalPaymentMethodSelected) {
+    throw new Error(
+      'ChatGPT checkout PayPal payment method was not visible before billing address.',
+    )
+  }
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'paypal-payment-method-selected',
+      'chatgpt.paypal_payment_method.selected',
+      {
+        email,
+        url: page.url(),
+        checkoutUrl,
+        paypalPaymentMethodSelected: true,
+        lastMessage: 'ChatGPT checkout PayPal payment method selected',
+      },
+    )
+  }
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'filling-billing-address',
+      'chatgpt.billing_address.filling',
+      {
+        email,
+        url: checkoutUrl,
+        checkoutUrl,
+        billingCountry: billingAddress.country,
+        paypalPaymentMethodSelected: true,
+        lastMessage: 'Filling ChatGPT checkout billing address',
+      },
+    )
+  }
+  await fillChatGPTCheckoutBillingAddress(page, billingAddress)
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'billing-address-filled',
+      'chatgpt.billing_address.filled',
+      {
+        email,
+        url: page.url(),
+        checkoutUrl,
+        billingCountry: billingAddress.country,
+        billingAddressFilled: true,
+        lastMessage: 'ChatGPT checkout billing address filled',
+      },
+    )
+  }
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'subscribing',
+      'chatgpt.subscription.submitting',
+      {
+        email,
+        url: page.url(),
+        checkoutUrl,
+        billingAddressFilled: true,
+        lastMessage: 'Submitting ChatGPT Team trial subscription',
+      },
+    )
+  }
+  const paypalApproval =
+    await clickChatGPTCheckoutSubscribeAndCapturePaypalLink(page)
+  const paypalApprovalUrlPath = savePaypalApprovalUrl(paypalApproval.url)
+
+  if (machine) {
+    await sendTeamTrialMachine(
+      machine,
+      'paypal-link-captured',
+      'chatgpt.paypal_link.captured',
+      {
+        email,
+        url: page.url(),
+        checkoutUrl,
+        billingAddressFilled: true,
+        subscribeClicked: true,
+        paypalBaTokenCaptured: true,
+        paypalApprovalUrl: paypalApproval.url,
+        paypalApprovalUrlPath,
+        lastMessage: `Captured PayPal billing agreement link: ${paypalApproval.url}`,
+      },
+    )
+  }
+
+  const title = await page.title()
+  return {
+    url: page.url(),
+    title,
+    email,
+    authenticated: true,
+    pricingUrl: CHATGPT_TEAM_PRICING_PROMO_URL,
+    checkoutUrl,
+    trialClaimClicked: true,
+    billingAddressFilled: true,
+    subscribeClicked: true,
+    paypalBaTokenCaptured: true,
+    paypalApprovalUrl: paypalApproval.url,
+    paypalApprovalUrlPath,
+  }
+}
+
 export async function runChatGPTTeamTrial(
   page: Page,
   options: FlowOptions = {},
@@ -344,222 +626,17 @@ export async function runChatGPTTeamTrial(
       },
     )
 
-    const authenticated = await waitForAuthenticatedSession(page, 30000)
-    if (!authenticated) {
-      throw new Error(
-        'ChatGPT Team trial flow lost the authenticated session after login.',
-      )
-    }
-
-    await sendTeamTrialMachine(machine, 'home-ready', 'chatgpt.home.ready', {
-      email: login.email,
-      url: page.url(),
-      lastMessage: 'Authenticated ChatGPT home is ready',
-    })
-
-    await sendTeamTrialMachine(
-      machine,
-      'opening-pricing',
-      'chatgpt.pricing.opening',
-      {
+    const postLoginResult =
+      await completeChatGPTTeamTrialAfterAuthenticatedSession(page, {
         email: login.email,
-        url: CHATGPT_TEAM_PRICING_PROMO_URL,
-        lastMessage: 'Opening ChatGPT Team pricing promo',
-      },
-    )
-    await gotoTeamPricingPromo(page)
-
-    const pricingReady = await waitForTeamPricingFreeTrialReady(page, 30000)
-    if (!pricingReady) {
-      throw new Error('ChatGPT Team pricing free trial button was not visible.')
-    }
-
-    await sendTeamTrialMachine(
-      machine,
-      'pricing-ready',
-      'chatgpt.pricing.ready',
-      {
-        email: login.email,
-        url: page.url(),
-        lastMessage: 'ChatGPT Team pricing free trial button is ready',
-      },
-    )
-
-    await sendTeamTrialMachine(
-      machine,
-      'claiming-trial',
-      'chatgpt.trial.claiming',
-      {
-        email: login.email,
-        url: page.url(),
-        lastMessage: 'Clicking ChatGPT Team free trial button',
-      },
-    )
-    await clickTeamPricingFreeTrial(page)
-    const trialClaimTitle = await page.title()
-
-    try {
-      await saveLocalChatGPTStorageState(page, {
-        identityId: login.storedIdentity.id,
-        email: login.storedIdentity.email,
-        flowType: 'chatgpt-team-trial',
+        options,
+        machine,
+        storageStateIdentity: login.storedIdentity,
+        storageStateFlowType: 'chatgpt-team-trial',
       })
-      options.progressReporter?.({
-        message: `Saved local ChatGPT storage state for ${login.storedIdentity.email}`,
-      })
-    } catch (error) {
-      options.progressReporter?.({
-        message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
-      })
-    }
-
-    await sendTeamTrialMachine(
-      machine,
-      'trial-claimed',
-      'chatgpt.trial.claimed',
-      {
-        email: login.email,
-        url: page.url(),
-        title: trialClaimTitle,
-        lastMessage: 'ChatGPT Team free trial button clicked',
-      },
-    )
-
-    const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
-    if (!checkoutReady) {
-      throw new Error('ChatGPT Team trial checkout did not become ready.')
-    }
-
-    const checkoutUrl = page.url()
-    const checkoutTitle = await page.title()
-
-    await sendTeamTrialMachine(
-      machine,
-      'checkout-ready',
-      'chatgpt.checkout.ready',
-      {
-        email: login.email,
-        url: checkoutUrl,
-        checkoutUrl,
-        title: checkoutTitle,
-        lastMessage: 'ChatGPT Team checkout is ready',
-      },
-    )
-
-    const billingAddress = resolveChatGPTTeamTrialBillingAddress(options)
-
-    await sendTeamTrialMachine(
-      machine,
-      'selecting-paypal-payment-method',
-      'chatgpt.paypal_payment_method.selecting',
-      {
-        email: login.email,
-        url: checkoutUrl,
-        checkoutUrl,
-        lastMessage:
-          'Selecting PayPal payment method before filling billing address',
-      },
-    )
-    const paypalPaymentMethodSelected =
-      await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
-        timeoutMs: 30000,
-      })
-    if (!paypalPaymentMethodSelected) {
-      throw new Error(
-        'ChatGPT checkout PayPal payment method was not visible before billing address.',
-      )
-    }
-
-    await sendTeamTrialMachine(
-      machine,
-      'paypal-payment-method-selected',
-      'chatgpt.paypal_payment_method.selected',
-      {
-        email: login.email,
-        url: page.url(),
-        checkoutUrl,
-        paypalPaymentMethodSelected: true,
-        lastMessage: 'ChatGPT checkout PayPal payment method selected',
-      },
-    )
-
-    await sendTeamTrialMachine(
-      machine,
-      'filling-billing-address',
-      'chatgpt.billing_address.filling',
-      {
-        email: login.email,
-        url: checkoutUrl,
-        checkoutUrl,
-        billingCountry: billingAddress.country,
-        paypalPaymentMethodSelected: true,
-        lastMessage: 'Filling ChatGPT checkout billing address',
-      },
-    )
-    await fillChatGPTCheckoutBillingAddress(page, billingAddress)
-
-    await sendTeamTrialMachine(
-      machine,
-      'billing-address-filled',
-      'chatgpt.billing_address.filled',
-      {
-        email: login.email,
-        url: page.url(),
-        checkoutUrl,
-        billingCountry: billingAddress.country,
-        billingAddressFilled: true,
-        lastMessage: 'ChatGPT checkout billing address filled',
-      },
-    )
-
-    await sendTeamTrialMachine(
-      machine,
-      'subscribing',
-      'chatgpt.subscription.submitting',
-      {
-        email: login.email,
-        url: page.url(),
-        checkoutUrl,
-        billingAddressFilled: true,
-        lastMessage: 'Submitting ChatGPT Team trial subscription',
-      },
-    )
-    const paypalApproval =
-      await clickChatGPTCheckoutSubscribeAndCapturePaypalLink(page)
-    const paypalApprovalUrlPath = savePaypalApprovalUrl(paypalApproval.url)
-
-    await sendTeamTrialMachine(
-      machine,
-      'paypal-link-captured',
-      'chatgpt.paypal_link.captured',
-      {
-        email: login.email,
-        url: page.url(),
-        checkoutUrl,
-        billingAddressFilled: true,
-        subscribeClicked: true,
-        paypalBaTokenCaptured: true,
-        paypalApprovalUrl: paypalApproval.url,
-        paypalApprovalUrlPath,
-        lastMessage: `Captured PayPal billing agreement link: ${paypalApproval.url}`,
-      },
-    )
-
-    const title = await page.title()
     const result = {
       pageName: 'chatgpt-team-trial' as const,
-      url: page.url(),
-      title,
-      email: login.email,
-      authenticated: true,
-      pricingUrl: CHATGPT_TEAM_PRICING_PROMO_URL,
-      checkoutUrl,
-      trialClaimClicked: true,
-      billingAddressFilled: true,
-      subscribeClicked: true,
-      paypalBaTokenCaptured: true,
-      paypalApprovalUrl: paypalApproval.url,
-      paypalApprovalUrlPath,
+      ...postLoginResult,
       login,
       machine:
         undefined as unknown as ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialFlowResult>,
@@ -572,12 +649,12 @@ export async function runChatGPTTeamTrial(
         login,
         url: result.url,
         title: result.title,
-        checkoutUrl,
+        checkoutUrl: result.checkoutUrl,
         billingAddressFilled: true,
         subscribeClicked: true,
         paypalBaTokenCaptured: true,
-        paypalApprovalUrl: paypalApproval.url,
-        paypalApprovalUrlPath,
+        paypalApprovalUrl: result.paypalApprovalUrl,
+        paypalApprovalUrlPath: result.paypalApprovalUrlPath,
         result,
         lastMessage: 'ChatGPT Team trial checkout flow completed',
       },

@@ -37,6 +37,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'record'
   | 'restoreStorageState'
   | 'password'
+  | 'claimTeamTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'identityId'
@@ -65,6 +66,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'record'
   | 'restoreStorageState'
   | 'password'
+  | 'claimTeamTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'identityId'
@@ -93,6 +95,7 @@ export type CliFlowConfigFieldKey =
   | 'record'
   | 'restoreStorageState'
   | 'password'
+  | 'claimTeamTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'identityId'
@@ -164,50 +167,7 @@ export interface CommonFlowConfig {
   record?: boolean
 }
 
-/**
- * Configuration for creating a brand-new ChatGPT account.
- */
-export interface ChatGPTRegisterFlowConfig extends CommonFlowConfig {
-  /**
-   * Override the generated password for the new identity.
-   */
-  password?: string
-
-  /**
-   * Maximum time to wait for the verification email, in milliseconds.
-   */
-  verificationTimeoutMs?: number
-
-  /**
-   * Poll interval for verification email updates, in milliseconds.
-   */
-  pollIntervalMs?: number
-}
-
-/**
- * Configuration for signing in with a shared ChatGPT identity.
- */
-export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
-  /**
-   * Resolve a shared ChatGPT identity by Codey identity record id.
-   */
-  identityId?: string
-
-  /**
-   * Resolve a shared ChatGPT identity by email address.
-   */
-  email?: string
-
-  /**
-   * Load a matching local ChatGPT storage state before normal login.
-   */
-  restoreStorageState?: boolean
-}
-
-/**
- * Configuration for signing in and completing the Team trial checkout handoff.
- */
-export interface ChatGPTTeamTrialFlowConfig extends ChatGPTLoginFlowConfig {
+export interface ChatGPTTeamTrialBillingFlowConfig {
   /**
    * Billing name to send to Stripe when the checkout address form exposes it.
    */
@@ -243,6 +203,58 @@ export interface ChatGPTTeamTrialFlowConfig extends ChatGPTLoginFlowConfig {
    */
   billingPostalCode?: string
 }
+
+/**
+ * Configuration for creating a brand-new ChatGPT account.
+ */
+export interface ChatGPTRegisterFlowConfig
+  extends CommonFlowConfig, ChatGPTTeamTrialBillingFlowConfig {
+  /**
+   * Override the generated password for the new identity.
+   */
+  password?: string
+
+  /**
+   * Continue into the ChatGPT Team trial checkout handoff after registration.
+   */
+  claimTeamTrial?: boolean
+
+  /**
+   * Maximum time to wait for the verification email, in milliseconds.
+   */
+  verificationTimeoutMs?: number
+
+  /**
+   * Poll interval for verification email updates, in milliseconds.
+   */
+  pollIntervalMs?: number
+}
+
+/**
+ * Configuration for signing in with a shared ChatGPT identity.
+ */
+export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
+  /**
+   * Resolve a shared ChatGPT identity by Codey identity record id.
+   */
+  identityId?: string
+
+  /**
+   * Resolve a shared ChatGPT identity by email address.
+   */
+  email?: string
+
+  /**
+   * Load a matching local ChatGPT storage state before normal login.
+   */
+  restoreStorageState?: boolean
+}
+
+/**
+ * Configuration for signing in and completing the Team trial checkout handoff.
+ */
+export interface ChatGPTTeamTrialFlowConfig
+  extends ChatGPTLoginFlowConfig, ChatGPTTeamTrialBillingFlowConfig {}
 
 /**
  * Configuration for signing in and inviting ChatGPT workspace members.
@@ -462,6 +474,13 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'password',
   },
   {
+    key: 'claimTeamTrial',
+    cliFlag: '--claimTeamTrial',
+    type: 'boolean',
+    displayNameKey: 'claimTeamTrial',
+    descriptionKey: 'claimTeamTrial',
+  },
+  {
     key: 'verificationTimeoutMs',
     cliFlag: '--verificationTimeoutMs',
     type: 'number',
@@ -601,7 +620,19 @@ export const cliFlowDefinitions = [
     id: 'chatgpt-register',
     displayNameKey: 'chatgptRegister',
     descriptionKey: 'chatgptRegister',
-    configKeys: ['password', 'verificationTimeoutMs', 'pollIntervalMs'],
+    configKeys: [
+      'password',
+      'claimTeamTrial',
+      'verificationTimeoutMs',
+      'pollIntervalMs',
+      'billingName',
+      'billingCountry',
+      'billingAddressLine1',
+      'billingAddressLine2',
+      'billingCity',
+      'billingState',
+      'billingPostalCode',
+    ],
   },
   {
     id: 'chatgpt-login',

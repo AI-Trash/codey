@@ -261,29 +261,36 @@ function buildFlowTaskCompletionResult(
     }
   }
 
-  if (flowId !== 'chatgpt-team-trial') {
+  const teamTrialResult =
+    flowId === 'chatgpt-team-trial'
+      ? result
+      : flowId === 'chatgpt-register' && isRecord(result.teamTrial)
+        ? result.teamTrial
+        : null
+  if (!teamTrialResult) {
     return undefined
   }
 
   const paypalApprovalUrl =
-    typeof result.paypalApprovalUrl === 'string'
-      ? result.paypalApprovalUrl.trim()
+    typeof teamTrialResult.paypalApprovalUrl === 'string'
+      ? teamTrialResult.paypalApprovalUrl.trim()
       : ''
   if (!paypalApprovalUrl) {
     return undefined
   }
 
   const paypalApprovalUrlPath =
-    typeof result.paypalApprovalUrlPath === 'string'
-      ? result.paypalApprovalUrlPath.trim()
+    typeof teamTrialResult.paypalApprovalUrlPath === 'string'
+      ? teamTrialResult.paypalApprovalUrlPath.trim()
       : ''
 
   return {
-    pageName: 'chatgpt-team-trial',
+    pageName:
+      flowId === 'chatgpt-register' ? 'chatgpt-register' : 'chatgpt-team-trial',
     paypalApprovalUrl,
     ...(paypalApprovalUrlPath ? { paypalApprovalUrlPath } : {}),
-    ...(typeof result.paypalBaTokenCaptured === 'boolean'
-      ? { paypalBaTokenCaptured: result.paypalBaTokenCaptured }
+    ...(typeof teamTrialResult.paypalBaTokenCaptured === 'boolean'
+      ? { paypalBaTokenCaptured: teamTrialResult.paypalBaTokenCaptured }
       : {}),
   }
 }
@@ -1187,6 +1194,10 @@ withCommonOptions(
       'Register a ChatGPT account using the configured Exchange mailbox',
     )
     .option('--password <password>', 'Optional password override')
+    .option(
+      '--claimTeamTrial <bool>',
+      'Continue into the ChatGPT Team trial checkout after registration',
+    )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(
       '--record <bool>',
@@ -1204,6 +1215,19 @@ withCommonOptions(
       '--pollIntervalMs <ms>',
       'How often to poll Exchange for the verification email',
     )
+    .option('--billingName <name>', 'Checkout billing name, if requested')
+    .option('--billingCountry <country>', 'Checkout billing country code')
+    .option(
+      '--billingAddressLine1 <line>',
+      'Checkout billing street address line 1',
+    )
+    .option(
+      '--billingAddressLine2 <line>',
+      'Checkout billing street address line 2',
+    )
+    .option('--billingCity <city>', 'Checkout billing city/locality')
+    .option('--billingState <state>', 'Checkout billing state/province')
+    .option('--billingPostalCode <code>', 'Checkout billing postal or ZIP code')
     .example('codey flow chatgpt-register --verificationTimeoutMs 180000'),
 ).action((rawOptions: Record<string, unknown>) => {
   execute(

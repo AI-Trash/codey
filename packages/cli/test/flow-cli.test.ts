@@ -85,6 +85,20 @@ describe('flow cli helpers', () => {
     })
   })
 
+  it('parses the register Team trial continuation switch', () => {
+    expect(
+      parseFlowCliArgsForCommand('chatgpt-register', [
+        '--claimTeamTrial',
+        'true',
+        '--billingCountry',
+        'NL',
+      ]),
+    ).toMatchObject({
+      claimTeamTrial: true,
+      billingCountry: 'NL',
+    })
+  })
+
   it('defaults record to true when HAR is enabled and record is unspecified', () => {
     expect(keepBrowserOpenForHarWhenUnspecified({ har: true })).toMatchObject({
       har: true,
@@ -139,6 +153,31 @@ describe('flow cli helpers', () => {
     expect(summary).not.toContain('storePath')
     expect(summary).not.toContain('mfa_token')
     expect(summary).not.toContain('?')
+  })
+
+  it('prints the captured PayPal URL for register-to-Team-trial runs', () => {
+    const paypalUrl =
+      'https://www.paypal.com/pay?ssrt=1777211592082&token=BA-5YL10191GX878080G&ul=1'
+    const summary = formatFlowCompletionSummary('flow:chatgpt-register', {
+      pageName: 'chatgpt-register',
+      url: 'https://www.paypal.com/pay?token=BA-5YL10191GX878080G',
+      email: 'person@example.com',
+      verified: true,
+      storedIdentity: {
+        id: 'identity-123',
+        email: 'person@example.com',
+      },
+      teamTrial: {
+        paypalApprovalUrl: paypalUrl,
+        paypalApprovalUrlPath: 'C:/tmp/paypal-link.txt',
+      },
+    })
+
+    expect(summary).toContain('flow:chatgpt-register completed')
+    expect(summary).toContain('email: person@example.com')
+    expect(summary).toContain(`paypal url: ${paypalUrl}`)
+    expect(summary).toContain('paypal url file: C:/tmp/paypal-link.txt')
+    expect(summary).not.toContain('machine')
   })
 
   it('renders compact invite and oauth summaries without artifact payloads', () => {

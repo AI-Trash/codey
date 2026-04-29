@@ -459,7 +459,11 @@ export async function completeFlowTask(input: {
     }
 
     const paypalUrl = readPayPalApprovalUrl(input.result)
-    if (updated.flowType === 'chatgpt-team-trial' && paypalUrl) {
+    if (
+      (updated.flowType === 'chatgpt-team-trial' ||
+        updated.flowType === 'chatgpt-register') &&
+      paypalUrl
+    ) {
       try {
         const notification = await sendAstrBotPayPalNotification({
           paypalUrl,
