@@ -19,7 +19,7 @@ COPY drizzle ./drizzle
 COPY packages ./packages
 COPY .env.example ./
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm --filter codey... install --frozen-lockfile
 
 FROM deps AS build
 WORKDIR /app

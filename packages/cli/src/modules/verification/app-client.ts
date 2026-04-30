@@ -38,6 +38,15 @@ export interface AppVerificationCodeLookupResponse {
   emails?: AppVerificationEmailRecord[]
 }
 
+export interface AppWhatsAppVerificationCodeLookupResponse {
+  reservationId?: string
+  status: 'pending' | 'resolved'
+  code?: string
+  source?: string
+  receivedAt?: string
+  notificationRecordId?: string
+}
+
 export interface AppVerificationCodeStreamResponse {
   id: string
   cursor: string
@@ -97,6 +106,15 @@ export interface AppWhatsAppNotificationIngestResponse {
     email?: string
     reason?: string
   }
+}
+
+export interface WaitForWhatsAppVerificationCodeOptions {
+  startedAt: string
+  timeoutMs: number
+  pollIntervalMs: number
+  email?: string
+  reservationId?: string
+  onPollAttempt?: (attempt: number) => void | Promise<void>
 }
 
 export interface AppManagedIdentitySyncResponse {
@@ -506,6 +524,51 @@ export class AppVerificationProviderClient {
     throw new Error(
       `Timed out waiting for a verification code sent to ${options.email}.`,
     )
+  }
+
+  async waitForWhatsAppVerificationCode(
+    options: WaitForWhatsAppVerificationCodeOptions,
+  ): Promise<string> {
+    const codeUrl = new URL(
+      this.buildUrl(
+        this.config.verificationCodePath || '/api/verification/codes',
+      ),
+    )
+    codeUrl.searchParams.set('source', 'whatsapp')
+    codeUrl.searchParams.set('startedAt', options.startedAt)
+    if (options.email?.trim()) {
+      codeUrl.searchParams.set('email', options.email.trim())
+    }
+    if (options.reservationId?.trim()) {
+      codeUrl.searchParams.set('reservationId', options.reservationId.trim())
+    }
+
+    const deadline = Date.now() + options.timeoutMs
+    let attempt = 0
+
+    while (Date.now() < deadline) {
+      attempt += 1
+      await options.onPollAttempt?.(attempt)
+
+      const result =
+        await this.getJson<AppWhatsAppVerificationCodeLookupResponse>(
+          codeUrl,
+          {},
+          [VERIFICATION_READ_SCOPE],
+        )
+      if (result.status === 'resolved' && result.code) {
+        return result.code
+      }
+
+      const remainingMs = deadline - Date.now()
+      if (remainingMs <= 0) {
+        break
+      }
+
+      await sleep(Math.min(options.pollIntervalMs, remainingMs))
+    }
+
+    throw new Error('Timed out waiting for a WhatsApp verification code.')
   }
 
   async *streamVerificationEvents(params: {

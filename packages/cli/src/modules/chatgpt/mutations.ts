@@ -207,6 +207,7 @@ export type ChatGPTCheckoutPaymentLink =
 
 export type GoPayPaymentContinuationStatus =
   | 'payment-page-ready'
+  | 'otp-required'
   | 'pin-required'
   | 'pay-now-clicked'
 
@@ -217,6 +218,17 @@ export interface GoPayAuthorizationOpenInput {
   statusCode?: string
 }
 
+export interface GoPayAuthorizationOtpCodeInput {
+  redirectUrl: string
+  activationLinkUrl?: string
+  startedAt: string
+  timeoutMs: number
+}
+
+export type GoPayAuthorizationOtpCodeProvider = (
+  input: GoPayAuthorizationOtpCodeInput,
+) => Promise<string | undefined> | string | undefined
+
 export interface GoPayAccountLinkingOptions {
   countryCode?: string
   phoneNumber?: string
@@ -225,6 +237,7 @@ export interface GoPayAccountLinkingOptions {
   beforeAuthorizationOpen?: (
     input: GoPayAuthorizationOpenInput,
   ) => Promise<void> | void
+  waitForOtpCode?: GoPayAuthorizationOtpCodeProvider
 }
 
 export interface GoPayPaymentContinuationProgress {
@@ -233,6 +246,8 @@ export interface GoPayPaymentContinuationProgress {
     | 'phone-submitted'
     | 'authorization-opened'
     | 'authorization-consented'
+    | 'otp-requested'
+    | 'otp-submitted'
     | 'pin-submitted'
     | 'payment-page-ready'
     | 'pay-now-clicked'
@@ -250,6 +265,7 @@ export interface GoPayPaymentContinuationResult {
   accountStatus?: string
   statusCode?: string
   authorizationConsentClicked: boolean
+  otpSubmitted: boolean
   pinSubmitted: boolean
   payNowClicked: boolean
 }
@@ -948,6 +964,8 @@ export async function continueGoPayPaymentFromRedirect(
   let accountStatus: string | undefined
   let statusCode: string | undefined
   let authorizationConsentClicked = false
+  let authorizationStartedAt = new Date().toISOString()
+  let otpSubmitted = false
   let pinSubmitted = false
 
   await page.goto(redirect.url, { waitUntil: 'domcontentloaded' })
@@ -996,6 +1014,7 @@ export async function continueGoPayPaymentFromRedirect(
       statusCode,
     })
 
+    authorizationStartedAt = new Date().toISOString()
     await page.goto(activationLinkUrl, { waitUntil: 'domcontentloaded' })
     await page.locator('body').waitFor({ state: 'visible' })
     await page.waitForLoadState('networkidle').catch(() => undefined)
@@ -1017,6 +1036,51 @@ export async function continueGoPayPaymentFromRedirect(
         url: page.url(),
         activationLinkUrl,
       })
+    }
+  }
+
+  if (
+    !(
+      (await isGoPayAuthorizationPinReady(page)) ||
+      (await isMidtransGoPayPaymentPageReady(page))
+    ) &&
+    (await isGoPayAuthorizationOtpReady(page))
+  ) {
+    options.onProgress?.({
+      step: 'otp-requested',
+      url: page.url(),
+      activationLinkUrl,
+    })
+    const otpCode = await options.waitForOtpCode?.({
+      redirectUrl: redirect.url,
+      activationLinkUrl,
+      startedAt: authorizationStartedAt,
+      timeoutMs: Math.max(1, deadline - Date.now()),
+    })
+    if (!otpCode) {
+      return buildGoPayPaymentContinuationResult(page, redirect, {
+        status: 'otp-required',
+        activationLinkUrl,
+        accountStatus,
+        statusCode,
+        authorizationConsentClicked,
+        otpSubmitted,
+        pinSubmitted,
+        payNowClicked: false,
+      })
+    }
+
+    otpSubmitted = await submitGoPayAuthorizationOtpIfPresent(page, otpCode)
+    if (otpSubmitted) {
+      options.onProgress?.({
+        step: 'otp-submitted',
+        url: page.url(),
+        activationLinkUrl,
+      })
+      await page
+        .waitForLoadState('networkidle', { timeout: 10000 })
+        .catch(() => undefined)
+      await sleep(500)
     }
   }
 
@@ -1051,6 +1115,7 @@ export async function continueGoPayPaymentFromRedirect(
         accountStatus,
         statusCode,
         authorizationConsentClicked,
+        otpSubmitted,
         pinSubmitted,
         payNowClicked: false,
       })
@@ -1075,6 +1140,7 @@ export async function continueGoPayPaymentFromRedirect(
       accountStatus,
       statusCode,
       authorizationConsentClicked,
+      otpSubmitted,
       pinSubmitted,
       payNowClicked: false,
     })
@@ -1094,6 +1160,7 @@ export async function continueGoPayPaymentFromRedirect(
     accountStatus,
     statusCode,
     authorizationConsentClicked,
+    otpSubmitted,
     pinSubmitted,
     payNowClicked: true,
   })
@@ -1418,6 +1485,72 @@ export async function clickGoPayAuthorizationConsentIfPresent(
   return false
 }
 
+function getGoPayAuthorizationOtpInput(page: Page): Locator {
+  return page
+    .locator(
+      [
+        'input[data-testid="pin-input-field"]',
+        'input[inputmode="numeric"][pattern="\\d{6}"]',
+        'input[inputmode="numeric"][placeholder*="•"]',
+      ].join(', '),
+    )
+    .first()
+}
+
+async function isGoPayAuthorizationOtpReady(page: Page): Promise<boolean> {
+  if (!isGoPayAuthorizationUrl(page.url())) {
+    return false
+  }
+
+  const input = getGoPayAuthorizationOtpInput(page)
+  const inputVisible = await input
+    .isVisible({ timeout: 1000 })
+    .catch(() => false)
+  if (!inputVisible) {
+    return false
+  }
+
+  const bodyText = await page
+    .locator('body')
+    .innerText({ timeout: 1000 })
+    .catch(() => '')
+  return /otp|whats\s*app|whatsapp|kode/i.test(bodyText)
+}
+
+async function fillGoPayAuthorizationOtp(
+  page: Page,
+  code: string,
+): Promise<void> {
+  const input = getGoPayAuthorizationOtpInput(page)
+  await input.waitFor({ state: 'visible', timeout: 10000 })
+  await input.fill(code)
+  await input.evaluate((element) => {
+    element.dispatchEvent(new Event('input', { bubbles: true }))
+    element.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await page.keyboard.press('Enter').catch(() => undefined)
+  await sleep(500)
+}
+
+export async function submitGoPayAuthorizationOtpIfPresent(
+  page: Page,
+  code: string,
+): Promise<boolean> {
+  if (!(await isGoPayAuthorizationOtpReady(page))) {
+    return false
+  }
+
+  const normalizedOtpCode = normalizePhoneDigits(code)
+  if (normalizedOtpCode.length !== GOPAY_PIN_LENGTH) {
+    throw new Error(
+      `GoPay WhatsApp OTP must contain ${GOPAY_PIN_LENGTH} digits when provided by Codey app.`,
+    )
+  }
+
+  await fillGoPayAuthorizationOtp(page, normalizedOtpCode)
+  return true
+}
+
 async function isGoPayAuthorizationPinReady(page: Page): Promise<boolean> {
   if (!isGoPayAuthorizationUrl(page.url())) {
     return false
@@ -1483,6 +1616,7 @@ async function buildGoPayPaymentContinuationResult(
     accountStatus?: string
     statusCode?: string
     authorizationConsentClicked: boolean
+    otpSubmitted: boolean
     pinSubmitted: boolean
     payNowClicked: boolean
   },
@@ -1500,6 +1634,7 @@ async function buildGoPayPaymentContinuationResult(
     ...(input.accountStatus ? { accountStatus: input.accountStatus } : {}),
     ...(input.statusCode ? { statusCode: input.statusCode } : {}),
     authorizationConsentClicked: input.authorizationConsentClicked,
+    otpSubmitted: input.otpSubmitted,
     pinSubmitted: input.pinSubmitted,
     payNowClicked: input.payNowClicked,
   }

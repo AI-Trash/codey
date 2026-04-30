@@ -1088,6 +1088,64 @@ export async function findVerificationCode(params: {
   }
 }
 
+export async function findWhatsAppVerificationCode(params: {
+  startedAt: string
+  reservationId?: string | null
+  email?: string | null
+}) {
+  const startedAt = new Date(params.startedAt)
+  const since = Number.isNaN(startedAt.getTime()) ? new Date(0) : startedAt
+  const reservationId = normalizeOptionalString(params.reservationId)
+  const email = normalizeOptionalEmail(params.email)
+  let resolvedReservationId = reservationId
+
+  if (!resolvedReservationId && email) {
+    const reservation =
+      await getDb().query.verificationEmailReservations.findFirst({
+        where: eq(verificationEmailReservations.email, email),
+      })
+    resolvedReservationId = reservation?.id
+    if (!resolvedReservationId) {
+      return {
+        status: 'pending' as const,
+        notifications: [] as WhatsAppNotificationPayload[],
+      }
+    }
+  }
+
+  const rows = await getDb().query.whatsappNotificationIngestRecords.findMany({
+    where: combineConditions([
+      isNotNull(whatsappNotificationIngestRecords.verificationCode),
+      gte(whatsappNotificationIngestRecords.receivedAt, since),
+      resolvedReservationId
+        ? eq(
+            whatsappNotificationIngestRecords.reservationId,
+            resolvedReservationId,
+          )
+        : undefined,
+    ]),
+    orderBy: [desc(whatsappNotificationIngestRecords.receivedAt)],
+    limit: 1,
+  })
+
+  const notification = rows[0]
+  if (!notification?.verificationCode) {
+    return {
+      status: 'pending' as const,
+      notifications: [] as WhatsAppNotificationPayload[],
+    }
+  }
+
+  return {
+    status: 'resolved' as const,
+    code: notification.verificationCode,
+    source: 'WHATSAPP_NOTIFICATION',
+    receivedAt: notification.receivedAt.toISOString(),
+    notificationRecordId: notification.id,
+    reservationId: notification.reservationId ?? undefined,
+  }
+}
+
 export async function createManualVerificationCode(params: {
   email: string
   code: string

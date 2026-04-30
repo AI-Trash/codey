@@ -682,4 +682,81 @@ describe('AppVerificationProviderClient', () => {
       }),
     )
   })
+
+  it('can poll Codey app for WhatsApp verification codes', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4328/oidc',
+            token_endpoint: 'http://localhost:4328/oidc/token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'token-123',
+            token_type: 'Bearer',
+            scope: 'verification:read',
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'pending' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 'resolved',
+            code: '654321',
+            source: 'WHATSAPP_NOTIFICATION',
+            notificationRecordId: 'notification-1',
+            receivedAt: '2026-04-30T12:00:05.000Z',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new AppVerificationProviderClient({
+      baseUrl: 'http://localhost:4328',
+      clientId: 'codey_client',
+      clientSecret: 'codey_secret',
+    })
+
+    await expect(
+      client.waitForWhatsAppVerificationCode({
+        startedAt: '2026-04-30T12:00:00.000Z',
+        timeoutMs: 1000,
+        pollIntervalMs: 1,
+      }),
+    ).resolves.toBe('654321')
+
+    const tokenBody = fetchMock.mock.calls[1]?.[1]?.body as URLSearchParams
+    expect(tokenBody.get('scope')).toBe('verification:read')
+    const firstCodeUrl = new URL(String(fetchMock.mock.calls[2]?.[0]))
+    expect(firstCodeUrl.pathname).toBe('/api/verification/codes')
+    expect(firstCodeUrl.searchParams.get('source')).toBe('whatsapp')
+    expect(firstCodeUrl.searchParams.get('startedAt')).toBe(
+      '2026-04-30T12:00:00.000Z',
+    )
+  })
 })

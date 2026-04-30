@@ -41,8 +41,14 @@ import { getRuntimeConfig } from '../config'
 import type { FlowOptions } from '../modules/flow-cli/helpers'
 import {
   attachStateMachineProgressReporter,
+  parseNumberFlag,
   sanitizeErrorForOutput,
 } from '../modules/flow-cli/helpers'
+import { resolveAppBaseUrl } from '../modules/app-auth/http'
+import {
+  AppVerificationProviderClient,
+  resolveVerificationAppConfig,
+} from '../modules/verification'
 import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
 import {
   runSingleFileFlowFromCommandLine,
@@ -160,6 +166,7 @@ export interface ChatGPTTeamTrialFlowContext<Result = unknown> {
   gopayActivationLinkUrl?: string
   gopayStatus?: string
   gopayAuthorizationConsentClicked?: boolean
+  gopayOtpSubmitted?: boolean
   gopayPinSubmitted?: boolean
   gopayPayNowClicked?: boolean
   gopayFinalUrl?: string
@@ -437,6 +444,31 @@ export function resolveChatGPTTeamTrialGoPayAccount(): GoPayAccountLinkingOption
     pin: nonEmptyString(config?.pin),
     authorizationTimeoutMs: config?.authorizationTimeoutMs,
   }
+}
+
+function createChatGPTTeamTrialGoPayOtpCodeProvider(
+  options: FlowOptions = {},
+): GoPayAccountLinkingOptions['waitForOtpCode'] {
+  const config = getRuntimeConfig()
+  const appConfig = resolveVerificationAppConfig(config)
+  const appClient = new AppVerificationProviderClient({
+    ...appConfig,
+    baseUrl: appConfig.baseUrl || resolveAppBaseUrl(),
+  })
+  const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
+
+  return async ({ startedAt, timeoutMs }) =>
+    appClient.waitForWhatsAppVerificationCode({
+      startedAt,
+      timeoutMs,
+      pollIntervalMs,
+      onPollAttempt(attempt) {
+        options.progressReporter?.({
+          message: 'Polling Codey app for GoPay WhatsApp OTP',
+          attempt,
+        })
+      },
+    })
 }
 
 export interface ChatGPTTeamTrialGoPayUnlinkOptions {
@@ -980,6 +1012,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
       paymentRedirect,
       {
         ...gopayAccount,
+        waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
         async beforeAuthorizationOpen({ activationLinkUrl }) {
           if (!gopayUnlinkCompanion) {
             return
@@ -1067,6 +1100,8 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
             'phone-submitted': 'Submitted GoPay phone number',
             'authorization-opened': 'Opened GoPay authorization page',
             'authorization-consented': 'Clicked GoPay authorization consent',
+            'otp-requested': 'Waiting for GoPay WhatsApp OTP from Codey app',
+            'otp-submitted': 'Submitted GoPay WhatsApp OTP',
             'pin-submitted': 'Submitted GoPay PIN',
             'payment-page-ready': 'GoPay payment page is ready',
             'pay-now-clicked': 'Clicked GoPay Pay now',
@@ -1102,6 +1137,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         gopayStatus: gopayPayment.status,
         gopayAuthorizationConsentClicked:
           gopayPayment.authorizationConsentClicked,
+        gopayOtpSubmitted: gopayPayment.otpSubmitted,
         gopayPinSubmitted: gopayPayment.pinSubmitted,
         gopayPayNowClicked: gopayPayment.payNowClicked,
         gopayFinalUrl: gopayPayment.finalUrl,
@@ -1243,6 +1279,7 @@ export async function runChatGPTTeamTrial(
         gopayStatus: result.gopayPayment?.status,
         gopayAuthorizationConsentClicked:
           result.gopayPayment?.authorizationConsentClicked,
+        gopayOtpSubmitted: result.gopayPayment?.otpSubmitted,
         gopayPinSubmitted: result.gopayPayment?.pinSubmitted,
         gopayPayNowClicked: result.gopayPayment?.payNowClicked,
         gopayFinalUrl: result.gopayPayment?.finalUrl,

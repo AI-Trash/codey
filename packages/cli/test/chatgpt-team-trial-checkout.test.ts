@@ -20,6 +20,7 @@ import {
   getChatGPTTrialPricingPlanToggleSelectors,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
+  submitGoPayAuthorizationOtpIfPresent,
 } from '../src/modules/chatgpt/shared'
 import { waitForChatGPTCheckoutReady } from '../src/modules/chatgpt/queries'
 
@@ -218,6 +219,74 @@ class FakeGoPayAuthorizationPage {
   }
 
   async waitForLoadState(): Promise<void> {}
+}
+
+class FakeGoPayOtpInputLocator extends FakeCheckoutLocator {
+  value = ''
+
+  constructor(visible = true) {
+    super(visible)
+  }
+
+  async waitFor(): Promise<void> {}
+
+  async fill(value: string): Promise<void> {
+    this.value = value
+  }
+
+  async evaluate<T>(
+    callback: (element: HTMLElement & { disabled?: boolean }) => T,
+  ): Promise<T> {
+    const element = {
+      disabled: false,
+      dispatchEvent: vi.fn(),
+      getAttribute(): string | null {
+        return null
+      },
+    } as unknown as HTMLElement & { disabled?: boolean }
+    return callback(element)
+  }
+}
+
+class FakeGoPayTextLocator extends FakeCheckoutLocator {
+  constructor(private readonly text: string) {
+    super(true)
+  }
+
+  async innerText(): Promise<string> {
+    return this.text
+  }
+}
+
+class FakeGoPayOtpPage {
+  private readonly hiddenLocator = new FakeCheckoutLocator(false)
+  readonly otpInput = new FakeGoPayOtpInputLocator()
+  readonly keyboard = {
+    press: vi.fn<() => Promise<void>>(async () => {}),
+  }
+
+  constructor(private readonly pageUrl: string) {}
+
+  url(): string {
+    return this.pageUrl
+  }
+
+  locator(selector = ''): FakeCheckoutLocator {
+    const normalizedSelector = selector.toLowerCase()
+    if (
+      normalizedSelector.includes('pin-input-field') ||
+      normalizedSelector.includes('pattern="\\\\d{6}"')
+    ) {
+      return this.otpInput
+    }
+    if (normalizedSelector === 'body') {
+      return new FakeGoPayTextLocator(
+        'Masukkin OTP yang dikirim ke WhatsApp\nOTP dikirim ke +86xxxxxxx3609',
+      )
+    }
+
+    return this.hiddenLocator
+  }
 }
 
 class FakePricingLocator {
@@ -854,5 +923,26 @@ describe('gopay payment redirect extraction', () => {
     ).resolves.toBe(false)
 
     expect(consentButton.clicks).toBe(0)
+  })
+
+  it('fills the GoPay WhatsApp OTP input on the authorization page', async () => {
+    const page = new FakeGoPayOtpPage(
+      'https://merchants-gws-app.gopayapi.com/app/authorize?reference=abc',
+    )
+
+    await expect(
+      submitGoPayAuthorizationOtpIfPresent(page as never, '654321'),
+    ).resolves.toBe(true)
+    expect(page.otpInput.value).toBe('654321')
+    expect(page.keyboard.press).toHaveBeenCalledWith('Enter')
+  })
+
+  it('does not fill GoPay OTP fields outside GoPay authorization', async () => {
+    const page = new FakeGoPayOtpPage('https://example.com/app/authorize')
+
+    await expect(
+      submitGoPayAuthorizationOtpIfPresent(page as never, '654321'),
+    ).resolves.toBe(false)
+    expect(page.otpInput.value).toBe('')
   })
 })
