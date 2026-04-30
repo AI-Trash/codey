@@ -28,6 +28,7 @@ import {
   CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS,
   CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
   CHATGPT_GOPAY_PRICING_REGION,
+  CHATGPT_TRIAL_CHECKOUT_URL,
   COMPLETE_ACCOUNT_SELECTORS,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
@@ -35,6 +36,8 @@ import {
   ONBOARDING_ACTION_CANDIDATES,
   PASSWORD_SUBMIT_SELECTORS,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
+  buildChatGPTTrialCheckoutPayload,
+  buildChatGPTTrialCheckoutUrl,
   buildProfileName,
   buildChatGPTTrialPricingPromoUrl,
   getChatGPTTrialPricingFreeTrialSelectors,
@@ -43,6 +46,7 @@ import {
   REGISTRATION_EMAIL_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
   CHATGPT_HOME_URL,
+  type ChatGPTTrialCheckoutPayload,
   type ChatGPTTrialPromoCoupon,
   type ChatGPTTrialPaymentMethod,
 } from './common'
@@ -262,6 +266,180 @@ export async function clickTrialPricingFreeTrial(
   await page.waitForLoadState('domcontentloaded').catch(() => undefined)
 }
 
+export interface ChatGPTTrialCheckoutLink {
+  url: string
+  checkoutSessionId: string
+  processorEntity: string
+  payload: ChatGPTTrialCheckoutPayload
+}
+
+interface ChatGPTTrialCheckoutApiResult {
+  ok: boolean
+  status: number
+  url: string
+  text: string
+  data?: unknown
+  error?: string
+}
+
+export async function createChatGPTTrialCheckoutLink(
+  page: Page,
+  coupon: ChatGPTTrialPromoCoupon,
+  options: {
+    paymentMethod?: ChatGPTTrialPaymentMethod
+  } = {},
+): Promise<ChatGPTTrialCheckoutLink> {
+  const payload = buildChatGPTTrialCheckoutPayload(coupon, {
+    paymentMethod: options.paymentMethod,
+  })
+  const result = await page.evaluate(
+    async ({ checkoutUrl, payload }) => {
+      function parseJson(text: string): unknown {
+        try {
+          return text ? JSON.parse(text) : undefined
+        } catch {
+          return undefined
+        }
+      }
+
+      function getStringField(value: unknown, key: string): string | undefined {
+        if (!value || typeof value !== 'object') {
+          return undefined
+        }
+
+        const field = (value as Record<string, unknown>)[key]
+        return typeof field === 'string' ? field : undefined
+      }
+
+      try {
+        const sessionResponse = await fetch('/api/auth/session', {
+          credentials: 'include',
+          cache: 'no-store',
+        })
+        const sessionText = await sessionResponse.text()
+        const sessionData = parseJson(sessionText)
+        const accessToken = getStringField(sessionData, 'accessToken')
+        if (!sessionResponse.ok || !accessToken) {
+          return {
+            ok: false,
+            status: sessionResponse.status,
+            url: sessionResponse.url,
+            text: sessionText,
+            data: sessionData,
+            error: 'ChatGPT session access token was not available.',
+          }
+        }
+
+        const checkoutResponse = await fetch(checkoutUrl, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        })
+        const checkoutText = await checkoutResponse.text()
+        return {
+          ok: checkoutResponse.ok,
+          status: checkoutResponse.status,
+          url: checkoutResponse.url,
+          text: checkoutText,
+          data: parseJson(checkoutText),
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          status: 0,
+          url: checkoutUrl,
+          text: '',
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    },
+    {
+      checkoutUrl: CHATGPT_TRIAL_CHECKOUT_URL,
+      payload,
+    },
+  )
+  const checkoutSessionId = getCheckoutSessionId(result.data)
+  const processorEntity = getCheckoutProcessorEntity(result.data)
+  if (!result.ok || !checkoutSessionId || !processorEntity) {
+    throw new Error(formatCheckoutLinkError(result))
+  }
+
+  return {
+    url: buildChatGPTTrialCheckoutUrl(checkoutSessionId, processorEntity),
+    checkoutSessionId,
+    processorEntity,
+    payload,
+  }
+}
+
+export async function gotoChatGPTTrialCheckout(
+  page: Page,
+  coupon: ChatGPTTrialPromoCoupon,
+  options: {
+    paymentMethod?: ChatGPTTrialPaymentMethod
+  } = {},
+): Promise<ChatGPTTrialCheckoutLink> {
+  const checkout = await createChatGPTTrialCheckoutLink(page, coupon, options)
+  await page.goto(checkout.url, { waitUntil: 'domcontentloaded' })
+  await page.locator('body').waitFor({ state: 'visible' })
+  await page.waitForLoadState('networkidle').catch(() => undefined)
+  return checkout
+}
+
+function getCheckoutSessionId(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const checkoutSessionId = (value as Record<string, unknown>)[
+    'checkout_session_id'
+  ]
+  return typeof checkoutSessionId === 'string' && checkoutSessionId.trim()
+    ? checkoutSessionId.trim()
+    : undefined
+}
+
+function getCheckoutProcessorEntity(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const processorEntity = (value as Record<string, unknown>)['processor_entity']
+  return typeof processorEntity === 'string' && processorEntity.trim()
+    ? processorEntity.trim()
+    : undefined
+}
+
+function formatCheckoutLinkError(
+  result: ChatGPTTrialCheckoutApiResult,
+): string {
+  const detail = getCheckoutErrorDetail(result.data)
+  const suffix =
+    detail || result.error || result.text.slice(0, 500).trim() || 'no response'
+  return `ChatGPT trial checkout link could not be generated (HTTP ${result.status}): ${suffix}`
+}
+
+function getCheckoutErrorDetail(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const record = value as Record<string, unknown>
+  for (const key of ['detail', 'error', 'message']) {
+    const field = record[key]
+    if (typeof field === 'string' && field.trim()) {
+      return field.trim()
+    }
+  }
+
+  return undefined
+}
+
 export async function selectChatGPTPricingRegion(
   page: Page,
   country: string = CHATGPT_GOPAY_PRICING_REGION,
@@ -300,6 +478,18 @@ export async function selectChatGPTPricingRegion(
 
         await sleep(250)
         if (await clickChatGPTPricingRegionOption(page, targetPattern)) {
+          await page.waitForLoadState('networkidle').catch(() => undefined)
+          await sleep(500)
+          return isChatGPTPricingRegionSelected(page, countryCode)
+        }
+        if (
+          await selectChatGPTPricingRegionOptionWithKeyboard(page, countryCode)
+        ) {
+          return true
+        }
+        if (
+          await scrollAndClickChatGPTPricingRegionOption(page, targetPattern)
+        ) {
           await page.waitForLoadState('networkidle').catch(() => undefined)
           await sleep(500)
           return isChatGPTPricingRegionSelected(page, countryCode)
@@ -386,6 +576,120 @@ async function clickChatGPTPricingRegionOption(
   }
 
   return false
+}
+
+async function selectChatGPTPricingRegionOptionWithKeyboard(
+  page: Page,
+  countryCode: string,
+): Promise<boolean> {
+  const typeahead = getPricingRegionTypeaheadText(countryCode)
+  if (!typeahead) {
+    return false
+  }
+
+  await page.keyboard.type(typeahead, { delay: 20 }).catch(() => undefined)
+  await sleep(250)
+  await page.keyboard.press('Enter').catch(() => undefined)
+  await page.waitForLoadState('networkidle').catch(() => undefined)
+  await sleep(500)
+
+  return isChatGPTPricingRegionSelected(page, countryCode)
+}
+
+function getPricingRegionTypeaheadText(
+  countryCode: string,
+): string | undefined {
+  if (countryCode === CHATGPT_GOPAY_PRICING_REGION) {
+    return 'Indonesia'
+  }
+
+  return undefined
+}
+
+async function scrollAndClickChatGPTPricingRegionOption(
+  page: Page,
+  targetPattern: RegExp,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (await clickChatGPTPricingRegionOption(page, targetPattern)) {
+      return true
+    }
+
+    const scrolled = await scrollOpenPricingRegionList(page)
+    if (!scrolled) {
+      await page.keyboard.press('PageDown').catch(() => undefined)
+    }
+    await sleep(150)
+  }
+
+  return clickChatGPTPricingRegionOption(page, targetPattern)
+}
+
+async function scrollOpenPricingRegionList(page: Page): Promise<boolean> {
+  return page
+    .evaluate(() => {
+      function isVisible(element: Element | null): element is HTMLElement {
+        if (!(element instanceof HTMLElement)) return false
+        const style = window.getComputedStyle(element)
+        const rect = element.getBoundingClientRect()
+        return (
+          element.isConnected &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          Number(style.opacity || '1') > 0 &&
+          rect.width > 0 &&
+          rect.height > 0
+        )
+      }
+
+      const optionSelector = '[role="option"], [data-radix-collection-item]'
+      const preferredContainers = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          [
+            '[role="listbox"]',
+            '[data-radix-select-content]',
+            '[data-radix-select-viewport]',
+            '[data-radix-popper-content-wrapper]',
+          ].join(','),
+        ),
+      )
+      const scrollableContainers = Array.from(
+        document.querySelectorAll<HTMLElement>('*'),
+      ).filter(
+        (element) =>
+          isVisible(element) &&
+          element.scrollHeight > element.clientHeight + 4 &&
+          (element.querySelector(optionSelector) ||
+            preferredContainers.some((container) =>
+              element.contains(container),
+            )),
+      )
+      const containers = [...preferredContainers, ...scrollableContainers]
+
+      for (const container of containers) {
+        if (
+          !isVisible(container) ||
+          container.scrollHeight <= container.clientHeight + 4
+        ) {
+          continue
+        }
+
+        const before = container.scrollTop
+        const step = Math.max(120, Math.floor(container.clientHeight * 0.8))
+        container.scrollTop = Math.min(
+          before + step,
+          container.scrollHeight - container.clientHeight,
+        )
+        container.dispatchEvent(new Event('scroll', { bubbles: true }))
+
+        if (container.scrollTop !== before) {
+          return true
+        }
+      }
+
+      return false
+    })
+    .catch(() => false)
 }
 
 async function isChatGPTPricingRegionSelected(
@@ -1525,7 +1829,8 @@ async function isPaymentMethodLocatorSelected(
       const selectionRoot = element.closest(
         '[role="tab"], [role="radio"], button, input',
       ) as (HTMLElement & { checked?: boolean }) | null
-      const candidate = selectionRoot ?? (element as HTMLElement)
+      const candidate =
+        selectionRoot ?? (element as HTMLElement & { checked?: boolean })
       return (
         candidate.getAttribute('aria-selected') === 'true' ||
         candidate.getAttribute('aria-checked') === 'true' ||

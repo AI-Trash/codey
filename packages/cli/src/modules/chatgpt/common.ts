@@ -77,6 +77,29 @@ export const CHATGPT_CODEX_ORGANIZATION_URL =
 export const CHATGPT_CODEX_ACCOUNT_CONSENT_URL =
   'https://auth.openai.com/api/accounts/consent'
 export const CHATGPT_CHECKOUT_ORIGIN = 'https://chatgpt.com'
+export const CHATGPT_TRIAL_CHECKOUT_PATH = '/backend-api/payments/checkout'
+export const CHATGPT_TRIAL_CHECKOUT_URL = `${CHATGPT_CHECKOUT_ORIGIN}${CHATGPT_TRIAL_CHECKOUT_PATH}`
+export const DEFAULT_CHATGPT_TRIAL_CHECKOUT_PROCESSOR_ENTITY = 'openai_ie'
+export const CHATGPT_TEAM_TRIAL_CHECKOUT_PLAN_NAME = 'chatgptteamplan'
+export const CHATGPT_PLUS_TRIAL_CHECKOUT_PLAN_NAME = 'chatgptplusplan'
+export const CHATGPT_TEAM_TRIAL_CHECKOUT_WORKSPACE_NAME = 'Sam Altman'
+export const CHATGPT_TEAM_TRIAL_CHECKOUT_SEAT_QUANTITY = 5
+export const CHATGPT_TRIAL_CHECKOUT_BILLING_DETAILS = {
+  paypal: {
+    country: 'FR',
+    currency: 'EUR',
+  },
+  gopay: {
+    country: 'ID',
+    currency: 'IDR',
+  },
+} as const satisfies Record<
+  ChatGPTTrialPaymentMethod,
+  {
+    country: string
+    currency: string
+  }
+>
 export const ADULT_AGE = '25'
 export const ADULT_BIRTHDAY = '1999-01-01'
 export const ADULT_BIRTH_YEAR = '1999'
@@ -233,6 +256,64 @@ export const CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS: SelectorTarget[] = [
     text: /订阅|購読|subscribe|start trial|start free trial|confirm/i,
   },
 ]
+
+export interface ChatGPTTrialCheckoutPayload {
+  entry_point: 'all_plans_pricing_modal'
+  plan_name:
+    | typeof CHATGPT_TEAM_TRIAL_CHECKOUT_PLAN_NAME
+    | typeof CHATGPT_PLUS_TRIAL_CHECKOUT_PLAN_NAME
+  billing_details: {
+    country: string
+    currency: string
+  }
+  promo_campaign: {
+    promo_campaign_id: ChatGPTTrialPromoCoupon
+    is_coupon_from_query_param: false
+  }
+  checkout_ui_mode: 'custom'
+}
+
+export function buildChatGPTTrialCheckoutPayload(
+  coupon: ChatGPTTrialPromoCoupon,
+  options: {
+    paymentMethod?: ChatGPTTrialPaymentMethod
+  } = {},
+): ChatGPTTrialCheckoutPayload {
+  const billingDetails =
+    CHATGPT_TRIAL_CHECKOUT_BILLING_DETAILS[
+      options.paymentMethod || DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD
+    ]
+  const basePayload = {
+    entry_point: 'all_plans_pricing_modal',
+    billing_details: { ...billingDetails },
+    promo_campaign: {
+      promo_campaign_id: coupon,
+      is_coupon_from_query_param: false,
+    },
+    checkout_ui_mode: 'custom',
+  } as const
+
+  if (coupon === CHATGPT_PLUS_TRIAL_PROMO_COUPON) {
+    return {
+      plan_name: CHATGPT_PLUS_TRIAL_CHECKOUT_PLAN_NAME,
+      ...basePayload,
+    }
+  }
+
+  return {
+    plan_name: CHATGPT_TEAM_TRIAL_CHECKOUT_PLAN_NAME,
+    ...basePayload,
+  }
+}
+
+export function buildChatGPTTrialCheckoutUrl(
+  checkoutSessionId: string,
+  processorEntity: string = DEFAULT_CHATGPT_TRIAL_CHECKOUT_PROCESSOR_ENTITY,
+): string {
+  const entity =
+    processorEntity.trim() || DEFAULT_CHATGPT_TRIAL_CHECKOUT_PROCESSOR_ENTITY
+  return `${CHATGPT_CHECKOUT_ORIGIN}/checkout/${encodeURIComponent(entity)}/${checkoutSessionId}`
+}
 
 const PROFILE_FIRST_NAMES = [
   'Alex',

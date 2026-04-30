@@ -19,10 +19,10 @@ import {
   createChatGPTBackendApiHeadersCapture,
   fillChatGPTCheckoutBillingAddress,
   getChatGPTTrialPromoPlan,
+  gotoChatGPTTrialCheckout,
   gotoTrialPricingPromo,
   normalizeChatGPTTrialPaymentMethod,
   selectChatGPTCheckoutPaymentMethodIfPresent,
-  selectChatGPTPricingRegion,
   selectChatGPTTrialPricingPlanIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
   type ChatGPTBackendApiHeadersCapture,
@@ -71,6 +71,7 @@ export type ChatGPTTeamTrialFlowState =
   | 'pricing-ready'
   | 'claiming-trial'
   | 'trial-claimed'
+  | 'creating-checkout'
   | 'checkout-ready'
   | 'selecting-paypal-payment-method'
   | 'paypal-payment-method-selected'
@@ -91,6 +92,7 @@ export type ChatGPTTeamTrialFlowEvent =
   | 'chatgpt.pricing.ready'
   | 'chatgpt.trial.claiming'
   | 'chatgpt.trial.claimed'
+  | 'chatgpt.checkout.creating'
   | 'chatgpt.checkout.ready'
   | 'chatgpt.paypal_payment_method.selecting'
   | 'chatgpt.paypal_payment_method.selected'
@@ -183,7 +185,7 @@ export interface ChatGPTTeamTrialPostLoginResult {
   paymentMethod: ChatGPTTrialPaymentMethod
   pricingUrl: string
   checkoutUrl: string
-  trialClaimClicked: true
+  trialClaimClicked: boolean
   paymentMethodSelected: true
   billingAddressFilled: true
   subscribeClicked: true
@@ -218,6 +220,7 @@ const chatgptTeamTrialEventTargets = {
   'chatgpt.pricing.ready': 'pricing-ready',
   'chatgpt.trial.claiming': 'claiming-trial',
   'chatgpt.trial.claimed': 'trial-claimed',
+  'chatgpt.checkout.creating': 'creating-checkout',
   'chatgpt.checkout.ready': 'checkout-ready',
   'chatgpt.paypal_payment_method.selecting': 'selecting-paypal-payment-method',
   'chatgpt.paypal_payment_method.selected': 'paypal-payment-method-selected',
@@ -245,6 +248,7 @@ const chatgptTeamTrialStates = [
   'pricing-ready',
   'claiming-trial',
   'trial-claimed',
+  'creating-checkout',
   'checkout-ready',
   'selecting-paypal-payment-method',
   'paypal-payment-method-selected',
@@ -475,111 +479,129 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     })
   }
 
-  if (machine) {
-    await sendTeamTrialMachine(
-      machine,
-      'opening-pricing',
-      'chatgpt.pricing.opening',
-      {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        couponState: selectedCouponState,
-        url: pricingUrl,
-        lastMessage: `Opening ChatGPT ${selectedPlan} pricing promo`,
-      },
-    )
-  }
-  await gotoTrialPricingPromo(page, selectedCoupon)
-  await selectChatGPTTrialPricingPlanIfPresent(page, selectedCoupon)
+  let trialClaimClicked = true
+  const useDirectCheckout = paymentMethod === 'gopay'
 
-  const pricingReady = await waitForTrialPricingFreeTrialReady(
-    page,
-    selectedCoupon,
-    30000,
-  )
-  if (!pricingReady) {
-    throw new Error(
-      `ChatGPT ${selectedPlan} pricing free trial button was not visible.`,
-    )
-  }
-
-  if (machine) {
-    await sendTeamTrialMachine(
-      machine,
-      'pricing-ready',
-      'chatgpt.pricing.ready',
-      {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        couponState: selectedCouponState,
-        url: page.url(),
-        lastMessage: `ChatGPT ${selectedPlan} pricing free trial button is ready`,
-      },
-    )
-  }
-
-  if (paymentMethod === 'gopay') {
+  if (useDirectCheckout) {
+    trialClaimClicked = false
     if (machine) {
-      await machine.send('context.updated', {
-        patch: {
+      await sendTeamTrialMachine(
+        machine,
+        'creating-checkout',
+        'chatgpt.checkout.creating',
+        {
           email,
           coupon: selectedCoupon,
           trialPlan: selectedPlan,
           paymentMethod,
+          couponState: selectedCouponState,
           pricingRegion: CHATGPT_GOPAY_PRICING_REGION,
           url: page.url(),
-          lastMessage:
-            'Selecting Indonesia pricing region for GoPay trial checkout',
+          lastMessage: `Creating ChatGPT ${selectedPlan} trial checkout link directly`,
         },
-      })
-    }
-
-    const pricingRegionSelected = await selectChatGPTPricingRegion(
-      page,
-      CHATGPT_GOPAY_PRICING_REGION,
-      { timeoutMs: 15000 },
-    )
-    if (!pricingRegionSelected) {
-      throw new Error(
-        'ChatGPT pricing region could not be changed to Indonesia for GoPay checkout.',
       )
     }
 
-    const regionalPricingReady = await waitForTrialPricingFreeTrialReady(
+    const checkout = await gotoChatGPTTrialCheckout(page, selectedCoupon, {
+      paymentMethod,
+    })
+    options.progressReporter?.({
+      message: `Opened ChatGPT ${selectedPlan} direct checkout: ${checkout.url}`,
+    })
+  } else {
+    if (machine) {
+      await sendTeamTrialMachine(
+        machine,
+        'opening-pricing',
+        'chatgpt.pricing.opening',
+        {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          couponState: selectedCouponState,
+          url: pricingUrl,
+          lastMessage: `Opening ChatGPT ${selectedPlan} pricing promo`,
+        },
+      )
+    }
+    await gotoTrialPricingPromo(page, selectedCoupon)
+    await selectChatGPTTrialPricingPlanIfPresent(page, selectedCoupon)
+
+    const pricingReady = await waitForTrialPricingFreeTrialReady(
       page,
       selectedCoupon,
       30000,
     )
-    if (!regionalPricingReady) {
+    if (!pricingReady) {
       throw new Error(
-        `ChatGPT ${selectedPlan} pricing free trial button was not visible after selecting Indonesia.`,
+        `ChatGPT ${selectedPlan} pricing free trial button was not visible.`,
+      )
+    }
+
+    if (machine) {
+      await sendTeamTrialMachine(
+        machine,
+        'pricing-ready',
+        'chatgpt.pricing.ready',
+        {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          couponState: selectedCouponState,
+          url: page.url(),
+          lastMessage: `ChatGPT ${selectedPlan} pricing free trial button is ready`,
+        },
+      )
+    }
+
+    if (machine) {
+      await sendTeamTrialMachine(
+        machine,
+        'claiming-trial',
+        'chatgpt.trial.claiming',
+        {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          pricingRegion: undefined,
+          url: page.url(),
+          lastMessage: `Clicking ChatGPT ${selectedPlan} free trial button`,
+        },
+      )
+    }
+    await clickTrialPricingFreeTrial(page, selectedCoupon)
+    const trialClaimTitle = await page.title()
+
+    if (machine) {
+      await sendTeamTrialMachine(
+        machine,
+        'trial-claimed',
+        'chatgpt.trial.claimed',
+        {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          url: page.url(),
+          title: trialClaimTitle,
+          lastMessage: `ChatGPT ${selectedPlan} free trial button clicked`,
+        },
       )
     }
   }
 
-  if (machine) {
-    await sendTeamTrialMachine(
-      machine,
-      'claiming-trial',
-      'chatgpt.trial.claiming',
-      {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        pricingRegion:
-          paymentMethod === 'gopay' ? CHATGPT_GOPAY_PRICING_REGION : undefined,
-        url: page.url(),
-        lastMessage: `Clicking ChatGPT ${selectedPlan} free trial button`,
-      },
+  const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
+  if (!checkoutReady) {
+    throw new Error(
+      `ChatGPT ${selectedPlan} trial checkout did not become ready.`,
     )
   }
-  await clickTrialPricingFreeTrial(page, selectedCoupon)
-  const trialClaimTitle = await page.title()
+
+  const checkoutUrl = page.url()
+  const checkoutTitle = await page.title()
 
   if (input.storageStateIdentity) {
     try {
@@ -597,33 +619,6 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
       })
     }
   }
-
-  if (machine) {
-    await sendTeamTrialMachine(
-      machine,
-      'trial-claimed',
-      'chatgpt.trial.claimed',
-      {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        url: page.url(),
-        title: trialClaimTitle,
-        lastMessage: `ChatGPT ${selectedPlan} free trial button clicked`,
-      },
-    )
-  }
-
-  const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
-  if (!checkoutReady) {
-    throw new Error(
-      `ChatGPT ${selectedPlan} trial checkout did not become ready.`,
-    )
-  }
-
-  const checkoutUrl = page.url()
-  const checkoutTitle = await page.title()
 
   if (machine) {
     await sendTeamTrialMachine(
@@ -795,7 +790,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     paymentMethod,
     pricingUrl,
     checkoutUrl,
-    trialClaimClicked: true,
+    trialClaimClicked,
     paymentMethodSelected: true,
     billingAddressFilled: true,
     subscribeClicked: true,

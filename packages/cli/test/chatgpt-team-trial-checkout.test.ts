@@ -6,7 +6,10 @@ import {
   resolveChatGPTTeamTrialBillingAddress,
 } from '../src/flows/chatgpt-team-trial'
 import {
+  buildChatGPTTrialCheckoutPayload,
+  buildChatGPTTrialCheckoutUrl,
   buildChatGPTTrialPricingPromoUrl,
+  createChatGPTTrialCheckoutLink,
   clickTrialPricingFreeTrial,
   extractGoPayPaymentRedirectLink,
   extractPaypalBillingAgreementLink,
@@ -382,6 +385,125 @@ describe('trial coupon pricing helpers', () => {
     expect(
       getChatGPTTrialPricingPlanToggleSelectors('team-1-month-free'),
     ).toContain('button[role="radio"][aria-label*="Business" i]')
+  })
+
+  it('builds direct checkout payloads for GoPay with Indonesian billing details', () => {
+    expect(
+      buildChatGPTTrialCheckoutPayload('team-1-month-free', {
+        paymentMethod: 'gopay',
+      }),
+    ).toMatchObject({
+      entry_point: 'all_plans_pricing_modal',
+      plan_name: 'chatgptteamplan',
+      billing_details: {
+        country: 'ID',
+        currency: 'IDR',
+      },
+      promo_campaign: {
+        promo_campaign_id: 'team-1-month-free',
+        is_coupon_from_query_param: false,
+      },
+      checkout_ui_mode: 'custom',
+    })
+  })
+
+  it('uses the actual selected coupon when building Plus direct checkout payloads', () => {
+    expect(
+      buildChatGPTTrialCheckoutPayload('plus-1-month-free', {
+        paymentMethod: 'gopay',
+      }),
+    ).toMatchObject({
+      entry_point: 'all_plans_pricing_modal',
+      plan_name: 'chatgptplusplan',
+      billing_details: {
+        country: 'ID',
+        currency: 'IDR',
+      },
+      promo_campaign: {
+        promo_campaign_id: 'plus-1-month-free',
+        is_coupon_from_query_param: false,
+      },
+      checkout_ui_mode: 'custom',
+    })
+    expect(
+      buildChatGPTTrialCheckoutPayload('plus-1-month-free', {
+        paymentMethod: 'gopay',
+      }),
+    ).not.toHaveProperty('team_plan_data')
+  })
+
+  it('builds direct checkout URLs from checkout session ids', () => {
+    expect(buildChatGPTTrialCheckoutUrl('cs_test_123', 'openai_llc')).toBe(
+      'https://chatgpt.com/checkout/openai_llc/cs_test_123',
+    )
+  })
+
+  it('creates direct checkout links with the browser session access token', async () => {
+    const requests: Array<{
+      url: string
+      init?: RequestInit
+    }> = []
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      requests.push({ url: String(url), init })
+      if (String(url) === '/api/auth/session') {
+        return {
+          ok: true,
+          status: 200,
+          url: 'https://chatgpt.com/api/auth/session',
+          text: async () => JSON.stringify({ accessToken: 'access-token' }),
+        }
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        url: String(url),
+        text: async () =>
+          JSON.stringify({
+            checkout_session_id: 'cs_live_123',
+            processor_entity: 'openai_llc',
+          }),
+      }
+    })
+    const page = {
+      async evaluate<T, Arg>(
+        callback: (arg: Arg) => Promise<T>,
+        arg: Arg,
+      ): Promise<T> {
+        return callback(arg)
+      },
+    }
+
+    const link = await createChatGPTTrialCheckoutLink(
+      page as never,
+      'plus-1-month-free',
+      { paymentMethod: 'gopay' },
+    )
+
+    expect(link).toMatchObject({
+      url: 'https://chatgpt.com/checkout/openai_llc/cs_live_123',
+      checkoutSessionId: 'cs_live_123',
+      processorEntity: 'openai_llc',
+    })
+    expect(requests[1]?.url).toBe(
+      'https://chatgpt.com/backend-api/payments/checkout',
+    )
+    expect(requests[1]?.init?.headers).toMatchObject({
+      Authorization: 'Bearer access-token',
+      'Content-Type': 'application/json',
+    })
+    expect(JSON.parse(String(requests[1]?.init?.body))).toMatchObject({
+      entry_point: 'all_plans_pricing_modal',
+      plan_name: 'chatgptplusplan',
+      billing_details: {
+        country: 'ID',
+        currency: 'IDR',
+      },
+      promo_campaign: {
+        promo_campaign_id: 'plus-1-month-free',
+        is_coupon_from_query_param: false,
+      },
+    })
   })
 
   it('switches Plus pricing to Personal before claiming the free trial', async () => {
