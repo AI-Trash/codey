@@ -27,15 +27,14 @@ export interface AndroidCliConfig {
   appPackage?: string
   appActivity?: string
   noReset?: boolean
-  fridaServerPath?: string
-  fridaRemotePath?: string
-  fridaServerPort?: number
-  fridaStartServer?: boolean
-  fridaAutoDownload?: boolean
-  fridaDownloadDir?: string
-  fridaTarget?: string
-  whatsappWatchEnabled?: boolean
-  whatsappPackages?: string[]
+}
+
+export interface SmsForwarderWebhookConfig {
+  enabled?: boolean
+  host?: string
+  port?: number
+  path?: string
+  deviceId?: string
 }
 
 export interface OpenAIFlowConfig {
@@ -162,6 +161,7 @@ export interface AppConfig {
   exchange?: ExchangeConfig
   verification?: VerificationConfig
   app?: AppAuthConfig
+  smsForwarderWebhook?: SmsForwarderWebhookConfig
   codex?: CodexOAuthConfig
   sub2api?: Sub2ApiConfig
   chatgptTeamTrial?: ChatGPTTeamTrialConfig
@@ -309,19 +309,6 @@ function parseIntegerList(value: string | undefined): number[] | undefined {
   return parsed.length > 0 ? parsed : undefined
 }
 
-function parseStringList(value: string | undefined): string[] | undefined {
-  if (!hasEnvValue(value)) {
-    return undefined
-  }
-
-  const parsed = (value ?? '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-
-  return parsed.length > 0 ? parsed : undefined
-}
-
 function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
   const relevantEnvNames = [
     'SUB2API_BASE_URL',
@@ -452,6 +439,20 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
   }
 }
 
+function buildSmsForwarderWebhookConfig(): SmsForwarderWebhookConfig {
+  return {
+    enabled: hasEnvValue(process.env.SMS_FORWARDER_WEBHOOK_ENABLED)
+      ? parseBoolean(process.env.SMS_FORWARDER_WEBHOOK_ENABLED, true)
+      : true,
+    host: process.env.SMS_FORWARDER_WEBHOOK_HOST || '127.0.0.1',
+    port: parseNumber(process.env.SMS_FORWARDER_WEBHOOK_PORT, 3001),
+    path:
+      process.env.SMS_FORWARDER_WEBHOOK_PATH ||
+      '/webhooks/smsforwarder/whatsapp',
+    deviceId: process.env.SMS_FORWARDER_DEVICE_ID,
+  }
+}
+
 function parseSub2ApiOpenAIWSMode(
   value: string | undefined,
 ): Sub2ApiConfig['openaiOAuthResponsesWebSocketV2Mode'] {
@@ -495,6 +496,7 @@ function buildDefaultConfig(): AppConfig {
   const codeyAppConfig = buildCodeyAppConfig()
   const sub2ApiConfig = buildSub2ApiConfig()
   const chatgptTeamTrialConfig = buildChatGPTTeamTrialConfig()
+  const smsForwarderWebhookConfig = buildSmsForwarderWebhookConfig()
   const verificationConfig =
     parseVerificationProviderConfigKind(process.env.VERIFICATION_PROVIDER) ||
     codeyAppConfig
@@ -547,27 +549,6 @@ function buildDefaultConfig(): AppConfig {
       noReset: hasEnvValue(process.env.ANDROID_NO_RESET)
         ? parseBoolean(process.env.ANDROID_NO_RESET, true)
         : true,
-      fridaServerPath: process.env.ANDROID_FRIDA_SERVER_PATH,
-      fridaRemotePath:
-        process.env.ANDROID_FRIDA_REMOTE_PATH || '/data/local/tmp/frida-server',
-      fridaServerPort: parseNumber(
-        process.env.ANDROID_FRIDA_SERVER_PORT,
-        27042,
-      ),
-      fridaStartServer: hasEnvValue(process.env.ANDROID_FRIDA_START_SERVER)
-        ? parseBoolean(process.env.ANDROID_FRIDA_START_SERVER, true)
-        : true,
-      fridaAutoDownload: hasEnvValue(process.env.ANDROID_FRIDA_AUTO_DOWNLOAD)
-        ? parseBoolean(process.env.ANDROID_FRIDA_AUTO_DOWNLOAD, true)
-        : true,
-      fridaDownloadDir: process.env.ANDROID_FRIDA_DOWNLOAD_DIR,
-      fridaTarget: process.env.ANDROID_FRIDA_TARGET || 'system_server',
-      whatsappWatchEnabled: hasEnvValue(
-        process.env.ANDROID_WHATSAPP_WATCH_ENABLED,
-      )
-        ? parseBoolean(process.env.ANDROID_WHATSAPP_WATCH_ENABLED, true)
-        : true,
-      whatsappPackages: parseStringList(process.env.ANDROID_WHATSAPP_PACKAGES),
     },
     openai: {
       baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',
@@ -594,6 +575,7 @@ function buildDefaultConfig(): AppConfig {
         : undefined,
     verification: verificationConfig,
     app: codeyAppConfig,
+    smsForwarderWebhook: smsForwarderWebhookConfig,
     codex: codexConfig,
     sub2api: sub2ApiConfig,
     chatgptTeamTrial: chatgptTeamTrialConfig,

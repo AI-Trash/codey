@@ -1,28 +1,20 @@
-import fs from 'fs'
-import os from 'os'
-import path from 'path'
-import { execFile } from 'child_process'
-import { createRequire } from 'module'
-import { Readable } from 'stream'
+import http, {
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http'
+import { URL } from 'node:url'
 import type {
   AppWhatsAppNotificationIngestInput,
   AppWhatsAppNotificationIngestResponse,
 } from '../verification/app-client'
-import { sleep } from '../../utils/wait'
 
-export const DEFAULT_WHATSAPP_PACKAGES = [
-  'com.whatsapp',
-  'com.whatsapp.w4b',
-] as const
-export const DEFAULT_FRIDA_REMOTE_PATH = '/data/local/tmp/frida-server'
-export const DEFAULT_FRIDA_SERVER_PORT = 27042
-export const DEFAULT_FRIDA_TARGET = 'system_server'
-export const DEFAULT_ADB_PATH = os.platform() === 'win32' ? 'adb.exe' : 'adb'
-export const DEFAULT_FRIDA_DOWNLOAD_DIR = path.join(
-  os.homedir(),
-  '.codey',
-  'frida',
-)
+export const DEFAULT_WHATSAPP_PACKAGE_NAME = 'com.whatsapp'
+export const DEFAULT_WHATSAPP_WEBHOOK_HOST = '127.0.0.1'
+export const DEFAULT_WHATSAPP_WEBHOOK_PORT = 3001
+export const DEFAULT_WHATSAPP_WEBHOOK_PATH = '/webhooks/smsforwarder/whatsapp'
+
+const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 
 export interface WhatsAppNotificationEvent {
   packageName: string
@@ -31,26 +23,18 @@ export interface WhatsAppNotificationEvent {
   chatName?: string
   title?: string
   body?: string
-  rawPayload?: unknown
+  rawPayload?: Record<string, unknown>
   receivedAt: string
 }
 
-export interface AndroidWhatsAppNotificationWatchOptions {
-  adbPath?: string
-  androidUdid?: string
+export interface WhatsAppNotificationWebhookOptions {
+  enabled?: boolean
+  host?: string
+  port?: number
+  path?: string
   deviceId?: string
-  fridaServerPath?: string
-  fridaRemotePath?: string
-  fridaServerPort?: number
-  fridaStartServer?: boolean
-  fridaAutoDownload?: boolean
-  fridaDownloadDir?: string
-  fridaTarget?: string
-  whatsappPackages?: string[]
   reservationId?: string
   email?: string
-  durationMs?: number
-  once?: boolean
   dryRun?: boolean
   signal?: AbortSignal
   onStatus?: (message: string) => void
@@ -64,415 +48,169 @@ export interface AndroidWhatsAppNotificationWatchOptions {
   ) => Promise<AppWhatsAppNotificationIngestResponse>
 }
 
-export interface AndroidWhatsAppNotificationAutoWatchOptions extends AndroidWhatsAppNotificationWatchOptions {
-  enabled?: boolean
+export interface WhatsAppNotificationWebhookReadyState {
+  url: string
+  host: string
+  port: number
+  path: string
 }
 
-export interface AndroidWhatsAppNotificationWatchResult {
-  serial: string
-  deviceId: string
-  processedCount: number
-  forwardedCount: number
-  dryRun: boolean
-}
-
-export interface AndroidWhatsAppNotificationAutoWatcherHandle {
+export interface WhatsAppNotificationWebhookServerHandle {
+  ready: Promise<WhatsAppNotificationWebhookReadyState>
   done: Promise<void>
   stop(): Promise<void>
 }
 
-interface AdbDevice {
-  id: string
-  type?: string
-}
-
-interface AdbClient {
-  listDevices(): Promise<AdbDevice[]>
-  shell(serial: string, command: string): Promise<NodeJS.ReadableStream>
-  push(
-    serial: string,
-    localPath: string,
-    remotePath: string,
-  ): Promise<NodeJS.ReadableStream>
-  forward(serial: string, local: string, remote: string): Promise<void>
-}
-
-interface AdbkitRuntime {
-  createClient(): AdbClient
-}
-
-interface FridaSignal {
-  connect(callback: (message: unknown, data?: unknown) => void): void
-}
-
-interface FridaScript {
-  message: FridaSignal
-  load(): Promise<void>
-  unload(): Promise<void>
-}
-
-interface FridaSession {
-  createScript(source: string): Promise<FridaScript>
-  detach(): Promise<void>
-}
-
-interface FridaDevice {
-  id?: string
-  name?: string
-  attach(target: string | number): Promise<FridaSession>
-}
-
-interface FridaDeviceManager {
-  enumerateDevices(): Promise<FridaDevice[]>
-}
-
-interface FridaRuntime {
-  getUsbDevice?(options?: { timeout?: number }): Promise<FridaDevice>
-  getDevice?(id: string, options?: { timeout?: number }): Promise<FridaDevice>
-  getDeviceManager?(): Promise<FridaDeviceManager> | FridaDeviceManager
-}
-
-interface ActiveFridaSession {
-  script: FridaScript
-  session: FridaSession
-}
-
-interface FridaServerInput {
-  adb: AdbClient
-  serial: string
-  localPath?: string
-  remotePath: string
-  port: number
-  autoDownload?: boolean
-  downloadDir?: string
-  onStatus?: (message: string) => void
-}
-
-interface ExecFileResult {
-  stdout: string
-  stderr: string
-}
-
-interface AndroidAdbPathCandidateOptions {
-  env?: NodeJS.ProcessEnv
-  homeDir?: string
-  platform?: NodeJS.Platform
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
 function readString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-function readBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined
-}
-
-function withModuleDefault<T>(moduleValue: unknown): T {
-  const moduleRecord = asRecord(moduleValue)
-  const defaultExport = moduleRecord ? moduleRecord.default : undefined
-  return (defaultExport ?? moduleValue) as T
-}
-
-function createAbortError(message: string): Error {
-  const error = new Error(message)
-  error.name = 'AbortError'
-  return error
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-export function isRecoverableFridaServerConnectionError(
-  error: unknown,
-): boolean {
-  const message = getErrorMessage(error).toLowerCase()
-  return (
-    message === 'closed' ||
-    message.includes('unable to connect to remote frida-server') ||
-    message.includes('connection is closed') ||
-    message.includes('connection closed') ||
-    message.includes('connection reset') ||
-    message.includes('connection refused') ||
-    message.includes('eof')
-  )
-}
-
-export function formatAndroidFridaError(error: unknown): string {
-  const message = getErrorMessage(error).trim() || 'unknown Frida error'
-  if (message.includes('Frida reported a closed transport connection')) {
-    return message
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed || undefined
   }
-  if (!isRecoverableFridaServerConnectionError(error)) {
-    return message
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+  return undefined
+}
+
+function parseJsonObject(
+  value: string | undefined,
+): Record<string, unknown> | undefined {
+  if (!value) {
+    return undefined
   }
 
-  return `${message}. Frida reported a closed transport connection, which means the Android frida-server accepted the connection and then closed it before Codey could attach. This is usually caused by a stale or mismatched frida-server binary, the wrong Android CPU architecture, or frida-server crashing after start.`
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) {
-    throw createAbortError('Android WhatsApp watcher startup was aborted.')
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+    return undefined
   }
-}
-
-async function withTimeout<T>(
-  task: Promise<T>,
-  timeoutMs: number,
-  label: string,
-): Promise<T> {
-  let timeout: NodeJS.Timeout | undefined
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${timeoutMs}ms.`))
-    }, timeoutMs)
-  })
 
   try {
-    return await Promise.race([task, timeoutPromise])
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout)
-    }
+    const parsed = JSON.parse(trimmed)
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return undefined
   }
 }
 
-function execFileText(
-  file: string,
-  args: string[],
-  options: {
-    timeoutMs: number
-  },
-): Promise<ExecFileResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      file,
-      args,
-      {
-        windowsHide: true,
-        timeout: options.timeoutMs,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(error)
-          return
-        }
+function collectCandidateRecords(
+  payload: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const candidates = [payload]
+  const queue = [
+    payload.data,
+    payload.notification,
+    payload.rawPayload,
+    payload.extra,
+    payload.extras,
+  ]
 
-        resolve({
-          stdout: String(stdout || ''),
-          stderr: String(stderr || ''),
-        })
-      },
-    )
-  })
-}
-
-function getPlatformPath(platform: NodeJS.Platform): typeof path.posix {
-  return platform === 'win32' ? path.win32 : path.posix
-}
-
-function expandHomePath(
-  value: string,
-  homeDir: string | undefined,
-  platform: NodeJS.Platform,
-): string {
-  const trimmed = value.trim()
-  if (!homeDir || trimmed !== '~') {
-    const slashPrefix = platform === 'win32' ? '~\\' : '~/'
-    if (!homeDir || !trimmed.startsWith(slashPrefix)) {
-      return trimmed
+  for (const value of queue) {
+    if (isRecord(value)) {
+      candidates.push(value)
+      continue
     }
 
-    return getPlatformPath(platform).join(homeDir, trimmed.slice(2))
-  }
-
-  return homeDir
-}
-
-export function getAndroidStudioAdbPathCandidates(
-  options: AndroidAdbPathCandidateOptions = {},
-): string[] {
-  const env = options.env ?? process.env
-  const platform = options.platform ?? os.platform()
-  const platformPath = getPlatformPath(platform)
-  const homeDir = options.homeDir ?? os.homedir()
-  const executable = platform === 'win32' ? 'adb.exe' : 'adb'
-  const candidates: string[] = []
-  const seen = new Set<string>()
-  const pushCandidate = (candidate: string | undefined): void => {
-    const normalized = candidate?.trim()
-    if (!normalized) {
-      return
-    }
-
-    const key = platform === 'win32' ? normalized.toLowerCase() : normalized
-    if (!seen.has(key)) {
-      seen.add(key)
-      candidates.push(normalized)
+    const parsed = parseJsonObject(readString(value))
+    if (parsed) {
+      candidates.push(parsed)
     }
   }
-  const pushSdkRoot = (root: string | undefined): void => {
-    const normalizedRoot = root
-      ? expandHomePath(root, homeDir, platform)
-      : undefined
-    if (!normalizedRoot) {
-      return
+
+  for (const key of ['content', 'message', 'text', 'body']) {
+    const parsed = parseJsonObject(readString(payload[key]))
+    if (parsed) {
+      candidates.push(parsed)
     }
-
-    pushCandidate(
-      platformPath.join(normalizedRoot, 'platform-tools', executable),
-    )
-  }
-
-  pushSdkRoot(env.ANDROID_HOME)
-  pushSdkRoot(env.ANDROID_SDK_ROOT)
-  pushSdkRoot(env.ANDROID_SDK_HOME)
-
-  if (platform === 'win32') {
-    pushSdkRoot(
-      env.LOCALAPPDATA
-        ? platformPath.join(env.LOCALAPPDATA, 'Android', 'Sdk')
-        : undefined,
-    )
-    pushSdkRoot(
-      env.USERPROFILE
-        ? platformPath.join(
-            env.USERPROFILE,
-            'AppData',
-            'Local',
-            'Android',
-            'Sdk',
-          )
-        : undefined,
-    )
-    pushSdkRoot(
-      env.ProgramFiles
-        ? platformPath.join(
-            env.ProgramFiles,
-            'Android',
-            'Android Studio',
-            'sdk',
-          )
-        : undefined,
-    )
-    pushSdkRoot(
-      env['ProgramFiles(x86)']
-        ? platformPath.join(env['ProgramFiles(x86)'], 'Android', 'android-sdk')
-        : undefined,
-    )
-  } else if (platform === 'darwin') {
-    pushSdkRoot(
-      homeDir
-        ? platformPath.join(homeDir, 'Library', 'Android', 'sdk')
-        : undefined,
-    )
-  } else {
-    pushSdkRoot(
-      homeDir ? platformPath.join(homeDir, 'Android', 'Sdk') : undefined,
-    )
-    pushSdkRoot(
-      homeDir ? platformPath.join(homeDir, 'Android', 'sdk') : undefined,
-    )
-  }
-
-  pushCandidate(executable)
-  if (executable !== 'adb') {
-    pushCandidate('adb')
   }
 
   return candidates
 }
 
-async function ensureAdbBinary(input: {
-  adbPath?: string
-  onStatus?: (message: string) => void
-}): Promise<string | null> {
-  const explicitAdbPath = input.adbPath?.trim()
-  const candidates = explicitAdbPath
-    ? [explicitAdbPath]
-    : getAndroidStudioAdbPathCandidates()
-  let lastError: unknown
-  for (const adbPath of candidates) {
-    try {
-      await execFileText(adbPath, ['version'], { timeoutMs: 3000 })
-      await execFileText(adbPath, ['start-server'], { timeoutMs: 5000 })
-      return adbPath
-    } catch (error) {
-      lastError = error
+function readStringFromCandidates(
+  candidates: Record<string, unknown>[],
+  keys: string[],
+): string | undefined {
+  for (const candidate of candidates) {
+    for (const key of keys) {
+      const direct = readString(candidate[key])
+      if (direct) {
+        return direct
+      }
+
+      const dotted = key.split('.')
+      if (dotted.length > 1) {
+        let current: unknown = candidate
+        for (const part of dotted) {
+          current = isRecord(current) ? current[part] : undefined
+        }
+        const nested = readString(current)
+        if (nested) {
+          return nested
+        }
+      }
     }
   }
 
-  input.onStatus?.(
-    `ADB not available from ${
-      explicitAdbPath ? explicitAdbPath : candidates.join(', ')
-    } (${String(
-      lastError instanceof Error ? lastError.message : lastError,
-    )}); Android WhatsApp watcher skipped.`,
-  )
-  return null
+  return undefined
 }
 
-export function normalizeWhatsAppPackageList(
-  input: string | string[] | undefined,
-): string[] {
-  const raw = Array.isArray(input) ? input : input ? input.split(',') : []
-  const normalized = raw
-    .flatMap((entry) => entry.split(','))
-    .map((entry) => entry.trim())
-    .filter(Boolean)
+function normalizePackageName(value: string | undefined): string | undefined {
+  const normalized = value?.trim()
+  if (!normalized) {
+    return undefined
+  }
 
-  const packages = normalized.length
-    ? normalized
-    : [...DEFAULT_WHATSAPP_PACKAGES]
-  for (const packageName of packages) {
-    if (
-      !/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(packageName)
-    ) {
-      throw new Error(`Invalid Android package name: ${packageName}`)
+  if (/^com\.whatsapp(?:\.w4b)?$/i.test(normalized)) {
+    return normalized.toLowerCase()
+  }
+  if (/whats\s*app/i.test(normalized)) {
+    return /business|w4b/i.test(normalized)
+      ? 'com.whatsapp.w4b'
+      : DEFAULT_WHATSAPP_PACKAGE_NAME
+  }
+  if (/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(normalized)) {
+    return normalized
+  }
+
+  return undefined
+}
+
+function normalizeReceivedAt(value: string | undefined): string {
+  if (!value) {
+    return new Date().toISOString()
+  }
+
+  const numeric = Number(value)
+  if (Number.isFinite(numeric)) {
+    const timestampMs = numeric < 10_000_000_000 ? numeric * 1000 : numeric
+    const date = new Date(timestampMs)
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString()
     }
   }
 
-  return packages
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? new Date().toISOString()
+    : date.toISOString()
 }
 
-export function normalizeFridaWhatsAppNotificationMessage(
-  message: unknown,
-): WhatsAppNotificationEvent | null {
-  const record = asRecord(message)
-  if (!record || record.type !== 'send') {
-    return null
-  }
+function normalizePath(value: string | undefined): string {
+  const trimmed = value?.trim() || DEFAULT_WHATSAPP_WEBHOOK_PATH
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
 
-  const payload = asRecord(record.payload)
-  if (!payload || payload.type !== 'whatsapp_notification') {
-    return null
-  }
-
-  const packageName = readString(payload.packageName)
-  if (!packageName) {
-    return null
-  }
-
-  const receivedAt = readString(payload.receivedAt) || new Date().toISOString()
-  return {
-    packageName,
-    notificationId: readString(payload.notificationId),
-    sender: readString(payload.sender),
-    chatName: readString(payload.chatName),
-    title: readString(payload.title),
-    body:
-      readString(payload.body) ||
-      readString(payload.text) ||
-      readString(payload.message),
-    rawPayload: payload.rawPayload,
-    receivedAt,
-  }
+function normalizePort(value: number | undefined): number {
+  return Number.isInteger(value) && value >= 0 && value <= 65535
+    ? value
+    : DEFAULT_WHATSAPP_WEBHOOK_PORT
 }
 
 export function extractVerificationCodeFromNotificationText(
@@ -483,7 +221,7 @@ export function extractVerificationCodeFromNotificationText(
   }
 
   const patterns = [
-    /(?:verification\s*code|code|验证码|驗證碼|安全码|安全碼)[^\d]{0,24}(\d{4,8})/i,
+    /(?:verification\s*code|one[-\s]*time\s*code|otp|code|验证码|驗證碼|安全码|安全碼)[^\d]{0,32}(\d{4,8})/i,
     /\b(\d{6})\b/,
     /\b(\d{4,8})\b/,
   ]
@@ -496,6 +234,91 @@ export function extractVerificationCodeFromNotificationText(
   }
 
   return undefined
+}
+
+export function normalizeSmsForwarderWhatsAppNotificationPayload(
+  payload: Record<string, unknown>,
+): WhatsAppNotificationEvent {
+  const candidates = collectCandidateRecords(payload)
+  const appOrPackage = readStringFromCandidates(candidates, [
+    'packageName',
+    'package',
+    'package_name',
+    'appPackage',
+    'app_package',
+    'pkg',
+    'app',
+    'appName',
+    'app_name',
+    'msg_app',
+  ])
+  const sender = readStringFromCandidates(candidates, [
+    'sender',
+    'senderPhone',
+    'from',
+    'msg_from',
+    'phone',
+    'address',
+    'contact',
+  ])
+  const title = readStringFromCandidates(candidates, [
+    'title',
+    'notificationTitle',
+    'msg_title',
+    'android.title',
+    'conversationTitle',
+    'subject',
+  ])
+  const body = readStringFromCandidates(candidates, [
+    'body',
+    'content',
+    'text',
+    'message',
+    'msg',
+    'msg_content',
+    'notificationContent',
+    'notificationText',
+    'android.text',
+    'android.bigText',
+    'bigText',
+    'tickerText',
+    'summary',
+  ])
+  const chatName = readStringFromCandidates(candidates, [
+    'chatName',
+    'conversation',
+    'conversationTitle',
+    'group',
+    'thread',
+  ])
+  const receivedAt = normalizeReceivedAt(
+    readStringFromCandidates(candidates, [
+      'receivedAt',
+      'received_at',
+      'timestamp',
+      'time',
+      'date',
+      'msg_time',
+    ]),
+  )
+
+  return {
+    packageName:
+      normalizePackageName(appOrPackage) || DEFAULT_WHATSAPP_PACKAGE_NAME,
+    notificationId: readStringFromCandidates(candidates, [
+      'notificationId',
+      'notification_id',
+      'key',
+      'id',
+      'msg_id',
+    ]),
+    sender,
+    chatName,
+    title,
+    body,
+    rawPayload: payload,
+    receivedAt,
+  }
 }
 
 export function buildWhatsAppNotificationIngestPayload(
@@ -556,877 +379,223 @@ export function createWhatsAppNotificationDeduper(ttlMs = 10 * 60 * 1000): {
   }
 }
 
-async function loadAdbkit(): Promise<AdbkitRuntime> {
-  const runtime = withModuleDefault<Partial<AdbkitRuntime>>(
-    await import('adbkit'),
-  )
-  if (typeof runtime.createClient !== 'function') {
-    throw new Error('adbkit did not expose createClient().')
-  }
-
-  return runtime as AdbkitRuntime
-}
-
-async function loadFrida(): Promise<FridaRuntime> {
-  const runtime = withModuleDefault<Partial<FridaRuntime>>(
-    await import('frida'),
-  )
-  if (
-    typeof runtime.getUsbDevice !== 'function' &&
-    typeof runtime.getDevice !== 'function'
-  ) {
-    throw new Error('frida did not expose a supported device API.')
-  }
-
-  return runtime as FridaRuntime
-}
-
-async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
+async function readRequestBody(request: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = []
+  let totalBytes = 0
 
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+    totalBytes += buffer.byteLength
+    if (totalBytes > MAX_WEBHOOK_BODY_BYTES) {
+      throw new Error('Webhook request body is too large.')
+    }
+    chunks.push(buffer)
+  }
+
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+function parseWebhookPayload(
+  bodyText: string,
+  contentType: string | undefined,
+): Record<string, unknown> {
+  const trimmed = bodyText.trim()
+  if (!trimmed) {
+    return {}
+  }
+
+  const normalizedContentType = contentType?.toLowerCase() || ''
+  if (
+    normalizedContentType.includes('application/json') ||
+    normalizedContentType.includes('+json')
+  ) {
+    const parsed = JSON.parse(trimmed)
+    return isRecord(parsed) ? parsed : { content: parsed }
+  }
+
+  if (normalizedContentType.includes('application/x-www-form-urlencoded')) {
+    return Object.fromEntries(new URLSearchParams(bodyText))
+  }
+
+  const jsonPayload = parseJsonObject(trimmed)
+  if (jsonPayload) {
+    return jsonPayload
+  }
+
+  if (trimmed.includes('=')) {
+    const formPayload = Object.fromEntries(new URLSearchParams(bodyText))
+    if (Object.keys(formPayload).length) {
+      return formPayload
+    }
+  }
+
+  return { content: trimmed }
+}
+
+function readHeaderString(
+  value: string | string[] | undefined,
+): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function writeJson(
+  response: ServerResponse,
+  statusCode: number,
+  body: Record<string, unknown>,
+): void {
+  response.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+  })
+  response.end(JSON.stringify(body))
+}
+
+function closeServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
-    stream.on('data', (chunk: unknown) => {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
-    })
-    stream.on('error', reject)
-    stream.on('end', () => {
-      resolve(Buffer.concat(chunks).toString('utf8').trim())
-    })
-  })
-}
-
-async function readAdbShell(
-  adb: AdbClient,
-  serial: string,
-  command: string,
-): Promise<string> {
-  return streamToString(await adb.shell(serial, command))
-}
-
-async function readAdbShellWithTimeout(
-  adb: AdbClient,
-  serial: string,
-  command: string,
-  timeoutMs: number,
-  label: string,
-): Promise<string> {
-  return withTimeout(readAdbShell(adb, serial, command), timeoutMs, label)
-}
-
-async function waitForAdbTransfer(
-  stream: NodeJS.ReadableStream,
-): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    stream.on('error', reject)
-    stream.on('end', resolve)
-  })
-}
-
-async function resolveAndroidSerial(
-  adb: AdbClient,
-  preferredSerial?: string,
-): Promise<string> {
-  if (preferredSerial?.trim()) {
-    return preferredSerial.trim()
-  }
-
-  const devices = await adb.listDevices()
-  const connected = devices.filter((device) => device.type !== 'offline')
-  if (connected.length === 1) {
-    return connected[0].id
-  }
-
-  if (!connected.length) {
-    throw new Error(
-      'No Android device is visible to adb. Connect a device or set ANDROID_UDID.',
-    )
-  }
-
-  throw new Error(
-    `Multiple Android devices are visible to adb (${connected
-      .map((device) => device.id)
-      .join(', ')}). Pass --androidUdid to select one.`,
-  )
-}
-
-async function resolveAndroidSerialForAutoWatch(
-  adb: AdbClient,
-  preferredSerial?: string,
-): Promise<string | null> {
-  try {
-    return await withTimeout(
-      resolveAndroidSerial(adb, preferredSerial),
-      5000,
-      'ADB device discovery',
-    )
-  } catch {
-    return null
-  }
-}
-
-async function findInstalledWhatsAppPackages(input: {
-  adb: AdbClient
-  serial: string
-  packages: string[]
-  onStatus?: (message: string) => void
-}): Promise<string[]> {
-  const installedPackages: string[] = []
-
-  for (const packageName of input.packages) {
-    const output = await readAdbShellWithTimeout(
-      input.adb,
-      input.serial,
-      `pm path ${packageName} 2>/dev/null || true`,
-      5000,
-      `Checking ${packageName}`,
-    ).catch(() => '')
-    if (output.includes('package:')) {
-      installedPackages.push(packageName)
-    }
-  }
-
-  if (!installedPackages.length) {
-    input.onStatus?.(
-      `No watched WhatsApp package found on ${input.serial}; Android WhatsApp watcher skipped.`,
-    )
-  }
-
-  return installedPackages
-}
-
-export function mapAndroidAbiToFridaArch(abi: string): string | undefined {
-  const normalized = abi.trim().toLowerCase()
-  if (normalized === 'arm64-v8a') return 'arm64'
-  if (normalized === 'armeabi-v7a' || normalized === 'armeabi') return 'arm'
-  if (normalized === 'x86_64') return 'x86_64'
-  if (normalized === 'x86') return 'x86'
-  return undefined
-}
-
-export function buildFridaServerDownloadUrl(input: {
-  version: string
-  arch: string
-}): string {
-  const fileName = `frida-server-${input.version}-android-${input.arch}.xz`
-  return `https://github.com/frida/frida/releases/download/${input.version}/${fileName}`
-}
-
-function normalizeRemoteFridaPath(value: string | undefined): string {
-  const remotePath = value?.trim() || DEFAULT_FRIDA_REMOTE_PATH
-  if (!/^\/[A-Za-z0-9._/-]+$/.test(remotePath)) {
-    throw new Error(
-      `Unsupported Android remote frida-server path: ${remotePath}. Use an absolute path containing only letters, numbers, dots, dashes, underscores, and slashes.`,
-    )
-  }
-
-  return remotePath
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.promises.access(filePath, fs.constants.R_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-function getFridaPackageVersion(): string {
-  const require = createRequire(import.meta.url)
-  let currentDir = path.dirname(require.resolve('frida'))
-
-  while (true) {
-    const packageJsonPath = path.join(currentDir, 'package.json')
-    if (fs.existsSync(packageJsonPath)) {
-      const packageJson = JSON.parse(
-        fs.readFileSync(packageJsonPath, 'utf8'),
-      ) as {
-        version?: string
-      }
-      if (packageJson.version?.trim()) {
-        return packageJson.version.trim()
-      }
-    }
-
-    const parent = path.dirname(currentDir)
-    if (parent === currentDir) {
-      break
-    }
-    currentDir = parent
-  }
-
-  throw new Error('Unable to resolve installed frida package version.')
-}
-
-async function getDeviceFridaArch(input: {
-  adb: AdbClient
-  serial: string
-}): Promise<string> {
-  const abi = await readAdbShellWithTimeout(
-    input.adb,
-    input.serial,
-    'getprop ro.product.cpu.abi',
-    5000,
-    'Reading Android CPU ABI',
-  )
-  const arch = mapAndroidAbiToFridaArch(abi)
-  if (!arch) {
-    throw new Error(`Unsupported Android CPU ABI for frida-server: ${abi}`)
-  }
-
-  return arch
-}
-
-async function decompressXzFile(inputPath: string, outputPath: string) {
-  const { XzReadableStream } = await import('xz-decompress')
-  const compressedStream = Readable.toWeb(
-    fs.createReadStream(inputPath),
-  ) as ReadableStream<Uint8Array>
-  const response = new Response(new XzReadableStream(compressedStream))
-  const buffer = Buffer.from(await response.arrayBuffer())
-  await fs.promises.writeFile(outputPath, buffer)
-}
-
-async function downloadFridaServer(input: {
-  adb: AdbClient
-  serial: string
-  downloadDir?: string
-  onStatus?: (message: string) => void
-}): Promise<string> {
-  const version = getFridaPackageVersion()
-  const arch = await getDeviceFridaArch({
-    adb: input.adb,
-    serial: input.serial,
-  })
-  const fileName = `frida-server-${version}-android-${arch}`
-  const downloadDir = input.downloadDir?.trim() || DEFAULT_FRIDA_DOWNLOAD_DIR
-  const localPath = path.join(downloadDir, fileName)
-  const compressedPath = `${localPath}.xz`
-
-  await fs.promises.mkdir(downloadDir, { recursive: true })
-  if (await fileExists(localPath)) {
-    return localPath
-  }
-
-  const url = buildFridaServerDownloadUrl({ version, arch })
-  input.onStatus?.(`Downloading ${fileName}.xz`)
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(
-      `Unable to download frida-server from ${url}: HTTP ${response.status}`,
-    )
-  }
-
-  const compressedBuffer = Buffer.from(await response.arrayBuffer())
-  await fs.promises.writeFile(compressedPath, compressedBuffer)
-  await decompressXzFile(compressedPath, localPath)
-  return localPath
-}
-
-async function ensureFridaServer(input: FridaServerInput): Promise<void> {
-  const {
-    adb,
-    serial,
-    localPath,
-    remotePath,
-    port,
-    autoDownload,
-    downloadDir,
-    onStatus,
-  } = input
-  const expectedVersion = getFridaPackageVersion()
-  let pushedLocalServer = false
-
-  const pushFridaServer = async (candidatePath: string): Promise<void> => {
-    const resolvedLocalPath = candidatePath.trim()
-    if (!fs.existsSync(resolvedLocalPath)) {
-      throw new Error(`frida-server binary was not found: ${resolvedLocalPath}`)
-    }
-
-    onStatus?.(`Pushing frida-server to ${serial}:${remotePath}`)
-    await waitForAdbTransfer(
-      await adb.push(serial, resolvedLocalPath, remotePath),
-    )
-    pushedLocalServer = true
-  }
-
-  if (localPath?.trim()) {
-    await pushFridaServer(localPath)
-  }
-
-  const remoteState = await readAdbShellWithTimeout(
-    adb,
-    serial,
-    `if [ -f ${remotePath} ]; then echo found; else echo missing; fi`,
-    5000,
-    'Checking remote frida-server',
-  )
-  if (!remoteState.includes('found')) {
-    if (autoDownload !== false) {
-      const downloadedPath = await downloadFridaServer({
-        adb,
-        serial,
-        downloadDir,
-        onStatus,
-      })
-      await pushFridaServer(downloadedPath)
-    } else {
-      throw new Error(
-        `frida-server is missing on ${serial}:${remotePath}. Provide ANDROID_FRIDA_SERVER_PATH or enable ANDROID_FRIDA_AUTO_DOWNLOAD.`,
-      )
-    }
-  }
-
-  if (!pushedLocalServer) {
-    await readAdbShellWithTimeout(
-      adb,
-      serial,
-      `su -c 'chmod 755 ${remotePath}' 2>/dev/null || chmod 755 ${remotePath} 2>/dev/null || true`,
-      5000,
-      'Preparing frida-server',
-    ).catch(() => '')
-    const remoteVersion = await readAdbShellWithTimeout(
-      adb,
-      serial,
-      `su -c '${remotePath} --version' 2>/dev/null || ${remotePath} --version 2>/dev/null || true`,
-      5000,
-      'Checking frida-server version',
-    ).catch(() => '')
-    const normalizedRemoteVersion = remoteVersion.trim()
-    if (!normalizedRemoteVersion) {
-      if (autoDownload === false) {
-        throw new Error(
-          `Unable to read remote frida-server version on ${serial}:${remotePath}. Provide a matching ANDROID_FRIDA_SERVER_PATH or enable ANDROID_FRIDA_AUTO_DOWNLOAD.`,
-        )
-      }
-
-      onStatus?.(`Replacing unreadable frida-server with ${expectedVersion}`)
-      const downloadedPath = await downloadFridaServer({
-        adb,
-        serial,
-        downloadDir,
-        onStatus,
-      })
-      await pushFridaServer(downloadedPath)
-    } else if (normalizedRemoteVersion !== expectedVersion) {
-      if (autoDownload === false) {
-        throw new Error(
-          `Remote frida-server version ${normalizedRemoteVersion} on ${serial}:${remotePath} does not match installed frida npm package version ${expectedVersion}. Provide a matching ANDROID_FRIDA_SERVER_PATH or enable ANDROID_FRIDA_AUTO_DOWNLOAD.`,
-        )
-      }
-
-      onStatus?.(
-        `Replacing frida-server ${normalizedRemoteVersion} with ${expectedVersion}`,
-      )
-      const downloadedPath = await downloadFridaServer({
-        adb,
-        serial,
-        downloadDir,
-        onStatus,
-      })
-      await pushFridaServer(downloadedPath)
-    }
-  }
-
-  onStatus?.(`Starting frida-server on ${serial}`)
-  await readAdbShellWithTimeout(
-    adb,
-    serial,
-    `su -c 'pkill -f frida-server >/dev/null 2>&1 || true; chmod 755 ${remotePath}; ${remotePath} >/dev/null 2>&1 &'`,
-    5000,
-    'Starting frida-server',
-  )
-  await sleep(1500)
-
-  try {
-    await adb.forward(serial, `tcp:${port}`, `tcp:${port}`)
-  } catch (error) {
-    onStatus?.(
-      `Could not create adb forward tcp:${port}; continuing with Frida USB discovery (${String(
-        error,
-      )})`,
-    )
-  }
-}
-
-async function resolveFridaDevice(
-  frida: FridaRuntime,
-  serial: string,
-): Promise<FridaDevice> {
-  if (typeof frida.getDeviceManager === 'function') {
-    const manager = await frida.getDeviceManager()
-    const devices = await manager.enumerateDevices()
-    const match = devices.find((device) => {
-      const id = device.id || ''
-      const name = device.name || ''
-      return id === serial || name === serial || id.includes(serial)
-    })
-    if (match) {
-      return match
-    }
-  }
-
-  if (typeof frida.getDevice === 'function') {
-    try {
-      return await frida.getDevice(serial, { timeout: 5000 })
-    } catch {
-      // Fall through to USB discovery. Frida device ids do not always match adb serials.
-    }
-  }
-
-  if (typeof frida.getUsbDevice === 'function') {
-    return frida.getUsbDevice({ timeout: 5000 })
-  }
-
-  throw new Error('Unable to resolve a Frida USB device.')
-}
-
-function buildWhatsAppNotificationFridaScript(packages: string[]): string {
-  return `
-const WATCH_PACKAGES = ${JSON.stringify(packages)};
-const ASSUMED_PACKAGE = WATCH_PACKAGES[0] || 'com.whatsapp';
-
-function toJsString(value) {
-  try {
-    if (value === null || value === undefined) return null;
-    const text = String(value);
-    return text.length ? text : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-function isWatchedPackage(packageName) {
-  return packageName && WATCH_PACKAGES.indexOf(packageName) !== -1;
-}
-
-function readExtra(bundle, key) {
-  try {
-    if (!bundle) return null;
-    const value = bundle.get(key);
-    return toJsString(value);
-  } catch (_) {
-    return null;
-  }
-}
-
-function readTextLines(bundle) {
-  try {
-    if (!bundle) return [];
-    const value = bundle.get('android.textLines');
-    if (!value) return [];
-    const lines = [];
-    const length = value.length || 0;
-    for (let index = 0; index < length; index += 1) {
-      const text = toJsString(value[index]);
-      if (text) lines.push(text);
-    }
-    return lines;
-  } catch (_) {
-    return [];
-  }
-}
-
-function getNotificationExtras(notification) {
-  try {
-    if (!notification) return null;
-    return notification.extras.value || notification.extras;
-  } catch (_) {
-    return null;
-  }
-}
-
-function emitNotification(packageName, notification, details) {
-  try {
-    if (!isWatchedPackage(packageName)) return;
-    const extras = getNotificationExtras(notification);
-    const title = readExtra(extras, 'android.title');
-    const text = readExtra(extras, 'android.text');
-    const bigText = readExtra(extras, 'android.bigText');
-    const subText = readExtra(extras, 'android.subText');
-    const infoText = readExtra(extras, 'android.infoText');
-    const textLines = readTextLines(extras);
-    const bodyParts = [text, bigText, subText, infoText].concat(textLines).filter(Boolean);
-    const body = bodyParts.length ? bodyParts.join('\\n') : null;
-    send({
-      type: 'whatsapp_notification',
-      packageName,
-      notificationId: details && details.notificationId ? details.notificationId : null,
-      sender: subText,
-      chatName: title,
-      title,
-      body,
-      rawPayload: {
-        source: details && details.source ? details.source : 'frida',
-        title,
-        text,
-        bigText,
-        subText,
-        infoText,
-        textLines,
-        notificationId: details && details.notificationId ? details.notificationId : null,
-        tag: details && details.tag ? details.tag : null
-      },
-      receivedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    send({ type: 'debug', message: 'emitNotification failed: ' + error });
-  }
-}
-
-function findJavaClassName(value) {
-  try {
-    if (!value || !value.getClass) return null;
-    return String(value.getClass().getName());
-  } catch (_) {
-    return null;
-  }
-}
-
-function maybeEmitFromSystemArgs(args) {
-  let packageName = null;
-  let notification = null;
-  let notificationId = null;
-  let tag = null;
-  for (let index = 0; index < args.length; index += 1) {
-    const value = args[index];
-    const text = toJsString(value);
-    const className = findJavaClassName(value);
-    if (!packageName && isWatchedPackage(text)) packageName = text;
-    if (!tag && text && !isWatchedPackage(text)) tag = text;
-    if (notificationId === null && typeof value === 'number') notificationId = String(value);
-    if (className === 'android.app.Notification') notification = value;
-    if (className === 'android.service.notification.StatusBarNotification') {
-      try {
-        const sbnPackageName = toJsString(value.getPackageName());
-        const sbnNotification = value.getNotification();
-        emitNotification(sbnPackageName, sbnNotification, {
-          source: 'StatusBarNotification',
-          notificationId: toJsString(value.getKey())
-        });
-        return;
-      } catch (_) {}
-    }
-    if (className === 'com.android.server.notification.NotificationRecord') {
-      try {
-        const sbn = value.getSbn();
-        const sbnPackageName = toJsString(sbn.getPackageName());
-        emitNotification(sbnPackageName, sbn.getNotification(), {
-          source: 'NotificationRecord',
-          notificationId: toJsString(sbn.getKey())
-        });
-        return;
-      } catch (_) {}
-    }
-  }
-  if (packageName && notification) {
-    emitNotification(packageName, notification, {
-      source: 'NotificationManagerService',
-      notificationId: notificationId,
-      tag: tag
-    });
-  }
-}
-
-function hookOverloads(method, label, handler) {
-  try {
-    method.overloads.forEach(function (overload) {
-      overload.implementation = function () {
-        const args = Array.prototype.slice.call(arguments);
-        const result = overload.call.apply(overload, [this].concat(args));
-        try {
-          handler(args);
-        } catch (error) {
-          send({ type: 'debug', message: label + ' handler failed: ' + error });
-        }
-        return result;
-      };
-    });
-    send({ type: 'ready', hook: label, overloads: method.overloads.length });
-  } catch (error) {
-    send({ type: 'debug', message: label + ' hook failed: ' + error });
-  }
-}
-
-Java.perform(function () {
-  try {
-    const NotificationManagerService = Java.use('com.android.server.notification.NotificationManagerService');
-    hookOverloads(NotificationManagerService.enqueueNotificationInternal, 'NotificationManagerService.enqueueNotificationInternal', maybeEmitFromSystemArgs);
-  } catch (error) {
-    send({ type: 'debug', message: 'NotificationManagerService unavailable: ' + error });
-  }
-
-  try {
-    const NotificationManager = Java.use('android.app.NotificationManager');
-    if (NotificationManager.notify) {
-      hookOverloads(NotificationManager.notify, 'NotificationManager.notify', function (args) {
-        let notification = null;
-        let notificationId = null;
-        let tag = null;
-        for (let index = 0; index < args.length; index += 1) {
-          const value = args[index];
-          const className = findJavaClassName(value);
-          const text = toJsString(value);
-          if (className === 'android.app.Notification') notification = value;
-          if (notificationId === null && typeof value === 'number') notificationId = String(value);
-          if (!tag && text) tag = text;
-        }
-        if (notification) {
-          emitNotification(ASSUMED_PACKAGE, notification, {
-            source: 'NotificationManager.notify',
-            notificationId: notificationId,
-            tag: tag
-          });
-        }
-      });
-    }
-  } catch (error) {
-    send({ type: 'debug', message: 'NotificationManager unavailable: ' + error });
-  }
-});
-`
-}
-
-async function attachFridaScript(input: {
-  frida: FridaRuntime
-  serial: string
-  target: string
-  packages: string[]
-  onStatus?: (message: string) => void
-  onMessage: (message: unknown, data?: unknown) => void
-}): Promise<ActiveFridaSession> {
-  const device = await resolveFridaDevice(input.frida, input.serial)
-  input.onStatus?.(
-    `Attaching Frida to ${input.target} on ${device.name || device.id || input.serial}`,
-  )
-  const session = await device.attach(input.target)
-  let script: FridaScript | undefined
-  try {
-    script = await session.createScript(
-      buildWhatsAppNotificationFridaScript(input.packages),
-    )
-    script.message.connect(input.onMessage)
-    await script.load()
-    return { script, session }
-  } catch (error) {
-    await Promise.allSettled([
-      script?.unload() ?? Promise.resolve(),
-      session.detach(),
-    ])
-    throw error
-  }
-}
-
-async function attachFridaScriptWithServerRetry(input: {
-  frida: FridaRuntime
-  adb: AdbClient
-  serial: string
-  target: string
-  packages: string[]
-  server: Omit<FridaServerInput, 'adb' | 'serial' | 'onStatus'>
-  canRestartServer: boolean
-  onStatus?: (message: string) => void
-  onMessage: (message: unknown, data?: unknown) => void
-}): Promise<ActiveFridaSession> {
-  try {
-    return await attachFridaScript(input)
-  } catch (error) {
-    if (
-      !input.canRestartServer ||
-      !isRecoverableFridaServerConnectionError(error)
-    ) {
-      throw error
-    }
-
-    input.onStatus?.(
-      `Frida connection closed while attaching; restarting frida-server and retrying once (${getErrorMessage(
-        error,
-      )})`,
-    )
-    await ensureFridaServer({
-      adb: input.adb,
-      serial: input.serial,
-      ...input.server,
-      onStatus: input.onStatus,
-    })
-    try {
-      return await attachFridaScript(input)
-    } catch (retryError) {
-      throw new Error(formatAndroidFridaError(retryError))
-    }
-  }
-}
-
-async function cleanupFridaSession(
-  activeSession: ActiveFridaSession | undefined,
-): Promise<void> {
-  if (!activeSession) {
-    return
-  }
-
-  await Promise.allSettled([
-    activeSession.script.unload(),
-    activeSession.session.detach(),
-  ])
-}
-
-async function runAndroidWhatsAppNotificationAutoWatcher(
-  options: AndroidWhatsAppNotificationAutoWatchOptions,
-  signal: AbortSignal,
-): Promise<void> {
-  if (options.enabled === false) {
-    options.onStatus?.('Android WhatsApp watcher disabled by configuration.')
-    return
-  }
-
-  throwIfAborted(signal)
-  const adbPath = await ensureAdbBinary({
-    adbPath: options.adbPath,
-    onStatus: options.onStatus,
-  })
-  if (!adbPath) {
-    return
-  }
-
-  throwIfAborted(signal)
-  const packages = normalizeWhatsAppPackageList(options.whatsappPackages)
-  const adbkit = await loadAdbkit()
-  const adb = adbkit.createClient()
-  const serial = await resolveAndroidSerialForAutoWatch(
-    adb,
-    options.androidUdid,
-  )
-  if (!serial) {
-    options.onStatus?.(
-      'No single online Android device is available; Android WhatsApp watcher skipped.',
-    )
-    return
-  }
-
-  throwIfAborted(signal)
-  const installedPackages = await findInstalledWhatsAppPackages({
-    adb,
-    serial,
-    packages,
-    onStatus: options.onStatus,
-  })
-  if (!installedPackages.length) {
-    return
-  }
-
-  throwIfAborted(signal)
-  await runAndroidWhatsAppNotificationWatcher({
-    ...options,
-    androidUdid: serial,
-    deviceId: options.deviceId || serial,
-    whatsappPackages: installedPackages,
-    signal,
-  })
-}
-
-export function startAndroidWhatsAppNotificationAutoWatcher(
-  options: AndroidWhatsAppNotificationAutoWatchOptions,
-): AndroidWhatsAppNotificationAutoWatcherHandle {
-  const abortController = new AbortController()
-  const externalAbortHandler = (): void => {
-    abortController.abort()
-  }
-
-  if (options.signal) {
-    if (options.signal.aborted) {
-      abortController.abort()
-    } else {
-      options.signal.addEventListener('abort', externalAbortHandler, {
-        once: true,
-      })
-    }
-  }
-
-  const done = runAndroidWhatsAppNotificationAutoWatcher(
-    options,
-    abortController.signal,
-  )
-    .catch((error) => {
-      if (error instanceof Error && error.name === 'AbortError') {
+    server.close((error) => {
+      if (error) {
+        reject(error)
         return
       }
-
-      options.onStatus?.(
-        `Android WhatsApp watcher stopped: ${
-          error instanceof Error
-            ? formatAndroidFridaError(error)
-            : String(error)
-        }`,
-      )
+      resolve()
     })
-    .finally(() => {
-      options.signal?.removeEventListener('abort', externalAbortHandler)
-    })
-
-  return {
-    done,
-    async stop() {
-      abortController.abort()
-      await done
-    },
-  }
+  })
 }
 
-export async function runAndroidWhatsAppNotificationWatcher(
-  options: AndroidWhatsAppNotificationWatchOptions,
-): Promise<AndroidWhatsAppNotificationWatchResult> {
-  const packages = normalizeWhatsAppPackageList(options.whatsappPackages)
-  const remotePath = normalizeRemoteFridaPath(options.fridaRemotePath)
-  const port = options.fridaServerPort || DEFAULT_FRIDA_SERVER_PORT
-  const target = options.fridaTarget?.trim() || DEFAULT_FRIDA_TARGET
-  const adbkit = await loadAdbkit()
-  const adb = adbkit.createClient()
-  const serial = await resolveAndroidSerial(adb, options.androidUdid)
-  const deviceId = options.deviceId?.trim() || serial
-  const dryRun = readBoolean(options.dryRun) ?? false
+export function startWhatsAppNotificationWebhookServer(
+  options: WhatsAppNotificationWebhookOptions,
+): WhatsAppNotificationWebhookServerHandle {
+  const host = options.host?.trim() || DEFAULT_WHATSAPP_WEBHOOK_HOST
+  const port = normalizePort(options.port)
+  const webhookPath = normalizePath(options.path)
+  const dryRun = options.dryRun === true
+  const deduper = createWhatsAppNotificationDeduper()
+  let serverClosed = false
+  let resolveDone: () => void = () => undefined
 
   if (!dryRun && !options.ingestNotification) {
     throw new Error('ingestNotification is required unless dryRun is enabled.')
   }
 
-  if (options.fridaStartServer !== false) {
-    await ensureFridaServer({
-      adb,
-      serial,
-      localPath: options.fridaServerPath,
-      remotePath,
-      port,
-      autoDownload: options.fridaAutoDownload,
-      downloadDir: options.fridaDownloadDir,
-      onStatus: options.onStatus,
-    })
-  }
+  const server = http.createServer((request, response) => {
+    void (async () => {
+      const requestUrl = new URL(request.url || '/', `http://${host}`)
+      if (requestUrl.pathname !== webhookPath) {
+        writeJson(response, 404, {
+          ok: false,
+          error: 'Not found',
+        })
+        return
+      }
 
-  const frida = await loadFrida()
-  const deduper = createWhatsAppNotificationDeduper()
-  let processedCount = 0
-  let forwardedCount = 0
-  let activeSession: ActiveFridaSession | undefined
-  let stopRequested = false
-  let timeout: NodeJS.Timeout | undefined
-  let resolveFinished: (() => void) | undefined
-  let rejectFinished: ((error: unknown) => void) | undefined
-  const finished = new Promise<void>((resolve, reject) => {
-    resolveFinished = resolve
-    rejectFinished = reject
+      if (request.method === 'GET') {
+        writeJson(response, 200, {
+          ok: true,
+          path: webhookPath,
+        })
+        return
+      }
+
+      if (request.method !== 'POST') {
+        writeJson(response, 405, {
+          ok: false,
+          error: 'Method not allowed',
+        })
+        return
+      }
+
+      const bodyText = await readRequestBody(request)
+      const rawPayload = parseWebhookPayload(
+        bodyText,
+        readHeaderString(request.headers['content-type']),
+      )
+      const notification =
+        normalizeSmsForwarderWhatsAppNotificationPayload(rawPayload)
+
+      if (!deduper.shouldProcess(notification)) {
+        writeJson(response, 200, {
+          ok: true,
+          duplicate: true,
+        })
+        return
+      }
+
+      const ingestPayload = buildWhatsAppNotificationIngestPayload(
+        notification,
+        {
+          reservationId: options.reservationId,
+          email: options.email,
+          deviceId: options.deviceId,
+        },
+      )
+      const result = dryRun
+        ? undefined
+        : await options.ingestNotification?.(ingestPayload)
+
+      await options.onNotification?.(notification, ingestPayload, result)
+      writeJson(response, 200, {
+        ok: true,
+        extractedCode: ingestPayload.extractedCode,
+        notificationRecordId: result?.notificationRecordId,
+        codeRecordId: result?.codeRecordId,
+        match: result?.match,
+      })
+    })().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      options.onStatus?.(`SmsForwarder webhook request failed: ${message}`)
+      writeJson(response, 400, {
+        ok: false,
+        error: message,
+      })
+    })
   })
 
-  const stop = (): void => {
-    if (stopRequested) {
-      return
-    }
-    stopRequested = true
-    resolveFinished?.()
-  }
+  const ready = new Promise<WhatsAppNotificationWebhookReadyState>(
+    (resolve, reject) => {
+      const onError = (error: Error): void => {
+        serverClosed = true
+        resolveDone()
+        reject(error)
+      }
+      server.once('error', onError)
+      server.listen(port, host, () => {
+        server.off('error', onError)
+        const address = server.address()
+        const resolvedPort =
+          typeof address === 'object' && address ? address.port : port
+        const state = {
+          url: `http://${host}:${resolvedPort}${webhookPath}`,
+          host,
+          port: resolvedPort,
+          path: webhookPath,
+        }
+        options.onStatus?.(
+          `SmsForwarder WhatsApp webhook listening at ${state.url}`,
+        )
+        resolve(state)
+      })
+    },
+  )
+
+  const done = new Promise<void>((resolve) => {
+    resolveDone = resolve
+    server.once('close', () => {
+      serverClosed = true
+      resolve()
+    })
+  })
+
+  ready.catch((error) => {
+    options.onStatus?.(
+      `SmsForwarder WhatsApp webhook could not start: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  })
 
   const abortHandler = (): void => {
-    options.onStatus?.('Stopping WhatsApp notification watcher')
-    stop()
+    if (!serverClosed) {
+      void closeServer(server).catch(() => undefined)
+    }
   }
 
   if (options.signal) {
@@ -1437,91 +606,25 @@ export async function runAndroidWhatsAppNotificationWatcher(
     }
   }
 
-  if (options.durationMs && options.durationMs > 0) {
-    timeout = setTimeout(stop, options.durationMs)
-  }
-
-  activeSession = await attachFridaScriptWithServerRetry({
-    frida,
-    adb,
-    serial,
-    target,
-    packages,
-    server: {
-      localPath: options.fridaServerPath,
-      remotePath,
-      port,
-      autoDownload: options.fridaAutoDownload,
-      downloadDir: options.fridaDownloadDir,
-    },
-    canRestartServer: options.fridaStartServer !== false,
-    onStatus: options.onStatus,
-    onMessage(message) {
-      const notification = normalizeFridaWhatsAppNotificationMessage(message)
-      if (!notification || !packages.includes(notification.packageName)) {
-        const payload = asRecord(message)?.payload
-        const debugMessage = readString(asRecord(payload)?.message)
-        if (debugMessage) {
-          options.onStatus?.(debugMessage)
-        }
-        return
-      }
-
-      if (!deduper.shouldProcess(notification)) {
-        return
-      }
-
-      const ingestPayload = buildWhatsAppNotificationIngestPayload(
-        notification,
-        {
-          reservationId: options.reservationId,
-          email: options.email,
-          deviceId,
-        },
-      )
-      processedCount += 1
-
-      void (async () => {
-        try {
-          const result = dryRun
-            ? undefined
-            : await options.ingestNotification?.(ingestPayload)
-          if (result) {
-            forwardedCount += 1
-          }
-          await options.onNotification?.(notification, ingestPayload, result)
-          if (
-            options.once &&
-            (result?.codeRecordId || ingestPayload.extractedCode)
-          ) {
-            stop()
-          }
-        } catch (error) {
-          rejectFinished?.(error)
-        }
-      })()
-    },
-  })
-
-  options.onStatus?.(
-    `Watching ${packages.join(', ')} notifications on ${serial} via ${target}`,
-  )
-
-  try {
-    await finished
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout)
-    }
-    options.signal?.removeEventListener('abort', abortHandler)
-    await cleanupFridaSession(activeSession)
-  }
-
   return {
-    serial,
-    deviceId,
-    processedCount,
-    forwardedCount,
-    dryRun,
+    ready,
+    done: done.finally(() => {
+      options.signal?.removeEventListener('abort', abortHandler)
+    }),
+    async stop() {
+      if (serverClosed) {
+        return
+      }
+      await closeServer(server).catch((error) => {
+        if (
+          error instanceof Error &&
+          error.message.includes('Server is not running')
+        ) {
+          return
+        }
+        throw error
+      })
+      await done
+    },
   }
 }

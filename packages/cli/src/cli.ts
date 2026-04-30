@@ -84,8 +84,8 @@ import {
   resolveVerificationAppConfig,
 } from './modules/verification'
 import {
-  startAndroidWhatsAppNotificationAutoWatcher,
-  type AndroidWhatsAppNotificationAutoWatcherHandle,
+  startWhatsAppNotificationWebhookServer,
+  type WhatsAppNotificationWebhookServerHandle,
 } from './modules/android/whatsapp-notifications'
 import {
   setObservabilityRuntimeState,
@@ -562,15 +562,13 @@ async function runRemoteWorker(
     phase: 'starting',
   })
 
-  let androidWhatsAppWatcher:
-    | AndroidWhatsAppNotificationAutoWatcherHandle
-    | undefined
+  let whatsAppWebhook: WhatsAppNotificationWebhookServerHandle | undefined
 
   try {
     while (true) {
       setRuntimeConfig(config)
       const authState = await resolveCliNotificationsAuthState()
-      androidWhatsAppWatcher ??= startCliAndroidWhatsAppWatcher(
+      whatsAppWebhook ??= startCliWhatsAppNotificationWebhook(
         'cli',
         options,
         config,
@@ -1137,7 +1135,7 @@ async function runRemoteWorker(
       await sleep(1000)
     }
   } finally {
-    await androidWhatsAppWatcher?.stop()
+    await whatsAppWebhook?.stop()
   }
 }
 
@@ -1146,20 +1144,20 @@ function readTrimmed(value: string | undefined): string | undefined {
   return trimmed || undefined
 }
 
-function startCliAndroidWhatsAppWatcher(
+function startCliWhatsAppNotificationWebhook(
   command: string,
   options: AuthOptions,
   config: ReturnType<typeof prepareRuntimeConfig>,
-): AndroidWhatsAppNotificationAutoWatcherHandle | undefined {
-  const androidConfig = config.android
+): WhatsAppNotificationWebhookServerHandle | undefined {
+  const webhookConfig = config.smsForwarderWebhook
   const enabled =
     parseBooleanFlag(
-      options.androidWhatsAppWatch,
-      androidConfig?.whatsappWatchEnabled ?? true,
+      options.smsForwarderWebhook,
+      webhookConfig?.enabled ?? true,
     ) ?? true
 
   if (!enabled) {
-    writeCliStderrLine(`[${command}] Android WhatsApp watcher disabled.`)
+    writeCliStderrLine(`[${command}] WhatsApp notification webhook disabled.`)
     return undefined
   }
 
@@ -1172,27 +1170,21 @@ function startCliAndroidWhatsAppWatcher(
       DEFAULT_CODEY_APP_BASE_URL,
   })
 
-  return startAndroidWhatsAppNotificationAutoWatcher({
+  return startWhatsAppNotificationWebhookServer({
     enabled,
-    adbPath: readTrimmed(androidConfig?.adbPath),
-    androidUdid: readTrimmed(androidConfig?.udid),
-    deviceId: readTrimmed(androidConfig?.udid),
-    fridaServerPath: readTrimmed(androidConfig?.fridaServerPath),
-    fridaRemotePath: readTrimmed(androidConfig?.fridaRemotePath),
-    fridaServerPort: androidConfig?.fridaServerPort,
-    fridaStartServer: androidConfig?.fridaStartServer,
-    fridaAutoDownload: androidConfig?.fridaAutoDownload,
-    fridaDownloadDir: readTrimmed(androidConfig?.fridaDownloadDir),
-    fridaTarget: readTrimmed(androidConfig?.fridaTarget),
-    whatsappPackages: androidConfig?.whatsappPackages,
+    host: readTrimmed(webhookConfig?.host),
+    port: webhookConfig?.port,
+    path: readTrimmed(webhookConfig?.path),
+    deviceId:
+      readTrimmed(webhookConfig?.deviceId) || readTrimmed(config.android?.udid),
     ingestNotification: (payload) =>
       appClient.ingestWhatsAppNotification(payload),
     onStatus(message) {
-      writeCliStderrLine(`[${command}:android-whatsapp] ${message}`)
+      writeCliStderrLine(`[${command}:whatsapp-webhook] ${message}`)
     },
     onNotification(event, payload, ingestResult) {
       writeCliStderrLine(
-        `[${command}:android-whatsapp] ${event.packageName} notification${
+        `[${command}:whatsapp-webhook] ${event.packageName} notification${
           payload.extractedCode ? ` code=${payload.extractedCode}` : ''
         }${
           ingestResult?.match.matched
@@ -1304,10 +1296,10 @@ function normalizeAuthCliOptions(input: Record<string, unknown>): AuthOptions {
     cliName: readOptionalString(input.cliName),
     scope: readOptionalString(input.scope),
     target: readOptionalString(input.target),
-    androidWhatsAppWatch:
-      typeof input.androidWhatsAppWatch === 'string' ||
-      typeof input.androidWhatsAppWatch === 'boolean'
-        ? input.androidWhatsAppWatch
+    smsForwarderWebhook:
+      typeof input.smsForwarderWebhook === 'string' ||
+      typeof input.smsForwarderWebhook === 'boolean'
+        ? input.smsForwarderWebhook
         : undefined,
   }
 }
@@ -1380,7 +1372,7 @@ function printRootHelp(): void {
       '  --profile <name>',
       '  --cliName <name>',
       '  --target <target>',
-      '  --androidWhatsAppWatch <bool>',
+      '  --smsForwarderWebhook <bool>',
       '',
       'Examples:',
       '  codey --target octocat',

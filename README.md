@@ -200,29 +200,25 @@ the matching `--android*` CLI flags. `codey android-healthcheck` is a minimal
 session lifecycle check that opens an Android session and reports the connected
 device details.
 
-When the CLI remote worker starts, Codey automatically tries to enable a
-WhatsApp notification watcher. The probe is best-effort: it looks for `adb` in
-Android Studio's default SDK locations first (`%LOCALAPPDATA%\Android\Sdk` on
-Windows, `~/Library/Android/sdk` on macOS, and `~/Android/Sdk` / `~/Android/sdk`
-on Linux), then falls back to `adb` on `PATH`. It also checks that exactly one
-Android device is connected (or `ANDROID_UDID` selects one), and the device has
-`com.whatsapp` or `com.whatsapp.w4b` installed. If any condition is missing, the
-watcher is skipped and the CLI continues normally.
+When the CLI remote worker starts, Codey also starts a local SmsForwarder
+webhook endpoint for WhatsApp verification notifications. Point SmsForwarder at:
 
-When WhatsApp is present, the watcher uses `adbkit` to manage the device,
-installs `frida-server` if it is missing from
-`/data/local/tmp/frida-server`, starts it, attaches Frida to `system_server` by
-default, and forwards watched WhatsApp notifications to Codey Web. If
-`ANDROID_FRIDA_SERVER_PATH` is not provided and the remote binary is missing,
-Codey downloads the matching Android `frida-server` release for the device ABI
-and installed `frida` npm package version.
+```text
+http://127.0.0.1:3001/webhooks/smsforwarder/whatsapp
+```
 
-Disable auto-start with `ANDROID_WHATSAPP_WATCH_ENABLED=false` or
-`pnpm codey --androidWhatsAppWatch false`. By default the watcher targets
-`com.whatsapp` and `com.whatsapp.w4b`; override with comma-separated
-`ANDROID_WHATSAPP_PACKAGES`. Set `ANDROID_ADB_PATH` only when your SDK is in a
-custom location. `ANDROID_FRIDA_TARGET` can be set when you want to attach to a
-WhatsApp process instead of `system_server`.
+The endpoint accepts JSON, form-encoded, or plain-text webhook bodies and
+forwards the original notification payload to Codey Web's
+`/api/ingest/whatsapp-notification` endpoint. Disable auto-start with
+`SMS_FORWARDER_WEBHOOK_ENABLED=false` or
+`pnpm codey --smsForwarderWebhook false`. Optional overrides:
+
+```env
+SMS_FORWARDER_WEBHOOK_HOST=127.0.0.1
+SMS_FORWARDER_WEBHOOK_PORT=3001
+SMS_FORWARDER_WEBHOOK_PATH=/webhooks/smsforwarder/whatsapp
+SMS_FORWARDER_DEVICE_ID=emulator-5554
+```
 
 ### CLI logs
 
@@ -350,13 +346,24 @@ The workflow syncs `CODEY_INGEST_URL` and `CODEY_WEBHOOK_SECRET` into the Worker
 
 ## WhatsApp notification ingest
 
-Android companion processes can forward WhatsApp verification notifications to Codey Web:
+The CLI remote worker exposes a local SmsForwarder endpoint by default:
+
+```text
+POST http://127.0.0.1:3001/webhooks/smsforwarder/whatsapp
+```
+
+SmsForwarder can send its raw notification webhook body to that endpoint. The
+CLI preserves the original payload in `rawPayload`, extracts common fields such
+as app/package, title, content, sender, timestamp, and OTP code, then forwards it
+to Codey Web:
 
 ```text
 POST /api/ingest/whatsapp-notification
 ```
 
-Authorize the request with either `VERIFICATION_API_KEY` / `VERIFICATION_API_KEY_HEADER` or an OIDC bearer token with `verification:ingest`.
+Direct calls to the Codey Web endpoint must be authorized with either
+`VERIFICATION_API_KEY` / `VERIFICATION_API_KEY_HEADER` or an OIDC bearer token
+with `verification:ingest`.
 
 Recommended payload:
 

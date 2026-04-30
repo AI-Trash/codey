@@ -17,13 +17,10 @@
   },
   "dependencies": {
     "@codey/state-machine": "catalog:",
-    "adbkit": "catalog:",
     "dotenv": "catalog:",
-    "frida": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:",
     "webdriverio": "catalog:",
-    "xz-decompress": "catalog:",
     "xstate": "catalog:"
   },
   "devDependencies": {
