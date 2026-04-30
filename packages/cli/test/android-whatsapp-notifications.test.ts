@@ -4,12 +4,54 @@ import {
   buildFridaServerDownloadUrl,
   createWhatsAppNotificationDeduper,
   extractVerificationCodeFromNotificationText,
+  getAndroidStudioAdbPathCandidates,
   mapAndroidAbiToFridaArch,
   normalizeFridaWhatsAppNotificationMessage,
   normalizeWhatsAppPackageList,
 } from '../src/modules/android/whatsapp-notifications'
 
 describe('Android WhatsApp notification helpers', () => {
+  it('prefers Android Studio SDK adb paths before PATH on Windows', () => {
+    expect(
+      getAndroidStudioAdbPathCandidates({
+        env: {
+          LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local',
+          USERPROFILE: 'C:\\Users\\me',
+        },
+        homeDir: 'C:\\Users\\me',
+        platform: 'win32',
+      }),
+    ).toEqual([
+      'C:\\Users\\me\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe',
+      'adb.exe',
+      'adb',
+    ])
+  })
+
+  it('prefers Android Studio SDK adb paths before PATH on macOS', () => {
+    expect(
+      getAndroidStudioAdbPathCandidates({
+        env: {},
+        homeDir: '/Users/me',
+        platform: 'darwin',
+      }),
+    ).toEqual(['/Users/me/Library/Android/sdk/platform-tools/adb', 'adb'])
+  })
+
+  it('prefers Android Studio SDK adb paths before PATH on Linux', () => {
+    expect(
+      getAndroidStudioAdbPathCandidates({
+        env: {},
+        homeDir: '/home/me',
+        platform: 'linux',
+      }),
+    ).toEqual([
+      '/home/me/Android/Sdk/platform-tools/adb',
+      '/home/me/Android/sdk/platform-tools/adb',
+      'adb',
+    ])
+  })
+
   it('normalizes comma-separated WhatsApp package lists', () => {
     expect(
       normalizeWhatsAppPackageList('com.whatsapp, com.whatsapp.w4b'),

@@ -738,6 +738,7 @@ export function EditOAuthClientPageContent({
             submitLabel={m.oauth_edit_save_settings()}
             supportedScopes={supportedScopes}
             verificationDomains={verificationDomains}
+            allowedScopesInputMode="tags"
             onChange={setForm}
             onSubmit={(event) => {
               event.preventDefault()
@@ -1067,10 +1068,14 @@ function ScopeTagSelector({
   onChange: (nextScopes: string[]) => void
 }) {
   const selectedScopes = new Set(value)
+  const scopeOptions = [
+    ...supportedScopes,
+    ...value.filter((scope) => !supportedScopes.includes(scope)),
+  ]
 
   return (
     <div className="flex min-h-11 flex-wrap gap-2 rounded-md border border-input bg-transparent p-2.5 shadow-xs">
-      {supportedScopes.map((scope) => {
+      {scopeOptions.map((scope) => {
         const selected = selectedScopes.has(scope)
 
         return (
@@ -1089,7 +1094,7 @@ function ScopeTagSelector({
               type="button"
               aria-pressed={selected}
               onClick={() => {
-                const nextScopes = supportedScopes.filter((item) =>
+                const nextScopes = scopeOptions.filter((item) =>
                   item === scope ? !selected : selectedScopes.has(item),
                 )
                 onChange(nextScopes)

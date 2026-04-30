@@ -17,7 +17,7 @@ export const DEFAULT_WHATSAPP_PACKAGES = [
 export const DEFAULT_FRIDA_REMOTE_PATH = '/data/local/tmp/frida-server'
 export const DEFAULT_FRIDA_SERVER_PORT = 27042
 export const DEFAULT_FRIDA_TARGET = 'system_server'
-export const DEFAULT_ADB_PATH = 'adb'
+export const DEFAULT_ADB_PATH = os.platform() === 'win32' ? 'adb.exe' : 'adb'
 export const DEFAULT_FRIDA_DOWNLOAD_DIR = path.join(
   os.homedir(),
   '.codey',
@@ -142,6 +142,12 @@ interface ExecFileResult {
   stderr: string
 }
 
+interface AndroidAdbPathCandidateOptions {
+  env?: NodeJS.ProcessEnv
+  homeDir?: string
+  platform?: NodeJS.Platform
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -225,23 +231,149 @@ function execFileText(
   })
 }
 
+function getPlatformPath(platform: NodeJS.Platform): typeof path.posix {
+  return platform === 'win32' ? path.win32 : path.posix
+}
+
+function expandHomePath(
+  value: string,
+  homeDir: string | undefined,
+  platform: NodeJS.Platform,
+): string {
+  const trimmed = value.trim()
+  if (!homeDir || trimmed !== '~') {
+    const slashPrefix = platform === 'win32' ? '~\\' : '~/'
+    if (!homeDir || !trimmed.startsWith(slashPrefix)) {
+      return trimmed
+    }
+
+    return getPlatformPath(platform).join(homeDir, trimmed.slice(2))
+  }
+
+  return homeDir
+}
+
+export function getAndroidStudioAdbPathCandidates(
+  options: AndroidAdbPathCandidateOptions = {},
+): string[] {
+  const env = options.env ?? process.env
+  const platform = options.platform ?? os.platform()
+  const platformPath = getPlatformPath(platform)
+  const homeDir = options.homeDir ?? os.homedir()
+  const executable = platform === 'win32' ? 'adb.exe' : 'adb'
+  const candidates: string[] = []
+  const seen = new Set<string>()
+  const pushCandidate = (candidate: string | undefined): void => {
+    const normalized = candidate?.trim()
+    if (!normalized) {
+      return
+    }
+
+    const key = platform === 'win32' ? normalized.toLowerCase() : normalized
+    if (!seen.has(key)) {
+      seen.add(key)
+      candidates.push(normalized)
+    }
+  }
+  const pushSdkRoot = (root: string | undefined): void => {
+    const normalizedRoot = root
+      ? expandHomePath(root, homeDir, platform)
+      : undefined
+    if (!normalizedRoot) {
+      return
+    }
+
+    pushCandidate(
+      platformPath.join(normalizedRoot, 'platform-tools', executable),
+    )
+  }
+
+  pushSdkRoot(env.ANDROID_HOME)
+  pushSdkRoot(env.ANDROID_SDK_ROOT)
+  pushSdkRoot(env.ANDROID_SDK_HOME)
+
+  if (platform === 'win32') {
+    pushSdkRoot(
+      env.LOCALAPPDATA
+        ? platformPath.join(env.LOCALAPPDATA, 'Android', 'Sdk')
+        : undefined,
+    )
+    pushSdkRoot(
+      env.USERPROFILE
+        ? platformPath.join(
+            env.USERPROFILE,
+            'AppData',
+            'Local',
+            'Android',
+            'Sdk',
+          )
+        : undefined,
+    )
+    pushSdkRoot(
+      env.ProgramFiles
+        ? platformPath.join(
+            env.ProgramFiles,
+            'Android',
+            'Android Studio',
+            'sdk',
+          )
+        : undefined,
+    )
+    pushSdkRoot(
+      env['ProgramFiles(x86)']
+        ? platformPath.join(env['ProgramFiles(x86)'], 'Android', 'android-sdk')
+        : undefined,
+    )
+  } else if (platform === 'darwin') {
+    pushSdkRoot(
+      homeDir
+        ? platformPath.join(homeDir, 'Library', 'Android', 'sdk')
+        : undefined,
+    )
+  } else {
+    pushSdkRoot(
+      homeDir ? platformPath.join(homeDir, 'Android', 'Sdk') : undefined,
+    )
+    pushSdkRoot(
+      homeDir ? platformPath.join(homeDir, 'Android', 'sdk') : undefined,
+    )
+  }
+
+  pushCandidate(executable)
+  if (executable !== 'adb') {
+    pushCandidate('adb')
+  }
+
+  return candidates
+}
+
 async function ensureAdbBinary(input: {
   adbPath?: string
   onStatus?: (message: string) => void
 }): Promise<string | null> {
-  const adbPath = input.adbPath?.trim() || DEFAULT_ADB_PATH
-  try {
-    await execFileText(adbPath, ['version'], { timeoutMs: 3000 })
-    await execFileText(adbPath, ['start-server'], { timeoutMs: 5000 })
-    return adbPath
-  } catch (error) {
-    input.onStatus?.(
-      `ADB not available (${String(
-        error instanceof Error ? error.message : error,
-      )}); Android WhatsApp watcher skipped.`,
-    )
-    return null
+  const explicitAdbPath = input.adbPath?.trim()
+  const candidates = explicitAdbPath
+    ? [explicitAdbPath]
+    : getAndroidStudioAdbPathCandidates()
+  let lastError: unknown
+  for (const adbPath of candidates) {
+    try {
+      await execFileText(adbPath, ['version'], { timeoutMs: 3000 })
+      await execFileText(adbPath, ['start-server'], { timeoutMs: 5000 })
+      return adbPath
+    } catch (error) {
+      lastError = error
+    }
   }
+
+  input.onStatus?.(
+    `ADB not available from ${
+      explicitAdbPath ? explicitAdbPath : candidates.join(', ')
+    } (${String(
+      lastError instanceof Error ? lastError.message : lastError,
+    )}); Android WhatsApp watcher skipped.`,
+  )
+  return null
 }
 
 export function normalizeWhatsAppPackageList(
