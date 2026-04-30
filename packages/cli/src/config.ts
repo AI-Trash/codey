@@ -17,6 +17,17 @@ export interface BrowserCliConfig {
   cloneUserDataDirToTemp?: boolean
 }
 
+export interface AndroidCliConfig {
+  appiumServerUrl: string
+  automationName: string
+  deviceName: string
+  platformVersion?: string
+  udid?: string
+  appPackage?: string
+  appActivity?: string
+  noReset?: boolean
+}
+
 export interface OpenAIFlowConfig {
   baseUrl: string
   chatgptUrl: string
@@ -117,14 +128,23 @@ export interface ChatGPTTeamTrialBillingAddressConfig {
   postalCode?: string
 }
 
+export interface ChatGPTTeamTrialGoPayConfig {
+  countryCode?: string
+  phoneNumber?: string
+  pin?: string
+  authorizationTimeoutMs?: number
+}
+
 export interface ChatGPTTeamTrialConfig {
   billingAddress?: ChatGPTTeamTrialBillingAddressConfig
+  gopay?: ChatGPTTeamTrialGoPayConfig
 }
 
 export interface AppConfig {
   rootDir: string
   artifactsDir: string
   browser: BrowserCliConfig
+  android?: AndroidCliConfig
   openai: OpenAIFlowConfig
   exchange?: ExchangeConfig
   verification?: VerificationConfig
@@ -263,7 +283,9 @@ function parseIntegerList(value: string | undefined): number[] | undefined {
     return undefined
   }
 
-  const parsed = value
+  const rawValue = value ?? ''
+  const parsed = rawValue
+    .trim()
     .split(',')
     .map((entry) => Number(entry.trim()))
     .filter((entry) => Number.isInteger(entry) && entry > 0)
@@ -334,6 +356,10 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
     'CHATGPT_TEAM_TRIAL_BILLING_CITY',
     'CHATGPT_TEAM_TRIAL_BILLING_STATE',
     'CHATGPT_TEAM_TRIAL_BILLING_POSTAL_CODE',
+    'CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE',
+    'CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER',
+    'CHATGPT_TEAM_TRIAL_GOPAY_PIN',
+    'CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS',
   ]
 
   if (!hasAnyDefinedEnv(relevantEnvNames)) {
@@ -341,15 +367,44 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
   }
 
   return {
-    billingAddress: {
-      name: process.env.CHATGPT_TEAM_TRIAL_BILLING_NAME,
-      country: process.env.CHATGPT_TEAM_TRIAL_BILLING_COUNTRY,
-      line1: process.env.CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE1,
-      line2: process.env.CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE2,
-      city: process.env.CHATGPT_TEAM_TRIAL_BILLING_CITY,
-      state: process.env.CHATGPT_TEAM_TRIAL_BILLING_STATE,
-      postalCode: process.env.CHATGPT_TEAM_TRIAL_BILLING_POSTAL_CODE,
-    },
+    ...(hasAnyDefinedEnv([
+      'CHATGPT_TEAM_TRIAL_BILLING_NAME',
+      'CHATGPT_TEAM_TRIAL_BILLING_COUNTRY',
+      'CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE1',
+      'CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE2',
+      'CHATGPT_TEAM_TRIAL_BILLING_CITY',
+      'CHATGPT_TEAM_TRIAL_BILLING_STATE',
+      'CHATGPT_TEAM_TRIAL_BILLING_POSTAL_CODE',
+    ])
+      ? {
+          billingAddress: {
+            name: process.env.CHATGPT_TEAM_TRIAL_BILLING_NAME,
+            country: process.env.CHATGPT_TEAM_TRIAL_BILLING_COUNTRY,
+            line1: process.env.CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE1,
+            line2: process.env.CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE2,
+            city: process.env.CHATGPT_TEAM_TRIAL_BILLING_CITY,
+            state: process.env.CHATGPT_TEAM_TRIAL_BILLING_STATE,
+            postalCode: process.env.CHATGPT_TEAM_TRIAL_BILLING_POSTAL_CODE,
+          },
+        }
+      : {}),
+    ...(hasAnyDefinedEnv([
+      'CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE',
+      'CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER',
+      'CHATGPT_TEAM_TRIAL_GOPAY_PIN',
+      'CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS',
+    ])
+      ? {
+          gopay: {
+            countryCode: process.env.CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE,
+            phoneNumber: process.env.CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER,
+            pin: process.env.CHATGPT_TEAM_TRIAL_GOPAY_PIN,
+            authorizationTimeoutMs: parseOptionalNumber(
+              process.env.CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS,
+            ),
+          },
+        }
+      : {}),
   }
 }
 
@@ -435,6 +490,18 @@ function buildDefaultConfig(): AppConfig {
       ),
       recordHar: false,
       proxy: resolveProxyConfig(),
+    },
+    android: {
+      appiumServerUrl: process.env.APPIUM_SERVER_URL || 'http://127.0.0.1:4723',
+      automationName: process.env.ANDROID_AUTOMATION_NAME || 'UiAutomator2',
+      deviceName: process.env.ANDROID_DEVICE_NAME || 'Android',
+      platformVersion: process.env.ANDROID_PLATFORM_VERSION,
+      udid: process.env.ANDROID_UDID,
+      appPackage: process.env.ANDROID_APP_PACKAGE,
+      appActivity: process.env.ANDROID_APP_ACTIVITY,
+      noReset: hasEnvValue(process.env.ANDROID_NO_RESET)
+        ? parseBoolean(process.env.ANDROID_NO_RESET, true)
+        : true,
     },
     openai: {
       baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',

@@ -1587,6 +1587,7 @@ const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
   chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_name(),
   chatgptInvite: () => m.admin_cli_flow_chatgpt_invite_name(),
   codexOauth: () => m.admin_cli_flow_codex_oauth_name(),
+  androidHealthcheck: () => m.admin_cli_flow_android_healthcheck_name(),
   noop: () => m.admin_cli_flow_noop_name(),
 }
 
@@ -1596,6 +1597,7 @@ const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
   chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_description(),
   chatgptInvite: () => m.admin_cli_flow_chatgpt_invite_description(),
   codexOauth: () => m.admin_cli_flow_codex_oauth_description(),
+  androidHealthcheck: () => m.admin_cli_flow_android_healthcheck_description(),
   noop: () => m.admin_cli_flow_noop_description(),
 }
 
@@ -1631,6 +1633,16 @@ const optionDisplayNameMap: Record<
   workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
   redirectPort: () => m.admin_cli_option_redirect_port_name(),
   authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
+  appiumServerUrl: () => m.admin_cli_option_appium_server_url_name(),
+  androidUdid: () => m.admin_cli_option_android_udid_name(),
+  androidDeviceName: () => m.admin_cli_option_android_device_name_name(),
+  androidPlatformVersion: () =>
+    m.admin_cli_option_android_platform_version_name(),
+  androidAutomationName: () =>
+    m.admin_cli_option_android_automation_name_name(),
+  androidAppPackage: () => m.admin_cli_option_android_app_package_name(),
+  androidAppActivity: () => m.admin_cli_option_android_app_activity_name(),
+  androidNoReset: () => m.admin_cli_option_android_no_reset_name(),
 }
 
 const optionDescriptionMap: Record<
@@ -1670,6 +1682,17 @@ const optionDescriptionMap: Record<
   workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
   redirectPort: () => m.admin_cli_option_redirect_port_description(),
   authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_description(),
+  appiumServerUrl: () => m.admin_cli_option_appium_server_url_description(),
+  androidUdid: () => m.admin_cli_option_android_udid_description(),
+  androidDeviceName: () => m.admin_cli_option_android_device_name_description(),
+  androidPlatformVersion: () =>
+    m.admin_cli_option_android_platform_version_description(),
+  androidAutomationName: () =>
+    m.admin_cli_option_android_automation_name_description(),
+  androidAppPackage: () => m.admin_cli_option_android_app_package_description(),
+  androidAppActivity: () =>
+    m.admin_cli_option_android_app_activity_description(),
+  androidNoReset: () => m.admin_cli_option_android_no_reset_description(),
 }
 
 function getFlowDisplayName(flowId: CliFlowCommandId): string {

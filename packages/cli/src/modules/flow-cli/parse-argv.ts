@@ -4,6 +4,7 @@ import {
   getCliFlowConfigFieldDefinitionByFlag,
   normalizeCliFlowConfig,
   type CliFlowCommandId,
+  type CliFlowConfigFieldKey,
 } from './flow-registry'
 
 function normalizeString(value: unknown): string | undefined {
@@ -64,7 +65,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function collectRawCliArgs(argv: string[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
-  const repeatableKeys = new Set(
+  const repeatableKeys = new Set<CliFlowConfigFieldKey>(
     cliFlowConfigFieldDefinitions
       .filter((definition) => definition.type === 'stringList')
       .map((definition) => definition.key),

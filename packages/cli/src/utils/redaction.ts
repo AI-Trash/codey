@@ -10,11 +10,11 @@ export function sanitizeText(value: string): string {
       `$1=${REDACTED}`,
     )
     .replace(
-      /\b(code|state|access_token|refresh_token|id_token|token|password|secret|client_secret|api_key)\b\s*[:=]\s*([^\s,;"'}&]+)/gi,
+      /\b(code|state|access_token|refresh_token|id_token|token|password|secret|client_secret|api_key|pin)\b\s*[:=]\s*([^\s,;"'}&]+)/gi,
       (_match, key) => `${key}=***redacted***`,
     )
     .replace(
-      /(["']?)(code|state|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|secret|client[_-]?secret|api[_-]?key)(["']?\s*:\s*["']?)([^"'\s,}]+)/gi,
+      /(["']?)(code|state|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|secret|client[_-]?secret|api[_-]?key|pin)(["']?\s*:\s*["']?)([^"'\s,}]+)/gi,
       (_match, open, key, separator) => `${open}${key}${separator}${REDACTED}`,
     )
 }
@@ -46,7 +46,7 @@ function sanitizeValue(
 ): unknown {
   if (
     /(?:secret|password|apiKey)s?$/i.test(key) ||
-    /^(code|state|accessToken|refreshToken|idToken|token)$/i.test(key)
+    /^(code|state|accessToken|refreshToken|idToken|token|pin)$/i.test(key)
   ) {
     return REDACTED
   }

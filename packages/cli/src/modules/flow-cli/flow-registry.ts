@@ -4,7 +4,10 @@ export type CliFlowCommandId =
   | 'chatgpt-team-trial'
   | 'chatgpt-invite'
   | 'codex-oauth'
+  | 'android-healthcheck'
   | 'noop'
+
+export type CliFlowRuntimeKind = 'browser' | 'android'
 
 export type CliFlowConfigFieldType =
   | 'string'
@@ -23,6 +26,7 @@ export type CliFlowDisplayNameKey =
   | 'chatgptTeamTrial'
   | 'chatgptInvite'
   | 'codexOauth'
+  | 'androidHealthcheck'
   | 'noop'
 
 export type CliFlowDescriptionKey =
@@ -31,6 +35,7 @@ export type CliFlowDescriptionKey =
   | 'chatgptTeamTrial'
   | 'chatgptInvite'
   | 'codexOauth'
+  | 'androidHealthcheck'
   | 'noop'
 
 export type CliFlowConfigFieldDisplayNameKey =
@@ -61,6 +66,14 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
+  | 'appiumServerUrl'
+  | 'androidUdid'
+  | 'androidDeviceName'
+  | 'androidPlatformVersion'
+  | 'androidAutomationName'
+  | 'androidAppPackage'
+  | 'androidAppActivity'
+  | 'androidNoReset'
 
 export type CliFlowConfigFieldDescriptionKey =
   | 'chromeDefaultProfile'
@@ -90,6 +103,14 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
+  | 'appiumServerUrl'
+  | 'androidUdid'
+  | 'androidDeviceName'
+  | 'androidPlatformVersion'
+  | 'androidAutomationName'
+  | 'androidAppPackage'
+  | 'androidAppActivity'
+  | 'androidNoReset'
 
 export type CliFlowConfigFieldKey =
   | 'chromeDefaultProfile'
@@ -119,6 +140,14 @@ export type CliFlowConfigFieldKey =
   | 'workspaceIndex'
   | 'redirectPort'
   | 'authorizeUrlOnly'
+  | 'appiumServerUrl'
+  | 'androidUdid'
+  | 'androidDeviceName'
+  | 'androidPlatformVersion'
+  | 'androidAutomationName'
+  | 'androidAppPackage'
+  | 'androidAppActivity'
+  | 'androidNoReset'
 
 export interface CliFlowConfigFieldDefinition {
   key: CliFlowConfigFieldKey
@@ -128,6 +157,7 @@ export interface CliFlowConfigFieldDefinition {
   descriptionKey?: CliFlowConfigFieldDescriptionKey
   options?: readonly CliFlowConfigFieldOption[]
   common?: boolean
+  runtimes?: readonly CliFlowRuntimeKind[]
 }
 
 export interface CliFlowConfigFieldOption {
@@ -137,6 +167,7 @@ export interface CliFlowConfigFieldOption {
 
 export interface CliFlowDefinition {
   id: CliFlowCommandId
+  runtime: CliFlowRuntimeKind
   displayNameKey: CliFlowDisplayNameKey
   descriptionKey?: CliFlowDescriptionKey
   configKeys: readonly CliFlowConfigFieldKey[]
@@ -176,6 +207,48 @@ export interface CommonFlowConfig {
    * Keep the browser open after the flow finishes.
    */
   record?: boolean
+}
+
+export interface AndroidCommonFlowConfig {
+  /**
+   * Appium server URL, for example http://127.0.0.1:4723.
+   */
+  appiumServerUrl?: string
+
+  /**
+   * Android device UDID. Leave unset when Appium can pick the target device.
+   */
+  androidUdid?: string
+
+  /**
+   * Android device name sent to Appium capabilities.
+   */
+  androidDeviceName?: string
+
+  /**
+   * Android platform version sent to Appium capabilities.
+   */
+  androidPlatformVersion?: string
+
+  /**
+   * Appium automation backend. UiAutomator2 is the default Android driver.
+   */
+  androidAutomationName?: string
+
+  /**
+   * Optional app package to launch for app-specific flows.
+   */
+  androidAppPackage?: string
+
+  /**
+   * Optional app activity to launch for app-specific flows.
+   */
+  androidAppActivity?: string
+
+  /**
+   * Preserve app/device state between runs.
+   */
+  androidNoReset?: boolean
 }
 
 export interface ChatGPTTeamTrialBillingFlowConfig {
@@ -343,12 +416,19 @@ export interface CodexOAuthFlowConfig extends CommonFlowConfig {
  */
 export interface NoopFlowConfig extends CommonFlowConfig {}
 
+/**
+ * Configuration for opening an Appium Android session and reporting device
+ * session details.
+ */
+export interface AndroidHealthcheckFlowConfig extends AndroidCommonFlowConfig {}
+
 export interface CliFlowConfigById {
   'chatgpt-register': ChatGPTRegisterFlowConfig
   'chatgpt-login': ChatGPTLoginFlowConfig
   'chatgpt-team-trial': ChatGPTTeamTrialFlowConfig
   'chatgpt-invite': ChatGPTInviteFlowConfig
   'codex-oauth': CodexOAuthFlowConfig
+  'android-healthcheck': AndroidHealthcheckFlowConfig
   noop: NoopFlowConfig
 }
 
@@ -433,6 +513,7 @@ export const cliFlowCommonConfigFieldDefinitions = [
     displayNameKey: 'chromeDefaultProfile',
     descriptionKey: 'chromeDefaultProfile',
     common: true,
+    runtimes: ['browser'],
   },
   {
     key: 'headless',
@@ -441,6 +522,7 @@ export const cliFlowCommonConfigFieldDefinitions = [
     displayNameKey: 'headless',
     descriptionKey: 'headless',
     common: true,
+    runtimes: ['browser'],
   },
   {
     key: 'slowMo',
@@ -449,6 +531,7 @@ export const cliFlowCommonConfigFieldDefinitions = [
     displayNameKey: 'slowMo',
     descriptionKey: 'slowMo',
     common: true,
+    runtimes: ['browser'],
   },
   {
     key: 'har',
@@ -457,6 +540,7 @@ export const cliFlowCommonConfigFieldDefinitions = [
     displayNameKey: 'har',
     descriptionKey: 'har',
     common: true,
+    runtimes: ['browser'],
   },
   {
     key: 'recordPageContent',
@@ -465,6 +549,7 @@ export const cliFlowCommonConfigFieldDefinitions = [
     displayNameKey: 'recordPageContent',
     descriptionKey: 'recordPageContent',
     common: true,
+    runtimes: ['browser'],
   },
   {
     key: 'record',
@@ -473,6 +558,7 @@ export const cliFlowCommonConfigFieldDefinitions = [
     displayNameKey: 'record',
     descriptionKey: 'record',
     common: true,
+    runtimes: ['browser'],
   },
 ] as const satisfies readonly CliFlowConfigFieldDefinition[]
 
@@ -629,11 +715,68 @@ export const cliFlowConfigFieldDefinitions = [
     displayNameKey: 'authorizeUrlOnly',
     descriptionKey: 'authorizeUrlOnly',
   },
+  {
+    key: 'appiumServerUrl',
+    cliFlag: '--appiumServerUrl',
+    type: 'string',
+    displayNameKey: 'appiumServerUrl',
+    descriptionKey: 'appiumServerUrl',
+  },
+  {
+    key: 'androidUdid',
+    cliFlag: '--androidUdid',
+    type: 'string',
+    displayNameKey: 'androidUdid',
+    descriptionKey: 'androidUdid',
+  },
+  {
+    key: 'androidDeviceName',
+    cliFlag: '--androidDeviceName',
+    type: 'string',
+    displayNameKey: 'androidDeviceName',
+    descriptionKey: 'androidDeviceName',
+  },
+  {
+    key: 'androidPlatformVersion',
+    cliFlag: '--androidPlatformVersion',
+    type: 'string',
+    displayNameKey: 'androidPlatformVersion',
+    descriptionKey: 'androidPlatformVersion',
+  },
+  {
+    key: 'androidAutomationName',
+    cliFlag: '--androidAutomationName',
+    type: 'string',
+    displayNameKey: 'androidAutomationName',
+    descriptionKey: 'androidAutomationName',
+  },
+  {
+    key: 'androidAppPackage',
+    cliFlag: '--androidAppPackage',
+    type: 'string',
+    displayNameKey: 'androidAppPackage',
+    descriptionKey: 'androidAppPackage',
+  },
+  {
+    key: 'androidAppActivity',
+    cliFlag: '--androidAppActivity',
+    type: 'string',
+    displayNameKey: 'androidAppActivity',
+    descriptionKey: 'androidAppActivity',
+  },
+  {
+    key: 'androidNoReset',
+    cliFlag: '--androidNoReset',
+    type: 'boolean',
+    displayNameKey: 'androidNoReset',
+    descriptionKey: 'androidNoReset',
+  },
 ] as const satisfies readonly CliFlowConfigFieldDefinition[]
 
 export const cliFlowDefinitions = [
   {
     id: 'chatgpt-register',
+    runtime: 'browser',
     displayNameKey: 'chatgptRegister',
     descriptionKey: 'chatgptRegister',
     configKeys: [
@@ -652,12 +795,14 @@ export const cliFlowDefinitions = [
   },
   {
     id: 'chatgpt-login',
+    runtime: 'browser',
     displayNameKey: 'chatgptLogin',
     descriptionKey: 'chatgptLogin',
     configKeys: ['identityId', 'email', 'restoreStorageState'],
   },
   {
     id: 'chatgpt-team-trial',
+    runtime: 'browser',
     displayNameKey: 'chatgptTeamTrial',
     descriptionKey: 'chatgptTeamTrial',
     configKeys: [
@@ -675,6 +820,7 @@ export const cliFlowDefinitions = [
   },
   {
     id: 'chatgpt-invite',
+    runtime: 'browser',
     displayNameKey: 'chatgptInvite',
     descriptionKey: 'chatgptInvite',
     configKeys: [
@@ -688,6 +834,7 @@ export const cliFlowDefinitions = [
   },
   {
     id: 'codex-oauth',
+    runtime: 'browser',
     displayNameKey: 'codexOauth',
     descriptionKey: 'codexOauth',
     configKeys: [
@@ -702,7 +849,24 @@ export const cliFlowDefinitions = [
     ],
   },
   {
+    id: 'android-healthcheck',
+    runtime: 'android',
+    displayNameKey: 'androidHealthcheck',
+    descriptionKey: 'androidHealthcheck',
+    configKeys: [
+      'appiumServerUrl',
+      'androidUdid',
+      'androidDeviceName',
+      'androidPlatformVersion',
+      'androidAutomationName',
+      'androidAppPackage',
+      'androidAppActivity',
+      'androidNoReset',
+    ],
+  },
+  {
     id: 'noop',
+    runtime: 'browser',
     displayNameKey: 'noop',
     descriptionKey: 'noop',
     configKeys: [],
@@ -998,7 +1162,9 @@ export function getCliFlowConfigFieldDefinition(
 export function getCliFlowConfigFieldDefinitionByFlag(
   cliFlag: string,
 ): CliFlowConfigFieldDefinition | undefined {
-  return cliFlowConfigFieldDefinitionsByFlag.get(cliFlag)
+  return cliFlowConfigFieldDefinitionsByFlag.get(
+    cliFlag as (typeof cliFlowConfigFieldDefinitions)[number]['cliFlag'],
+  )
 }
 
 export function listCliFlowConfigFieldDefinitions(
@@ -1009,10 +1175,13 @@ export function listCliFlowConfigFieldDefinitions(
     return []
   }
 
-  return cliFlowConfigFieldDefinitions.filter(
-    (definition) =>
-      definition.common || flowDefinition.configKeys.includes(definition.key),
-  )
+  return cliFlowConfigFieldDefinitions.filter((definition) => {
+    const field = definition as CliFlowConfigFieldDefinition
+    const commonForRuntime =
+      field.common &&
+      (!field.runtimes || field.runtimes.includes(flowDefinition.runtime))
+    return commonForRuntime || flowDefinition.configKeys.includes(field.key)
+  })
 }
 
 export function normalizeCliFlowConfig<TFlowId extends CliFlowCommandId>(
@@ -1049,7 +1218,7 @@ export function createCliFlowTaskRequest<TFlowId extends CliFlowCommandId>(
   return {
     flowId,
     config,
-  }
+  } as CliFlowTaskRequestById[TFlowId]
 }
 
 export function createCliFlowTaskPayload<TFlowId extends CliFlowCommandId>(
@@ -1066,7 +1235,7 @@ export function createCliFlowTaskPayload<TFlowId extends CliFlowCommandId>(
     ...(batch ? { batch } : {}),
     ...(externalServices ? { externalServices } : {}),
     ...(metadata ? { metadata } : {}),
-  }
+  } as CliFlowTaskPayloadById[TFlowId]
 }
 
 function normalizeOptionalMetadataString(value: unknown): string | undefined {

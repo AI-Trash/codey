@@ -44,6 +44,7 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
 - Node.js 20+
 - pnpm 10+
 - Patchright Chrome installed via `pnpx patchright install chrome`
+- Appium + UiAutomator2 if you want Android automation flows
 - Exchange Online / Microsoft 365 if you want the legacy Exchange provider
 - GitHub OAuth credentials if you want browser admin login
 - Cloudflare Email Routing + Email Worker if you want the built-in app-backed provider
@@ -184,11 +185,22 @@ pnpm flow chatgpt-register --verificationTimeoutMs 180000
 pnpm flow chatgpt-login
 pnpm flow chatgpt-login --chromeDefaultProfile true
 pnpm flow codex-oauth --workspaceIndex 2
+pnpm flow android-healthcheck --androidUdid emulator-5554
 ```
 
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
 
+For GoPay trial checkout continuation, set `CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER` before running `--claimTrial gopay`. `CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE` is optional when the Midtrans page already shows the right country code. If `CHATGPT_TEAM_TRIAL_GOPAY_PIN` is omitted, the flow opens the GoPay authorization page and waits for manual PIN completion until `CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS` (default 180000 ms).
+
 Pass `--recordPageContent true` on any flow to save the final settled `page.content()` HTML under `artifacts/` as a `*-page-content.html` file. This is intended for developing new page branches after upstream UI changes.
+
+Android automation flows use Appium through WebdriverIO. Configure the Appium
+endpoint with `APPIUM_SERVER_URL` or `--appiumServerUrl`; device and app
+capabilities can be provided with `ANDROID_UDID`, `ANDROID_DEVICE_NAME`,
+`ANDROID_PLATFORM_VERSION`, `ANDROID_APP_PACKAGE`, `ANDROID_APP_ACTIVITY`, or
+the matching `--android*` CLI flags. `flow android-healthcheck` is a minimal
+session lifecycle check that opens an Android session and reports the connected
+device details.
 
 ### CLI logs
 

@@ -97,6 +97,11 @@ const GOPAY_MIDTRANS_REDIRECT_HASH_PATTERN =
 const PAYMENT_CAPTURE_POLL_MS = 250
 const PAYMENT_METHOD_POLL_MS = 250
 const PAYMENT_METHOD_SETTLE_MS = 1500
+const GOPAY_AUTHORIZATION_TIMEOUT_MS = 180000
+const GOPAY_LINKING_RESPONSE_PATTERN =
+  /\/snap\/v\d+\/accounts\/[^/]+\/linking$/i
+const GOPAY_AUTHORIZATION_HOST_PATTERN = /(^|\.)gopayapi\.com$/i
+const GOPAY_PIN_LENGTH = 6
 const PAYMENT_METHOD_LABEL_PATTERNS = {
   paypal: /paypal/i,
   gopay: /go\s*pay|gopay/i,
@@ -198,6 +203,43 @@ export interface GoPayPaymentRedirectLink {
 export type ChatGPTCheckoutPaymentLink =
   | PaypalBillingAgreementLink
   | GoPayPaymentRedirectLink
+
+export type GoPayPaymentContinuationStatus =
+  | 'payment-page-ready'
+  | 'pin-required'
+  | 'pay-now-clicked'
+
+export interface GoPayAccountLinkingOptions {
+  countryCode?: string
+  phoneNumber?: string
+  pin?: string
+  authorizationTimeoutMs?: number
+}
+
+export interface GoPayPaymentContinuationProgress {
+  step:
+    | 'redirect-opened'
+    | 'phone-submitted'
+    | 'authorization-opened'
+    | 'pin-submitted'
+    | 'payment-page-ready'
+    | 'pay-now-clicked'
+  url?: string
+  activationLinkUrl?: string
+}
+
+export interface GoPayPaymentContinuationResult {
+  paymentMethod: 'gopay'
+  redirectUrl: string
+  finalUrl: string
+  title: string
+  status: GoPayPaymentContinuationStatus
+  activationLinkUrl?: string
+  accountStatus?: string
+  statusCode?: string
+  pinSubmitted: boolean
+  payNowClicked: boolean
+}
 
 export async function clickSignupEntry(page: Page): Promise<void> {
   await clickAny(page, SIGNUP_ENTRY_SELECTORS)
@@ -875,6 +917,520 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaymentLink(
   throw new Error(
     `ChatGPT ${paymentMethod} payment redirect link was not captured.`,
   )
+}
+
+export async function continueGoPayPaymentFromRedirect(
+  page: Page,
+  redirect: GoPayPaymentRedirectLink,
+  options: GoPayAccountLinkingOptions & {
+    onProgress?: (update: GoPayPaymentContinuationProgress) => void
+  } = {},
+): Promise<GoPayPaymentContinuationResult> {
+  const timeoutMs = Math.max(
+    1,
+    options.authorizationTimeoutMs ?? GOPAY_AUTHORIZATION_TIMEOUT_MS,
+  )
+  const deadline = Date.now() + timeoutMs
+  let activationLinkUrl: string | undefined
+  let accountStatus: string | undefined
+  let statusCode: string | undefined
+  let pinSubmitted = false
+
+  await page.goto(redirect.url, { waitUntil: 'domcontentloaded' })
+  await page.locator('body').waitFor({ state: 'visible' })
+  await page.waitForLoadState('networkidle').catch(() => undefined)
+  options.onProgress?.({ step: 'redirect-opened', url: page.url() })
+
+  await throwIfMidtransGoPayExpired(page)
+
+  if (!(await isMidtransGoPayPaymentPageReady(page))) {
+    if (!(await isMidtransGoPayPhoneInputReady(page))) {
+      throw new Error(
+        'GoPay tokenization page did not show a phone-number form or a linked payment account.',
+      )
+    }
+
+    if (!options.phoneNumber?.trim()) {
+      throw new Error(
+        'GoPay tokenization requires a phone number. Set CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER before running the GoPay trial flow.',
+      )
+    }
+
+    const linking = await submitMidtransGoPayLinking(page, {
+      countryCode: options.countryCode,
+      phoneNumber: options.phoneNumber,
+    })
+    activationLinkUrl = linking.activationLinkUrl
+    accountStatus = linking.accountStatus
+    statusCode = linking.statusCode
+    options.onProgress?.({
+      step: 'phone-submitted',
+      url: page.url(),
+      activationLinkUrl,
+    })
+
+    if (!activationLinkUrl) {
+      throw new Error(
+        'GoPay tokenization did not return an activation link after submitting the phone number.',
+      )
+    }
+
+    await page.goto(activationLinkUrl, { waitUntil: 'domcontentloaded' })
+    await page.locator('body').waitFor({ state: 'visible' })
+    await page.waitForLoadState('networkidle').catch(() => undefined)
+    options.onProgress?.({
+      step: 'authorization-opened',
+      url: page.url(),
+      activationLinkUrl,
+    })
+  }
+
+  if (await isGoPayAuthorizationPinReady(page)) {
+    const pin = options.pin?.replace(/\D/g, '') || ''
+    if (pin) {
+      if (pin.length !== GOPAY_PIN_LENGTH) {
+        throw new Error(
+          `GoPay PIN must contain ${GOPAY_PIN_LENGTH} digits when configured.`,
+        )
+      }
+
+      await fillGoPayAuthorizationPin(page, pin)
+      pinSubmitted = true
+      options.onProgress?.({
+        step: 'pin-submitted',
+        url: page.url(),
+        activationLinkUrl,
+      })
+    }
+  }
+
+  const paymentPageReady = await waitForMidtransGoPayPaymentPageReady(
+    page,
+    Math.max(1, deadline - Date.now()),
+  )
+  if (!paymentPageReady) {
+    if (await isGoPayAuthorizationPinReady(page)) {
+      return buildGoPayPaymentContinuationResult(page, redirect, {
+        status: 'pin-required',
+        activationLinkUrl,
+        accountStatus,
+        statusCode,
+        pinSubmitted,
+        payNowClicked: false,
+      })
+    }
+
+    throw new Error(
+      'GoPay authorization did not return to the Midtrans payment page before the timeout.',
+    )
+  }
+
+  options.onProgress?.({
+    step: 'payment-page-ready',
+    url: page.url(),
+    activationLinkUrl,
+  })
+
+  const payNowClicked = await clickMidtransGoPayPayNow(page)
+  if (!payNowClicked) {
+    return buildGoPayPaymentContinuationResult(page, redirect, {
+      status: 'payment-page-ready',
+      activationLinkUrl,
+      accountStatus,
+      statusCode,
+      pinSubmitted,
+      payNowClicked: false,
+    })
+  }
+
+  options.onProgress?.({
+    step: 'pay-now-clicked',
+    url: page.url(),
+    activationLinkUrl,
+  })
+  await page.waitForLoadState('networkidle').catch(() => undefined)
+  await sleep(1000)
+
+  return buildGoPayPaymentContinuationResult(page, redirect, {
+    status: 'pay-now-clicked',
+    activationLinkUrl,
+    accountStatus,
+    statusCode,
+    pinSubmitted,
+    payNowClicked: true,
+  })
+}
+
+async function submitMidtransGoPayLinking(
+  page: Page,
+  account: Pick<GoPayAccountLinkingOptions, 'countryCode' | 'phoneNumber'>,
+): Promise<{
+  activationLinkUrl?: string
+  accountStatus?: string
+  statusCode?: string
+}> {
+  if (account.countryCode?.trim()) {
+    const countrySelected = await selectMidtransGoPayCountryCode(
+      page,
+      account.countryCode,
+    )
+    if (!countrySelected) {
+      throw new Error(
+        `GoPay tokenization country code +${normalizePhoneDigits(account.countryCode)} could not be selected.`,
+      )
+    }
+  }
+
+  await fillMidtransGoPayPhoneNumber(page, account.phoneNumber || '')
+  const responsePromise = page
+    .waitForResponse(
+      (response) => {
+        const request = response.request()
+        try {
+          return (
+            request.method().toUpperCase() === 'POST' &&
+            GOPAY_LINKING_RESPONSE_PATTERN.test(
+              new URL(response.url()).pathname,
+            )
+          )
+        } catch {
+          return false
+        }
+      },
+      { timeout: 30000 },
+    )
+    .catch(() => undefined)
+
+  await clickMidtransGoPayLinkAndPay(page)
+
+  const response = await responsePromise
+  if (!response) {
+    await page.waitForLoadState('networkidle').catch(() => undefined)
+    const currentUrl = page.url()
+    if (isGoPayAuthorizationUrl(currentUrl)) {
+      return {
+        activationLinkUrl: currentUrl,
+      }
+    }
+
+    return {}
+  }
+
+  const text = await response.text().catch(() => '')
+  const data = parseJsonRecord(text)
+  const activationLinkUrl = readStringField(data, 'activation_link_url')
+  if (!response.ok()) {
+    const message =
+      readStringField(data, 'status_message') ||
+      readStringField(data, 'message') ||
+      text.slice(0, 500).trim() ||
+      `HTTP ${response.status()}`
+    throw new Error(`GoPay tokenization linking failed: ${message}`)
+  }
+
+  return {
+    activationLinkUrl,
+    accountStatus: readStringField(data, 'account_status'),
+    statusCode: readStringField(data, 'status_code'),
+  }
+}
+
+async function selectMidtransGoPayCountryCode(
+  page: Page,
+  countryCode: string,
+): Promise<boolean> {
+  const normalized = normalizePhoneDigits(countryCode)
+  if (!normalized) {
+    return true
+  }
+
+  if (await isMidtransGoPayCountryCodeSelected(page, normalized)) {
+    return true
+  }
+
+  const trigger = page.locator('.phone-code-wrapper').first()
+  const triggerVisible = await trigger.isVisible().catch(() => false)
+  if (!triggerVisible) {
+    return false
+  }
+
+  await trigger.click().catch(() => undefined)
+  await sleep(250)
+
+  const search = page
+    .locator('input[type="search"], input[placeholder*="country" i]')
+    .first()
+  if (await search.isVisible().catch(() => false)) {
+    await search.fill(normalized).catch(() => undefined)
+    await sleep(250)
+  }
+
+  const option = page
+    .locator(`.country-item:has-text("(+${normalized})")`)
+    .first()
+  if (!(await option.isVisible().catch(() => false))) {
+    await page.keyboard.press('Escape').catch(() => undefined)
+    return isMidtransGoPayCountryCodeSelected(page, normalized)
+  }
+
+  await option.click()
+  await sleep(500)
+  return isMidtransGoPayCountryCodeSelected(page, normalized)
+}
+
+async function isMidtransGoPayCountryCodeSelected(
+  page: Page,
+  countryCode: string,
+): Promise<boolean> {
+  const selected = await page
+    .locator('.phone-code')
+    .first()
+    .innerText({ timeout: 1000 })
+    .catch(() => '')
+  return normalizePhoneDigits(selected) === countryCode
+}
+
+async function fillMidtransGoPayPhoneNumber(
+  page: Page,
+  phoneNumber: string,
+): Promise<void> {
+  const normalizedPhone = normalizePhoneDigits(phoneNumber)
+  if (!normalizedPhone) {
+    throw new Error('GoPay tokenization phone number is empty.')
+  }
+
+  const phoneInput = page
+    .locator('.phone-number-input input[type="tel"], input[type="tel"]')
+    .first()
+  await phoneInput.waitFor({ state: 'visible', timeout: 10000 })
+  await phoneInput.fill(normalizedPhone)
+  await phoneInput.evaluate((element) => {
+    element.dispatchEvent(new Event('input', { bubbles: true }))
+    element.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await sleep(300)
+}
+
+async function clickMidtransGoPayLinkAndPay(page: Page): Promise<void> {
+  const candidates = [
+    page.getByRole('button', { name: /link and pay/i }),
+    page.locator('button:has-text("Link and pay")'),
+    page.locator('.linking-cta button'),
+  ]
+
+  for (const locator of candidates) {
+    const candidate = locator.first()
+    const visible = await candidate.isVisible().catch(() => false)
+    if (!visible) {
+      continue
+    }
+
+    const enabled = await isLocatorEnabled(candidate).catch(() => true)
+    if (!enabled) {
+      continue
+    }
+
+    await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
+    await candidate.click()
+    return
+  }
+
+  throw new Error('GoPay tokenization Link and pay button was not enabled.')
+}
+
+async function clickMidtransGoPayPayNow(page: Page): Promise<boolean> {
+  const candidates = [
+    page.getByRole('button', { name: /pay now|bayar/i }),
+    page.locator('button:has-text("Pay now")'),
+    page.locator('.button-down button.primary, .button-down button.btn'),
+  ]
+
+  for (const locator of candidates) {
+    const candidate = locator.first()
+    const visible = await candidate.isVisible().catch(() => false)
+    if (!visible) {
+      continue
+    }
+
+    const enabled = await isLocatorEnabled(candidate).catch(() => true)
+    if (!enabled) {
+      continue
+    }
+
+    await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
+    await candidate.click()
+    await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+    return true
+  }
+
+  return false
+}
+
+async function isMidtransGoPayPhoneInputReady(page: Page): Promise<boolean> {
+  return page
+    .locator('.phone-number-input input[type="tel"], input[type="tel"]')
+    .first()
+    .isVisible({ timeout: 1000 })
+    .catch(() => false)
+}
+
+async function isMidtransGoPayPaymentPageReady(page: Page): Promise<boolean> {
+  const payNowVisible = await page
+    .getByRole('button', { name: /pay now|bayar/i })
+    .first()
+    .isVisible({ timeout: 1000 })
+    .catch(() => false)
+  if (payNowVisible) {
+    return true
+  }
+
+  return page
+    .locator('.gopay-tokenization-balance-content, .masked-phone')
+    .first()
+    .isVisible({ timeout: 1000 })
+    .catch(() => false)
+}
+
+async function waitForMidtransGoPayPaymentPageReady(
+  page: Page,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + Math.max(0, timeoutMs)
+
+  do {
+    await throwIfMidtransGoPayExpired(page)
+    if (await isMidtransGoPayPaymentPageReady(page)) {
+      return true
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) {
+      break
+    }
+    await sleep(Math.min(500, remainingMs))
+  } while (Date.now() <= deadline)
+
+  return isMidtransGoPayPaymentPageReady(page)
+}
+
+async function isGoPayAuthorizationPinReady(page: Page): Promise<boolean> {
+  if (!isGoPayAuthorizationUrl(page.url())) {
+    return false
+  }
+
+  const inputs = page.locator(
+    '[data-testid^="pin-input-"], input[inputmode="numeric"][maxlength="1"]',
+  )
+  const count = await inputs.count().catch(() => 0)
+  if (count >= GOPAY_PIN_LENGTH) {
+    return true
+  }
+
+  return page
+    .getByText(/6 digit PIN|PIN kamu|pin/i)
+    .first()
+    .isVisible({ timeout: 1000 })
+    .catch(() => false)
+}
+
+async function fillGoPayAuthorizationPin(
+  page: Page,
+  pin: string,
+): Promise<void> {
+  const inputs = page.locator(
+    '[data-testid^="pin-input-"], input[inputmode="numeric"][maxlength="1"]',
+  )
+  const count = await inputs.count().catch(() => 0)
+  if (count >= GOPAY_PIN_LENGTH) {
+    for (let index = 0; index < GOPAY_PIN_LENGTH; index += 1) {
+      const input = inputs.nth(index)
+      await input.fill(pin[index])
+      await sleep(50)
+    }
+    return
+  }
+
+  await page.keyboard.type(pin, { delay: 50 })
+}
+
+async function throwIfMidtransGoPayExpired(page: Page): Promise<void> {
+  const bodyText = await page
+    .locator('body')
+    .innerText({ timeout: 1000 })
+    .catch(() => '')
+  if (
+    /transaction has expired|payment on time|transaksi.*(?:kedaluwarsa|expired)/i.test(
+      bodyText,
+    )
+  ) {
+    throw new Error(
+      'GoPay Midtrans payment link has expired; create a fresh ChatGPT trial checkout link and retry.',
+    )
+  }
+}
+
+async function buildGoPayPaymentContinuationResult(
+  page: Page,
+  redirect: GoPayPaymentRedirectLink,
+  input: {
+    status: GoPayPaymentContinuationStatus
+    activationLinkUrl?: string
+    accountStatus?: string
+    statusCode?: string
+    pinSubmitted: boolean
+    payNowClicked: boolean
+  },
+): Promise<GoPayPaymentContinuationResult> {
+  const title = await page.title().catch(() => '')
+  return {
+    paymentMethod: 'gopay',
+    redirectUrl: redirect.url,
+    finalUrl: page.url(),
+    title,
+    status: input.status,
+    ...(input.activationLinkUrl
+      ? { activationLinkUrl: input.activationLinkUrl }
+      : {}),
+    ...(input.accountStatus ? { accountStatus: input.accountStatus } : {}),
+    ...(input.statusCode ? { statusCode: input.statusCode } : {}),
+    pinSubmitted: input.pinSubmitted,
+    payNowClicked: input.payNowClicked,
+  }
+}
+
+function isGoPayAuthorizationUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return (
+      parsed.protocol === 'https:' &&
+      GOPAY_AUTHORIZATION_HOST_PATTERN.test(parsed.hostname)
+    )
+  } catch {
+    return false
+  }
+}
+
+function normalizePhoneDigits(value: string | undefined): string {
+  return value?.replace(/\D/g, '') || ''
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = value ? JSON.parse(value) : undefined
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function readStringField(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const field = value?.[key]
+  return typeof field === 'string' && field.trim() ? field.trim() : undefined
 }
 
 async function waitForStripeBillingAddressFrame(

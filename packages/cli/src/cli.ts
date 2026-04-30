@@ -6,14 +6,6 @@ import { loadWorkspaceEnv } from './utils/env'
 loadWorkspaceEnv()
 
 import { setRuntimeConfig } from './config'
-import {
-  inviteChatGPTWorkspaceMembers,
-  loginChatGPT,
-  openNoopFlow,
-  runChatGPTTeamTrial,
-  registerChatGPT,
-  runCodexOAuthFlow,
-} from './flows'
 import { ExchangeClient } from './modules/exchange'
 import {
   resolveCliNotificationsAuthState,
@@ -64,6 +56,8 @@ import {
   FlowInterruptedError,
   runWithSession,
 } from './modules/flow-cli/run-with-session'
+import { runWithAndroidSession } from './modules/flow-cli/run-with-android-session'
+import { getCliFlowRunner } from './modules/flow-cli/flow-runners'
 import { getFlowTaskFullRetryDecision } from './modules/flow-cli/task-retry'
 import {
   buildFailedFlowCommandExecution,
@@ -120,69 +114,48 @@ async function runFlowCommand(
   let result: unknown
   let browserHarPath: string | undefined
   let pageContentPath: string | undefined
+  const flowRunner = getCliFlowRunner(subcommand)
 
-  await runWithSession(
-    {
-      artifactName: subcommand,
-      context: {},
-      storageStatePath: preparedStorageState.storageState?.storageStatePath,
-    },
-    async (session) => {
-      browserHarPath = session.harPath
-      if (subcommand === 'chatgpt-register') {
-        result = await registerChatGPT(session.page, runtimeOptions)
-        return
-      }
-
-      if (subcommand === 'chatgpt-login') {
-        result = await loginChatGPT(session.page, runtimeOptions)
-        return
-      }
-
-      if (subcommand === 'chatgpt-team-trial') {
-        result = await runChatGPTTeamTrial(session.page, runtimeOptions)
-        return
-      }
-
-      if (subcommand === 'chatgpt-invite') {
-        result = await inviteChatGPTWorkspaceMembers(
-          session.page,
-          runtimeOptions,
-        )
-        return
-      }
-
-      if (subcommand === 'codex-oauth') {
-        result = await runCodexOAuthFlow(session.page, runtimeOptions)
-        return
-      }
-
-      if (subcommand === 'noop') {
-        result = await openNoopFlow(session.page)
-        return
-      }
-
-      throw new Error(`Unsupported flow command: ${subcommand || '(missing)'}`)
-    },
-    {
-      closeOnComplete: !shouldKeepFlowOpen(runtimeOptions),
-      abortSignal: runtime.abortSignal,
-      pageContent: {
-        enabled: shouldRecordPageContent(runtimeOptions),
+  if (flowRunner.runtime === 'android') {
+    await runWithAndroidSession(
+      async (session) => {
+        result = await flowRunner.run(session, runtimeOptions)
+      },
+      {
+        abortSignal: runtime.abortSignal,
+      },
+    )
+  } else {
+    await runWithSession(
+      {
         artifactName: subcommand,
-        onPath(path) {
-          pageContentPath = path
+        context: {},
+        storageStatePath: preparedStorageState.storageState?.storageStatePath,
+      },
+      async (session) => {
+        browserHarPath = session.harPath
+        result = await flowRunner.run(session, runtimeOptions)
+      },
+      {
+        closeOnComplete: !shouldKeepFlowOpen(runtimeOptions),
+        abortSignal: runtime.abortSignal,
+        pageContent: {
+          enabled: shouldRecordPageContent(runtimeOptions),
+          artifactName: subcommand,
+          onPath(path) {
+            pageContentPath = path
+          },
         },
       },
-    },
-  )
+    )
+  }
 
   result = attachFlowArtifactPaths(result, {
     harPath: browserHarPath,
     pageContentPath,
   })
   printFlowCompletionSummary(`flow:${subcommand}`, result)
-  if (shouldKeepFlowOpen(runtimeOptions)) {
+  if (flowRunner.runtime === 'browser' && shouldKeepFlowOpen(runtimeOptions)) {
     writeCliStderrLine(
       'Flow completed and the browser remains open because --record is enabled. Press Ctrl+C to exit or close the browser window.',
     )
@@ -1187,15 +1160,23 @@ function withCommonOptions<
     option(name: string, description?: string, config?: never): TCommand
   },
 >(command: TCommand): TCommand {
-  return command
-    .option('--config <file>', 'JSON config file')
-    .option('--profile <name>', 'Reserved for future config profile selection')
+  return withConfigOptions(command)
     .option(
       '--chromeDefaultProfile <bool>',
       'Use the local Chrome Default profile for browser-based flow startup (implies --record true unless explicitly disabled)',
     )
     .option('--headless <bool>', 'Override browser headless')
     .option('--slowMo <ms>', 'Override browser slow motion delay')
+}
+
+function withConfigOptions<
+  TCommand extends {
+    option(name: string, description?: string, config?: never): TCommand
+  },
+>(command: TCommand): TCommand {
+  return command
+    .option('--config <file>', 'JSON config file')
+    .option('--profile <name>', 'Reserved for future config profile selection')
 }
 
 withCommonOptions(
@@ -1448,6 +1429,42 @@ withCommonOptions(
   )
 })
 
+withConfigOptions(
+  flowCli
+    .command(
+      'android-healthcheck',
+      'Open an Appium Android session and report device details',
+    )
+    .option(
+      '--appiumServerUrl <url>',
+      'Appium server URL, for example http://127.0.0.1:4723',
+    )
+    .option('--androidUdid <udid>', 'Android device UDID')
+    .option('--androidDeviceName <name>', 'Android device name')
+    .option('--androidPlatformVersion <version>', 'Android platform version')
+    .option(
+      '--androidAutomationName <name>',
+      'Appium Android automation backend',
+    )
+    .option('--androidAppPackage <package>', 'Android app package to launch')
+    .option('--androidAppActivity <activity>', 'Android app activity to launch')
+    .option(
+      '--androidNoReset <bool>',
+      'Whether Appium should preserve app/device state between runs',
+    )
+    .example('codey flow android-healthcheck --androidUdid emulator-5554'),
+).action((rawOptions: Record<string, unknown>) => {
+  execute(
+    (async () => {
+      const options = normalizeFlowCommandOptions(
+        'android-healthcheck',
+        rawOptions,
+      )
+      await executeFlowSubcommandWithReporting('android-healthcheck', options)
+    })(),
+  )
+})
+
 withCommonOptions(
   flowCli
     .command(
@@ -1617,6 +1634,7 @@ cli
     'codey flow chatgpt-invite --inviteEmail a@example.com,b@example.com',
   )
   .example('codey flow codex-oauth --workspaceIndex 2')
+  .example('codey flow android-healthcheck --androidUdid emulator-5554')
   .action(() => {
     flowCli.outputHelp()
   })

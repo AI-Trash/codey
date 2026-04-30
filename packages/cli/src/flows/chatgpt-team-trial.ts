@@ -16,6 +16,7 @@ import {
   buildChatGPTTrialPricingPromoUrl,
   clickChatGPTCheckoutSubscribeAndCapturePaymentLink,
   clickTrialPricingFreeTrial,
+  continueGoPayPaymentFromRedirect,
   createChatGPTBackendApiHeadersCapture,
   fillChatGPTCheckoutBillingAddress,
   getChatGPTTrialPromoPlan,
@@ -30,6 +31,8 @@ import {
   type ChatGPTTrialPromoCoupon,
   type ChatGPTTrialPaymentMethod,
   type ChatGPTTrialPromoPlan,
+  type GoPayAccountLinkingOptions,
+  type GoPayPaymentContinuationResult,
   waitForAuthenticatedSession,
   waitForChatGPTCheckoutReady,
   waitForTrialPricingFreeTrialReady,
@@ -79,6 +82,10 @@ export type ChatGPTTeamTrialFlowState =
   | 'billing-address-filled'
   | 'subscribing'
   | 'paypal-link-captured'
+  | 'gopay-linking'
+  | 'gopay-authorizing'
+  | 'gopay-payment-ready'
+  | 'gopay-payment-submitted'
   | 'retrying'
   | 'completed'
   | 'failed'
@@ -100,6 +107,10 @@ export type ChatGPTTeamTrialFlowEvent =
   | 'chatgpt.billing_address.filled'
   | 'chatgpt.subscription.submitting'
   | 'chatgpt.paypal_link.captured'
+  | 'chatgpt.gopay.linking'
+  | 'chatgpt.gopay.authorizing'
+  | 'chatgpt.gopay.payment_ready'
+  | 'chatgpt.gopay.payment_submitted'
   | 'chatgpt.retry.requested'
   | 'chatgpt.completed'
   | 'chatgpt.failed'
@@ -129,6 +140,11 @@ export interface ChatGPTTeamTrialFlowContext<Result = unknown> {
   paymentRedirectUrlPath?: string
   paypalApprovalUrl?: string
   paypalApprovalUrlPath?: string
+  gopayActivationLinkUrl?: string
+  gopayStatus?: string
+  gopayPinSubmitted?: boolean
+  gopayPayNowClicked?: boolean
+  gopayFinalUrl?: string
   retryCount?: number
   retryReason?: string
   retryFromState?: ChatGPTTeamTrialFlowState
@@ -171,6 +187,7 @@ export interface ChatGPTTeamTrialFlowResult {
   paymentRedirectUrlPath: string
   paypalApprovalUrl: string
   paypalApprovalUrlPath: string
+  gopayPayment?: GoPayPaymentContinuationResult
   login: ChatGPTLoginFlowResult
   machine: ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialFlowResult>
 }
@@ -194,6 +211,7 @@ export interface ChatGPTTeamTrialPostLoginResult {
   paymentRedirectUrlPath: string
   paypalApprovalUrl: string
   paypalApprovalUrlPath: string
+  gopayPayment?: GoPayPaymentContinuationResult
 }
 
 export type ChatGPTTrialPostLoginResult = ChatGPTTeamTrialPostLoginResult
@@ -228,6 +246,10 @@ const chatgptTeamTrialEventTargets = {
   'chatgpt.billing_address.filled': 'billing-address-filled',
   'chatgpt.subscription.submitting': 'subscribing',
   'chatgpt.paypal_link.captured': 'paypal-link-captured',
+  'chatgpt.gopay.linking': 'gopay-linking',
+  'chatgpt.gopay.authorizing': 'gopay-authorizing',
+  'chatgpt.gopay.payment_ready': 'gopay-payment-ready',
+  'chatgpt.gopay.payment_submitted': 'gopay-payment-submitted',
   'chatgpt.completed': 'completed',
   'chatgpt.failed': 'failed',
 } as const satisfies Partial<
@@ -256,6 +278,10 @@ const chatgptTeamTrialStates = [
   'billing-address-filled',
   'subscribing',
   'paypal-link-captured',
+  'gopay-linking',
+  'gopay-authorizing',
+  'gopay-payment-ready',
+  'gopay-payment-submitted',
   'retrying',
   'completed',
   'failed',
@@ -354,6 +380,17 @@ export function resolveChatGPTTeamTrialBillingAddress(
       nonEmptyString(options.billingPostalCode) ||
       nonEmptyString(config?.postalCode) ||
       DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.postalCode,
+  }
+}
+
+export function resolveChatGPTTeamTrialGoPayAccount(): GoPayAccountLinkingOptions {
+  const config = getRuntimeConfig().chatgptTeamTrial?.gopay
+
+  return {
+    countryCode: nonEmptyString(config?.countryCode),
+    phoneNumber: nonEmptyString(config?.phoneNumber),
+    pin: nonEmptyString(config?.pin),
+    authorizationTimeoutMs: config?.authorizationTimeoutMs,
   }
 }
 
@@ -753,6 +790,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     paymentMethod,
   )
   const paypalBaTokenCaptured = paymentRedirect.paymentMethod === 'paypal'
+  let gopayPayment: GoPayPaymentContinuationResult | undefined
 
   if (machine) {
     await sendTeamTrialMachine(
@@ -779,6 +817,88 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     )
   }
 
+  if (paymentRedirect.paymentMethod === 'gopay') {
+    const gopayAccount = resolveChatGPTTeamTrialGoPayAccount()
+
+    if (machine) {
+      await sendTeamTrialMachine(
+        machine,
+        'gopay-linking',
+        'chatgpt.gopay.linking',
+        {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          url: paymentRedirect.url,
+          checkoutUrl,
+          paymentRedirectUrl: paymentRedirect.url,
+          paymentRedirectUrlPath,
+          lastMessage: 'Opening GoPay tokenization link',
+        },
+      )
+    }
+
+    gopayPayment = await continueGoPayPaymentFromRedirect(
+      page,
+      paymentRedirect,
+      {
+        ...gopayAccount,
+        onProgress(update) {
+          const messages = {
+            'redirect-opened': 'Opened GoPay tokenization link',
+            'phone-submitted': 'Submitted GoPay phone number',
+            'authorization-opened': 'Opened GoPay authorization page',
+            'pin-submitted': 'Submitted GoPay PIN',
+            'payment-page-ready': 'GoPay payment page is ready',
+            'pay-now-clicked': 'Clicked GoPay Pay now',
+          } as const
+          options.progressReporter?.({
+            message: messages[update.step],
+          })
+        },
+      },
+    )
+
+    const gopayTargetState =
+      gopayPayment.status === 'pay-now-clicked'
+        ? 'gopay-payment-submitted'
+        : 'gopay-payment-ready'
+    const gopayTargetEvent =
+      gopayPayment.status === 'pay-now-clicked'
+        ? 'chatgpt.gopay.payment_submitted'
+        : 'chatgpt.gopay.payment_ready'
+
+    if (machine) {
+      await sendTeamTrialMachine(machine, gopayTargetState, gopayTargetEvent, {
+        email,
+        coupon: selectedCoupon,
+        trialPlan: selectedPlan,
+        paymentMethod,
+        url: gopayPayment.finalUrl,
+        title: gopayPayment.title,
+        checkoutUrl,
+        paymentRedirectUrl: paymentRedirect.url,
+        paymentRedirectUrlPath,
+        gopayActivationLinkUrl: gopayPayment.activationLinkUrl,
+        gopayStatus: gopayPayment.status,
+        gopayPinSubmitted: gopayPayment.pinSubmitted,
+        gopayPayNowClicked: gopayPayment.payNowClicked,
+        gopayFinalUrl: gopayPayment.finalUrl,
+        lastMessage:
+          gopayPayment.status === 'pay-now-clicked'
+            ? 'GoPay Pay now was clicked'
+            : `GoPay payment continuation stopped at ${gopayPayment.status}`,
+      })
+    }
+
+    if (gopayPayment.status !== 'pay-now-clicked') {
+      throw new Error(
+        `GoPay payment continuation stopped at ${gopayPayment.status}.`,
+      )
+    }
+  }
+
   const title = await page.title()
   return {
     url: page.url(),
@@ -799,6 +919,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     paymentRedirectUrlPath,
     paypalApprovalUrl: paymentRedirect.url,
     paypalApprovalUrlPath: paymentRedirectUrlPath,
+    ...(gopayPayment ? { gopayPayment } : {}),
   }
 }
 
@@ -889,6 +1010,11 @@ export async function runChatGPTTeamTrial(
         paymentRedirectUrlPath: result.paymentRedirectUrlPath,
         paypalApprovalUrl: result.paypalApprovalUrl,
         paypalApprovalUrlPath: result.paypalApprovalUrlPath,
+        gopayActivationLinkUrl: result.gopayPayment?.activationLinkUrl,
+        gopayStatus: result.gopayPayment?.status,
+        gopayPinSubmitted: result.gopayPayment?.pinSubmitted,
+        gopayPayNowClicked: result.gopayPayment?.payNowClicked,
+        gopayFinalUrl: result.gopayPayment?.finalUrl,
         result,
         lastMessage: 'ChatGPT trial checkout flow completed',
       },

@@ -30,6 +30,10 @@ export function getFlowDisplayName(flowType: string) {
     return m.admin_cli_flow_noop_name()
   }
 
+  if (flowType === 'android-healthcheck') {
+    return m.admin_cli_flow_android_healthcheck_name()
+  }
+
   return flowType
 }
 

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { defaultCodexOAuthConfig, resolveConfig } from '../src/config'
-import { buildRuntimeConfig } from '../src/modules/flow-cli/helpers'
+import {
+  buildRuntimeConfig,
+  type FlowOptions,
+} from '../src/modules/flow-cli/helpers'
 import {
   parseWindowsInternetSettingsProxy,
   resolveProxyConfig,
@@ -88,6 +91,17 @@ const proxyEnvNames = {
   no_proxy: undefined,
 }
 
+const androidEnvNames = {
+  APPIUM_SERVER_URL: undefined,
+  ANDROID_UDID: undefined,
+  ANDROID_DEVICE_NAME: undefined,
+  ANDROID_PLATFORM_VERSION: undefined,
+  ANDROID_AUTOMATION_NAME: undefined,
+  ANDROID_APP_PACKAGE: undefined,
+  ANDROID_APP_ACTIVITY: undefined,
+  ANDROID_NO_RESET: undefined,
+}
+
 describe('resolveConfig codex defaults', () => {
   it('uses built-in Codex OAuth defaults when env overrides are absent', async () => {
     const config = await withEnv(codexEnvNames, () => resolveConfig())
@@ -116,6 +130,44 @@ describe('resolveConfig codex defaults', () => {
     expect(config.codex?.clientId).toBe(defaultCodexOAuthConfig.clientId)
     expect(config.codex?.scope).toBe(defaultCodexOAuthConfig.scope)
     expect(config.codex?.redirectPort).toBe(1455)
+  })
+})
+
+describe('resolveConfig Android Appium config', () => {
+  it('uses conservative Appium defaults when env overrides are absent', async () => {
+    const config = await withEnv(androidEnvNames, () => resolveConfig())
+
+    expect(config.android).toMatchObject({
+      appiumServerUrl: 'http://127.0.0.1:4723',
+      automationName: 'UiAutomator2',
+      deviceName: 'Android',
+      noReset: true,
+    })
+  })
+
+  it('maps Android flow options into runtime config overrides', () => {
+    const options: FlowOptions = {
+      appiumServerUrl: 'http://localhost:4723/wd/hub',
+      androidUdid: 'emulator-5554',
+      androidDeviceName: 'Pixel 8',
+      androidPlatformVersion: '15',
+      androidAutomationName: 'UiAutomator2',
+      androidAppPackage: 'com.example.app',
+      androidAppActivity: '.MainActivity',
+      androidNoReset: false,
+    }
+    const config = buildRuntimeConfig('flow:android-healthcheck', options)
+
+    expect(config.android).toMatchObject({
+      appiumServerUrl: 'http://localhost:4723/wd/hub',
+      udid: 'emulator-5554',
+      deviceName: 'Pixel 8',
+      platformVersion: '15',
+      automationName: 'UiAutomator2',
+      appPackage: 'com.example.app',
+      appActivity: '.MainActivity',
+      noReset: false,
+    })
   })
 })
 

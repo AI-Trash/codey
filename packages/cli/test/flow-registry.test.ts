@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createCliFlowTaskPayload,
   getCliFlowDefinition,
+  listCliFlowConfigFieldDefinitions,
   listCliFlowCommandIds,
   normalizeCliFlowTaskPayload,
 } from '../src/modules/flow-cli/flow-registry'
@@ -246,6 +247,53 @@ describe('flow registry', () => {
       kind: 'flow_task',
       flowId: 'codex-oauth',
       config: {},
+    })
+  })
+
+  it('registers Android Appium healthcheck without browser-only options', () => {
+    expect(listCliFlowCommandIds()).toContain('android-healthcheck')
+    expect(getCliFlowDefinition('android-healthcheck')).toMatchObject({
+      id: 'android-healthcheck',
+      runtime: 'android',
+      configKeys: [
+        'appiumServerUrl',
+        'androidUdid',
+        'androidDeviceName',
+        'androidPlatformVersion',
+        'androidAutomationName',
+        'androidAppPackage',
+        'androidAppActivity',
+        'androidNoReset',
+      ],
+    })
+
+    const fieldKeys = listCliFlowConfigFieldDefinitions(
+      'android-healthcheck',
+    ).map((field) => field.key)
+    expect(fieldKeys).toContain('appiumServerUrl')
+    expect(fieldKeys).toContain('androidUdid')
+    expect(fieldKeys).not.toContain('chromeDefaultProfile')
+    expect(fieldKeys).not.toContain('har')
+
+    expect(
+      normalizeCliFlowTaskPayload({
+        kind: 'flow_task',
+        flowId: 'android-healthcheck',
+        config: {
+          appiumServerUrl: ' http://127.0.0.1:4723 ',
+          androidUdid: ' emulator-5554 ',
+          androidNoReset: 'false',
+          har: 'true',
+        },
+      }),
+    ).toEqual({
+      kind: 'flow_task',
+      flowId: 'android-healthcheck',
+      config: {
+        appiumServerUrl: 'http://127.0.0.1:4723',
+        androidUdid: 'emulator-5554',
+        androidNoReset: false,
+      },
     })
   })
 })

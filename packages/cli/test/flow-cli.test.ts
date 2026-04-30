@@ -100,6 +100,23 @@ describe('flow cli helpers', () => {
     })
   })
 
+  it('parses Android healthcheck options', () => {
+    expect(
+      parseFlowCliArgsForCommand('android-healthcheck', [
+        '--appiumServerUrl',
+        'http://127.0.0.1:4723',
+        '--androidUdid',
+        'emulator-5554',
+        '--androidNoReset',
+        'false',
+      ]),
+    ).toMatchObject({
+      appiumServerUrl: 'http://127.0.0.1:4723',
+      androidUdid: 'emulator-5554',
+      androidNoReset: false,
+    })
+  })
+
   it('defaults record to true when HAR is enabled and record is unspecified', () => {
     expect(keepBrowserOpenForHarWhenUnspecified({ har: true })).toMatchObject({
       har: true,
@@ -298,6 +315,28 @@ describe('flow cli helpers', () => {
     )
     expect(summary).toContain(`payment url: ${paypalUrl}`)
     expect(summary).toContain('payment url file: C:/tmp/paypal-link.txt')
+  })
+
+  it('renders Android healthcheck summaries', () => {
+    const summary = formatFlowCompletionSummary('flow:android-healthcheck', {
+      pageName: 'android-healthcheck',
+      connected: true,
+      appiumSessionId: 'appium-session-1',
+      device: {
+        deviceName: 'Pixel 8',
+        udid: 'emulator-5554',
+        automationName: 'UiAutomator2',
+        currentPackage: 'com.example.app',
+      },
+    })
+
+    expect(summary).toContain('flow:android-healthcheck completed')
+    expect(summary).toContain('connected: yes')
+    expect(summary).toContain('appium session: appium-session-1')
+    expect(summary).toContain('device: Pixel 8')
+    expect(summary).toContain('udid: emulator-5554')
+    expect(summary).toContain('automation: UiAutomator2')
+    expect(summary).toContain('current package: com.example.app')
   })
 
   it('formats live flow progress updates with state-machine transitions', () => {

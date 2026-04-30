@@ -39,6 +39,24 @@ describe('redaction', () => {
     })
   })
 
+  it('redacts configured payment PIN values', () => {
+    const redacted = redactForOutput({
+      chatgptTeamTrial: {
+        gopay: {
+          pin: '123456',
+        },
+      },
+    }) as {
+      chatgptTeamTrial: {
+        gopay: {
+          pin: string
+        }
+      }
+    }
+
+    expect(redacted.chatgptTeamTrial.gopay.pin).toBe('***redacted***')
+  })
+
   it('truncates overly deep values', () => {
     let value: Record<string, unknown> = { leaf: 'done' }
     for (let index = 0; index < 60; index += 1) {

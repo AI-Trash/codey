@@ -4,6 +4,7 @@ import {
   DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
   DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS,
   resolveChatGPTTeamTrialBillingAddress,
+  resolveChatGPTTeamTrialGoPayAccount,
 } from '../src/flows/chatgpt-team-trial'
 import {
   buildChatGPTTrialCheckoutPayload,
@@ -355,6 +356,27 @@ describe('chatgpt team trial checkout defaults', () => {
       line2: 'Runtime line 2',
       city: 'CLI city',
       postalCode: 'CLI POST',
+    })
+  })
+
+  it('resolves GoPay account config from runtime config', () => {
+    setRuntimeConfig({
+      ...baseConfig,
+      chatgptTeamTrial: {
+        gopay: {
+          countryCode: '86',
+          phoneNumber: '18400000000',
+          pin: '123456',
+          authorizationTimeoutMs: 30000,
+        },
+      },
+    })
+
+    expect(resolveChatGPTTeamTrialGoPayAccount()).toMatchObject({
+      countryCode: '86',
+      phoneNumber: '18400000000',
+      pin: '123456',
+      authorizationTimeoutMs: 30000,
     })
   })
 })

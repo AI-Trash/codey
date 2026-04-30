@@ -36,7 +36,10 @@ export function buildFlowCommandExecutionResult<TResult>(
 }
 
 export function buildFailedFlowCommandExecution(
-  input: Omit<FlowCommandExecution<never>, 'status' | 'durationMs'> & {
+  input: Omit<
+    FlowCommandExecution<never>,
+    'status' | 'durationMs' | 'error'
+  > & {
     error: unknown
   },
 ): FlowCommandExecution {

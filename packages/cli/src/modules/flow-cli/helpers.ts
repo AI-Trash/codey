@@ -63,6 +63,14 @@ export interface FlowOptions extends CommonOptions {
   chatgptStorageStateEmail?: string
   autoSelectFirstWorkspace?: boolean
   taskMetadata?: CliFlowTaskMetadata
+  appiumServerUrl?: string
+  androidUdid?: string
+  androidDeviceName?: string
+  androidPlatformVersion?: string
+  androidAutomationName?: string
+  androidAppPackage?: string
+  androidAppActivity?: string
+  androidNoReset?: string | boolean
 }
 
 export interface AuthOptions extends CommonOptions {
@@ -197,6 +205,45 @@ export function buildRuntimeConfig(
       parseBooleanFlag(options.chromeDefaultProfile, false) ?? false,
   })
   const runtimeConfigOverrides = options.runtimeConfigOverrides
+  const androidOptions = options as CommonOptions & {
+    appiumServerUrl?: string
+    androidUdid?: string
+    androidDeviceName?: string
+    androidPlatformVersion?: string
+    androidAutomationName?: string
+    androidAppPackage?: string
+    androidAppActivity?: string
+    androidNoReset?: string | boolean
+  }
+  const androidRuntimeOverrides: Partial<
+    NonNullable<CliRuntimeConfig['android']>
+  > = {
+    ...runtimeConfigOverrides?.android,
+    ...(androidOptions.appiumServerUrl !== undefined
+      ? { appiumServerUrl: androidOptions.appiumServerUrl }
+      : {}),
+    ...(androidOptions.androidUdid !== undefined
+      ? { udid: androidOptions.androidUdid }
+      : {}),
+    ...(androidOptions.androidDeviceName !== undefined
+      ? { deviceName: androidOptions.androidDeviceName }
+      : {}),
+    ...(androidOptions.androidPlatformVersion !== undefined
+      ? { platformVersion: androidOptions.androidPlatformVersion }
+      : {}),
+    ...(androidOptions.androidAutomationName !== undefined
+      ? { automationName: androidOptions.androidAutomationName }
+      : {}),
+    ...(androidOptions.androidAppPackage !== undefined
+      ? { appPackage: androidOptions.androidAppPackage }
+      : {}),
+    ...(androidOptions.androidAppActivity !== undefined
+      ? { appActivity: androidOptions.androidAppActivity }
+      : {}),
+    ...(androidOptions.androidNoReset !== undefined
+      ? { noReset: parseBooleanFlag(androidOptions.androidNoReset) }
+      : {}),
+  }
 
   return resolveConfig({
     command,
@@ -213,6 +260,7 @@ export function buildRuntimeConfig(
         profileDirectory: chromeProfile?.profileDirectory,
         cloneUserDataDirToTemp: chromeProfile ? true : undefined,
       },
+      android: androidRuntimeOverrides as RuntimeConfigOverrides['android'],
     },
   })
 }
@@ -446,6 +494,18 @@ export function formatFlowCompletionSummary(
     appendSummaryLine(lines, 'redirect', record.redirectUri)
     appendExactSummaryLine(lines, 'oauth url', record.oauthUrl)
     appendArtifactSummaryLines(lines, record)
+    return lines.join('\n')
+  }
+
+  if (pageName === 'android-healthcheck') {
+    const device = asRecord(record.device)
+    appendSummaryLine(lines, 'connected', asBoolean(record.connected))
+    appendSummaryLine(lines, 'appium session', record.appiumSessionId)
+    appendSummaryLine(lines, 'device', device?.deviceName)
+    appendSummaryLine(lines, 'udid', device?.udid)
+    appendSummaryLine(lines, 'automation', device?.automationName)
+    appendSummaryLine(lines, 'current package', device?.currentPackage)
+    appendSummaryLine(lines, 'current activity', device?.currentActivity)
     return lines.join('\n')
   }
 

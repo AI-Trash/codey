@@ -30,6 +30,8 @@ const flowDescriptionById: Record<CliFlowCommandId, string> = {
   'chatgpt-invite':
     'Sign in with a shared ChatGPT identity and invite workspace members.',
   'codex-oauth': 'Complete Codex OAuth and store the shared session in Codey.',
+  'android-healthcheck':
+    'Open an Appium Android session and report device details.',
   noop: 'Open an empty browser page for manual inspection.',
 }
 
@@ -61,6 +63,14 @@ const flowOptionLabelByKey: Record<string, string> = {
   workspaceIndex: 'Codex workspace index',
   redirectPort: 'OAuth redirect port',
   authorizeUrlOnly: 'Print authorize URL only and exit',
+  appiumServerUrl: 'Appium server URL',
+  androidUdid: 'Android device UDID',
+  androidDeviceName: 'Android device name',
+  androidPlatformVersion: 'Android platform version',
+  androidAutomationName: 'Appium automation backend',
+  androidAppPackage: 'Android app package',
+  androidAppActivity: 'Android app activity',
+  androidNoReset: 'Preserve Android device state',
 }
 
 const flowOptionDescriptionByKey: Record<string, string> = {
@@ -98,6 +108,15 @@ const flowOptionDescriptionByKey: Record<string, string> = {
   workspaceIndex: '1-based Codex workspace position to select.',
   redirectPort: 'Local port to use for the OAuth redirect callback.',
   authorizeUrlOnly: 'Print the authorize URL and exit before browser login.',
+  appiumServerUrl: 'Appium server endpoint, such as http://127.0.0.1:4723.',
+  androidUdid: 'Target Android device UDID.',
+  androidDeviceName: 'Device name sent to Appium capabilities.',
+  androidPlatformVersion:
+    'Android platform version sent to Appium capabilities.',
+  androidAutomationName: 'Appium Android automation backend.',
+  androidAppPackage: 'Optional Android app package to launch.',
+  androidAppActivity: 'Optional Android app activity to launch.',
+  androidNoReset: 'Preserve app and device state between Appium runs.',
 }
 
 function humanizeKey(value: string): string {
