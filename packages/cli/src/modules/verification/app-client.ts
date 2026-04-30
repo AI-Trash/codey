@@ -61,11 +61,43 @@ export type AppVerificationEvent = VerificationCodeStreamEvent
 
 const VERIFICATION_READ_SCOPE = 'verification:read'
 const VERIFICATION_RESERVE_SCOPE = 'verification:reserve'
+const VERIFICATION_INGEST_SCOPE = 'verification:ingest'
 const NOTIFICATIONS_READ_SCOPE = 'notifications:read'
 const VERIFICATION_APP_SCOPES = [
   VERIFICATION_READ_SCOPE,
   VERIFICATION_RESERVE_SCOPE,
 ] as const
+
+export interface AppWhatsAppNotificationIngestInput {
+  reservationId?: string
+  email?: string
+  targetEmail?: string
+  deviceId?: string
+  notificationId?: string
+  packageName?: string
+  sender?: string
+  senderPhone?: string
+  chatName?: string
+  title?: string
+  body?: string
+  text?: string
+  message?: string
+  rawPayload?: unknown
+  extractedCode?: string
+  receivedAt?: string
+}
+
+export interface AppWhatsAppNotificationIngestResponse {
+  ok: boolean
+  notificationRecordId: string
+  codeRecordId?: string
+  match: {
+    matched: boolean
+    reservationId?: string
+    email?: string
+    reason?: string
+  }
+}
 
 export interface AppManagedIdentitySyncResponse {
   ok: boolean
@@ -383,6 +415,25 @@ export class AppVerificationProviderClient {
         method: 'POST',
       },
       [...VERIFICATION_APP_SCOPES],
+    )
+  }
+
+  async ingestWhatsAppNotification(
+    input: AppWhatsAppNotificationIngestInput,
+  ): Promise<AppWhatsAppNotificationIngestResponse> {
+    return this.getJson<AppWhatsAppNotificationIngestResponse>(
+      this.buildUrl(
+        this.config.whatsappNotificationIngestPath ||
+          '/api/ingest/whatsapp-notification',
+      ),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(input),
+      },
+      [VERIFICATION_INGEST_SCOPE],
     )
   }
 

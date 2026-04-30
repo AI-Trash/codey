@@ -203,6 +203,26 @@ the matching `--android*` CLI flags. `flow android-healthcheck` is a minimal
 session lifecycle check that opens an Android session and reports the connected
 device details.
 
+When the prompt CLI or daemon starts, Codey automatically tries to enable a
+WhatsApp notification watcher. The probe is best-effort: it checks that `adb` is
+available, exactly one Android device is connected (or `ANDROID_UDID` selects
+one), and the device has `com.whatsapp` or `com.whatsapp.w4b` installed. If any
+condition is missing, the watcher is skipped and the CLI continues normally.
+
+When WhatsApp is present, the watcher uses `adbkit` to manage the device,
+installs `frida-server` if it is missing from
+`/data/local/tmp/frida-server`, starts it, attaches Frida to `system_server` by
+default, and forwards watched WhatsApp notifications to Codey Web. If
+`ANDROID_FRIDA_SERVER_PATH` is not provided and the remote binary is missing,
+Codey downloads the matching Android `frida-server` release for the device ABI
+and installed `frida` npm package version.
+
+Disable auto-start with `ANDROID_WHATSAPP_WATCH_ENABLED=false` or
+`pnpm codey --androidWhatsAppWatch false`. By default the watcher targets
+`com.whatsapp` and `com.whatsapp.w4b`; override with comma-separated
+`ANDROID_WHATSAPP_PACKAGES`. `ANDROID_FRIDA_TARGET` can be set when you want to
+attach to a WhatsApp process instead of `system_server`.
+
 ### CLI logs
 
 Every CLI run now writes two log files under `.codey/logs`:

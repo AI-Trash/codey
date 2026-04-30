@@ -18,6 +18,7 @@ export interface BrowserCliConfig {
 }
 
 export interface AndroidCliConfig {
+  adbPath?: string
   appiumServerUrl: string
   automationName: string
   deviceName: string
@@ -26,6 +27,15 @@ export interface AndroidCliConfig {
   appPackage?: string
   appActivity?: string
   noReset?: boolean
+  fridaServerPath?: string
+  fridaRemotePath?: string
+  fridaServerPort?: number
+  fridaStartServer?: boolean
+  fridaAutoDownload?: boolean
+  fridaDownloadDir?: string
+  fridaTarget?: string
+  whatsappWatchEnabled?: boolean
+  whatsappPackages?: string[]
 }
 
 export interface OpenAIFlowConfig {
@@ -77,6 +87,7 @@ export interface CodeyAppConfig extends OidcEndpointConfig {
   reserveEmailPath?: string
   verificationCodePath?: string
   verificationEventsPath?: string
+  whatsappNotificationIngestPath?: string
 }
 
 export type AppVerificationProviderConfig = CodeyAppConfig
@@ -254,6 +265,7 @@ function buildCodeyAppConfig(): CodeyAppConfig | undefined {
     'CODEY_APP_RESERVE_EMAIL_PATH',
     'CODEY_APP_CODE_PATH',
     'CODEY_APP_EVENTS_PATH',
+    'CODEY_APP_WHATSAPP_NOTIFICATION_INGEST_PATH',
   ]
 
   if (!hasAnyDefinedEnv(relevantEnvNames)) {
@@ -277,6 +289,8 @@ function buildCodeyAppConfig(): CodeyAppConfig | undefined {
     reserveEmailPath: process.env.CODEY_APP_RESERVE_EMAIL_PATH,
     verificationCodePath: process.env.CODEY_APP_CODE_PATH,
     verificationEventsPath: process.env.CODEY_APP_EVENTS_PATH,
+    whatsappNotificationIngestPath:
+      process.env.CODEY_APP_WHATSAPP_NOTIFICATION_INGEST_PATH,
   }
 }
 
@@ -291,6 +305,19 @@ function parseIntegerList(value: string | undefined): number[] | undefined {
     .split(',')
     .map((entry) => Number(entry.trim()))
     .filter((entry) => Number.isInteger(entry) && entry > 0)
+
+  return parsed.length > 0 ? parsed : undefined
+}
+
+function parseStringList(value: string | undefined): string[] | undefined {
+  if (!hasEnvValue(value)) {
+    return undefined
+  }
+
+  const parsed = (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
 
   return parsed.length > 0 ? parsed : undefined
 }
@@ -509,6 +536,7 @@ function buildDefaultConfig(): AppConfig {
       proxy: resolveProxyConfig(),
     },
     android: {
+      adbPath: process.env.ANDROID_ADB_PATH,
       appiumServerUrl: process.env.APPIUM_SERVER_URL || 'http://127.0.0.1:4723',
       automationName: process.env.ANDROID_AUTOMATION_NAME || 'UiAutomator2',
       deviceName: process.env.ANDROID_DEVICE_NAME || 'Android',
@@ -519,6 +547,27 @@ function buildDefaultConfig(): AppConfig {
       noReset: hasEnvValue(process.env.ANDROID_NO_RESET)
         ? parseBoolean(process.env.ANDROID_NO_RESET, true)
         : true,
+      fridaServerPath: process.env.ANDROID_FRIDA_SERVER_PATH,
+      fridaRemotePath:
+        process.env.ANDROID_FRIDA_REMOTE_PATH || '/data/local/tmp/frida-server',
+      fridaServerPort: parseNumber(
+        process.env.ANDROID_FRIDA_SERVER_PORT,
+        27042,
+      ),
+      fridaStartServer: hasEnvValue(process.env.ANDROID_FRIDA_START_SERVER)
+        ? parseBoolean(process.env.ANDROID_FRIDA_START_SERVER, true)
+        : true,
+      fridaAutoDownload: hasEnvValue(process.env.ANDROID_FRIDA_AUTO_DOWNLOAD)
+        ? parseBoolean(process.env.ANDROID_FRIDA_AUTO_DOWNLOAD, true)
+        : true,
+      fridaDownloadDir: process.env.ANDROID_FRIDA_DOWNLOAD_DIR,
+      fridaTarget: process.env.ANDROID_FRIDA_TARGET || 'system_server',
+      whatsappWatchEnabled: hasEnvValue(
+        process.env.ANDROID_WHATSAPP_WATCH_ENABLED,
+      )
+        ? parseBoolean(process.env.ANDROID_WHATSAPP_WATCH_ENABLED, true)
+        : true,
+      whatsappPackages: parseStringList(process.env.ANDROID_WHATSAPP_PACKAGES),
     },
     openai: {
       baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',

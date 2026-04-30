@@ -43,7 +43,7 @@ function createConfig(rootDir: string): CliRuntimeConfig {
       oidcBasePath: '/oidc',
       clientId: 'codey_cli',
       clientSecret: 'secret',
-      scope: 'notifications:read',
+      scope: 'notifications:read verification:ingest',
     },
   }
 }
@@ -241,7 +241,7 @@ describe('app auth OIDC helpers', () => {
             access_token: 'service-token',
             token_type: 'Bearer',
             expires_in: 3600,
-            scope: 'notifications:read',
+            scope: 'notifications:read verification:ingest',
           }),
           {
             status: 200,
@@ -266,7 +266,7 @@ describe('app auth OIDC helpers', () => {
     expect(tokenRequest?.[1]?.body).toBeInstanceOf(URLSearchParams)
     const body = tokenRequest?.[1]?.body as URLSearchParams
     expect(body.get('grant_type')).toBe('client_credentials')
-    expect(body.get('scope')).toBe('notifications:read')
+    expect(body.get('scope')).toBe('notifications:read verification:ingest')
   })
 
   it('reuses the stored device session for daemon notifications without client credentials', async () => {
@@ -286,7 +286,7 @@ describe('app auth OIDC helpers', () => {
         tokenSet: {
           accessToken: 'session-token',
           tokenType: 'Bearer',
-          scope: 'notifications:read',
+          scope: 'notifications:read verification:ingest',
           obtainedAt: new Date(now - 60_000).toISOString(),
           expiresAt: new Date(now + 3_600_000).toISOString(),
         },

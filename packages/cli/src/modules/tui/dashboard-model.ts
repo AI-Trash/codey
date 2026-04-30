@@ -1,4 +1,7 @@
-import type { CliNotificationsAuthState } from '../app-auth/device-login'
+import {
+  REQUIRED_CLI_SCOPE,
+  type CliNotificationsAuthState,
+} from '../app-auth/device-login'
 import type {
   AdminNotificationEvent,
   CliConnectionEvent,
@@ -41,7 +44,7 @@ export interface DashboardState {
 }
 
 export const MAX_RECENT_EVENTS = 8
-const REQUIRED_TUI_SCOPE = 'notifications:read'
+const REQUIRED_TUI_SCOPE = REQUIRED_CLI_SCOPE
 
 function normalizeOptionalText(
   value: string | null | undefined,

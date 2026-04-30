@@ -91,6 +91,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
+      "frida",
       "lightningcss"
     ]
   }

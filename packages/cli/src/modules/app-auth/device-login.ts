@@ -28,6 +28,11 @@ import { deriveCliTargetFromAuthState } from './target'
 import { listLocalChatGPTStorageStateAffinities } from '../chatgpt/storage-state'
 
 const NOTIFICATIONS_READ_SCOPE = 'notifications:read'
+const VERIFICATION_INGEST_SCOPE = 'verification:ingest'
+export const REQUIRED_CLI_SCOPE = [
+  NOTIFICATIONS_READ_SCOPE,
+  VERIFICATION_INGEST_SCOPE,
+].join(' ')
 
 export interface CliNotificationsAuthState {
   mode: 'client_credentials' | 'device_session'
@@ -101,7 +106,7 @@ function hasRequiredScopes(
 }
 
 function getRequiredCliNotificationScopes(): string[] {
-  return [NOTIFICATIONS_READ_SCOPE]
+  return [NOTIFICATIONS_READ_SCOPE, VERIFICATION_INGEST_SCOPE]
 }
 
 function getAppOidcConfig(input: { scope?: string } = {}) {
@@ -149,7 +154,7 @@ export async function resolveCliNotificationsAuthState(): Promise<CliNotificatio
   }
   if (!hasRequiredScopes(session.tokenSet.scope, requiredScopes)) {
     throw new Error(
-      `Stored app session is missing the required ${NOTIFICATIONS_READ_SCOPE} scope. Run \`codey auth login --scope ${NOTIFICATIONS_READ_SCOPE}\` again.`,
+      `Stored app session is missing the required ${REQUIRED_CLI_SCOPE} scope. Run \`codey auth login --scope "${REQUIRED_CLI_SCOPE}"\` again.`,
     )
   }
 

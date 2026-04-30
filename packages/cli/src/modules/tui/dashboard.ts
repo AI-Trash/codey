@@ -33,6 +33,7 @@ import { deriveCliTargetFromAuthState } from '../app-auth/target'
 import {
   exchangeDeviceChallenge,
   resolveCliNotificationsAuthState,
+  REQUIRED_CLI_SCOPE,
   startDeviceLogin,
   streamCliNotifications,
   type CliNotificationsAuthState,
@@ -70,8 +71,6 @@ import { assertFlowTaskExecutionSucceeded } from '../flow-cli/task-completion'
 import { getFlowTaskFullRetryDecision } from '../flow-cli/task-retry'
 import { PromptCanceledError } from './prompt-io'
 import { PromptShell } from './prompt-shell'
-
-const REQUIRED_OPERATOR_SCOPE = 'notifications:read'
 
 function isAbortError(error: unknown): boolean {
   return (
@@ -265,7 +264,7 @@ async function promptForStartupAuth(input: {
 
           const challenge = await startDeviceLogin({
             cliName: input.cliName,
-            scope: REQUIRED_OPERATOR_SCOPE,
+            scope: REQUIRED_CLI_SCOPE,
           })
 
           writeCliStdoutLine('')

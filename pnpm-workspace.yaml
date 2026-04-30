@@ -5,6 +5,7 @@ linkWorkspacePackages: true
 
 catalog:
   '@codey/state-machine': '1.0.0'
+  'adbkit': '^2.11.1'
   '@base-ui/react': '^1.4.0'
   '@cloudflare/workers-types': '^4.20260415.1'
   '@hookform/resolvers': '^5.2.2'
@@ -39,6 +40,7 @@ catalog:
   'drizzle-kit': '^0.31.4'
   'drizzle-orm': '^0.44.5'
   'embla-carousel-react': '^8.6.0'
+  'frida': '^17.9.3'
   'input-otp': '^1.4.2'
   'jiti': '^2.6.1'
   'jsdom': '^28.1.0'
@@ -69,6 +71,7 @@ catalog:
   'vitest': '^3.0.5'
   'vaul': '^1.1.2'
   'webdriverio': '^9.27.0'
+  'xz-decompress': '^0.2.3'
   'wrangler': '^4.82.2'
   'oxfmt': '^0.45.0'
   'oxlint': '^1.59.0'

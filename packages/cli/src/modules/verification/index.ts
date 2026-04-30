@@ -4,7 +4,7 @@ import { AppVerificationProvider } from './app-provider'
 import { ExchangeVerificationProvider } from './exchange-provider'
 import type { VerificationProvider, VerificationProviderKind } from './types'
 
-function resolveVerificationAppConfig(config: {
+export function resolveVerificationAppConfig(config: {
   app?: CliRuntimeConfig['app']
   verification?: CliRuntimeConfig['verification']
 }) {
@@ -33,6 +33,9 @@ function resolveVerificationAppConfig(config: {
     verificationEventsPath:
       verificationAppConfig?.verificationEventsPath ??
       sharedAppConfig?.verificationEventsPath,
+    whatsappNotificationIngestPath:
+      verificationAppConfig?.whatsappNotificationIngestPath ??
+      sharedAppConfig?.whatsappNotificationIngestPath,
   }
 }
 
@@ -51,7 +54,8 @@ function hasAppVerificationConfig(config: {
     appConfig.resource ||
     appConfig.reserveEmailPath ||
     appConfig.verificationCodePath ||
-    appConfig.verificationEventsPath,
+    appConfig.verificationEventsPath ||
+    appConfig.whatsappNotificationIngestPath,
   )
 }
 

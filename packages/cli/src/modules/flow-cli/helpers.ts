@@ -78,6 +78,7 @@ export interface AuthOptions extends CommonOptions {
   cliName?: string
   scope?: string
   target?: string
+  androidWhatsAppWatch?: string | boolean
 }
 
 export interface ExchangeOptions extends CommonOptions {

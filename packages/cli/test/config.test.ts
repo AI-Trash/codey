@@ -92,6 +92,7 @@ const proxyEnvNames = {
 }
 
 const androidEnvNames = {
+  ANDROID_ADB_PATH: undefined,
   APPIUM_SERVER_URL: undefined,
   ANDROID_UDID: undefined,
   ANDROID_DEVICE_NAME: undefined,
@@ -100,6 +101,15 @@ const androidEnvNames = {
   ANDROID_APP_PACKAGE: undefined,
   ANDROID_APP_ACTIVITY: undefined,
   ANDROID_NO_RESET: undefined,
+  ANDROID_FRIDA_SERVER_PATH: undefined,
+  ANDROID_FRIDA_REMOTE_PATH: undefined,
+  ANDROID_FRIDA_SERVER_PORT: undefined,
+  ANDROID_FRIDA_START_SERVER: undefined,
+  ANDROID_FRIDA_AUTO_DOWNLOAD: undefined,
+  ANDROID_FRIDA_DOWNLOAD_DIR: undefined,
+  ANDROID_FRIDA_TARGET: undefined,
+  ANDROID_WHATSAPP_WATCH_ENABLED: undefined,
+  ANDROID_WHATSAPP_PACKAGES: undefined,
 }
 
 describe('resolveConfig codex defaults', () => {
@@ -142,6 +152,12 @@ describe('resolveConfig Android Appium config', () => {
       automationName: 'UiAutomator2',
       deviceName: 'Android',
       noReset: true,
+      fridaRemotePath: '/data/local/tmp/frida-server',
+      fridaServerPort: 27042,
+      fridaStartServer: true,
+      fridaAutoDownload: true,
+      fridaTarget: 'system_server',
+      whatsappWatchEnabled: true,
     })
   })
 

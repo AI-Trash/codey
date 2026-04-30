@@ -596,4 +596,90 @@ describe('AppVerificationProviderClient', () => {
       }),
     )
   })
+
+  it('can ingest WhatsApp notifications with the ingest scope', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            issuer: 'http://localhost:4327/oidc',
+            token_endpoint: 'http://localhost:4327/oidc/token',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: 'token-123',
+            token_type: 'Bearer',
+            scope: 'verification:ingest',
+            expires_in: 3600,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            notificationRecordId: 'notification-1',
+            codeRecordId: 'code-1',
+            match: {
+              matched: true,
+              reservationId: 'reservation-1',
+              email: 'codey+otp@example.com',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new AppVerificationProviderClient({
+      baseUrl: 'http://localhost:4327',
+      clientId: 'codey_client',
+      clientSecret: 'codey_secret',
+    })
+
+    await expect(
+      client.ingestWhatsAppNotification({
+        reservationId: 'reservation-1',
+        packageName: 'com.whatsapp',
+        body: 'Use code 123456.',
+        extractedCode: '123456',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      notificationRecordId: 'notification-1',
+      codeRecordId: 'code-1',
+    })
+
+    const tokenBody = fetchMock.mock.calls[1]?.[1]?.body as URLSearchParams
+    expect(tokenBody.get('scope')).toBe('verification:ingest')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      'http://localhost:4327/api/ingest/whatsapp-notification',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          reservationId: 'reservation-1',
+          packageName: 'com.whatsapp',
+          body: 'Use code 123456.',
+          extractedCode: '123456',
+        }),
+      }),
+    )
+  })
 })

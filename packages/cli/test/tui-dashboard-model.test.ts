@@ -63,7 +63,7 @@ describe('tui dashboard model', () => {
     expect(
       isTuiAuthRecoveryError(
         new Error(
-          'Stored app session is missing the required notifications:read scope.',
+          'Stored app session is missing the required notifications:read verification:ingest scope.',
         ),
       ),
     ).toBe(true)
