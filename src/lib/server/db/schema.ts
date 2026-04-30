@@ -24,6 +24,7 @@ export const deviceChallengeStatusEnum = pgEnum('device_challenge_status', [
 export const verificationCodeSourceEnum = pgEnum('verification_code_source', [
   'MANUAL',
   'CLOUDFLARE_EMAIL',
+  'WHATSAPP_NOTIFICATION',
 ])
 export const flowAppRequestStatusEnum = pgEnum('flow_app_request_status', [
   'PENDING',
@@ -259,6 +260,49 @@ export const emailIngestRecords = pgTable(
       table.recipient,
       table.receivedAt,
     ),
+  ],
+)
+
+export const whatsappNotificationIngestRecords = pgTable(
+  'whatsapp_notification_ingest_records',
+  {
+    id: text('id').primaryKey(),
+    reservationId: text('reservation_id').references(
+      () => verificationEmailReservations.id,
+      { onDelete: 'set null' },
+    ),
+    deviceId: text('device_id'),
+    notificationId: text('notification_id'),
+    packageName: text('package_name'),
+    sender: text('sender'),
+    chatName: text('chat_name'),
+    title: text('title'),
+    body: text('body'),
+    rawPayload: jsonb('raw_payload').$type<Record<string, unknown>>(),
+    verificationCode: text('verification_code'),
+    receivedAt: timestamp('received_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('whatsapp_notifications_reservation_received_at_idx').on(
+      table.reservationId,
+      table.receivedAt,
+    ),
+    index('whatsapp_notifications_device_received_at_idx').on(
+      table.deviceId,
+      table.receivedAt,
+    ),
+    index('whatsapp_notifications_received_at_idx').on(table.receivedAt),
   ],
 )
 
@@ -1118,6 +1162,7 @@ export const verificationEmailReservationsRelations = relations(
   ({ many }) => ({
     codes: many(verificationCodes),
     emails: many(emailIngestRecords),
+    whatsappNotifications: many(whatsappNotificationIngestRecords),
   }),
 )
 
@@ -1136,6 +1181,16 @@ export const emailIngestRecordsRelations = relations(
   ({ one }) => ({
     reservation: one(verificationEmailReservations, {
       fields: [emailIngestRecords.reservationId],
+      references: [verificationEmailReservations.id],
+    }),
+  }),
+)
+
+export const whatsappNotificationIngestRecordsRelations = relations(
+  whatsappNotificationIngestRecords,
+  ({ one }) => ({
+    reservation: one(verificationEmailReservations, {
+      fields: [whatsappNotificationIngestRecords.reservationId],
       references: [verificationEmailReservations.id],
     }),
   }),
@@ -1270,6 +1325,8 @@ export type VerificationEmailReservationRow =
   typeof verificationEmailReservations.$inferSelect
 export type VerificationCodeRow = typeof verificationCodes.$inferSelect
 export type EmailIngestRecordRow = typeof emailIngestRecords.$inferSelect
+export type WhatsAppNotificationIngestRecordRow =
+  typeof whatsappNotificationIngestRecords.$inferSelect
 export type DeviceChallengeRow = typeof deviceChallenges.$inferSelect
 export type AdminNotificationRow = typeof adminNotifications.$inferSelect
 export type FlowTaskRow = typeof flowTasks.$inferSelect

@@ -18,6 +18,7 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
   - `GET /api/verification/codes`
   - `GET /api/verification/events`
   - `POST /api/ingest/cloudflare-email`
+  - `POST /api/ingest/whatsapp-notification`
   - `POST /api/device`
   - `GET|POST /api/device/{deviceCode}`
   - `GET /api/device/{deviceCode}/events`
@@ -337,6 +338,34 @@ In GitHub, open `Settings -> Secrets and variables -> Actions` and add these rep
 - `CODEY_WEBHOOK_SECRET`: the shared secret that must match the app's `CLOUDFLARE_EMAIL_WEBHOOK_SECRET`
 
 The workflow syncs `CODEY_INGEST_URL` and `CODEY_WEBHOOK_SECRET` into the Worker at deploy time using Wrangler-managed secrets. `CODEY_SIGNATURE_HEADER` and `CODEY_TIMESTAMP_HEADER` keep their defaults from `wrangler.toml` unless you choose to customize them in the package config.
+
+## WhatsApp notification ingest
+
+Android companion processes can forward WhatsApp verification notifications to Codey Web:
+
+```text
+POST /api/ingest/whatsapp-notification
+```
+
+Authorize the request with either `VERIFICATION_API_KEY` / `VERIFICATION_API_KEY_HEADER` or an OIDC bearer token with `verification:ingest`.
+
+Recommended payload:
+
+```json
+{
+  "reservationId": "verification-reservation-id",
+  "deviceId": "emulator-5554",
+  "notificationId": "android-notification-key",
+  "packageName": "com.whatsapp",
+  "sender": "WhatsApp",
+  "chatName": "OpenAI",
+  "title": "OpenAI",
+  "body": "Your verification code is 123456",
+  "receivedAt": "2026-04-30T12:00:00.000Z"
+}
+```
+
+`reservationId` is preferred. `email`, `targetEmail`, or `reservationEmail` can also bind the notification to an existing email reservation. If no hint is provided, Codey only auto-attaches the code when exactly one unexpired generated verification reservation exists; otherwise it stores the WhatsApp notification without publishing a code to any waiting flow.
 
 ## Build and validation
 

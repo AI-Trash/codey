@@ -47,6 +47,7 @@ vi.mock('./astrbot', () => ({
 
 import {
   ingestCloudflareEmail,
+  ingestWhatsAppNotification,
   isChatGptBusinessTrialEndedSubject,
 } from './verification'
 
@@ -61,6 +62,23 @@ function createEmailInsertChain(emailRecord: unknown) {
       values,
     })),
     returning,
+    values,
+  }
+}
+
+function createInsertChain(record: unknown) {
+  const returning = vi.fn().mockResolvedValue(record ? [record] : [])
+  const onConflictDoNothing = vi.fn(() => ({
+    returning,
+  }))
+  const values = vi.fn(() => ({
+    onConflictDoNothing,
+    returning,
+  }))
+
+  return {
+    returning,
+    onConflictDoNothing,
     values,
   }
 }
@@ -328,5 +346,201 @@ describe('ChatGPT Business trial-ended email handling', () => {
       mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity,
     ).not.toHaveBeenCalled()
     expect(mocks.deleteManagedWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+describe('WhatsApp notification ingest', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.createId.mockReset()
+    mocks.createId.mockImplementation(() => 'generated-id')
+    mocks.createId
+      .mockReturnValueOnce('notification-record-1')
+      .mockReturnValueOnce('code-record-1')
+  })
+
+  it('stores and publishes a WhatsApp code for an explicit reservation id', async () => {
+    const receivedAt = new Date('2026-04-30T00:00:00.000Z')
+    const reservation = {
+      id: 'reservation-1',
+      email: 'codey@example.com',
+      prefix: null,
+      mailbox: null,
+      identityId: null,
+      createdAt: receivedAt,
+      expiresAt: new Date('2026-04-30T00:15:00.000Z'),
+      updatedAt: receivedAt,
+    }
+    const notificationRecord = {
+      id: 'notification-record-1',
+      reservationId: reservation.id,
+      verificationCode: '123456',
+      receivedAt,
+    }
+    const codeRecord = {
+      id: 'code-record-1',
+      reservationId: reservation.id,
+      code: '123456',
+      source: 'WHATSAPP_NOTIFICATION',
+      messageId: notificationRecord.id,
+      receivedAt,
+    }
+    const notificationInsert = createInsertChain(notificationRecord)
+    const codeInsert = createInsertChain(codeRecord)
+    const insert = vi
+      .fn()
+      .mockReturnValueOnce({ values: notificationInsert.values })
+      .mockReturnValueOnce({ values: codeInsert.values })
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findFirst: vi.fn().mockResolvedValue(reservation),
+        },
+      },
+      insert,
+    })
+
+    await expect(
+      ingestWhatsAppNotification({
+        reservationId: reservation.id,
+        packageName: 'com.whatsapp',
+        title: 'OpenAI',
+        body: 'Your verification code is 123456',
+        receivedAt: receivedAt.toISOString(),
+      }),
+    ).resolves.toMatchObject({
+      notificationRecord,
+      codeRecord,
+      match: {
+        status: 'matched',
+        strategy: 'reservation_id',
+        reservationId: reservation.id,
+        email: reservation.email,
+      },
+    })
+
+    expect(notificationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'notification-record-1',
+        reservationId: reservation.id,
+        packageName: 'com.whatsapp',
+        verificationCode: '123456',
+      }),
+    )
+    expect(codeInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'code-record-1',
+        reservationId: reservation.id,
+        code: '123456',
+        source: 'WHATSAPP_NOTIFICATION',
+        messageId: notificationRecord.id,
+      }),
+    )
+    expect(mocks.publishVerificationCodeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationId: reservation.id,
+        email: reservation.email,
+        code: '123456',
+        source: 'WHATSAPP_NOTIFICATION',
+      }),
+    )
+  })
+
+  it('auto-attaches a WhatsApp code when exactly one reservation is active', async () => {
+    const receivedAt = new Date('2026-04-30T00:00:00.000Z')
+    const reservation = {
+      id: 'reservation-2',
+      email: 'single@example.com',
+      prefix: null,
+      mailbox: 'single@example.com',
+      identityId: null,
+      createdAt: receivedAt,
+      expiresAt: new Date('2026-04-30T00:15:00.000Z'),
+      updatedAt: receivedAt,
+    }
+    const notificationRecord = {
+      id: 'notification-record-1',
+      reservationId: reservation.id,
+      verificationCode: '654321',
+      receivedAt,
+    }
+    const codeRecord = {
+      id: 'code-record-1',
+      reservationId: reservation.id,
+      code: '654321',
+      source: 'WHATSAPP_NOTIFICATION',
+      messageId: notificationRecord.id,
+      receivedAt,
+    }
+    const notificationInsert = createInsertChain(notificationRecord)
+    const codeInsert = createInsertChain(codeRecord)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findMany: vi.fn().mockResolvedValue([reservation]),
+        },
+      },
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: notificationInsert.values })
+        .mockReturnValueOnce({ values: codeInsert.values }),
+    })
+
+    await expect(
+      ingestWhatsAppNotification({
+        body: '654321 is your code',
+        receivedAt: receivedAt.toISOString(),
+      }),
+    ).resolves.toMatchObject({
+      codeRecord,
+      match: {
+        status: 'matched',
+        strategy: 'single_active_reservation',
+        reservationId: reservation.id,
+      },
+    })
+  })
+
+  it('keeps an ambiguous WhatsApp code unmatched when multiple reservations are active', async () => {
+    const receivedAt = new Date('2026-04-30T00:00:00.000Z')
+    const notificationRecord = {
+      id: 'notification-record-1',
+      reservationId: null,
+      verificationCode: '777888',
+      receivedAt,
+    }
+    const notificationInsert = createInsertChain(notificationRecord)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findMany: vi.fn().mockResolvedValue([
+            { id: 'reservation-a', email: 'a@example.com' },
+            { id: 'reservation-b', email: 'b@example.com' },
+          ]),
+        },
+      },
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: notificationInsert.values }),
+    })
+
+    await expect(
+      ingestWhatsAppNotification({
+        body: 'Use 777888 to verify your account',
+        receivedAt: receivedAt.toISOString(),
+      }),
+    ).resolves.toMatchObject({
+      notificationRecord,
+      codeRecord: null,
+      match: {
+        status: 'unmatched',
+        reason: 'multiple_active_reservations',
+      },
+    })
+
+    expect(mocks.publishVerificationCodeEvent).not.toHaveBeenCalled()
   })
 })

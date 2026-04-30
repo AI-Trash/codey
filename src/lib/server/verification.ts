@@ -17,6 +17,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -29,7 +30,9 @@ import {
   managedIdentities,
   verificationCodes,
   verificationEmailReservations,
+  whatsappNotificationIngestRecords,
   type EmailIngestRecordRow,
+  type VerificationEmailReservationRow,
 } from './db/schema'
 import {
   hasAdminInboxEmailSubscribers,
@@ -54,6 +57,21 @@ export interface VerificationEmailPayload {
   htmlBody?: string | null
   rawPayload?: string | null
   receivedAt: string
+}
+
+export interface WhatsAppNotificationPayload {
+  reservationId?: string | null
+  email?: string | null
+  deviceId?: string | null
+  notificationId?: string | null
+  packageName?: string | null
+  sender?: string | null
+  chatName?: string | null
+  title?: string | null
+  body?: string | null
+  rawPayload?: Record<string, unknown> | null
+  extractedCode?: string | null
+  receivedAt?: string | null
 }
 
 export interface AdminInboxEmail {
@@ -133,6 +151,22 @@ type ParsedEmailContent = {
 type EmailIngestReservation = {
   identityId: string | null
 }
+
+type WhatsAppReservationMatch =
+  | {
+      status: 'matched'
+      strategy: 'reservation_id' | 'email' | 'single_active_reservation'
+      reservation: VerificationEmailReservationRow
+    }
+  | {
+      status: 'unmatched'
+      reason:
+        | 'reservation_not_found'
+        | 'email_not_found'
+        | 'no_active_reservation'
+        | 'multiple_active_reservations'
+      reservation: null
+    }
 
 const CHATGPT_BUSINESS_TRIAL_ENDED_CLEANUP_REASON =
   'chatgpt_business_trial_ended'
@@ -585,6 +619,64 @@ function normalizeManualVerificationCodeInput(value: string) {
   }
 
   return digits
+}
+
+function normalizeOptionalString(value: string | null | undefined) {
+  const normalized = value?.trim()
+  return normalized || undefined
+}
+
+function normalizeOptionalEmail(value: string | null | undefined) {
+  return normalizeOptionalString(value)?.toLowerCase()
+}
+
+function normalizeOptionalVerificationCode(value: string | null | undefined) {
+  const normalized = normalizeOptionalString(value)
+  if (!normalized) {
+    return null
+  }
+
+  try {
+    return normalizeManualVerificationCodeInput(normalized)
+  } catch {
+    return null
+  }
+}
+
+function normalizeJsonPayload(
+  value: Record<string, unknown> | null | undefined,
+) {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    const serialized = JSON.stringify(value)
+    if (!serialized) {
+      return undefined
+    }
+
+    const parsed = JSON.parse(serialized) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : { value: parsed }
+  } catch {
+    return { value: String(value) }
+  }
+}
+
+function stringifyJsonPayloadForExtraction(
+  value: Record<string, unknown> | null | undefined,
+) {
+  if (!value) {
+    return null
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return null
+  }
 }
 
 function isLikelyRawEmailSource(value: string | null | undefined) {
@@ -1057,6 +1149,192 @@ export async function createManualVerificationCode(params: {
   )
 
   return record
+}
+
+async function resolveWhatsAppNotificationReservation(params: {
+  reservationId?: string | null
+  email?: string | null
+}): Promise<WhatsAppReservationMatch> {
+  const db = getDb()
+  const reservationId = normalizeOptionalString(params.reservationId)
+  if (reservationId) {
+    const reservation = await db.query.verificationEmailReservations.findFirst({
+      where: eq(verificationEmailReservations.id, reservationId),
+    })
+
+    return reservation
+      ? {
+          status: 'matched',
+          strategy: 'reservation_id',
+          reservation,
+        }
+      : {
+          status: 'unmatched',
+          reason: 'reservation_not_found',
+          reservation: null,
+        }
+  }
+
+  const email = normalizeOptionalEmail(params.email)
+  if (email) {
+    const reservation = await db.query.verificationEmailReservations.findFirst({
+      where: eq(verificationEmailReservations.email, email),
+    })
+
+    return reservation
+      ? {
+          status: 'matched',
+          strategy: 'email',
+          reservation,
+        }
+      : {
+          status: 'unmatched',
+          reason: 'email_not_found',
+          reservation: null,
+        }
+  }
+
+  const activeReservations =
+    await db.query.verificationEmailReservations.findMany({
+      where: and(
+        gt(verificationEmailReservations.expiresAt, new Date()),
+        isNotNull(verificationEmailReservations.mailbox),
+      ),
+      orderBy: [desc(verificationEmailReservations.createdAt)],
+      limit: 2,
+    })
+
+  if (activeReservations.length === 1) {
+    return {
+      status: 'matched',
+      strategy: 'single_active_reservation',
+      reservation: activeReservations[0],
+    }
+  }
+
+  return {
+    status: 'unmatched',
+    reason:
+      activeReservations.length > 1
+        ? 'multiple_active_reservations'
+        : 'no_active_reservation',
+    reservation: null,
+  }
+}
+
+function extractWhatsAppNotificationCode(params: {
+  title?: string | null
+  body?: string | null
+  rawPayload?: Record<string, unknown> | null
+  extractedCode?: string | null
+}) {
+  return (
+    normalizeOptionalVerificationCode(params.extractedCode) ||
+    extractVerificationCodeFromText(params.body) ||
+    extractVerificationCodeFromText(params.title) ||
+    extractVerificationCodeFromText(
+      stringifyJsonPayloadForExtraction(params.rawPayload),
+    )
+  )
+}
+
+export async function ingestWhatsAppNotification(
+  params: WhatsAppNotificationPayload,
+) {
+  const db = getDb()
+  const reservationMatch = await resolveWhatsAppNotificationReservation({
+    reservationId: params.reservationId,
+    email: params.email,
+  })
+  const reservation =
+    reservationMatch.status === 'matched' ? reservationMatch.reservation : null
+  const receivedAt = params.receivedAt
+    ? new Date(params.receivedAt)
+    : new Date()
+  const normalizedReceivedAt = Number.isNaN(receivedAt.getTime())
+    ? new Date()
+    : receivedAt
+  const title = normalizeOptionalString(params.title)
+  const body = normalizeOptionalString(params.body)
+  const rawPayload = normalizeJsonPayload(params.rawPayload)
+  const extractedCode = extractWhatsAppNotificationCode({
+    title,
+    body,
+    rawPayload,
+    extractedCode: params.extractedCode,
+  })
+
+  const [notificationRecord] = await db
+    .insert(whatsappNotificationIngestRecords)
+    .values({
+      id: createId(),
+      reservationId: reservation?.id,
+      deviceId: normalizeOptionalString(params.deviceId),
+      notificationId: normalizeOptionalString(params.notificationId),
+      packageName: normalizeOptionalString(params.packageName),
+      sender: normalizeOptionalString(params.sender),
+      chatName: normalizeOptionalString(params.chatName),
+      title,
+      body,
+      rawPayload,
+      verificationCode: extractedCode,
+      receivedAt: normalizedReceivedAt,
+    })
+    .returning()
+
+  let codeRecord = null
+  if (reservation?.id && extractedCode) {
+    const insertedCode = await db
+      .insert(verificationCodes)
+      .values({
+        id: createId(),
+        reservationId: reservation.id,
+        code: extractedCode,
+        source: 'WHATSAPP_NOTIFICATION',
+        messageId: notificationRecord.id,
+        receivedAt: normalizedReceivedAt,
+      })
+      .onConflictDoNothing({
+        target: [
+          verificationCodes.reservationId,
+          verificationCodes.code,
+          verificationCodes.receivedAt,
+        ],
+      })
+      .returning()
+
+    codeRecord = insertedCode[0] || null
+  }
+
+  if (codeRecord && reservation) {
+    publishVerificationCodeEvent(
+      serializeVerificationCodeEvent({
+        id: codeRecord.id,
+        reservationId: reservation.id,
+        email: reservation.email,
+        code: codeRecord.code,
+        source: codeRecord.source,
+        receivedAt: codeRecord.receivedAt,
+      }),
+    )
+  }
+
+  return {
+    notificationRecord,
+    codeRecord,
+    match:
+      reservationMatch.status === 'matched'
+        ? {
+            status: reservationMatch.status,
+            strategy: reservationMatch.strategy,
+            reservationId: reservationMatch.reservation.id,
+            email: reservationMatch.reservation.email,
+          }
+        : {
+            status: reservationMatch.status,
+            reason: reservationMatch.reason,
+          },
+  }
 }
 
 export async function ingestCloudflareEmail(params: {
