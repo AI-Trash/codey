@@ -137,6 +137,17 @@ interface ActiveFridaSession {
   session: FridaSession
 }
 
+interface FridaServerInput {
+  adb: AdbClient
+  serial: string
+  localPath?: string
+  remotePath: string
+  port: number
+  autoDownload?: boolean
+  downloadDir?: string
+  onStatus?: (message: string) => void
+}
+
 interface ExecFileResult {
   stdout: string
   stderr: string
@@ -172,6 +183,37 @@ function createAbortError(message: string): Error {
   const error = new Error(message)
   error.name = 'AbortError'
   return error
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function isRecoverableFridaServerConnectionError(
+  error: unknown,
+): boolean {
+  const message = getErrorMessage(error).toLowerCase()
+  return (
+    message === 'closed' ||
+    message.includes('unable to connect to remote frida-server') ||
+    message.includes('connection is closed') ||
+    message.includes('connection closed') ||
+    message.includes('connection reset') ||
+    message.includes('connection refused') ||
+    message.includes('eof')
+  )
+}
+
+export function formatAndroidFridaError(error: unknown): string {
+  const message = getErrorMessage(error).trim() || 'unknown Frida error'
+  if (message.includes('Frida reported a closed transport connection')) {
+    return message
+  }
+  if (!isRecoverableFridaServerConnectionError(error)) {
+    return message
+  }
+
+  return `${message}. Frida reported a closed transport connection, which means the Android frida-server accepted the connection and then closed it before Codey could attach. This is usually caused by a stale or mismatched frida-server binary, the wrong Android CPU architecture, or frida-server crashing after start.`
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -781,16 +823,7 @@ async function downloadFridaServer(input: {
   return localPath
 }
 
-async function ensureFridaServer(input: {
-  adb: AdbClient
-  serial: string
-  localPath?: string
-  remotePath: string
-  port: number
-  autoDownload?: boolean
-  downloadDir?: string
-  onStatus?: (message: string) => void
-}): Promise<void> {
+async function ensureFridaServer(input: FridaServerInput): Promise<void> {
   const {
     adb,
     serial,
@@ -801,6 +834,8 @@ async function ensureFridaServer(input: {
     downloadDir,
     onStatus,
   } = input
+  const expectedVersion = getFridaPackageVersion()
+  let pushedLocalServer = false
 
   const pushFridaServer = async (candidatePath: string): Promise<void> => {
     const resolvedLocalPath = candidatePath.trim()
@@ -812,6 +847,7 @@ async function ensureFridaServer(input: {
     await waitForAdbTransfer(
       await adb.push(serial, resolvedLocalPath, remotePath),
     )
+    pushedLocalServer = true
   }
 
   if (localPath?.trim()) {
@@ -838,6 +874,57 @@ async function ensureFridaServer(input: {
       throw new Error(
         `frida-server is missing on ${serial}:${remotePath}. Provide ANDROID_FRIDA_SERVER_PATH or enable ANDROID_FRIDA_AUTO_DOWNLOAD.`,
       )
+    }
+  }
+
+  if (!pushedLocalServer) {
+    await readAdbShellWithTimeout(
+      adb,
+      serial,
+      `su -c 'chmod 755 ${remotePath}' 2>/dev/null || chmod 755 ${remotePath} 2>/dev/null || true`,
+      5000,
+      'Preparing frida-server',
+    ).catch(() => '')
+    const remoteVersion = await readAdbShellWithTimeout(
+      adb,
+      serial,
+      `su -c '${remotePath} --version' 2>/dev/null || ${remotePath} --version 2>/dev/null || true`,
+      5000,
+      'Checking frida-server version',
+    ).catch(() => '')
+    const normalizedRemoteVersion = remoteVersion.trim()
+    if (!normalizedRemoteVersion) {
+      if (autoDownload === false) {
+        throw new Error(
+          `Unable to read remote frida-server version on ${serial}:${remotePath}. Provide a matching ANDROID_FRIDA_SERVER_PATH or enable ANDROID_FRIDA_AUTO_DOWNLOAD.`,
+        )
+      }
+
+      onStatus?.(`Replacing unreadable frida-server with ${expectedVersion}`)
+      const downloadedPath = await downloadFridaServer({
+        adb,
+        serial,
+        downloadDir,
+        onStatus,
+      })
+      await pushFridaServer(downloadedPath)
+    } else if (normalizedRemoteVersion !== expectedVersion) {
+      if (autoDownload === false) {
+        throw new Error(
+          `Remote frida-server version ${normalizedRemoteVersion} on ${serial}:${remotePath} does not match installed frida npm package version ${expectedVersion}. Provide a matching ANDROID_FRIDA_SERVER_PATH or enable ANDROID_FRIDA_AUTO_DOWNLOAD.`,
+        )
+      }
+
+      onStatus?.(
+        `Replacing frida-server ${normalizedRemoteVersion} with ${expectedVersion}`,
+      )
+      const downloadedPath = await downloadFridaServer({
+        adb,
+        serial,
+        downloadDir,
+        onStatus,
+      })
+      await pushFridaServer(downloadedPath)
     }
   }
 
@@ -1113,12 +1200,61 @@ async function attachFridaScript(input: {
     `Attaching Frida to ${input.target} on ${device.name || device.id || input.serial}`,
   )
   const session = await device.attach(input.target)
-  const script = await session.createScript(
-    buildWhatsAppNotificationFridaScript(input.packages),
-  )
-  script.message.connect(input.onMessage)
-  await script.load()
-  return { script, session }
+  let script: FridaScript | undefined
+  try {
+    script = await session.createScript(
+      buildWhatsAppNotificationFridaScript(input.packages),
+    )
+    script.message.connect(input.onMessage)
+    await script.load()
+    return { script, session }
+  } catch (error) {
+    await Promise.allSettled([
+      script?.unload() ?? Promise.resolve(),
+      session.detach(),
+    ])
+    throw error
+  }
+}
+
+async function attachFridaScriptWithServerRetry(input: {
+  frida: FridaRuntime
+  adb: AdbClient
+  serial: string
+  target: string
+  packages: string[]
+  server: Omit<FridaServerInput, 'adb' | 'serial' | 'onStatus'>
+  canRestartServer: boolean
+  onStatus?: (message: string) => void
+  onMessage: (message: unknown, data?: unknown) => void
+}): Promise<ActiveFridaSession> {
+  try {
+    return await attachFridaScript(input)
+  } catch (error) {
+    if (
+      !input.canRestartServer ||
+      !isRecoverableFridaServerConnectionError(error)
+    ) {
+      throw error
+    }
+
+    input.onStatus?.(
+      `Frida connection closed while attaching; restarting frida-server and retrying once (${getErrorMessage(
+        error,
+      )})`,
+    )
+    await ensureFridaServer({
+      adb: input.adb,
+      serial: input.serial,
+      ...input.server,
+      onStatus: input.onStatus,
+    })
+    try {
+      return await attachFridaScript(input)
+    } catch (retryError) {
+      throw new Error(formatAndroidFridaError(retryError))
+    }
+  }
 }
 
 async function cleanupFridaSession(
@@ -1217,7 +1353,9 @@ export function startAndroidWhatsAppNotificationAutoWatcher(
 
       options.onStatus?.(
         `Android WhatsApp watcher stopped: ${
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error
+            ? formatAndroidFridaError(error)
+            : String(error)
         }`,
       )
     })
@@ -1303,11 +1441,20 @@ export async function runAndroidWhatsAppNotificationWatcher(
     timeout = setTimeout(stop, options.durationMs)
   }
 
-  activeSession = await attachFridaScript({
+  activeSession = await attachFridaScriptWithServerRetry({
     frida,
+    adb,
     serial,
     target,
     packages,
+    server: {
+      localPath: options.fridaServerPath,
+      remotePath,
+      port,
+      autoDownload: options.fridaAutoDownload,
+      downloadDir: options.fridaDownloadDir,
+    },
+    canRestartServer: options.fridaStartServer !== false,
     onStatus: options.onStatus,
     onMessage(message) {
       const notification = normalizeFridaWhatsAppNotificationMessage(message)

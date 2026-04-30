@@ -1,16 +1,57 @@
-import { describe, expect, it } from 'vitest'
+import { Readable } from 'stream'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildWhatsAppNotificationIngestPayload,
   buildFridaServerDownloadUrl,
   createWhatsAppNotificationDeduper,
   extractVerificationCodeFromNotificationText,
+  formatAndroidFridaError,
   getAndroidStudioAdbPathCandidates,
+  isRecoverableFridaServerConnectionError,
   mapAndroidAbiToFridaArch,
   normalizeFridaWhatsAppNotificationMessage,
   normalizeWhatsAppPackageList,
+  runAndroidWhatsAppNotificationWatcher,
 } from '../src/modules/android/whatsapp-notifications'
 
+const androidRuntimeMocks = vi.hoisted(() => ({
+  adb: {
+    forward: vi.fn(),
+    listDevices: vi.fn(),
+    push: vi.fn(),
+    shell: vi.fn(),
+  },
+  createAdbClient: vi.fn(),
+  frida: {
+    getDevice: vi.fn(),
+    getDeviceManager: vi.fn(),
+    getUsbDevice: vi.fn(),
+  },
+}))
+
+vi.mock('adbkit', () => ({
+  createClient: androidRuntimeMocks.createAdbClient,
+  default: {
+    createClient: androidRuntimeMocks.createAdbClient,
+  },
+}))
+
+vi.mock('frida', () => ({
+  default: androidRuntimeMocks.frida,
+  getDevice: androidRuntimeMocks.frida.getDevice,
+  getDeviceManager: androidRuntimeMocks.frida.getDeviceManager,
+  getUsbDevice: androidRuntimeMocks.frida.getUsbDevice,
+}))
+
+function textStream(value = ''): NodeJS.ReadableStream {
+  return Readable.from(value ? [value] : [])
+}
+
 describe('Android WhatsApp notification helpers', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('prefers Android Studio SDK adb paths before PATH on Windows', () => {
     expect(
       getAndroidStudioAdbPathCandidates({
@@ -80,6 +121,82 @@ describe('Android WhatsApp notification helpers', () => {
       }),
     ).toBe(
       'https://github.com/frida/frida/releases/download/17.9.3/frida-server-17.9.3-android-arm64.xz',
+    )
+  })
+
+  it('explains closed Frida transport errors', () => {
+    const error = new Error('Unable to connect to remote frida-server: closed')
+
+    expect(isRecoverableFridaServerConnectionError(error)).toBe(true)
+    expect(formatAndroidFridaError(error)).toContain(
+      'Frida reported a closed transport connection',
+    )
+  })
+
+  it('restarts frida-server and retries once when attaching closes the transport', async () => {
+    const statuses: string[] = []
+    const script = {
+      load: vi.fn(async () => undefined),
+      message: {
+        connect: vi.fn(),
+      },
+      unload: vi.fn(async () => undefined),
+    }
+    const session = {
+      createScript: vi.fn(async () => script),
+      detach: vi.fn(async () => undefined),
+    }
+    const device = {
+      attach: vi
+        .fn()
+        .mockRejectedValueOnce(
+          new Error('Unable to connect to remote frida-server: closed'),
+        )
+        .mockResolvedValueOnce(session),
+      id: 'emulator-5554',
+      name: 'Android Emulator 5554',
+    }
+
+    androidRuntimeMocks.createAdbClient.mockReturnValue(androidRuntimeMocks.adb)
+    androidRuntimeMocks.adb.listDevices.mockResolvedValue([
+      {
+        id: 'emulator-5554',
+        type: 'device',
+      },
+    ])
+    androidRuntimeMocks.adb.shell.mockImplementation(
+      async (_serial: string, command: string) =>
+        command.includes('if [ -f')
+          ? textStream('found\n')
+          : command.includes('--version')
+            ? textStream('17.9.3\n')
+            : textStream(),
+    )
+    androidRuntimeMocks.adb.push.mockResolvedValue(textStream())
+    androidRuntimeMocks.adb.forward.mockResolvedValue(undefined)
+    androidRuntimeMocks.frida.getDeviceManager.mockResolvedValue({
+      enumerateDevices: vi.fn(async () => [device]),
+    })
+
+    const result = await runAndroidWhatsAppNotificationWatcher({
+      dryRun: true,
+      durationMs: 1,
+      onStatus: (status) => statuses.push(status),
+      whatsappPackages: ['com.whatsapp'],
+    })
+
+    expect(result.serial).toBe('emulator-5554')
+    expect(device.attach).toHaveBeenCalledTimes(2)
+    expect(
+      androidRuntimeMocks.adb.shell.mock.calls.filter(([, command]) =>
+        String(command).includes('pkill -f frida-server'),
+      ),
+    ).toHaveLength(2)
+    expect(statuses).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('restarting frida-server and retrying once'),
+        'Watching com.whatsapp notifications on emulator-5554 via system_server',
+      ]),
     )
   })
 

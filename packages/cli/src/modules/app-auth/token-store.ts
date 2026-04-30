@@ -107,7 +107,7 @@ export function readAppSession(): StoredAppSession {
   const storePath = getStorePath()
   if (!fs.existsSync(storePath)) {
     throw new Error(
-      'No stored app session found. Run `codey auth login` first.',
+      'No stored app session found. Run `codey --auth login` first.',
     )
   }
   return normalizeStoredAppSession(

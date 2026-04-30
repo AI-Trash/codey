@@ -16,7 +16,7 @@
     "db:migrate": "drizzle-kit migrate",
     "fmt": "oxfmt -c ./.oxfmtrc.json .",
     "fmt:check": "oxfmt -c ./.oxfmtrc.json --check .",
-    "flow": "pnpm --filter ./packages/cli exec jiti src/cli.ts flow",
+    "flow": "pnpm --filter ./packages/cli exec jiti src/cli.ts",
     "lint": "oxlint --config ./.oxlintrc.json .",
     "lint:fix": "oxlint --config ./.oxlintrc.json . --fix",
     "test": "pnpm --filter ./packages/cli run test",

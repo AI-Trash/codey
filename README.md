@@ -31,13 +31,10 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
   - `/device`
   - `/admin/external-services`
   - `/admin/workspaces`
-- CLI commands:
-  - `flow ...`
-  - `exchange ...`
-  - `auth login|status|logout`
-  - `prompt start`
-  - `tui start` (legacy alias)
-  - `daemon start` (legacy stream alias)
+- CLI entrypoints:
+  - default `codey` remote worker mode
+  - direct flow IDs such as `codey chatgpt-login ...`
+  - flag-based auth and Exchange helpers
 - a Cloudflare Email Worker package exists at `packages/cloudflare-email-worker`
 
 ## Requirements
@@ -102,9 +99,9 @@ If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MA
 
 `CODEY_APP_CLIENT_SECRET` is optional. When it is present, app-backed verification uses `client_credentials`. When it is omitted, the flow will prompt for a device-code approval and cache the resulting user session under `.codey/credentials/app-session.json`.
 
-Managed ChatGPT identities and captured session snapshots are now stored directly in Postgres so they can be shared across Codey app users and CLI runs. ChatGPT passwords are encrypted at rest with `OAUTH_CLIENT_SECRET_ENCRYPTION_KEY`. `flow chatgpt-login` and `flow codex-oauth` now resolve the latest shared identity from the app when `--identityId` / `--email` is omitted.
+Managed ChatGPT identities and captured session snapshots are now stored directly in Postgres so they can be shared across Codey app users and CLI runs. ChatGPT passwords are encrypted at rest with `OAUTH_CLIENT_SECRET_ENCRYPTION_KEY`. `codey chatgpt-login` and `codey codex-oauth` now resolve the latest shared identity from the app when `--identityId` / `--email` is omitted.
 
-Invited OpenAI workspace memberships are also stored in Postgres. `flow chatgpt-invite` syncs the invited workspace ID together with the invited email addresses into Codey, and `/admin/workspaces` lets you review or edit those associations.
+Invited OpenAI workspace memberships are also stored in Postgres. `codey chatgpt-invite` syncs the invited workspace ID together with the invited email addresses into Codey, and `/admin/workspaces` lets you review or edit those associations.
 
 Codey can keep non-owner managed identities warm by dispatching low-priority `chatgpt-login` maintenance tasks to connected CLIs with spare browser capacity. Maintenance runs are recorded in Postgres so the same identity is not maintained again until the configured interval has passed. When normal dispatched work would be blocked by the browser limit, Codey cancels queued maintenance tasks and asks connected CLIs to stop maintenance work that is occupying needed slots.
 
@@ -182,11 +179,11 @@ Then open:
 ### Flow commands
 
 ```bash
-pnpm flow chatgpt-register --verificationTimeoutMs 180000
-pnpm flow chatgpt-login
-pnpm flow chatgpt-login --chromeDefaultProfile true
-pnpm flow codex-oauth --workspaceIndex 2
-pnpm flow android-healthcheck --androidUdid emulator-5554
+pnpm codey chatgpt-register --verificationTimeoutMs 180000
+pnpm codey chatgpt-login
+pnpm codey chatgpt-login --chromeDefaultProfile true
+pnpm codey codex-oauth --workspaceIndex 2
+pnpm codey android-healthcheck --androidUdid emulator-5554
 ```
 
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
@@ -199,11 +196,11 @@ Android automation flows use Appium through WebdriverIO. Configure the Appium
 endpoint with `APPIUM_SERVER_URL` or `--appiumServerUrl`; device and app
 capabilities can be provided with `ANDROID_UDID`, `ANDROID_DEVICE_NAME`,
 `ANDROID_PLATFORM_VERSION`, `ANDROID_APP_PACKAGE`, `ANDROID_APP_ACTIVITY`, or
-the matching `--android*` CLI flags. `flow android-healthcheck` is a minimal
+the matching `--android*` CLI flags. `codey android-healthcheck` is a minimal
 session lifecycle check that opens an Android session and reports the connected
 device details.
 
-When the prompt CLI or daemon starts, Codey automatically tries to enable a
+When the CLI remote worker starts, Codey automatically tries to enable a
 WhatsApp notification watcher. The probe is best-effort: it looks for `adb` in
 Android Studio's default SDK locations first (`%LOCALAPPDATA%\Android\Sdk` on
 Windows, `~/Library/Android/sdk` on macOS, and `~/Android/Sdk` / `~/Android/sdk`
@@ -244,9 +241,9 @@ CODEY_HUMAN_LOG_LEVEL=info
 ### Exchange commands
 
 ```bash
-pnpm codey exchange verify
-pnpm codey exchange folders
-pnpm codey exchange messages --maxItems 20
+pnpm codey --exchange verify
+pnpm codey --exchange folders
+pnpm codey --exchange messages --maxItems 20
 ```
 
 ### App auth commands
@@ -254,53 +251,41 @@ pnpm codey exchange messages --maxItems 20
 Authenticate the terminal client against the app with a device-code style flow:
 
 ```bash
-pnpm codey auth login --target octocat
-pnpm codey auth status
-pnpm codey auth logout
+pnpm codey --auth login --target octocat
+pnpm codey --auth status
+pnpm codey --auth logout
 ```
 
-### Prompt CLI mode
+### Remote worker mode
 
 ```bash
 pnpm codey
-pnpm codey prompt start --target octocat
-pnpm codey tui start --target octocat
+pnpm codey --target octocat
 ```
 
-The default `pnpm codey` entry now opens a prompt-driven CLI that connects to the Codey web app at `http://localhost:3000` unless `CODEY_APP_BASE_URL` is configured.
-`prompt start` is the preferred explicit command name, while `tui start` remains available as a backward-compatible alias.
+The default `pnpm codey` entry connects to the Codey web app at `http://localhost:3000` unless `CODEY_APP_BASE_URL` is configured.
 The CLI keeps an SSE connection to `/api/cli/events`, waits for tasks dispatched from `/admin/cli`, and reports its current flow back to the web app so the admin page can show what is running.
-The operator shell can also start flows locally from inside the terminal: run `start`, answer the prompts, and Codey will launch the flow without waiting for `/admin/cli`.
 When `CODEY_APP_CLIENT_SECRET` is configured, the CLI authenticates with `client_credentials`.
-Otherwise it reuses the stored session from `pnpm codey auth login`.
-If no reusable app session is available, the CLI now offers an in-terminal device-login prompt before opening the operator shell.
-Inside the shell, run `help` to see the available commands. The main commands are `start`, `status`, `events`, `stop`, `reconnect`, `clear`, and `quit`. `Ctrl+C` still exits immediately.
-
-### Legacy stream mode
-
-```bash
-pnpm codey daemon start --target octocat
-```
-
-`daemon start` still works for non-interactive terminals and keeps the same SSE worker loop, but the prompt CLI is now the preferred operator-facing mode.
+Otherwise it reuses the stored session from `pnpm codey --auth login`.
+There is no interactive prompt shell: start local work with explicit command-line flow arguments, and use the web app for remote dispatch.
 
 ### Codex OAuth session sharing flow
 
 ```bash
-pnpm flow codex-oauth
-pnpm flow codex-oauth --email someone@example.com
-pnpm flow codex-oauth --workspaceIndex 2
+pnpm codey codex-oauth
+pnpm codey codex-oauth --email someone@example.com
+pnpm codey codex-oauth --workspaceIndex 2
 ```
 
-This is a standalone flow, not a `codey auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, and saves the resulting Codex OAuth session directly into the Codey app for sharing. CLI output redacts access tokens, refresh tokens, and passwords.
+This is a standalone flow, not a `codey --auth` mode. It drives the PKCE OAuth flow in the browser, intercepts the configured redirect URI locally in-browser without starting a localhost server, and saves the resulting Codex OAuth session directly into the Codey app for sharing. CLI output redacts access tokens, refresh tokens, and passwords.
 
-When login is required, `flow codex-oauth` can target a specific shared ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `flow chatgpt-login`. If neither flag is provided, it falls back to the latest shared identity stored in the app.
+When login is required, `codey codex-oauth` can target a specific shared ChatGPT identity with `--identityId` or `--email`, following the same selection rules as `codey chatgpt-login`. If neither flag is provided, it falls back to the latest shared identity stored in the app.
 
-If OpenAI shows the Codex workspace picker, `flow codex-oauth` now auto-selects a workspace. If OpenAI follows that with the Codex API organization picker or the consent form, the flow also auto-selects the first organization/project pair and submits the next step automatically. Use `--workspaceIndex <n>` to choose a different 1-based workspace position; if omitted, it selects the first workspace.
+If OpenAI shows the Codex workspace picker, `codey codex-oauth` now auto-selects a workspace. If OpenAI follows that with the Codex API organization picker or the consent form, the flow also auto-selects the first organization/project pair and submits the next step automatically. Use `--workspaceIndex <n>` to choose a different 1-based workspace position; if omitted, it selects the first workspace.
 
-When the selected ChatGPT identity is linked to a stored workspace in Codey, `flow codex-oauth` now prefers that associated workspace ID automatically before falling back to `--workspaceIndex` / the first visible workspace.
+When the selected ChatGPT identity is linked to a stored workspace in Codey, `codey codex-oauth` now prefers that associated workspace ID automatically before falling back to `--workspaceIndex` / the first visible workspace.
 
-When you run `flow codex-oauth --har true`, the CLI now keeps the browser open by default so the normal browser HAR is flushed when you close the browser window. Pass `--record false` if you want the browser to close automatically after the flow finishes.
+When you run `codey codex-oauth --har true`, the CLI now keeps the browser open by default so the normal browser HAR is flushed when you close the browser window. Pass `--record false` if you want the browser to close automatically after the flow finishes.
 
 When `--har true` is enabled, the browser HAR still captures the in-browser OAuth navigation, and `codex-oauth` also writes a separate `*-flow-codex-oauth-api.har` sidecar under `artifacts/` for the token exchange request made through Patchright's browser-context API client.
 
@@ -313,9 +298,9 @@ CODEX_CLIENT_ID=app_EMoamEEZ73f0CkXaXp7hrann
 CODEX_SCOPE=openid profile email offline_access
 ```
 
-If `CODEY_APP_*` is configured, `flow codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
+If `CODEY_APP_*` is configured, `codey codex-oauth` reuses the app-backed auth path to save the managed identity and OAuth token payload into the admin session page for sharing.
 
-When the Sub2API integration is enabled in Codey Web, `flow codex-oauth` saves the captured Codex OAuth session back to the app and Codey Web performs the Sub2API refresh-token sync server-side. Codey writes JSON metadata into the Sub2API account `notes` field with the OpenAI workspace ID and email address, then removes any existing OpenAI OAuth accounts whose `notes` metadata has the same email and workspace ID before creating a fresh account. Accounts without that JSON metadata are not treated as duplicates. New accounts use the email address, plus the workspace ID when present, as the Sub2API account name.
+When the Sub2API integration is enabled in Codey Web, `codey codex-oauth` saves the captured Codex OAuth session back to the app and Codey Web performs the Sub2API refresh-token sync server-side. Codey writes JSON metadata into the Sub2API account `notes` field with the OpenAI workspace ID and email address, then removes any existing OpenAI OAuth accounts whose `notes` metadata has the same email and workspace ID before creating a fresh account. Accounts without that JSON metadata are not treated as duplicates. New accounts use the email address, plus the workspace ID when present, as the Sub2API account name.
 
 When Codey creates a new Sub2API account, you can also pass default scheduler fields such as proxy, concurrency, priority, group IDs, mixed-channel confirmation, and an optional "auto-fill related models" whitelist that mirrors Sub2API's OpenAI model presets.
 

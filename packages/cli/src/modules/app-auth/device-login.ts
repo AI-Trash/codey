@@ -149,12 +149,12 @@ export async function resolveCliNotificationsAuthState(): Promise<CliNotificatio
   const session = readAppSession()
   if (isAppSessionExpired(session)) {
     throw new Error(
-      'Stored app session is expired. Run `codey auth login` again.',
+      'Stored app session is expired. Run `codey --auth login` again.',
     )
   }
   if (!hasRequiredScopes(session.tokenSet.scope, requiredScopes)) {
     throw new Error(
-      `Stored app session is missing the required ${REQUIRED_CLI_SCOPE} scope. Run \`codey auth login --scope "${REQUIRED_CLI_SCOPE}"\` again.`,
+      `Stored app session is missing the required ${REQUIRED_CLI_SCOPE} scope. Run \`codey --auth login --scope "${REQUIRED_CLI_SCOPE}"\` again.`,
     )
   }
 

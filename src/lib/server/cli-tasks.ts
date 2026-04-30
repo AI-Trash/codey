@@ -443,7 +443,7 @@ async function resolveDispatchableCliFlow(input: {
 
   if (!connection.registeredFlows.length) {
     throw new Error(
-      'This CLI has not reported any dispatchable flows yet. Reconnect the daemon and try again.',
+      'This CLI has not reported any dispatchable flows yet. Reconnect the CLI worker and try again.',
     )
   }
 

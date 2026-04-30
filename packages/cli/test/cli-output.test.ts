@@ -52,7 +52,7 @@ describe('cli output file logging', () => {
 
     const logFilePath = initializeCliFileLogging({
       rootDir,
-      argv: ['tui', 'start'],
+      argv: [],
     })
     const redirectedStdout: string[] = []
     const redirectedStderr: string[] = []

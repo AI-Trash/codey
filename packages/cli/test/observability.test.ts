@@ -50,10 +50,10 @@ describe('cli observability', () => {
 
     initializeCliFileLogging({
       rootDir,
-      argv: ['tui', 'start'],
+      argv: [],
     })
     setBaseObservabilityContext({
-      command: 'tui:start',
+      command: 'cli',
     })
 
     await withCliOutput(silentCliOutput, async () => {
@@ -84,7 +84,7 @@ describe('cli observability', () => {
     expect(outputRecord).toBeTruthy()
     expect(outputRecord?.context).toMatchObject({
       runId: expect.any(String),
-      command: 'tui:start',
+      command: 'cli',
       flowId: 'chatgpt-register',
       taskId: 'task-1',
       batchId: 'batch-1',

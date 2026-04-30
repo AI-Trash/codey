@@ -29,7 +29,6 @@
   "devDependencies": {
     "@microsoft/microsoft-graph-client": "catalog:",
     "@types/node": "catalog:",
-    "cac": "catalog:",
     "jiti": "catalog:",
     "patchright": "catalog:"
   }

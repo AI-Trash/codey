@@ -363,16 +363,12 @@ function resolveLogLabel(argv: string[]): string {
   const primary = argv[0]?.trim()
   const secondary = argv[1]?.trim()
 
-  if (!primary) {
+  if (!primary || primary.startsWith('-')) {
     return 'cli'
   }
 
   if (
-    (primary === 'flow' ||
-      primary === 'auth' ||
-      primary === 'exchange' ||
-      primary === 'tui' ||
-      primary === 'daemon') &&
+    (primary === 'flow' || primary === 'auth' || primary === 'exchange') &&
     secondary
   ) {
     return sanitizeLogLabel(`${primary}-${secondary}`)

@@ -81,9 +81,6 @@ catalogs:
     adbkit:
       specifier: ^2.11.1
       version: 2.11.1
-    cac:
-      specifier: ^7.0.0
-      version: 7.0.0
     class-variance-authority:
       specifier: ^0.7.1
       version: 0.7.1
@@ -448,9 +445,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.17
-      cac:
-        specifier: 'catalog:'
-        version: 7.0.0
       jiti:
         specifier: 'catalog:'
         version: 2.6.1
@@ -3728,10 +3722,6 @@ packages:
   cac@6.7.14:
     resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
     engines: {node: '>=8'}
-
-  cac@7.0.0:
-    resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
-    engines: {node: '>=20.19.0'}
 
   caniuse-lite@1.0.30001787:
     resolution: {integrity: sha512-mNcrMN9KeI68u7muanUpEejSLghOKlVhRqS/Za2IeyGllJ9I9otGpR9g3nsw7n4W378TE/LyIteA0+/FOZm4Kg==}
@@ -9239,8 +9229,6 @@ snapshots:
     optional: true
 
   cac@6.7.14: {}
-
-  cac@7.0.0: {}
 
   caniuse-lite@1.0.30001787: {}
 

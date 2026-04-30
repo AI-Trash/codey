@@ -206,8 +206,8 @@ describe('app auth OIDC helpers', () => {
     expect(session.target).toBe('octocat')
   })
 
-  it('uses client credentials for daemon notifications when configured', async () => {
-    const rootDir = path.join(tempRoot, 'daemon-client-credentials')
+  it('uses client credentials for CLI notifications when configured', async () => {
+    const rootDir = path.join(tempRoot, 'cli-client-credentials')
     const config = createConfig(rootDir)
     setRuntimeConfig({
       ...config,
@@ -269,8 +269,8 @@ describe('app auth OIDC helpers', () => {
     expect(body.get('scope')).toBe('notifications:read verification:ingest')
   })
 
-  it('reuses the stored device session for daemon notifications without client credentials', async () => {
-    const rootDir = path.join(tempRoot, 'daemon-device-session')
+  it('reuses the stored device session for CLI notifications without client credentials', async () => {
+    const rootDir = path.join(tempRoot, 'cli-device-session')
     const config = createConfig(rootDir)
     const now = Date.now()
     setRuntimeConfig({

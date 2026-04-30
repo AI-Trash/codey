@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { cac } from 'cac'
 import { fileURLToPath } from 'url'
 
 import { loadWorkspaceEnv } from './utils/env'
@@ -40,20 +39,25 @@ import {
   shouldRecordPageContent,
   shouldKeepFlowOpen,
   type AuthOptions,
-  type CommonOptions,
   type ExchangeOptions,
   type FlowOptions,
   type FlowProgressUpdate,
 } from './modules/flow-cli/helpers'
 import {
   DEFAULT_CLI_BROWSER_LIMIT,
+  getCliFlowDefinition,
+  listCliFlowCommandIds,
+  listCliFlowConfigFieldDefinitions,
+  normalizeCliFlowCommandId,
   normalizeCliFlowTaskPayload,
   type CliFlowTaskBatchMetadata,
   type CliFlowCommandId,
   type CliFlowTaskMetadata,
 } from './modules/flow-cli/flow-registry'
-import { normalizeFlowCliArgsForCommand } from './modules/flow-cli/parse-argv'
-import { runPromptDashboard } from './modules/tui/dashboard'
+import {
+  normalizeCommonCliArgs,
+  normalizeFlowCliArgsForCommand,
+} from './modules/flow-cli/parse-argv'
 import {
   FlowInterruptedError,
   runWithSession,
@@ -546,15 +550,10 @@ async function runAuthCommand(
   throw new Error(`Unsupported auth command: ${subcommand || '(missing)'}`)
 }
 
-async function runDaemonCommand(
-  subcommand: string,
+async function runRemoteWorker(
   options: AuthOptions,
   config: ReturnType<typeof prepareRuntimeConfig>,
 ): Promise<void> {
-  if (subcommand !== 'start') {
-    throw new Error(`Unsupported daemon command: ${subcommand || '(missing)'}`)
-  }
-
   const cliName = options.cliName || getDefaultCliName()
   let announced = false
   setObservabilityRuntimeState({
@@ -572,7 +571,7 @@ async function runDaemonCommand(
       setRuntimeConfig(config)
       const authState = await resolveCliNotificationsAuthState()
       androidWhatsAppWatcher ??= startCliAndroidWhatsAppWatcher(
-        'daemon',
+        'cli',
         options,
         config,
       )
@@ -588,7 +587,7 @@ async function runDaemonCommand(
           writeCliStderrLine(
             JSON.stringify(
               {
-                command: 'daemon:runtime:error',
+                command: 'cli:runtime:error',
                 error: error.message,
               },
               null,
@@ -700,7 +699,7 @@ async function runDaemonCommand(
         writeCliStderrLine(
           JSON.stringify(
             {
-              command: 'daemon:task:lease:error',
+              command: 'cli:task:lease:error',
               taskId,
               error: error.message,
             },
@@ -750,7 +749,7 @@ async function runDaemonCommand(
                 writeCliStdoutLine(
                   JSON.stringify(
                     {
-                      command: 'daemon:task:start',
+                      command: 'cli:task:start',
                       notificationId: task.notificationId,
                       flowId: task.flowId,
                       config: redactForOutput(task.config),
@@ -818,7 +817,7 @@ async function runDaemonCommand(
                   writeCliStdoutLine(
                     JSON.stringify(
                       {
-                        command: 'daemon:task:completed',
+                        command: 'cli:task:completed',
                         notificationId: task.notificationId,
                         flowId: task.flowId,
                         execution: redactForOutput({
@@ -872,7 +871,7 @@ async function runDaemonCommand(
                   writeCliStderrLine(
                     JSON.stringify(
                       {
-                        command: 'daemon:task:error',
+                        command: 'cli:task:error',
                         notificationId: task.notificationId,
                         flowId: task.flowId,
                         error: sanitized.message,
@@ -1015,7 +1014,7 @@ async function runDaemonCommand(
               writeCliStderrLine(
                 JSON.stringify(
                   {
-                    command: 'daemon:task:schedule:error',
+                    command: 'cli:task:schedule:error',
                     notificationId: claimedTask.id,
                     flowId: taskPayload.flowId,
                     error: sanitizeErrorForOutput(error).message,
@@ -1030,7 +1029,7 @@ async function runDaemonCommand(
           writeCliStderrLine(
             JSON.stringify(
               {
-                command: 'daemon:task:claim:error',
+                command: 'cli:task:claim:error',
                 error: sanitizeErrorForOutput(error).message,
               },
               null,
@@ -1045,7 +1044,7 @@ async function runDaemonCommand(
       writeCliStdoutLine(
         JSON.stringify(
           {
-            command: announced ? 'daemon:reconnect' : 'daemon:start',
+            command: announced ? 'cli:reconnect' : 'cli:start',
             config: redactForOutput(config),
             cliName,
             auth: redactForOutput({
@@ -1092,7 +1091,7 @@ async function runDaemonCommand(
               writeCliStdoutLine(
                 JSON.stringify(
                   {
-                    command: 'daemon:connected',
+                    command: 'cli:connected',
                     connection,
                   },
                   null,
@@ -1105,7 +1104,7 @@ async function runDaemonCommand(
           writeCliStdoutLine(
             JSON.stringify(
               {
-                command: 'daemon:event',
+                command: 'cli:event',
                 notification,
               },
               null,
@@ -1117,7 +1116,7 @@ async function runDaemonCommand(
         writeCliStderrLine(
           JSON.stringify(
             {
-              command: 'daemon:stream:error',
+              command: 'cli:stream:error',
               error: sanitizeErrorForOutput(error).message,
             },
             null,
@@ -1137,45 +1136,6 @@ async function runDaemonCommand(
 
       await sleep(1000)
     }
-  } finally {
-    await androidWhatsAppWatcher?.stop()
-  }
-}
-
-async function runInteractiveCommand(
-  subcommand: string,
-  options: AuthOptions,
-  config: ReturnType<typeof prepareRuntimeConfig>,
-): Promise<void> {
-  if (subcommand !== 'start') {
-    throw new Error(`Unsupported tui command: ${subcommand || '(missing)'}`)
-  }
-
-  if (!process.stdout.isTTY || !process.stdin.isTTY) {
-    throw new Error(
-      'The prompt-driven CLI requires an interactive terminal. Use `codey daemon start` for non-interactive streaming mode.',
-    )
-  }
-
-  const cliName = options.cliName || getDefaultCliName()
-  setObservabilityRuntimeState({
-    cliName,
-    target: options.target || null,
-    phase: 'starting',
-  })
-
-  const androidWhatsAppWatcher = startCliAndroidWhatsAppWatcher(
-    'tui',
-    options,
-    config,
-  )
-  try {
-    await runPromptDashboard({
-      cliName,
-      target: options.target,
-      config,
-      executeFlow: executeFlowSubcommand,
-    })
   } finally {
     await androidWhatsAppWatcher?.stop()
   }
@@ -1246,586 +1206,335 @@ function startCliAndroidWhatsAppWatcher(
   })
 }
 
-const cli = cac('codey')
-const flowCli = cac('codey flow')
-const exchangeCli = cac('codey exchange')
-const authCli = cac('codey auth')
-const daemonCli = cac('codey daemon')
-const tuiCli = cac('codey tui')
-
-function withCommonOptions<
-  TCommand extends {
-    option(name: string, description?: string, config?: never): TCommand
-  },
->(command: TCommand): TCommand {
-  return withConfigOptions(command)
-    .option(
-      '--chromeDefaultProfile <bool>',
-      'Use the local Chrome Default profile for browser-based flow startup (implies --record true unless explicitly disabled)',
-    )
-    .option('--headless <bool>', 'Override browser headless')
-    .option('--slowMo <ms>', 'Override browser slow motion delay')
+interface ParsedCliArgs {
+  positionals: string[]
+  options: Record<string, unknown>
 }
 
-function withConfigOptions<
-  TCommand extends {
-    option(name: string, description?: string, config?: never): TCommand
-  },
->(command: TCommand): TCommand {
-  return command
-    .option('--config <file>', 'JSON config file')
-    .option('--profile <name>', 'Reserved for future config profile selection')
+const HELP_FLAGS = new Set(['--help', '-h'])
+
+function normalizeOptionName(name: string): string {
+  return name.replace(/-([a-z])/g, (_match, value: string) =>
+    value.toUpperCase(),
+  )
 }
 
-withCommonOptions(
-  flowCli
-    .command(
-      'chatgpt-register',
-      'Register a ChatGPT account using the configured Exchange mailbox',
-    )
-    .option('--password <password>', 'Optional password override')
-    .option(
-      '--claimTrial <paypal|gopay>',
-      'Continue into the first eligible ChatGPT trial checkout after registration using the selected payment branch',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--recordPageContent <bool>',
-      'Whether to save page.content() after the final page settles',
-    )
-    .option(
-      '--verificationTimeoutMs <ms>',
-      'How long to wait for the verification email',
-    )
-    .option(
-      '--pollIntervalMs <ms>',
-      'How often to poll Exchange for the verification email',
-    )
-    .option('--billingName <name>', 'Checkout billing name, if requested')
-    .option('--billingCountry <country>', 'Checkout billing country code')
-    .option(
-      '--billingAddressLine1 <line>',
-      'Checkout billing street address line 1',
-    )
-    .option(
-      '--billingAddressLine2 <line>',
-      'Checkout billing street address line 2',
-    )
-    .option('--billingCity <city>', 'Checkout billing city/locality')
-    .option('--billingState <state>', 'Checkout billing state/province')
-    .option('--billingPostalCode <code>', 'Checkout billing postal or ZIP code')
-    .example('codey flow chatgpt-register --verificationTimeoutMs 180000'),
-).action((rawOptions: Record<string, unknown>) => {
+function appendRawOption(
+  options: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  const existing = options[key]
+  if (existing === undefined) {
+    options[key] = value
+    return
+  }
+
+  if (Array.isArray(existing)) {
+    existing.push(value)
+    return
+  }
+
+  options[key] = [existing, value]
+}
+
+function parseCliArgs(argv: string[]): ParsedCliArgs {
+  const positionals: string[] = []
+  const options: Record<string, unknown> = {}
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const current = argv[index]
+    if (current === '--') {
+      positionals.push(...argv.slice(index + 1))
+      break
+    }
+
+    if (HELP_FLAGS.has(current)) {
+      options.help = true
+      continue
+    }
+
+    if (!current.startsWith('--')) {
+      positionals.push(current)
+      continue
+    }
+
+    const equalsIndex = current.indexOf('=')
+    const rawName =
+      equalsIndex > -1 ? current.slice(2, equalsIndex) : current.slice(2)
+    const key = normalizeOptionName(rawName)
+    if (!key) {
+      continue
+    }
+
+    if (equalsIndex > -1) {
+      appendRawOption(options, key, current.slice(equalsIndex + 1))
+      continue
+    }
+
+    const next = argv[index + 1]
+    if (next && !next.startsWith('-')) {
+      appendRawOption(options, key, next)
+      index += 1
+      continue
+    }
+
+    appendRawOption(options, key, true)
+  }
+
+  return {
+    positionals,
+    options,
+  }
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim()
+  return normalized || undefined
+}
+
+function normalizeAuthCliOptions(input: Record<string, unknown>): AuthOptions {
+  return {
+    ...normalizeCommonCliArgs(input),
+    flowType: readOptionalString(input.flowType),
+    cliName: readOptionalString(input.cliName),
+    scope: readOptionalString(input.scope),
+    target: readOptionalString(input.target),
+    androidWhatsAppWatch:
+      typeof input.androidWhatsAppWatch === 'string' ||
+      typeof input.androidWhatsAppWatch === 'boolean'
+        ? input.androidWhatsAppWatch
+        : undefined,
+  }
+}
+
+function normalizeExchangeCliOptions(
+  input: Record<string, unknown>,
+): ExchangeOptions {
+  return {
+    ...normalizeCommonCliArgs(input),
+    folderId: readOptionalString(input.folderId),
+    maxItems:
+      typeof input.maxItems === 'string' ||
+      typeof input.maxItems === 'number' ||
+      typeof input.maxItems === 'boolean'
+        ? input.maxItems
+        : undefined,
+    unreadOnly:
+      typeof input.unreadOnly === 'string' ||
+      typeof input.unreadOnly === 'boolean'
+        ? input.unreadOnly
+        : undefined,
+  }
+}
+
+function resolveRequestedFlowId(
+  parsed: ParsedCliArgs,
+): CliFlowCommandId | undefined {
+  const optionFlow = readOptionalString(parsed.options.flow)
+  if (optionFlow) {
+    return normalizeCliFlowCommandId(optionFlow)
+  }
+
+  const [first] = parsed.positionals
+  return first ? normalizeCliFlowCommandId(first) : undefined
+}
+
+function formatFlagValueLabel(type: string): string {
+  if (type === 'boolean') {
+    return '<bool>'
+  }
+
+  if (type === 'number') {
+    return '<number>'
+  }
+
+  if (type === 'stringList') {
+    return '<value>'
+  }
+
+  return '<value>'
+}
+
+function printRootHelp(): void {
+  writeCliStdoutLine(
+    [
+      'codey',
+      '',
+      'Usage:',
+      '  codey [worker options]',
+      '  codey <flow-id> [flow options]',
+      '  codey --flow <flow-id> [flow options]',
+      '  codey --auth <login|status|logout> [auth options]',
+      '  codey --exchange <verify|folders|messages> [exchange options]',
+      '',
+      'Flows:',
+      ...listCliFlowCommandIds().map((flowId) => `  ${flowId}`),
+      '',
+      'Worker options:',
+      '  --config <file>',
+      '  --profile <name>',
+      '  --cliName <name>',
+      '  --target <target>',
+      '  --androidWhatsAppWatch <bool>',
+      '',
+      'Examples:',
+      '  codey --target octocat',
+      '  codey chatgpt-login --email someone@example.com',
+      '  codey --flow codex-oauth --workspaceIndex 2',
+      '  codey --auth login --target octocat',
+    ].join('\n'),
+  )
+}
+
+function printFlowHelp(flowId: CliFlowCommandId): void {
+  const definition = getCliFlowDefinition(flowId)
+  const fields = listCliFlowConfigFieldDefinitions(flowId)
+  writeCliStdoutLine(
+    [
+      `codey ${flowId}`,
+      '',
+      definition?.descriptionKey ? `Flow: ${flowId}` : `Flow: ${flowId}`,
+      '',
+      'Usage:',
+      `  codey ${flowId} [options]`,
+      `  codey --flow ${flowId} [options]`,
+      '',
+      'Options:',
+      '  --config <file>',
+      '  --profile <name>',
+      ...fields.map(
+        (field) => `  ${field.cliFlag} ${formatFlagValueLabel(field.type)}`,
+      ),
+    ].join('\n'),
+  )
+}
+
+function printAuthHelp(): void {
+  writeCliStdoutLine(
+    [
+      'codey --auth <login|status|logout>',
+      '',
+      'Options:',
+      '  --config <file>',
+      '  --profile <name>',
+      '  --flowType <name>',
+      '  --cliName <name>',
+      '  --scope <scope>',
+      '  --target <target>',
+      '',
+      'Examples:',
+      '  codey --auth login --target octocat',
+      '  codey --auth status',
+      '  codey --auth logout',
+    ].join('\n'),
+  )
+}
+
+function printExchangeHelp(): void {
+  writeCliStdoutLine(
+    [
+      'codey --exchange <verify|folders|messages>',
+      '',
+      'Options:',
+      '  --config <file>',
+      '  --profile <name>',
+      '  --folderId <id>',
+      '  --maxItems <count>',
+      '  --unreadOnly <bool>',
+      '',
+      'Examples:',
+      '  codey --exchange verify',
+      '  codey --exchange folders',
+      '  codey --exchange messages --maxItems 20',
+    ].join('\n'),
+  )
+}
+
+function failWithHelp(message: string): void {
+  writeCliStderrLine(message)
+  printRootHelp()
+  process.exitCode = 1
+}
+
+function startRemoteWorkerFromOptions(
+  rawOptions: Record<string, unknown>,
+): void {
+  const options = normalizeAuthCliOptions(rawOptions)
   execute(
     (async () => {
-      const options = normalizeFlowCommandOptions(
-        'chatgpt-register',
-        rawOptions,
-      )
-      await executeFlowSubcommandWithReporting('chatgpt-register', options)
+      const config = prepareRuntimeConfig('cli', options)
+      await runRemoteWorker(options, config)
     })(),
   )
-})
+}
 
-withCommonOptions(
-  flowCli
-    .command(
-      'chatgpt-login',
-      'Sign in to ChatGPT with a previously shared identity',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--recordPageContent <bool>',
-      'Whether to save page.content() after the final page settles',
-    )
-    .option(
-      '--identityId <id>',
-      'Shared identity id from a previous chatgpt-register run',
-    )
-    .option(
-      '--email <email>',
-      'Shared identity email; defaults to the latest shared identity',
-    )
-    .option(
-      '--restoreStorageState <bool>',
-      'Load a matching local ChatGPT storage state before normal login',
-    )
-    .example('codey flow chatgpt-login')
-    .example('codey flow chatgpt-login --email someone@example.com'),
-).action((rawOptions: Record<string, unknown>) => {
+function startFlowFromOptions(
+  flowId: CliFlowCommandId,
+  rawOptions: Record<string, unknown>,
+): void {
   execute(
     (async () => {
-      const options = normalizeFlowCommandOptions('chatgpt-login', rawOptions)
-      await executeFlowSubcommandWithReporting('chatgpt-login', options)
+      const options = normalizeFlowCommandOptions(flowId, rawOptions)
+      await executeFlowSubcommandWithReporting(flowId, options)
     })(),
   )
-})
+}
 
-withCommonOptions(
-  flowCli
-    .command(
-      'chatgpt-team-trial',
-      'Sign in to ChatGPT and claim the first eligible free trial offer',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--recordPageContent <bool>',
-      'Whether to save page.content() after the final page settles',
-    )
-    .option(
-      '--identityId <id>',
-      'Shared identity id from a previous chatgpt-register run',
-    )
-    .option(
-      '--email <email>',
-      'Shared identity email; defaults to the latest shared identity',
-    )
-    .option(
-      '--restoreStorageState <bool>',
-      'Load a matching local ChatGPT storage state before normal login',
-    )
-    .option('--billingName <name>', 'Checkout billing name, if requested')
-    .option('--billingCountry <country>', 'Checkout billing country code')
-    .option(
-      '--billingAddressLine1 <line>',
-      'Checkout billing street address line 1',
-    )
-    .option(
-      '--billingAddressLine2 <line>',
-      'Checkout billing street address line 2',
-    )
-    .option('--billingCity <city>', 'Checkout billing city/locality')
-    .option('--billingState <state>', 'Checkout billing state/province')
-    .option('--billingPostalCode <code>', 'Checkout billing postal or ZIP code')
-    .example('codey flow chatgpt-team-trial')
-    .example('codey flow chatgpt-team-trial --email someone@example.com'),
-).action((rawOptions: Record<string, unknown>) => {
+function startAuthFromOptions(
+  action: string,
+  rawOptions: Record<string, unknown>,
+): void {
+  const options = normalizeAuthCliOptions(rawOptions)
   execute(
     (async () => {
-      const options = normalizeFlowCommandOptions(
-        'chatgpt-team-trial',
-        rawOptions,
-      )
-      await executeFlowSubcommandWithReporting('chatgpt-team-trial', options)
+      const config = prepareRuntimeConfig(`auth:${action}`, options)
+      await runAuthCommand(action, options, config)
     })(),
   )
-})
+}
 
-withCommonOptions(
-  flowCli
-    .command(
-      'chatgpt-invite',
-      'Sign in with a shared ChatGPT identity and invite workspace members',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--recordPageContent <bool>',
-      'Whether to save page.content() after the final page settles',
-    )
-    .option(
-      '--identityId <id>',
-      'Shared identity id from a previous chatgpt-register run',
-    )
-    .option(
-      '--email <email>',
-      'Shared identity email; defaults to the latest shared identity',
-    )
-    .option(
-      '--restoreStorageState <bool>',
-      'Load a matching local ChatGPT storage state before normal login',
-    )
-    .option(
-      '--inviteEmail <email>',
-      'Invite email(s), repeatable or comma-separated',
-    )
-    .option(
-      '--inviteFile <file>',
-      'CSV or JSON file containing invite email addresses',
-    )
-    .option(
-      '--pruneUnmanagedWorkspaceMembers <bool>',
-      'Remove ChatGPT workspace users not present in the invite list before inviting',
-    )
-    .example(
-      'codey flow chatgpt-invite --inviteEmail a@example.com --inviteEmail b@example.com',
-    )
-    .example(
-      'codey flow chatgpt-invite --inviteEmail a@example.com,b@example.com',
-    )
-    .example(
-      'codey flow chatgpt-invite --inviteFile ./members.csv --record true',
-    ),
-).action((rawOptions: Record<string, unknown>) => {
+function startExchangeFromOptions(
+  action: string,
+  rawOptions: Record<string, unknown>,
+): void {
+  const options = normalizeExchangeCliOptions(rawOptions)
   execute(
     (async () => {
-      const options = normalizeFlowCommandOptions('chatgpt-invite', rawOptions)
-      await executeFlowSubcommandWithReporting('chatgpt-invite', options)
+      const config = prepareRuntimeConfig(`exchange:${action}`, options)
+      await runExchangeCommand(action, options, config)
     })(),
   )
-})
-
-withCommonOptions(
-  flowCli
-    .command('codex-oauth', 'Run Codex OAuth and save the session in Codey app')
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--recordPageContent <bool>',
-      'Whether to save page.content() after the final page settles',
-    )
-    .option(
-      '--identityId <id>',
-      'Shared identity id to use if the OpenAI login flow needs credentials',
-    )
-    .option(
-      '--email <email>',
-      'Shared identity email to use if the OpenAI login flow needs credentials; defaults to the latest shared identity',
-    )
-    .option(
-      '--workspaceId <id>',
-      'Explicit OpenAI workspace id to request during Codex OAuth',
-    )
-    .option(
-      '--workspaceIndex <index>',
-      '1-based workspace position to select on the Codex consent page (defaults to 1)',
-    )
-    .option('--redirectPort <port>', 'Override OAuth callback redirect port')
-    .option(
-      '--authorizeUrlOnly <bool>',
-      'Generate the OAuth URL and exit before continuing browser login',
-    )
-    .example('codey flow codex-oauth --redirectPort 3005')
-    .example('codey flow codex-oauth --authorizeUrlOnly true')
-    .example('codey flow codex-oauth --email someone@example.com')
-    .example('codey flow codex-oauth --workspaceId ws_123')
-    .example('codey flow codex-oauth --workspaceIndex 2'),
-).action((rawOptions: Record<string, unknown>) => {
-  execute(
-    (async () => {
-      const options = normalizeFlowCommandOptions('codex-oauth', rawOptions)
-      await executeFlowSubcommandWithReporting('codex-oauth', options)
-    })(),
-  )
-})
-
-withConfigOptions(
-  flowCli
-    .command(
-      'android-healthcheck',
-      'Open an Appium Android session and report device details',
-    )
-    .option(
-      '--appiumServerUrl <url>',
-      'Appium server URL, for example http://127.0.0.1:4723',
-    )
-    .option('--androidUdid <udid>', 'Android device UDID')
-    .option('--androidDeviceName <name>', 'Android device name')
-    .option('--androidPlatformVersion <version>', 'Android platform version')
-    .option(
-      '--androidAutomationName <name>',
-      'Appium Android automation backend',
-    )
-    .option('--androidAppPackage <package>', 'Android app package to launch')
-    .option('--androidAppActivity <activity>', 'Android app activity to launch')
-    .option(
-      '--androidNoReset <bool>',
-      'Whether Appium should preserve app/device state between runs',
-    )
-    .example('codey flow android-healthcheck --androidUdid emulator-5554'),
-).action((rawOptions: Record<string, unknown>) => {
-  execute(
-    (async () => {
-      const options = normalizeFlowCommandOptions(
-        'android-healthcheck',
-        rawOptions,
-      )
-      await executeFlowSubcommandWithReporting('android-healthcheck', options)
-    })(),
-  )
-})
-
-withCommonOptions(
-  flowCli
-    .command(
-      'noop',
-      'Open an empty browser page and keep it available for manual inspection',
-    )
-    .option('--har <bool>', 'Whether to record a HAR file for this flow run')
-    .option(
-      '--record <bool>',
-      'Whether to keep the browser session open after the flow completes',
-    )
-    .option(
-      '--recordPageContent <bool>',
-      'Whether to save page.content() after the final page settles',
-    )
-    .example('codey flow noop')
-    .example('codey flow noop --record false --har false'),
-).action((rawOptions: Record<string, unknown>) => {
-  execute(
-    (async () => {
-      const options = normalizeFlowCommandOptions('noop', rawOptions)
-      await executeFlowSubcommandWithReporting('noop', options)
-    })(),
-  )
-})
-
-withCommonOptions(
-  authCli
-    .command(
-      'login',
-      'Authenticate this CLI client with the Codey app via device flow',
-    )
-    .option('--flowType <name>', 'Logical flow type for the device challenge')
-    .option('--cliName <name>', 'CLI instance label')
-    .option('--scope <scope>', 'Requested CLI scope')
-    .option(
-      '--target <target>',
-      'Notification target label, such as a GitHub login',
-    )
-    .example('codey auth login --target octocat'),
-).action((options: AuthOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('auth:login', options)
-      await runAuthCommand('login', options, config)
-    })(),
-  )
-})
-
-withCommonOptions(
-  authCli.command('status', 'Show stored Codey app authentication status'),
-).action((options: AuthOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('auth:status', options)
-      await runAuthCommand('status', options, config)
-    })(),
-  )
-})
-
-withCommonOptions(
-  authCli.command('logout', 'Clear stored Codey app authentication'),
-).action((options: AuthOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('auth:logout', options)
-      await runAuthCommand('logout', options, config)
-    })(),
-  )
-})
-
-withCommonOptions(
-  tuiCli
-    .command(
-      'start',
-      'Run the Codey prompt-driven operator CLI for local starts and web-dispatched flow tasks',
-    )
-    .option('--cliName <name>', 'CLI instance label')
-    .option(
-      '--target <target>',
-      'Notification target label, such as a GitHub login',
-    )
-    .option(
-      '--androidWhatsAppWatch <bool>',
-      'Enable automatic Android WhatsApp notification watcher',
-    )
-    .example('codey prompt start --target octocat')
-    .example('codey'),
-).action((options: AuthOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('tui:start', options)
-      await runInteractiveCommand('start', options, config)
-    })(),
-  )
-})
-
-withCommonOptions(
-  daemonCli
-    .command(
-      'start',
-      'Run the legacy stream client (non-interactive alias for the CLI worker loop)',
-    )
-    .option('--cliName <name>', 'CLI instance label')
-    .option(
-      '--target <target>',
-      'Notification target label, such as a GitHub login',
-    )
-    .option(
-      '--androidWhatsAppWatch <bool>',
-      'Enable automatic Android WhatsApp notification watcher',
-    )
-    .example('codey daemon start --target octocat'),
-).action((options: AuthOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('daemon:start', options)
-      await runDaemonCommand('start', options, config)
-    })(),
-  )
-})
-
-withCommonOptions(
-  exchangeCli
-    .command(
-      'verify',
-      'Verify Exchange token, mailbox folder access, and inbox message access',
-    )
-    .example('codey exchange verify'),
-).action((options: CommonOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('exchange:verify', options)
-      await runExchangeCommand('verify', options, config)
-    })(),
-  )
-})
-
-withCommonOptions(
-  exchangeCli
-    .command('folders', 'List mailbox folders')
-    .example('codey exchange folders --config path/to/config.json'),
-).action((options: CommonOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('exchange:folders', options)
-      await runExchangeCommand('folders', options, config)
-    })(),
-  )
-})
-
-withCommonOptions(
-  exchangeCli
-    .command('messages', 'List mailbox messages')
-    .option('--folderId <id>', 'Mailbox folder id')
-    .option('--maxItems <count>', 'Maximum number of messages to return')
-    .option('--unreadOnly <bool>', 'Only return unread messages')
-    .example(
-      'codey exchange messages --folderId id --maxItems 20 --unreadOnly true',
-    ),
-).action((options: ExchangeOptions) => {
-  execute(
-    (async () => {
-      const config = prepareRuntimeConfig('exchange:messages', options)
-      await runExchangeCommand('messages', options, config)
-    })(),
-  )
-})
-
-cli
-  .command('flow', 'Run OpenAI flow commands')
-  .example('codey flow chatgpt-register --verificationTimeoutMs 180000')
-  .example('codey flow chatgpt-login --email someone@example.com')
-  .example(
-    'codey flow chatgpt-invite --inviteEmail a@example.com,b@example.com',
-  )
-  .example('codey flow codex-oauth --workspaceIndex 2')
-  .example('codey flow android-healthcheck --androidUdid emulator-5554')
-  .action(() => {
-    flowCli.outputHelp()
-  })
-
-cli
-  .command('exchange', 'Run Exchange commands')
-  .example('codey exchange verify')
-  .example('codey exchange folders --config path/to/config.json')
-  .example(
-    'codey exchange messages --folderId id --maxItems 20 --unreadOnly true',
-  )
-  .action(() => {
-    exchangeCli.outputHelp()
-  })
-
-cli
-  .command('auth', 'Run Codey app authentication commands')
-  .example('codey auth login --target octocat')
-  .example('codey auth logout')
-  .action(() => {
-    authCli.outputHelp()
-  })
-
-cli
-  .command(
-    'prompt',
-    'Run the Codey prompt-driven operator CLI for local starts and web-dispatched tasks',
-  )
-  .example('codey')
-  .example('codey prompt start --target octocat')
-  .action(() => {
-    tuiCli.outputHelp()
-  })
-
-cli
-  .command(
-    'tui',
-    'Run the Codey prompt-driven operator CLI (legacy command name)',
-  )
-  .example('codey')
-  .example('codey tui start --target octocat')
-  .action(() => {
-    tuiCli.outputHelp()
-  })
-
-cli
-  .command('daemon', 'Run the legacy stream client and notification commands')
-  .example('codey daemon start --target octocat')
-  .action(() => {
-    daemonCli.outputHelp()
-  })
-
-cli.help()
-flowCli.help()
-exchangeCli.help()
-authCli.help()
-tuiCli.help()
-daemonCli.help()
+}
 
 const argv = process.argv.slice(2)
+const parsed = parseCliArgs(argv)
+const authAction = readOptionalString(parsed.options.auth)
+const exchangeAction = readOptionalString(parsed.options.exchange)
+const flowId = resolveRequestedFlowId(parsed)
 
-if (argv.length === 0) {
-  if (process.stdout.isTTY && process.stdin.isTTY) {
-    tuiCli.parse(['codey', 'tui', 'start'])
+if (parsed.options.help) {
+  if (flowId) {
+    printFlowHelp(flowId)
+  } else if (authAction) {
+    printAuthHelp()
+  } else if (exchangeAction) {
+    printExchangeHelp()
   } else {
-    cli.outputHelp()
+    printRootHelp()
   }
-} else if (
-  argv[0]?.startsWith('-') &&
-  argv[0] !== '--help' &&
-  argv[0] !== '-h'
-) {
-  tuiCli.parse(['codey', 'tui', 'start', ...argv])
-} else if (argv[0] === 'flow') {
-  flowCli.parse(['codey', 'flow', ...argv.slice(1)])
-} else if (argv[0] === 'exchange') {
-  exchangeCli.parse(['codey', 'exchange', ...argv.slice(1)])
-} else if (argv[0] === 'auth') {
-  authCli.parse(['codey', 'auth', ...argv.slice(1)])
-} else if (argv[0] === 'prompt') {
-  tuiCli.parse(['codey', 'tui', ...argv.slice(1)])
-} else if (argv[0] === 'tui') {
-  tuiCli.parse(['codey', 'tui', ...argv.slice(1)])
-} else if (argv[0] === 'daemon') {
-  daemonCli.parse(['codey', 'daemon', ...argv.slice(1)])
+} else if (authAction) {
+  startAuthFromOptions(authAction, parsed.options)
+} else if (exchangeAction) {
+  startExchangeFromOptions(exchangeAction, parsed.options)
+} else if (flowId) {
+  startFlowFromOptions(flowId, parsed.options)
+} else if (parsed.positionals.length) {
+  failWithHelp(`Unknown flow or option: ${parsed.positionals[0]}`)
 } else {
-  cli.parse()
+  startRemoteWorkerFromOptions(parsed.options)
 }
