@@ -88,6 +88,8 @@ import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
 import {
   completeChatGPTTrialAfterAuthenticatedSession,
   createChatGPTTeamTrialMachine,
+  startChatGPTTeamTrialGoPayUnlinkCompanion,
+  type ChatGPTTeamTrialGoPayUnlinkCompanion,
   type ChatGPTTeamTrialFlowSnapshot,
   type ChatGPTTrialPostLoginResult,
 } from './chatgpt-team-trial'
@@ -1063,6 +1065,7 @@ export async function registerChatGPT(
   const sessionCapture = createChatGPTSessionCapture(page)
   const backendApiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
   let storedIdentityForStatusReport: StoredChatGPTIdentitySummary | undefined
+  let gopayUnlinkCompanion: ChatGPTTeamTrialGoPayUnlinkCompanion | undefined
 
   try {
     machine.start(
@@ -1081,6 +1084,9 @@ export async function registerChatGPT(
       options.progressReporter?.({
         message: `ChatGPT trial continuation is enabled (${claimTrial})`,
       })
+    }
+    if (claimTrial === 'gopay') {
+      gopayUnlinkCompanion = startChatGPTTeamTrialGoPayUnlinkCompanion(options)
     }
 
     await verificationProvider.primeInbox()
@@ -1515,6 +1521,7 @@ export async function registerChatGPT(
             storageStateFlowType: 'chatgpt-register',
             backendApiHeadersCapture,
             paymentMethod: claimTrial,
+            gopayUnlinkCompanion,
           })
 
         trial = {

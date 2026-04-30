@@ -5,11 +5,13 @@ import {
   DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS,
   resolveChatGPTTeamTrialBillingAddress,
   resolveChatGPTTeamTrialGoPayAccount,
+  resolveChatGPTTeamTrialGoPayUnlinkOptions,
 } from '../src/flows/chatgpt-team-trial'
 import {
   buildChatGPTTrialCheckoutPayload,
   buildChatGPTTrialCheckoutUrl,
   buildChatGPTTrialPricingPromoUrl,
+  clickGoPayAuthorizationConsentIfPresent,
   createChatGPTTrialCheckoutLink,
   clickTrialPricingFreeTrial,
   extractGoPayPaymentRedirectLink,
@@ -48,6 +50,10 @@ class FakeCheckoutLocator {
     return this.isCurrentlyVisible()
   }
 
+  async isEnabled(): Promise<boolean> {
+    return this.isCurrentlyVisible()
+  }
+
   async scrollIntoViewIfNeeded(): Promise<void> {}
 
   async click(): Promise<void> {
@@ -56,6 +62,19 @@ class FakeCheckoutLocator {
     }
     this.clicks += 1
     this.onClick?.()
+  }
+
+  async evaluate<T>(
+    callback: (element: HTMLElement & { disabled?: boolean }) => T,
+  ): Promise<T> {
+    const visible = this.isCurrentlyVisible()
+    const element = {
+      disabled: !visible,
+      getAttribute(name: string): string | null {
+        return name === 'aria-disabled' ? String(!visible) : null
+      },
+    } as HTMLElement & { disabled?: boolean }
+    return callback(element)
   }
 
   private isCurrentlyVisible(): boolean {
@@ -167,6 +186,38 @@ class FakeCheckoutPage {
 
     return this.hiddenLocator
   }
+}
+
+class FakeGoPayAuthorizationPage {
+  private readonly hiddenLocator = new FakeCheckoutLocator(false)
+
+  constructor(
+    private readonly pageUrl: string,
+    private readonly consentButton: FakeCheckoutLocator,
+  ) {}
+
+  url(): string {
+    return this.pageUrl
+  }
+
+  getByRole(role: string): FakeCheckoutLocator {
+    return role === 'button' ? this.consentButton : this.hiddenLocator
+  }
+
+  locator(selector = ''): FakeCheckoutLocator {
+    const normalizedSelector = selector.toLowerCase()
+    if (
+      normalizedSelector.includes('consent-button') ||
+      normalizedSelector.includes('hubungkan') ||
+      normalizedSelector.includes('connect')
+    ) {
+      return this.consentButton
+    }
+
+    return this.hiddenLocator
+  }
+
+  async waitForLoadState(): Promise<void> {}
 }
 
 class FakePricingLocator {
@@ -368,6 +419,8 @@ describe('chatgpt team trial checkout defaults', () => {
           phoneNumber: '18400000000',
           pin: '123456',
           authorizationTimeoutMs: 30000,
+          unlinkBeforeLink: false,
+          unlinkTimeoutMs: 45000,
         },
       },
     })
@@ -377,6 +430,26 @@ describe('chatgpt team trial checkout defaults', () => {
       phoneNumber: '18400000000',
       pin: '123456',
       authorizationTimeoutMs: 30000,
+    })
+    expect(resolveChatGPTTeamTrialGoPayUnlinkOptions()).toEqual({
+      enabled: false,
+      timeoutMs: 45000,
+    })
+  })
+
+  it('enables GoPay Appium unlink before authorization by default', () => {
+    setRuntimeConfig({
+      ...baseConfig,
+      chatgptTeamTrial: {
+        gopay: {
+          phoneNumber: '18400000000',
+        },
+      },
+    })
+
+    expect(resolveChatGPTTeamTrialGoPayUnlinkOptions()).toEqual({
+      enabled: true,
+      timeoutMs: undefined,
     })
   })
 })
@@ -753,5 +826,33 @@ describe('gopay payment redirect extraction', () => {
         'https://example.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking',
       ),
     ).toBeUndefined()
+  })
+
+  it('clicks the GoPay authorization consent button after linking', async () => {
+    const consentButton = new FakeCheckoutLocator(true)
+    const page = new FakeGoPayAuthorizationPage(
+      'https://gwc.gopayapi.com/snap/linking/authorize',
+      consentButton,
+    )
+
+    await expect(
+      clickGoPayAuthorizationConsentIfPresent(page as never),
+    ).resolves.toBe(true)
+
+    expect(consentButton.clicks).toBe(1)
+  })
+
+  it('does not click matching consent buttons outside GoPay authorization', async () => {
+    const consentButton = new FakeCheckoutLocator(true)
+    const page = new FakeGoPayAuthorizationPage(
+      'https://example.com/snap/linking/authorize',
+      consentButton,
+    )
+
+    await expect(
+      clickGoPayAuthorizationConsentIfPresent(page as never),
+    ).resolves.toBe(false)
+
+    expect(consentButton.clicks).toBe(0)
   })
 })

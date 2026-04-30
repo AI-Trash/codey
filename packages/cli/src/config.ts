@@ -133,6 +133,8 @@ export interface ChatGPTTeamTrialGoPayConfig {
   phoneNumber?: string
   pin?: string
   authorizationTimeoutMs?: number
+  unlinkBeforeLink?: boolean
+  unlinkTimeoutMs?: number
 }
 
 export interface ChatGPTTeamTrialConfig {
@@ -360,6 +362,8 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
     'CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER',
     'CHATGPT_TEAM_TRIAL_GOPAY_PIN',
     'CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS',
+    'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK',
+    'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS',
   ]
 
   if (!hasAnyDefinedEnv(relevantEnvNames)) {
@@ -393,6 +397,8 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
       'CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER',
       'CHATGPT_TEAM_TRIAL_GOPAY_PIN',
       'CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS',
+      'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK',
+      'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS',
     ])
       ? {
           gopay: {
@@ -401,6 +407,17 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
             pin: process.env.CHATGPT_TEAM_TRIAL_GOPAY_PIN,
             authorizationTimeoutMs: parseOptionalNumber(
               process.env.CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS,
+            ),
+            unlinkBeforeLink: hasEnvValue(
+              process.env.CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK,
+            )
+              ? parseBoolean(
+                  process.env.CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK,
+                  true,
+                )
+              : undefined,
+            unlinkTimeoutMs: parseOptionalNumber(
+              process.env.CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS,
             ),
           },
         }

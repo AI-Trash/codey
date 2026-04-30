@@ -81,4 +81,42 @@ describe('chatgpt team trial machine', () => {
       },
     })
   })
+
+  it('tracks GoPay unlink companion progress without moving the primary flow state', async () => {
+    const machine = createChatGPTTeamTrialMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+    await machine.send('chatgpt.checkout.ready', {
+      target: 'checkout-ready',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+    await machine.send('chatgpt.gopay_unlink.started', {
+      patch: {
+        gopayUnlinkStatus: 'running',
+        lastMessage: 'GoPay unlink companion is running in Appium',
+      },
+    })
+    await machine.send('chatgpt.gopay_unlink.completed', {
+      patch: {
+        gopayUnlinkStatus: 'already-unlinked',
+        gopayUnlinkCompleted: true,
+        gopayUnlinkAppiumSessionId: 'appium-1',
+        lastMessage: 'GoPay had no linked apps before OpenAI authorization',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'checkout-ready',
+      context: {
+        gopayUnlinkStatus: 'already-unlinked',
+        gopayUnlinkCompleted: true,
+        gopayUnlinkAppiumSessionId: 'appium-1',
+        lastMessage: 'GoPay had no linked apps before OpenAI authorization',
+      },
+    })
+  })
 })

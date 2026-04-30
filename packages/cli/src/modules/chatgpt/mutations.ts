@@ -101,6 +101,7 @@ const GOPAY_AUTHORIZATION_TIMEOUT_MS = 180000
 const GOPAY_LINKING_RESPONSE_PATTERN =
   /\/snap\/v\d+\/accounts\/[^/]+\/linking$/i
 const GOPAY_AUTHORIZATION_HOST_PATTERN = /(^|\.)gopayapi\.com$/i
+const GOPAY_AUTHORIZATION_CONSENT_SETTLE_MS = 500
 const GOPAY_PIN_LENGTH = 6
 const PAYMENT_METHOD_LABEL_PATTERNS = {
   paypal: /paypal/i,
@@ -209,11 +210,21 @@ export type GoPayPaymentContinuationStatus =
   | 'pin-required'
   | 'pay-now-clicked'
 
+export interface GoPayAuthorizationOpenInput {
+  redirectUrl: string
+  activationLinkUrl: string
+  accountStatus?: string
+  statusCode?: string
+}
+
 export interface GoPayAccountLinkingOptions {
   countryCode?: string
   phoneNumber?: string
   pin?: string
   authorizationTimeoutMs?: number
+  beforeAuthorizationOpen?: (
+    input: GoPayAuthorizationOpenInput,
+  ) => Promise<void> | void
 }
 
 export interface GoPayPaymentContinuationProgress {
@@ -221,6 +232,7 @@ export interface GoPayPaymentContinuationProgress {
     | 'redirect-opened'
     | 'phone-submitted'
     | 'authorization-opened'
+    | 'authorization-consented'
     | 'pin-submitted'
     | 'payment-page-ready'
     | 'pay-now-clicked'
@@ -237,6 +249,7 @@ export interface GoPayPaymentContinuationResult {
   activationLinkUrl?: string
   accountStatus?: string
   statusCode?: string
+  authorizationConsentClicked: boolean
   pinSubmitted: boolean
   payNowClicked: boolean
 }
@@ -934,6 +947,7 @@ export async function continueGoPayPaymentFromRedirect(
   let activationLinkUrl: string | undefined
   let accountStatus: string | undefined
   let statusCode: string | undefined
+  let authorizationConsentClicked = false
   let pinSubmitted = false
 
   await page.goto(redirect.url, { waitUntil: 'domcontentloaded' })
@@ -975,6 +989,13 @@ export async function continueGoPayPaymentFromRedirect(
       )
     }
 
+    await options.beforeAuthorizationOpen?.({
+      redirectUrl: redirect.url,
+      activationLinkUrl,
+      accountStatus,
+      statusCode,
+    })
+
     await page.goto(activationLinkUrl, { waitUntil: 'domcontentloaded' })
     await page.locator('body').waitFor({ state: 'visible' })
     await page.waitForLoadState('networkidle').catch(() => undefined)
@@ -983,6 +1004,20 @@ export async function continueGoPayPaymentFromRedirect(
       url: page.url(),
       activationLinkUrl,
     })
+  }
+
+  if (!(await isGoPayAuthorizationPinReady(page))) {
+    const consentClicked = await clickGoPayAuthorizationConsentIfPresent(page, {
+      timeoutMs: Math.min(5000, Math.max(1, deadline - Date.now())),
+    })
+    if (consentClicked) {
+      authorizationConsentClicked = true
+      options.onProgress?.({
+        step: 'authorization-consented',
+        url: page.url(),
+        activationLinkUrl,
+      })
+    }
   }
 
   if (await isGoPayAuthorizationPinReady(page)) {
@@ -1015,6 +1050,7 @@ export async function continueGoPayPaymentFromRedirect(
         activationLinkUrl,
         accountStatus,
         statusCode,
+        authorizationConsentClicked,
         pinSubmitted,
         payNowClicked: false,
       })
@@ -1038,6 +1074,7 @@ export async function continueGoPayPaymentFromRedirect(
       activationLinkUrl,
       accountStatus,
       statusCode,
+      authorizationConsentClicked,
       pinSubmitted,
       payNowClicked: false,
     })
@@ -1056,6 +1093,7 @@ export async function continueGoPayPaymentFromRedirect(
     activationLinkUrl,
     accountStatus,
     statusCode,
+    authorizationConsentClicked,
     pinSubmitted,
     payNowClicked: true,
   })
@@ -1313,6 +1351,73 @@ async function waitForMidtransGoPayPaymentPageReady(
   return isMidtransGoPayPaymentPageReady(page)
 }
 
+function getGoPayAuthorizationConsentButtonCandidates(page: Page): Locator[] {
+  return [
+    page.locator('button[data-testid="consent-button"]'),
+    page.getByRole('button', {
+      name: /hubungkan|connect|authorize|confirm|continue|lanjut/i,
+    }),
+    page.locator('button:has-text("Hubungkan")'),
+    page.locator('button:has-text("Connect")'),
+    page.locator('button:has-text("Authorize")'),
+    page.locator('button:has-text("Confirm")'),
+    page.locator('button:has-text("Continue")'),
+    page.locator('button:has-text("Lanjut")'),
+  ]
+}
+
+export async function clickGoPayAuthorizationConsentIfPresent(
+  page: Page,
+  options: {
+    timeoutMs?: number
+  } = {},
+): Promise<boolean> {
+  if (!isGoPayAuthorizationUrl(page.url())) {
+    return false
+  }
+
+  const timeoutMs = Math.max(0, options.timeoutMs ?? 1000)
+  const deadline = Date.now() + timeoutMs
+
+  do {
+    if (!isGoPayAuthorizationUrl(page.url())) {
+      return false
+    }
+
+    for (const locator of getGoPayAuthorizationConsentButtonCandidates(page)) {
+      const candidate = locator.first()
+      const visible = await candidate.isVisible().catch(() => false)
+      if (!visible) {
+        continue
+      }
+
+      const enabled = await isLocatorEnabled(candidate).catch(() => true)
+      if (!enabled) {
+        continue
+      }
+
+      await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
+      await candidate.click()
+      await page
+        .waitForLoadState('domcontentloaded', { timeout: 10000 })
+        .catch(() => undefined)
+      await page
+        .waitForLoadState('networkidle', { timeout: 10000 })
+        .catch(() => undefined)
+      await sleep(GOPAY_AUTHORIZATION_CONSENT_SETTLE_MS)
+      return true
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) {
+      break
+    }
+    await sleep(Math.min(250, remainingMs))
+  } while (Date.now() <= deadline)
+
+  return false
+}
+
 async function isGoPayAuthorizationPinReady(page: Page): Promise<boolean> {
   if (!isGoPayAuthorizationUrl(page.url())) {
     return false
@@ -1377,6 +1482,7 @@ async function buildGoPayPaymentContinuationResult(
     activationLinkUrl?: string
     accountStatus?: string
     statusCode?: string
+    authorizationConsentClicked: boolean
     pinSubmitted: boolean
     payNowClicked: boolean
   },
@@ -1393,6 +1499,7 @@ async function buildGoPayPaymentContinuationResult(
       : {}),
     ...(input.accountStatus ? { accountStatus: input.accountStatus } : {}),
     ...(input.statusCode ? { statusCode: input.statusCode } : {}),
+    authorizationConsentClicked: input.authorizationConsentClicked,
     pinSubmitted: input.pinSubmitted,
     payNowClicked: input.payNowClicked,
   }
