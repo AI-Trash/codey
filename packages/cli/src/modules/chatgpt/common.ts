@@ -12,6 +12,36 @@ export const CHATGPT_TRIAL_PROMO_COUPONS = [
 export type ChatGPTTrialPromoCoupon =
   (typeof CHATGPT_TRIAL_PROMO_COUPONS)[number]
 export type ChatGPTTrialPromoPlan = 'team' | 'plus'
+export const CHATGPT_TRIAL_PAYMENT_METHODS = ['paypal', 'gopay'] as const
+export type ChatGPTTrialPaymentMethod =
+  (typeof CHATGPT_TRIAL_PAYMENT_METHODS)[number]
+export const DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD: ChatGPTTrialPaymentMethod =
+  'paypal'
+export const CHATGPT_GOPAY_PRICING_REGION = 'ID'
+
+export function normalizeChatGPTTrialPaymentMethod(
+  value: unknown,
+): ChatGPTTrialPaymentMethod | undefined {
+  if (typeof value === 'boolean') {
+    return value ? DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD : undefined
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim().toLowerCase()
+  if (!normalized || ['0', 'false', 'no', 'off', 'none'].includes(normalized)) {
+    return undefined
+  }
+
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD
+  }
+
+  return CHATGPT_TRIAL_PAYMENT_METHODS.find((method) => method === normalized)
+}
+
 export const CHATGPT_TRIAL_PROMO_PLAN_BY_COUPON = {
   [CHATGPT_TEAM_TRIAL_PROMO_COUPON]: 'team',
   [CHATGPT_PLUS_TRIAL_PROMO_COUPON]: 'plus',
@@ -159,12 +189,35 @@ export const CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS = [
   'input[value="paypal" i]',
 ] as const
 
+export const CHATGPT_CHECKOUT_GOPAY_PAYMENT_METHOD_SELECTORS = [
+  '[role="tab"][value="gopay" i]',
+  '[role="tab"][data-testid="gopay" i]',
+  '[role="tab"][aria-controls="gopay-panel" i]',
+  'button[value="gopay" i]',
+  'button[data-testid="gopay" i]',
+  'button#gopay-tab',
+  'input[value="gopay" i]',
+] as const
+
+export const CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS = {
+  paypal: CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS,
+  gopay: CHATGPT_CHECKOUT_GOPAY_PAYMENT_METHOD_SELECTORS,
+} as const satisfies Record<ChatGPTTrialPaymentMethod, readonly string[]>
+
 export const CHATGPT_CHECKOUT_PAYPAL_SELECTORS: SelectorTarget[] = [
   { role: 'radio', options: { name: /paypal/i } },
   { role: 'tab', options: { name: /paypal/i } },
   { role: 'button', options: { name: /paypal/i } },
   ...CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS,
   { text: /paypal/i },
+]
+
+export const CHATGPT_CHECKOUT_GOPAY_SELECTORS: SelectorTarget[] = [
+  { role: 'radio', options: { name: /go\s*pay|gopay/i } },
+  { role: 'tab', options: { name: /go\s*pay|gopay/i } },
+  { role: 'button', options: { name: /go\s*pay|gopay/i } },
+  ...CHATGPT_CHECKOUT_GOPAY_PAYMENT_METHOD_SELECTORS,
+  { text: /go\s*pay|gopay/i },
 ]
 
 export const CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS: SelectorTarget[] = [

@@ -68,7 +68,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#/components/ui/select'
-import { Switch } from '#/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -1052,22 +1051,33 @@ function DispatchOptionField(props: {
     )
   }
 
-  if (props.option.key === 'claimTrial') {
+  if (props.option.type === 'select') {
     return (
       <Field>
-        <div className="flex h-10 items-center justify-between gap-3 rounded-md border px-3">
-          <FieldLabel htmlFor={inputId} className="font-normal">
-            {getOptionDisplayName(props.option)}
-          </FieldLabel>
-          <Switch
-            id={inputId}
-            checked={props.value === 'true'}
-            disabled={props.disabled}
-            onCheckedChange={(checked) => {
-              props.onChange(checked ? 'true' : '')
-            }}
-          />
-        </div>
+        <FieldLabel htmlFor={inputId}>
+          {getOptionDisplayName(props.option)}
+        </FieldLabel>
+        <Select
+          value={props.value || BOOLEAN_DEFAULT_SENTINEL}
+          onValueChange={(value) => {
+            props.onChange(value === BOOLEAN_DEFAULT_SENTINEL ? '' : value)
+          }}
+          disabled={props.disabled}
+        >
+          <SelectTrigger id={inputId} className="w-full justify-between">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={BOOLEAN_DEFAULT_SENTINEL}>
+              {m.admin_cli_dispatch_select_default()}
+            </SelectItem>
+            {props.option.options?.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <FieldDescription>
           {formatOptionDescription(props.option, props.flowId)}
         </FieldDescription>
@@ -1535,6 +1545,13 @@ function buildDispatchConfig<TFlowId extends CliFlowCommandId>(
         )
       }
       config[definition.key] = parsed
+      continue
+    }
+
+    if (definition.type === 'select') {
+      if (definition.options?.some((option) => option.value === rawValue)) {
+        config[definition.key] = rawValue
+      }
       continue
     }
 

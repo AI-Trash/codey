@@ -53,6 +53,21 @@ describe('managed workspace authorization summaries', () => {
     ).toBeNull()
   })
 
+  it('normalizes GoPay Midtrans redirect URLs', () => {
+    expect(
+      normalizeTeamTrialPaypalUrl(
+        ' https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking ',
+      ),
+    ).toBe(
+      'https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking',
+    )
+    expect(
+      normalizeTeamTrialPaypalUrl(
+        'https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/card',
+      ),
+    ).toBeNull()
+  })
+
   it('keeps PayPal Team trial links active for only ten minutes', () => {
     const capturedAt = new Date('2026-04-23T00:00:00.000Z')
 

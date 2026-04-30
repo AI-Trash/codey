@@ -76,7 +76,7 @@ const flowOptionDescriptionByKey: Record<string, string> = {
     'Load a matching local ChatGPT storage state before normal login.',
   password: 'Override the password used by the flow.',
   claimTrial:
-    'After registration, check Team then Plus trial coupons and continue with the first eligible checkout.',
+    'After registration, check Team then Plus trial coupons and continue with the selected payment branch.',
   verificationTimeoutMs:
     'How long to wait for a verification email or approval, in milliseconds.',
   pollIntervalMs:
@@ -184,6 +184,10 @@ function normalizeManualFlowPromptValue(
 
   if (definition.type === 'stringList') {
     return typeof value === 'string' ? value : undefined
+  }
+
+  if (definition.type === 'select') {
+    return typeof value === 'string' ? value.trim() : undefined
   }
 
   if (typeof value === 'string') {
@@ -302,6 +306,18 @@ async function promptForOptionValue(
           hint: 'Disable this option explicitly.',
         },
       ],
+    })
+
+    return normalizeManualFlowPromptValue(definition, answer)
+  }
+
+  if (definition.type === 'select' && definition.options?.length) {
+    const answer = await prompts.select<string>({
+      message,
+      choices: definition.options.map((option) => ({
+        value: option.value,
+        label: option.label,
+      })),
     })
 
     return normalizeManualFlowPromptValue(definition, answer)

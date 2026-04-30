@@ -71,7 +71,12 @@ function buildFlowTaskPayloadConfig(
   flowId: CliFlowCommandId,
   config: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (flowId !== 'chatgpt-register' || config.claimTrial !== true) {
+  const claimTrial = config.claimTrial
+  const shouldAddLegacyAlias =
+    flowId === 'chatgpt-register' &&
+    (claimTrial === true || claimTrial === 'paypal')
+
+  if (!shouldAddLegacyAlias) {
     return config
   }
 

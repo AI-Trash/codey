@@ -197,20 +197,29 @@ export function normalizeTeamTrialPaypalUrl(
   try {
     const url = new URL(normalized)
     const hostname = url.hostname.toLowerCase()
+    if (url.protocol !== 'https:') {
+      return null
+    }
+
+    if (hostname === 'paypal.com' || hostname.endsWith('.paypal.com')) {
+      const baToken =
+        url.searchParams.get('ba_token') || url.searchParams.get('token')
+      if (!baToken || !/^BA-[A-Za-z0-9]+$/.test(baToken)) {
+        return null
+      }
+
+      return url.toString()
+    }
+
     if (
-      url.protocol !== 'https:' ||
-      (hostname !== 'paypal.com' && !hostname.endsWith('.paypal.com'))
+      hostname === 'app.midtrans.com' &&
+      /^\/snap\/v\d+\/redirection\/[^/]+$/i.test(url.pathname) &&
+      /^#\/gopay-tokenization\/linking(?:[/?#].*)?$/i.test(url.hash)
     ) {
-      return null
+      return url.toString()
     }
 
-    const baToken =
-      url.searchParams.get('ba_token') || url.searchParams.get('token')
-    if (!baToken || !/^BA-[A-Za-z0-9]+$/.test(baToken)) {
-      return null
-    }
-
-    return url.toString()
+    return null
   } catch {
     return null
   }
@@ -1518,7 +1527,8 @@ export async function recordWorkspaceTeamTrialPaypalUrlFromFlowTask(input: {
   }
 
   const paypalUrl = normalizeTeamTrialPaypalUrl(
-    normalizeOptionalMetadataString(input.result.paypalApprovalUrl),
+    normalizeOptionalMetadataString(input.result.paymentRedirectUrl) ||
+      normalizeOptionalMetadataString(input.result.paypalApprovalUrl),
   )
   if (!paypalUrl) {
     return null

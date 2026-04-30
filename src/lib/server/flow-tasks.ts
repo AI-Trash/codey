@@ -54,9 +54,11 @@ function readPayPalApprovalUrl(
   result: Record<string, unknown> | null | undefined,
 ): string | null {
   return normalizeTeamTrialPaypalUrl(
-    typeof result?.paypalApprovalUrl === 'string'
-      ? result.paypalApprovalUrl
-      : null,
+    typeof result?.paymentRedirectUrl === 'string'
+      ? result.paymentRedirectUrl
+      : typeof result?.paypalApprovalUrl === 'string'
+        ? result.paypalApprovalUrl
+        : null,
   )
 }
 

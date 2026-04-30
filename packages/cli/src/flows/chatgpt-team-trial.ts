@@ -10,20 +10,25 @@ import {
 } from '../state-machine'
 import { createFlowLifecycleFragment } from './machine-fragments'
 import {
+  CHATGPT_GOPAY_PRICING_REGION,
   CHATGPT_HOME_URL,
+  DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD,
   buildChatGPTTrialPricingPromoUrl,
-  clickChatGPTCheckoutSubscribeAndCapturePaypalLink,
+  clickChatGPTCheckoutSubscribeAndCapturePaymentLink,
   clickTrialPricingFreeTrial,
   createChatGPTBackendApiHeadersCapture,
   fillChatGPTCheckoutBillingAddress,
   getChatGPTTrialPromoPlan,
   gotoTrialPricingPromo,
-  selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
+  normalizeChatGPTTrialPaymentMethod,
+  selectChatGPTCheckoutPaymentMethodIfPresent,
+  selectChatGPTPricingRegion,
   selectChatGPTTrialPricingPlanIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
   type ChatGPTBackendApiHeadersCapture,
   type ChatGPTTeamTrialBillingAddress,
   type ChatGPTTrialPromoCoupon,
+  type ChatGPTTrialPaymentMethod,
   type ChatGPTTrialPromoPlan,
   waitForAuthenticatedSession,
   waitForChatGPTCheckoutReady,
@@ -110,11 +115,16 @@ export interface ChatGPTTeamTrialFlowContext<Result = unknown> {
   coupon?: ChatGPTTrialPromoCoupon
   trialPlan?: ChatGPTTrialPromoPlan
   couponState?: string
+  paymentMethod?: ChatGPTTrialPaymentMethod
+  pricingRegion?: string
   billingCountry?: string
+  paymentMethodSelected?: boolean
   paypalPaymentMethodSelected?: boolean
   billingAddressFilled?: boolean
   subscribeClicked?: boolean
   paypalBaTokenCaptured?: boolean
+  paymentRedirectUrl?: string
+  paymentRedirectUrlPath?: string
   paypalApprovalUrl?: string
   paypalApprovalUrlPath?: string
   retryCount?: number
@@ -147,12 +157,16 @@ export interface ChatGPTTeamTrialFlowResult {
   authenticated: boolean
   coupon: ChatGPTTrialPromoCoupon
   plan: ChatGPTTrialPromoPlan
+  paymentMethod: ChatGPTTrialPaymentMethod
   pricingUrl: string
   checkoutUrl: string
   trialClaimClicked: boolean
+  paymentMethodSelected: boolean
   billingAddressFilled: boolean
   subscribeClicked: boolean
   paypalBaTokenCaptured: boolean
+  paymentRedirectUrl: string
+  paymentRedirectUrlPath: string
   paypalApprovalUrl: string
   paypalApprovalUrlPath: string
   login: ChatGPTLoginFlowResult
@@ -166,12 +180,16 @@ export interface ChatGPTTeamTrialPostLoginResult {
   authenticated: true
   coupon: ChatGPTTrialPromoCoupon
   plan: ChatGPTTrialPromoPlan
+  paymentMethod: ChatGPTTrialPaymentMethod
   pricingUrl: string
   checkoutUrl: string
   trialClaimClicked: true
+  paymentMethodSelected: true
   billingAddressFilled: true
   subscribeClicked: true
-  paypalBaTokenCaptured: true
+  paypalBaTokenCaptured: boolean
+  paymentRedirectUrl: string
+  paymentRedirectUrlPath: string
   paypalApprovalUrl: string
   paypalApprovalUrlPath: string
 }
@@ -188,6 +206,7 @@ export interface ChatGPTTeamTrialPostLoginOptions<Result = unknown> {
   }
   storageStateFlowType?: string
   backendApiHeadersCapture?: ChatGPTBackendApiHeadersCapture
+  paymentMethod?: ChatGPTTrialPaymentMethod
 }
 
 const chatgptTeamTrialEventTargets = {
@@ -338,11 +357,29 @@ function formatArtifactTimestamp(date = new Date()): string {
   return date.toISOString().replace(/[:.]/g, '-')
 }
 
-function savePaypalApprovalUrl(url: string): string {
+function formatTrialPaymentMethod(
+  paymentMethod: ChatGPTTrialPaymentMethod,
+): string {
+  return paymentMethod === 'gopay' ? 'GoPay' : 'PayPal'
+}
+
+export function resolveChatGPTTeamTrialPaymentMethod(
+  options: FlowOptions = {},
+): ChatGPTTrialPaymentMethod {
+  return (
+    normalizeChatGPTTrialPaymentMethod(options.claimTrial) ||
+    DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD
+  )
+}
+
+function saveTrialPaymentRedirectUrl(
+  url: string,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+): string {
   const runtimeConfig = getRuntimeConfig()
   const filePath = path.join(
     runtimeConfig.artifactsDir,
-    `${formatArtifactTimestamp()}-chatgpt-team-trial-paypal-link.txt`,
+    `${formatArtifactTimestamp()}-chatgpt-team-trial-${paymentMethod}-link.txt`,
   )
   writeFileAtomic(filePath, `${url}\n`)
   return filePath
@@ -378,6 +415,9 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
   const options = input.options ?? {}
   const email = input.email
   const machine = input.machine
+  const paymentMethod =
+    input.paymentMethod || resolveChatGPTTeamTrialPaymentMethod(options)
+  const paymentMethodLabel = formatTrialPaymentMethod(paymentMethod)
 
   const authenticated = await waitForAuthenticatedSession(page, 30000)
   if (!authenticated) {
@@ -389,6 +429,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
   if (machine) {
     await sendTeamTrialMachine(machine, 'home-ready', 'chatgpt.home.ready', {
       email,
+      paymentMethod,
       url: page.url(),
       lastMessage: 'Authenticated ChatGPT home is ready',
     })
@@ -398,6 +439,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     await machine.send('context.updated', {
       patch: {
         email,
+        paymentMethod,
         url: page.url(),
         lastMessage: 'Checking ChatGPT trial coupon eligibility',
       },
@@ -425,6 +467,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         couponState: selectedCouponState,
         url: page.url(),
         lastMessage: `Selected ChatGPT ${selectedPlan} trial coupon ${selectedCoupon}`,
@@ -441,6 +484,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         couponState: selectedCouponState,
         url: pricingUrl,
         lastMessage: `Opening ChatGPT ${selectedPlan} pricing promo`,
@@ -470,11 +514,51 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         couponState: selectedCouponState,
         url: page.url(),
         lastMessage: `ChatGPT ${selectedPlan} pricing free trial button is ready`,
       },
     )
+  }
+
+  if (paymentMethod === 'gopay') {
+    if (machine) {
+      await machine.send('context.updated', {
+        patch: {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          pricingRegion: CHATGPT_GOPAY_PRICING_REGION,
+          url: page.url(),
+          lastMessage:
+            'Selecting Indonesia pricing region for GoPay trial checkout',
+        },
+      })
+    }
+
+    const pricingRegionSelected = await selectChatGPTPricingRegion(
+      page,
+      CHATGPT_GOPAY_PRICING_REGION,
+      { timeoutMs: 15000 },
+    )
+    if (!pricingRegionSelected) {
+      throw new Error(
+        'ChatGPT pricing region could not be changed to Indonesia for GoPay checkout.',
+      )
+    }
+
+    const regionalPricingReady = await waitForTrialPricingFreeTrialReady(
+      page,
+      selectedCoupon,
+      30000,
+    )
+    if (!regionalPricingReady) {
+      throw new Error(
+        `ChatGPT ${selectedPlan} pricing free trial button was not visible after selecting Indonesia.`,
+      )
+    }
   }
 
   if (machine) {
@@ -486,6 +570,9 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
+        pricingRegion:
+          paymentMethod === 'gopay' ? CHATGPT_GOPAY_PRICING_REGION : undefined,
         url: page.url(),
         lastMessage: `Clicking ChatGPT ${selectedPlan} free trial button`,
       },
@@ -520,6 +607,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         url: page.url(),
         title: trialClaimTitle,
         lastMessage: `ChatGPT ${selectedPlan} free trial button clicked`,
@@ -546,6 +634,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         url: checkoutUrl,
         checkoutUrl,
         title: checkoutTitle,
@@ -565,20 +654,20 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         url: checkoutUrl,
         checkoutUrl,
-        lastMessage:
-          'Selecting PayPal payment method before filling billing address',
+        lastMessage: `Selecting ${paymentMethodLabel} payment method before filling billing address`,
       },
     )
   }
-  const paypalPaymentMethodSelected =
-    await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+  const paymentMethodSelected =
+    await selectChatGPTCheckoutPaymentMethodIfPresent(page, paymentMethod, {
       timeoutMs: 30000,
     })
-  if (!paypalPaymentMethodSelected) {
+  if (!paymentMethodSelected) {
     throw new Error(
-      'ChatGPT checkout PayPal payment method was not visible before billing address.',
+      `ChatGPT checkout ${paymentMethodLabel} payment method was not visible before billing address.`,
     )
   }
 
@@ -591,10 +680,12 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         url: page.url(),
         checkoutUrl,
-        paypalPaymentMethodSelected: true,
-        lastMessage: 'ChatGPT checkout PayPal payment method selected',
+        paymentMethodSelected: true,
+        paypalPaymentMethodSelected: paymentMethod === 'paypal',
+        lastMessage: `ChatGPT checkout ${paymentMethodLabel} payment method selected`,
       },
     )
   }
@@ -608,10 +699,12 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         url: checkoutUrl,
         checkoutUrl,
         billingCountry: billingAddress.country,
-        paypalPaymentMethodSelected: true,
+        paymentMethodSelected: true,
+        paypalPaymentMethodSelected: paymentMethod === 'paypal',
         lastMessage: 'Filling ChatGPT checkout billing address',
       },
     )
@@ -627,9 +720,11 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         url: page.url(),
         checkoutUrl,
         billingCountry: billingAddress.country,
+        paymentMethodSelected: true,
         billingAddressFilled: true,
         lastMessage: 'ChatGPT checkout billing address filled',
       },
@@ -645,16 +740,24 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         url: page.url(),
         checkoutUrl,
+        paymentMethodSelected: true,
         billingAddressFilled: true,
-        lastMessage: `Submitting ChatGPT ${selectedPlan} trial subscription`,
+        lastMessage: `Submitting ChatGPT ${selectedPlan} trial subscription with ${paymentMethodLabel}`,
       },
     )
   }
-  const paypalApproval =
-    await clickChatGPTCheckoutSubscribeAndCapturePaypalLink(page)
-  const paypalApprovalUrlPath = savePaypalApprovalUrl(paypalApproval.url)
+  const paymentRedirect =
+    await clickChatGPTCheckoutSubscribeAndCapturePaymentLink(page, {
+      paymentMethod,
+    })
+  const paymentRedirectUrlPath = saveTrialPaymentRedirectUrl(
+    paymentRedirect.url,
+    paymentMethod,
+  )
+  const paypalBaTokenCaptured = paymentRedirect.paymentMethod === 'paypal'
 
   if (machine) {
     await sendTeamTrialMachine(
@@ -665,14 +768,18 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         email,
         coupon: selectedCoupon,
         trialPlan: selectedPlan,
+        paymentMethod,
         url: page.url(),
         checkoutUrl,
+        paymentMethodSelected: true,
         billingAddressFilled: true,
         subscribeClicked: true,
-        paypalBaTokenCaptured: true,
-        paypalApprovalUrl: paypalApproval.url,
-        paypalApprovalUrlPath,
-        lastMessage: `Captured PayPal billing agreement link: ${paypalApproval.url}`,
+        paypalBaTokenCaptured,
+        paymentRedirectUrl: paymentRedirect.url,
+        paymentRedirectUrlPath,
+        paypalApprovalUrl: paymentRedirect.url,
+        paypalApprovalUrlPath: paymentRedirectUrlPath,
+        lastMessage: `Captured ${paymentMethodLabel} payment redirect link: ${paymentRedirect.url}`,
       },
     )
   }
@@ -685,14 +792,18 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     authenticated: true,
     coupon: selectedCoupon,
     plan: selectedPlan,
+    paymentMethod,
     pricingUrl,
     checkoutUrl,
     trialClaimClicked: true,
+    paymentMethodSelected: true,
     billingAddressFilled: true,
     subscribeClicked: true,
-    paypalBaTokenCaptured: true,
-    paypalApprovalUrl: paypalApproval.url,
-    paypalApprovalUrlPath,
+    paypalBaTokenCaptured,
+    paymentRedirectUrl: paymentRedirect.url,
+    paymentRedirectUrlPath,
+    paypalApprovalUrl: paymentRedirect.url,
+    paypalApprovalUrlPath: paymentRedirectUrlPath,
   }
 }
 
@@ -709,12 +820,14 @@ export async function runChatGPTTeamTrial(
     options.progressReporter,
   )
   const backendApiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
+  const paymentMethod = resolveChatGPTTeamTrialPaymentMethod(options)
   let completedLogin: ChatGPTLoginFlowResult | undefined
 
   try {
     machine.start(
       {
         url: CHATGPT_HOME_URL,
+        paymentMethod,
         lastMessage: 'Starting ChatGPT trial flow',
       },
       {
@@ -724,6 +837,7 @@ export async function runChatGPTTeamTrial(
 
     await sendTeamTrialMachine(machine, 'logging-in', 'chatgpt.login.started', {
       url: page.url(),
+      paymentMethod,
       lastMessage: 'Logging in before opening pricing promo',
     })
     const login = await loginChatGPT(page, options)
@@ -736,6 +850,7 @@ export async function runChatGPTTeamTrial(
       {
         email: login.email,
         login,
+        paymentMethod,
         url: login.url,
         title: login.title,
         lastMessage: 'ChatGPT login completed',
@@ -750,6 +865,7 @@ export async function runChatGPTTeamTrial(
         storageStateIdentity: login.storedIdentity,
         storageStateFlowType: 'chatgpt-team-trial',
         backendApiHeadersCapture,
+        paymentMethod,
       })
     const result = {
       pageName: 'chatgpt-team-trial' as const,
@@ -769,9 +885,13 @@ export async function runChatGPTTeamTrial(
         checkoutUrl: result.checkoutUrl,
         coupon: result.coupon,
         trialPlan: result.plan,
+        paymentMethod: result.paymentMethod,
+        paymentMethodSelected: result.paymentMethodSelected,
         billingAddressFilled: true,
         subscribeClicked: true,
-        paypalBaTokenCaptured: true,
+        paypalBaTokenCaptured: result.paypalBaTokenCaptured,
+        paymentRedirectUrl: result.paymentRedirectUrl,
+        paymentRedirectUrlPath: result.paymentRedirectUrlPath,
         paypalApprovalUrl: result.paypalApprovalUrl,
         paypalApprovalUrlPath: result.paypalApprovalUrlPath,
         result,

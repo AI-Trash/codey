@@ -25,8 +25,9 @@ import {
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_LOGIN_URL,
-  CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS,
+  CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS,
   CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
+  CHATGPT_GOPAY_PRICING_REGION,
   COMPLETE_ACCOUNT_SELECTORS,
   LOGIN_CONTINUE_SELECTORS,
   LOGIN_EMAIL_SELECTORS,
@@ -43,6 +44,7 @@ import {
   SIGNUP_ENTRY_SELECTORS,
   CHATGPT_HOME_URL,
   type ChatGPTTrialPromoCoupon,
+  type ChatGPTTrialPaymentMethod,
 } from './common'
 import type { SelectorTarget } from '../../types'
 import { toLocator } from '../../utils/selectors'
@@ -83,29 +85,56 @@ const STRIPE_ADDRESS_FIELD_SELECTORS = [
   'select[name="country"]',
 ] as const
 const PAYPAL_HOST_PATTERN = /(^|\.)paypal\.com$/i
-const PAYPAL_CAPTURE_POLL_MS = 250
-const PAYPAL_PAYMENT_METHOD_POLL_MS = 250
-const PAYPAL_PAYMENT_METHOD_SETTLE_MS = 1500
-const CHATGPT_CHECKOUT_PAYPAL_SELECTED_PAYMENT_METHOD_SELECTORS = [
-  '[role="tab"][value="paypal" i][aria-selected="true"]',
-  '[role="tab"][data-testid="paypal" i][aria-selected="true"]',
-  '[role="tab"][aria-controls="paypal-panel" i][aria-selected="true"]',
-  'button[value="paypal" i][aria-selected="true"]',
-  'button[data-testid="paypal" i][aria-selected="true"]',
-  'button#paypal-tab[aria-selected="true"]',
-  'input[value="paypal" i]:checked',
-  '[role="radio"][aria-checked="true"]:has-text("PayPal")',
-  '[role="tab"][aria-selected="true"]:has-text("PayPal")',
-] as const
+const MIDTRANS_HOST_PATTERN = /^app\.midtrans\.com$/i
+const GOPAY_MIDTRANS_REDIRECT_PATH_PATTERN =
+  /^\/snap\/v\d+\/redirection\/[^/]+$/i
+const GOPAY_MIDTRANS_REDIRECT_HASH_PATTERN =
+  /^#\/gopay-tokenization\/linking(?:[/?#].*)?$/i
+const PAYMENT_CAPTURE_POLL_MS = 250
+const PAYMENT_METHOD_POLL_MS = 250
+const PAYMENT_METHOD_SETTLE_MS = 1500
+const PAYMENT_METHOD_LABEL_PATTERNS = {
+  paypal: /paypal/i,
+  gopay: /go\s*pay|gopay/i,
+} as const satisfies Record<ChatGPTTrialPaymentMethod, RegExp>
+const CHATGPT_CHECKOUT_SELECTED_PAYMENT_METHOD_SELECTORS = {
+  paypal: [
+    '[role="tab"][value="paypal" i][aria-selected="true"]',
+    '[role="tab"][data-testid="paypal" i][aria-selected="true"]',
+    '[role="tab"][aria-controls="paypal-panel" i][aria-selected="true"]',
+    'button[value="paypal" i][aria-selected="true"]',
+    'button[data-testid="paypal" i][aria-selected="true"]',
+    'button#paypal-tab[aria-selected="true"]',
+    'input[value="paypal" i]:checked',
+    '[role="radio"][aria-checked="true"]:has-text("PayPal")',
+    '[role="tab"][aria-selected="true"]:has-text("PayPal")',
+  ],
+  gopay: [
+    '[role="tab"][value="gopay" i][aria-selected="true"]',
+    '[role="tab"][data-testid="gopay" i][aria-selected="true"]',
+    '[role="tab"][aria-controls="gopay-panel" i][aria-selected="true"]',
+    'button[value="gopay" i][aria-selected="true"]',
+    'button[data-testid="gopay" i][aria-selected="true"]',
+    'button#gopay-tab[aria-selected="true"]',
+    'input[value="gopay" i]:checked',
+    '[role="radio"][aria-checked="true"]:has-text("GoPay")',
+    '[role="tab"][aria-selected="true"]:has-text("GoPay")',
+  ],
+} as const satisfies Record<ChatGPTTrialPaymentMethod, readonly string[]>
 const CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTION_STATE_SELECTORS = [
   '[role="tab"][value="paypal" i][aria-selected]',
   '[role="tab"][data-testid="paypal" i][aria-selected]',
   '[role="tab"][aria-controls="paypal-panel" i][aria-selected]',
+  '[role="tab"][value="gopay" i][aria-selected]',
+  '[role="tab"][data-testid="gopay" i][aria-selected]',
+  '[role="tab"][aria-controls="gopay-panel" i][aria-selected]',
   '[role="tab"][value="card" i][aria-selected]',
   '[role="tab"][data-testid="card" i][aria-selected]',
   'button#paypal-tab[aria-selected]',
+  'button#gopay-tab[aria-selected]',
   'button#card-tab[aria-selected]',
   'input[value="paypal" i]',
+  'input[value="gopay" i]',
 ] as const
 
 type CheckoutLocatorScope = Page | Frame
@@ -149,10 +178,22 @@ export interface ChatGPTTeamTrialBillingAddress {
 
 export interface PaypalBillingAgreementLink {
   url: string
+  paymentMethod: 'paypal'
   baToken: string
   tokenParam: 'ba_token' | 'token'
   capturedAt: string
 }
+
+export interface GoPayPaymentRedirectLink {
+  url: string
+  paymentMethod: 'gopay'
+  redirectId?: string
+  capturedAt: string
+}
+
+export type ChatGPTCheckoutPaymentLink =
+  | PaypalBillingAgreementLink
+  | GoPayPaymentRedirectLink
 
 export async function clickSignupEntry(page: Page): Promise<void> {
   await clickAny(page, SIGNUP_ENTRY_SELECTORS)
@@ -219,6 +260,159 @@ export async function clickTrialPricingFreeTrial(
 
   await clickAny(page, getChatGPTTrialPricingFreeTrialSelectors(coupon))
   await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+}
+
+export async function selectChatGPTPricingRegion(
+  page: Page,
+  country: string = CHATGPT_GOPAY_PRICING_REGION,
+  options: {
+    timeoutMs?: number
+  } = {},
+): Promise<boolean> {
+  const countryCode = country.trim().toUpperCase()
+  const targetPattern = getPricingRegionOptionPattern(countryCode)
+  if (!targetPattern) {
+    throw new Error(`Unsupported ChatGPT pricing region: ${country}.`)
+  }
+
+  const timeoutMs = Math.max(0, options.timeoutMs ?? 15000)
+  const deadline = Date.now() + timeoutMs
+
+  do {
+    if (await isChatGPTPricingRegionSelected(page, countryCode)) {
+      return true
+    }
+
+    for (const locator of getChatGPTPricingRegionComboboxLocators(page)) {
+      const count = await locator.count().catch(() => 0)
+      const limit = Math.min(count, 5)
+      for (let index = 0; index < limit; index += 1) {
+        const candidate = locator.nth(index)
+        const visible = await candidate.isVisible().catch(() => false)
+        if (!visible) continue
+
+        await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
+        const opened = await candidate
+          .click()
+          .then(() => true)
+          .catch(() => false)
+        if (!opened) continue
+
+        await sleep(250)
+        if (await clickChatGPTPricingRegionOption(page, targetPattern)) {
+          await page.waitForLoadState('networkidle').catch(() => undefined)
+          await sleep(500)
+          return isChatGPTPricingRegionSelected(page, countryCode)
+        }
+
+        await page.keyboard.press('Escape').catch(() => undefined)
+      }
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+    await sleep(Math.min(250, remainingMs))
+  } while (Date.now() <= deadline)
+
+  return isChatGPTPricingRegionSelected(page, countryCode)
+}
+
+function getPricingRegionOptionPattern(
+  countryCode: string,
+): RegExp | undefined {
+  if (countryCode === CHATGPT_GOPAY_PRICING_REGION) {
+    return /^(?:印度尼西亚|印尼|Indonesia)$/i
+  }
+
+  return undefined
+}
+
+function getPricingRegionSelectedPattern(
+  countryCode: string,
+): RegExp | undefined {
+  if (countryCode === CHATGPT_GOPAY_PRICING_REGION) {
+    return /印度尼西亚|印尼|Indonesia/i
+  }
+
+  return undefined
+}
+
+function getChatGPTPricingRegionComboboxLocators(page: Page): Locator[] {
+  const likelyRegionText =
+    /美国|美國|United States|USA|US|印度尼西亚|印尼|Indonesia|国家|國家|地区|地區|country|region/i
+
+  return [
+    page.getByRole('combobox', { name: likelyRegionText }),
+    page
+      .locator('button[role="combobox"]')
+      .filter({ hasText: likelyRegionText }),
+    page.locator('[role="combobox"]').filter({ hasText: likelyRegionText }),
+    page
+      .locator(
+        'button[aria-haspopup="listbox"], button[aria-controls^="radix-"]',
+      )
+      .filter({ hasText: likelyRegionText }),
+  ]
+}
+
+async function clickChatGPTPricingRegionOption(
+  page: Page,
+  targetPattern: RegExp,
+): Promise<boolean> {
+  for (const locator of [
+    page.getByRole('option', { name: targetPattern }),
+    page.locator('[role="option"]').filter({ hasText: targetPattern }),
+    page.locator('[data-radix-collection-item]').filter({
+      hasText: targetPattern,
+    }),
+    page.getByText(targetPattern),
+  ]) {
+    const count = await locator.count().catch(() => 0)
+    const limit = Math.min(count, 5)
+    for (let index = 0; index < limit; index += 1) {
+      const candidate = locator.nth(index)
+      const visible = await candidate.isVisible().catch(() => false)
+      if (!visible) continue
+
+      await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
+      const clicked = await candidate
+        .click()
+        .then(() => true)
+        .catch(() => false)
+      if (clicked) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+async function isChatGPTPricingRegionSelected(
+  page: Page,
+  countryCode: string,
+): Promise<boolean> {
+  const selectedPattern = getPricingRegionSelectedPattern(countryCode)
+  if (!selectedPattern) {
+    return false
+  }
+
+  for (const locator of getChatGPTPricingRegionComboboxLocators(page)) {
+    const count = await locator.count().catch(() => 0)
+    const limit = Math.min(count, 5)
+    for (let index = 0; index < limit; index += 1) {
+      const candidate = locator.nth(index)
+      const visible = await candidate.isVisible().catch(() => false)
+      if (!visible) continue
+
+      const text = await candidate.textContent().catch(() => '')
+      if (selectedPattern.test(text || '')) {
+        return true
+      }
+    }
+  }
+
+  return false
 }
 
 async function isPricingPlanToggleSelected(locator: Locator): Promise<boolean> {
@@ -297,12 +491,26 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
     timeoutMs?: number
   } = {},
 ): Promise<PaypalBillingAgreementLink> {
+  return clickChatGPTCheckoutSubscribeAndCapturePaymentLink(page, {
+    ...options,
+    paymentMethod: 'paypal',
+  }) as Promise<PaypalBillingAgreementLink>
+}
+
+export async function clickChatGPTCheckoutSubscribeAndCapturePaymentLink(
+  page: Page,
+  options: {
+    paymentMethod: ChatGPTTrialPaymentMethod
+    timeoutMs?: number
+  },
+): Promise<ChatGPTCheckoutPaymentLink> {
+  const paymentMethod = options.paymentMethod
   const timeoutMs = Math.max(1, options.timeoutMs ?? 90000)
   const deadline = Date.now() + timeoutMs
-  const capture = createPaypalBillingAgreementLinkCapture(page)
+  const capture = createCheckoutPaymentLinkCapture(page, paymentMethod)
 
   try {
-    await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+    await selectChatGPTCheckoutPaymentMethodIfPresent(page, paymentMethod, {
       timeoutMs: Math.min(10000, timeoutMs),
     })
 
@@ -319,7 +527,7 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
         Math.min(10000, remainingMs),
       )
       if (!ready) {
-        await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+        await selectChatGPTCheckoutPaymentMethodIfPresent(page, paymentMethod, {
           timeoutMs: Math.min(2500, Math.max(1, deadline - Date.now())),
         })
         const observed = await capture
@@ -329,11 +537,11 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
         continue
       }
 
-      const paypalSelected =
-        await selectChatGPTCheckoutPaypalPaymentMethodIfPresent(page, {
+      const paymentMethodSelected =
+        await selectChatGPTCheckoutPaymentMethodIfPresent(page, paymentMethod, {
           timeoutMs: Math.min(5000, Math.max(1, deadline - Date.now())),
         })
-      if (!paypalSelected) {
+      if (!paymentMethodSelected) {
         const observed = await capture
           .wait(Math.min(1500, Math.max(1, deadline - Date.now())))
           .catch(() => undefined)
@@ -361,7 +569,7 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
   }
 
   throw new Error(
-    'PayPal billing agreement link with BA token was not captured.',
+    `ChatGPT ${paymentMethod} payment redirect link was not captured.`,
   )
 }
 
@@ -833,17 +1041,67 @@ async function fillStripeBillingAddressFrame(
       element.dispatchEvent(new FocusEvent('blur', { bubbles: true }))
     }
 
-    function elementValueMatches(element: HTMLElement, value: string): boolean {
+    function getCountryLabels(value: string): string[] {
+      const normalized = normalizeCountry(value)
+      if (normalized === 'NL') {
+        return ['Netherlands', 'Nederland', '荷兰', '荷蘭']
+      }
+      if (normalized === 'ID') {
+        return ['Indonesia', '印度尼西亚', '印尼']
+      }
+
+      return []
+    }
+
+    function countryValueMatches(
+      candidate: string | null | undefined,
+      value: string,
+    ): boolean {
+      const normalizedCandidate = normalizeText(candidate).toLowerCase()
+      if (!normalizedCandidate) return false
+
+      const normalizedValue = normalizeCountry(value)
+      if (normalizedCandidate === normalizedValue.toLowerCase()) {
+        return true
+      }
+
+      return getCountryLabels(value).some(
+        (label) =>
+          normalizedCandidate === label.toLowerCase() ||
+          normalizedCandidate.includes(label.toLowerCase()),
+      )
+    }
+
+    function elementValueMatches(
+      field: BillingField,
+      element: HTMLElement,
+      value: string,
+    ): boolean {
       if (
         element instanceof HTMLInputElement ||
         element instanceof HTMLTextAreaElement ||
         element instanceof HTMLSelectElement
       ) {
+        if (field === 'country') {
+          return countryValueMatches(element.value, value)
+        }
+
         return element.value.trim() === value.trim()
       }
 
       if (element.isContentEditable) {
+        if (field === 'country') {
+          return countryValueMatches(element.textContent, value)
+        }
+
         return normalizeText(element.textContent) === value.trim()
+      }
+
+      if (field === 'country') {
+        return (
+          countryValueMatches(element.getAttribute('value'), value) ||
+          countryValueMatches(element.textContent, value)
+        )
       }
 
       return element.getAttribute('value')?.trim() === value.trim()
@@ -853,7 +1111,65 @@ async function fillStripeBillingAddressFrame(
       return value.trim().toUpperCase()
     }
 
-    function setElementValue(element: HTMLElement, value: string): boolean {
+    async function selectCustomCountry(
+      element: HTMLElement,
+      value: string,
+    ): Promise<boolean> {
+      const normalized = normalizeCountry(value)
+      const labels = getCountryLabels(value)
+      const searchValues = [...labels, normalized]
+
+      element.focus()
+      element.click()
+      await sleepInFrame(FIELD_SETTLE_MS)
+
+      if (element instanceof HTMLInputElement && labels[0]) {
+        nativeInputValueSetter?.call(element, labels[0])
+        element.value = labels[0]
+        dispatchValueEvents(element, labels[0])
+        await sleepInFrame(FIELD_SETTLE_MS)
+      }
+
+      const options = Array.from(
+        document.querySelectorAll(
+          '[role="option"], [data-value], [data-radix-collection-item], option',
+        ),
+      ).filter(isVisible)
+
+      const option = options.find((entry) => {
+        const html = entry as HTMLElement
+        const optionValue =
+          html.getAttribute('value') || html.getAttribute('data-value') || ''
+        const text = normalizeText(html.textContent)
+
+        return (
+          optionValue.toUpperCase() === normalized ||
+          searchValues.some((label) => {
+            const normalizedLabel = label.toLowerCase()
+            const normalizedText = text.toLowerCase()
+            return (
+              normalizedText === normalizedLabel ||
+              normalizedText.includes(normalizedLabel)
+            )
+          })
+        )
+      }) as HTMLElement | undefined
+
+      if (option) {
+        option.click()
+        await sleepInFrame(FIELD_SETTLE_MS)
+        dispatchValueEvents(element, value)
+      }
+
+      element.blur()
+      return elementValueMatches('country', element, value)
+    }
+
+    async function setElementValue(
+      field: BillingField,
+      element: HTMLElement,
+      value: string,
+    ): Promise<boolean> {
       element.focus()
 
       if (element instanceof HTMLSelectElement) {
@@ -877,12 +1193,21 @@ async function fillStripeBillingAddressFrame(
         return element.value === nextValue
       }
 
+      if (field === 'country') {
+        const selected = await selectCustomCountry(element, value)
+        if (selected) {
+          return true
+        }
+      }
+
       if (element instanceof HTMLInputElement) {
-        nativeInputValueSetter?.call(element, value)
-        element.value = value
-        dispatchValueEvents(element, value)
+        const nextValue =
+          field === 'country' ? getCountryLabels(value)[0] || value : value
+        nativeInputValueSetter?.call(element, nextValue)
+        element.value = nextValue
+        dispatchValueEvents(element, nextValue)
         element.blur()
-        return elementValueMatches(element, value)
+        return elementValueMatches(field, element, value)
       }
 
       if (element instanceof HTMLTextAreaElement) {
@@ -890,20 +1215,25 @@ async function fillStripeBillingAddressFrame(
         element.value = value
         dispatchValueEvents(element, value)
         element.blur()
-        return elementValueMatches(element, value)
+        return elementValueMatches(field, element, value)
       }
 
       if (element.isContentEditable) {
         element.textContent = value
         dispatchValueEvents(element, value)
         element.blur()
-        return elementValueMatches(element, value)
+        return elementValueMatches(field, element, value)
+      }
+
+      if (field === 'country') {
+        element.blur()
+        return false
       }
 
       element.setAttribute('value', value)
       dispatchValueEvents(element, value)
       element.blur()
-      return elementValueMatches(element, value)
+      return elementValueMatches(field, element, value)
     }
 
     async function setField(
@@ -916,12 +1246,12 @@ async function fillStripeBillingAddressFrame(
       }
 
       const element = await waitForField(field, timeoutMs)
-      if (!element || !setElementValue(element, value)) {
+      if (!element || !(await setElementValue(field, element, value))) {
         return false
       }
 
       await sleepInFrame(FIELD_SETTLE_MS)
-      return elementValueMatches(element, value)
+      return elementValueMatches(field, element, value)
     }
 
     const result: Record<BillingField, boolean> = {
@@ -951,6 +1281,7 @@ async function fillStripeBillingAddressFrame(
 
     if (!result.postalCode || !result.city) {
       await sleepInFrame(FIELD_SETTLE_MS)
+      result.country ||= await setField('country', SHORT_FIELD_WAIT_MS)
       result.postalCode ||= await setField('postalCode', SHORT_FIELD_WAIT_MS)
       result.city ||= await setField('city', SHORT_FIELD_WAIT_MS)
     }
@@ -960,6 +1291,7 @@ async function fillStripeBillingAddressFrame(
     }
 
     result.line1 ||= await setField('line1', SHORT_FIELD_WAIT_MS)
+    result.country ||= await setField('country', FIELD_WAIT_MS)
 
     return result
   }, address)
@@ -987,19 +1319,36 @@ export async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
     timeoutMs?: number
   } = {},
 ): Promise<boolean> {
+  return selectChatGPTCheckoutPaymentMethodIfPresent(page, 'paypal', options)
+}
+
+export async function selectChatGPTCheckoutPaymentMethodIfPresent(
+  page: Page,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  options: {
+    timeoutMs?: number
+  } = {},
+): Promise<boolean> {
   const timeoutMs = Math.max(0, options.timeoutMs ?? 0)
   const deadline = Date.now() + timeoutMs
 
   do {
     for (const scope of getPrioritizedCheckoutScopes(page)) {
-      if (await isPaypalPaymentMethodSelected(scope)) {
+      if (await isCheckoutPaymentMethodSelected(scope, paymentMethod)) {
         return true
       }
 
-      for (const locator of getChatGPTCheckoutPaypalPaymentMethodLocators(
+      for (const locator of getChatGPTCheckoutPaymentMethodLocators(
         scope,
+        paymentMethod,
       )) {
-        if (await clickPaypalLocatorIfPresent(locator, scope)) {
+        if (
+          await clickPaymentMethodLocatorIfPresent(
+            locator,
+            scope,
+            paymentMethod,
+          )
+        ) {
           await sleep(500)
           return true
         }
@@ -1008,7 +1357,7 @@ export async function selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
 
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0) break
-    await sleep(Math.min(PAYPAL_PAYMENT_METHOD_POLL_MS, remainingMs))
+    await sleep(Math.min(PAYMENT_METHOD_POLL_MS, remainingMs))
   } while (Date.now() <= deadline)
 
   return false
@@ -1029,24 +1378,29 @@ function isStripePaymentFrame(frame: Frame): boolean {
   return STRIPE_PAYMENT_FRAME_URL_PATTERN.test(frame.url())
 }
 
-function getChatGPTCheckoutPaypalPaymentMethodLocators(
+function getChatGPTCheckoutPaymentMethodLocators(
   scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
 ): Locator[] {
+  const labelPattern = PAYMENT_METHOD_LABEL_PATTERNS[paymentMethod]
+  const labelText = paymentMethod === 'paypal' ? 'PayPal' : 'GoPay'
+
   return [
-    scope.getByRole('radio', { name: /paypal/i }),
-    scope.getByRole('tab', { name: /paypal/i }),
-    scope.getByRole('button', { name: /paypal/i }),
-    ...CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS.map((selector) =>
-      scope.locator(selector),
+    scope.getByRole('radio', { name: labelPattern }),
+    scope.getByRole('tab', { name: labelPattern }),
+    scope.getByRole('button', { name: labelPattern }),
+    ...CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS[paymentMethod].map(
+      (selector) => scope.locator(selector),
     ),
-    scope.getByText(/paypal/i),
-    scope.locator('label:has-text("PayPal")'),
+    scope.getByText(labelPattern),
+    scope.locator(`label:has-text("${labelText}")`),
   ]
 }
 
-async function clickPaypalLocatorIfPresent(
+async function clickPaymentMethodLocatorIfPresent(
   locator: Locator,
   scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
 ): Promise<boolean> {
   const count = await locator.count().catch(() => 0)
   if (count < 1) {
@@ -1054,7 +1408,7 @@ async function clickPaypalLocatorIfPresent(
   }
 
   const candidate = locator.first()
-  if (await isPaypalLocatorSelected(candidate)) {
+  if (await isPaymentMethodLocatorSelected(candidate)) {
     return true
   }
 
@@ -1078,9 +1432,10 @@ async function clickPaypalLocatorIfPresent(
   }
 
   if (
-    await waitForPaypalPaymentMethodSelected(
+    await waitForCheckoutPaymentMethodSelected(
       scope,
-      PAYPAL_PAYMENT_METHOD_SETTLE_MS,
+      paymentMethod,
+      PAYMENT_METHOD_SETTLE_MS,
     )
   ) {
     return true
@@ -1093,29 +1448,33 @@ async function clickPaypalLocatorIfPresent(
   return true
 }
 
-async function waitForPaypalPaymentMethodSelected(
+async function waitForCheckoutPaymentMethodSelected(
   scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
   timeoutMs: number,
 ): Promise<boolean> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
 
   do {
-    if (await isPaypalPaymentMethodSelected(scope)) {
+    if (await isCheckoutPaymentMethodSelected(scope, paymentMethod)) {
       return true
     }
 
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0) break
-    await sleep(Math.min(PAYPAL_PAYMENT_METHOD_POLL_MS, remainingMs))
+    await sleep(Math.min(PAYMENT_METHOD_POLL_MS, remainingMs))
   } while (Date.now() <= deadline)
 
-  return isPaypalPaymentMethodSelected(scope)
+  return isCheckoutPaymentMethodSelected(scope, paymentMethod)
 }
 
-async function isPaypalPaymentMethodSelected(
+async function isCheckoutPaymentMethodSelected(
   scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
 ): Promise<boolean> {
-  for (const selector of CHATGPT_CHECKOUT_PAYPAL_SELECTED_PAYMENT_METHOD_SELECTORS) {
+  for (const selector of CHATGPT_CHECKOUT_SELECTED_PAYMENT_METHOD_SELECTORS[
+    paymentMethod
+  ]) {
     const locator = scope.locator(selector).first()
     const count = await locator.count().catch(() => 0)
     if (count < 1) continue
@@ -1123,15 +1482,16 @@ async function isPaypalPaymentMethodSelected(
     if (visible) return true
   }
 
+  const labelPattern = PAYMENT_METHOD_LABEL_PATTERNS[paymentMethod]
   for (const locator of [
-    scope.getByRole('radio', { name: /paypal/i }),
-    scope.getByRole('tab', { name: /paypal/i }),
+    scope.getByRole('radio', { name: labelPattern }),
+    scope.getByRole('tab', { name: labelPattern }),
   ]) {
     const candidate = locator.first()
     const count = await candidate.count().catch(() => 0)
     if (count < 1) continue
     const visible = await candidate.isVisible().catch(() => false)
-    if (visible && (await isPaypalLocatorSelected(candidate))) {
+    if (visible && (await isPaymentMethodLocatorSelected(candidate))) {
       return true
     }
   }
@@ -1153,7 +1513,9 @@ async function hasPaymentMethodSelectionState(
   return false
 }
 
-async function isPaypalLocatorSelected(locator: Locator): Promise<boolean> {
+async function isPaymentMethodLocatorSelected(
+  locator: Locator,
+): Promise<boolean> {
   if (typeof locator.evaluate !== 'function') {
     return false
   }
@@ -1189,9 +1551,9 @@ async function clickChatGPTCheckoutSubscribe(page: Page): Promise<void> {
   await clickAny(page, CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS)
 }
 
-interface PaypalBillingAgreementCapture {
-  get(): PaypalBillingAgreementLink | undefined
-  wait(timeoutMs: number): Promise<PaypalBillingAgreementLink>
+interface CheckoutPaymentLinkCapture {
+  get(): ChatGPTCheckoutPaymentLink | undefined
+  wait(timeoutMs: number): Promise<ChatGPTCheckoutPaymentLink>
   dispose(): void
 }
 
@@ -1216,6 +1578,7 @@ export function extractPaypalBillingAgreementLink(
 
     return {
       url: value,
+      paymentMethod: 'paypal',
       baToken,
       tokenParam: baTokenParam ? 'ba_token' : 'token',
       capturedAt: new Date().toISOString(),
@@ -1225,12 +1588,47 @@ export function extractPaypalBillingAgreementLink(
   }
 }
 
-function createPaypalBillingAgreementLinkCapture(
+export function extractGoPayPaymentRedirectLink(
+  value: string,
+): GoPayPaymentRedirectLink | undefined {
+  try {
+    const parsed = new URL(value)
+    if (
+      parsed.protocol !== 'https:' ||
+      !MIDTRANS_HOST_PATTERN.test(parsed.hostname) ||
+      !GOPAY_MIDTRANS_REDIRECT_PATH_PATTERN.test(parsed.pathname) ||
+      !GOPAY_MIDTRANS_REDIRECT_HASH_PATTERN.test(parsed.hash)
+    ) {
+      return undefined
+    }
+
+    return {
+      url: value,
+      paymentMethod: 'gopay',
+      redirectId: parsed.pathname.split('/').pop() || undefined,
+      capturedAt: new Date().toISOString(),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+export function extractCheckoutPaymentLink(
+  value: string,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+): ChatGPTCheckoutPaymentLink | undefined {
+  return paymentMethod === 'paypal'
+    ? extractPaypalBillingAgreementLink(value)
+    : extractGoPayPaymentRedirectLink(value)
+}
+
+function createCheckoutPaymentLinkCapture(
   page: Page,
-): PaypalBillingAgreementCapture {
+  paymentMethod: ChatGPTTrialPaymentMethod,
+): CheckoutPaymentLinkCapture {
   const context = page.context()
-  let captured: PaypalBillingAgreementLink | undefined
-  const pending = new Set<(value: PaypalBillingAgreementLink) => void>()
+  let captured: ChatGPTCheckoutPaymentLink | undefined
+  const pending = new Set<(value: ChatGPTCheckoutPaymentLink) => void>()
   const timers = new Set<ReturnType<typeof setTimeout>>()
 
   const inspectUrl = (url: string | undefined) => {
@@ -1238,7 +1636,7 @@ function createPaypalBillingAgreementLinkCapture(
       return
     }
 
-    const link = extractPaypalBillingAgreementLink(url)
+    const link = extractCheckoutPaymentLink(url, paymentMethod)
     if (!link) {
       return
     }
@@ -1288,8 +1686,8 @@ function createPaypalBillingAgreementLinkCapture(
         return Promise.resolve(captured)
       }
 
-      return new Promise<PaypalBillingAgreementLink>((resolve, reject) => {
-        const finish = (value: PaypalBillingAgreementLink) => {
+      return new Promise<ChatGPTCheckoutPaymentLink>((resolve, reject) => {
+        const finish = (value: ChatGPTCheckoutPaymentLink) => {
           clearTimeout(timer)
           timers.delete(timer)
           pending.delete(finish)
@@ -1299,9 +1697,11 @@ function createPaypalBillingAgreementLinkCapture(
           () => {
             pending.delete(finish)
             timers.delete(timer)
-            reject(new Error('Timed out waiting for PayPal BA token link.'))
+            reject(
+              new Error(`Timed out waiting for ${paymentMethod} payment link.`),
+            )
           },
-          Math.max(PAYPAL_CAPTURE_POLL_MS, timeoutMs),
+          Math.max(PAYMENT_CAPTURE_POLL_MS, timeoutMs),
         )
 
         timers.add(timer)

@@ -95,7 +95,7 @@ describe('flow cli helpers', () => {
         'NL',
       ]),
     ).toMatchObject({
-      claimTrial: true,
+      claimTrial: 'paypal',
       billingCountry: 'NL',
     })
   })
@@ -179,8 +179,8 @@ describe('flow cli helpers', () => {
     expect(summary).toContain('flow:chatgpt-register completed')
     expect(summary).toContain('email: person@example.com')
     expect(summary).toContain('trial: team')
-    expect(summary).toContain(`paypal url: ${paypalUrl}`)
-    expect(summary).toContain('paypal url file: C:/tmp/paypal-link.txt')
+    expect(summary).toContain(`payment url: ${paypalUrl}`)
+    expect(summary).toContain('payment url file: C:/tmp/paypal-link.txt')
     expect(summary).not.toContain('machine')
   })
 
@@ -296,8 +296,8 @@ describe('flow cli helpers', () => {
     expect(summary).toContain(
       'checkout: https://chatgpt.com/checkout/openai_ie/cs_live_123',
     )
-    expect(summary).toContain(`paypal url: ${paypalUrl}`)
-    expect(summary).toContain('paypal url file: C:/tmp/paypal-link.txt')
+    expect(summary).toContain(`payment url: ${paypalUrl}`)
+    expect(summary).toContain('payment url file: C:/tmp/paypal-link.txt')
   })
 
   it('formats live flow progress updates with state-machine transitions', () => {

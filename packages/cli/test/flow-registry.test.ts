@@ -40,7 +40,7 @@ describe('flow registry', () => {
       kind: 'flow_task',
       flowId: 'chatgpt-register',
       config: {
-        claimTrial: true,
+        claimTrial: 'paypal',
         billingCountry: 'NL',
         billingPostalCode: '1187 ST',
       },
@@ -58,7 +58,7 @@ describe('flow registry', () => {
       kind: 'flow_task',
       flowId: 'chatgpt-register',
       config: {
-        claimTrial: true,
+        claimTrial: 'paypal',
       },
     })
   })

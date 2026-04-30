@@ -291,8 +291,15 @@ function buildFlowTaskCompletionResult(
   return {
     pageName:
       flowId === 'chatgpt-register' ? 'chatgpt-register' : 'chatgpt-team-trial',
+    ...(typeof trialResult.paymentMethod === 'string'
+      ? { paymentMethod: trialResult.paymentMethod }
+      : {}),
+    paymentRedirectUrl: paypalApprovalUrl,
     paypalApprovalUrl,
     ...(paypalApprovalUrlPath ? { paypalApprovalUrlPath } : {}),
+    ...(paypalApprovalUrlPath
+      ? { paymentRedirectUrlPath: paypalApprovalUrlPath }
+      : {}),
     ...(typeof trialResult.paypalBaTokenCaptured === 'boolean'
       ? { paypalBaTokenCaptured: trialResult.paypalBaTokenCaptured }
       : {}),
@@ -1199,8 +1206,8 @@ withCommonOptions(
     )
     .option('--password <password>', 'Optional password override')
     .option(
-      '--claimTrial <bool>',
-      'Continue into the first eligible ChatGPT trial checkout after registration',
+      '--claimTrial <paypal|gopay>',
+      'Continue into the first eligible ChatGPT trial checkout after registration using the selected payment branch',
     )
     .option('--har <bool>', 'Whether to record a HAR file for this flow run')
     .option(

@@ -353,8 +353,17 @@ export function formatFlowCompletionSummary(
         asRecord(record.storedSession)?.accountId,
     )
     appendSummaryLine(lines, 'trial', trial?.plan || trial?.coupon)
-    appendExactSummaryLine(lines, 'paypal url', trial?.paypalApprovalUrl)
-    appendSummaryLine(lines, 'paypal url file', trial?.paypalApprovalUrlPath)
+    appendSummaryLine(lines, 'payment method', trial?.paymentMethod)
+    appendExactSummaryLine(
+      lines,
+      'payment url',
+      trial?.paymentRedirectUrl || trial?.paypalApprovalUrl,
+    )
+    appendSummaryLine(
+      lines,
+      'payment url file',
+      trial?.paymentRedirectUrlPath || trial?.paypalApprovalUrlPath,
+    )
     appendSummaryLine(lines, 'page', record.url)
     appendArtifactSummaryLines(lines, record)
     return lines.join('\n')
@@ -397,8 +406,17 @@ export function formatFlowCompletionSummary(
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))
     appendSummaryLine(lines, 'checkout', record.checkoutUrl)
-    appendExactSummaryLine(lines, 'paypal url', record.paypalApprovalUrl)
-    appendSummaryLine(lines, 'paypal url file', record.paypalApprovalUrlPath)
+    appendSummaryLine(lines, 'payment method', record.paymentMethod)
+    appendExactSummaryLine(
+      lines,
+      'payment url',
+      record.paymentRedirectUrl || record.paypalApprovalUrl,
+    )
+    appendSummaryLine(
+      lines,
+      'payment url file',
+      record.paymentRedirectUrlPath || record.paypalApprovalUrlPath,
+    )
     appendSummaryLine(lines, 'page', record.url)
     appendArtifactSummaryLines(lines, record)
     return lines.join('\n')

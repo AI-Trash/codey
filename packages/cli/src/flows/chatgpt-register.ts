@@ -68,10 +68,11 @@ import {
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   clickPasswordTimeoutRetry,
   createChatGPTBackendApiHeadersCapture,
+  normalizeChatGPTTrialPaymentMethod,
+  type ChatGPTTrialPaymentMethod,
 } from '../modules/chatgpt/shared'
 import {
   attachStateMachineProgressReporter,
-  parseBooleanFlag,
   parseNumberFlag,
   sanitizeErrorForOutput,
   type FlowOptions,
@@ -144,7 +145,7 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   url?: string
   title?: string
   email?: string
-  claimTrial?: boolean
+  claimTrial?: ChatGPTTrialPaymentMethod
   postEmailStep?: ChatGPTPostEmailLoginStep
   prefix?: string
   verificationCode?: string
@@ -1055,9 +1056,9 @@ export async function registerChatGPT(
   const verificationTimeoutMs =
     parseNumberFlag(options.verificationTimeoutMs, 180000) ?? 180000
   const pollIntervalMs = parseNumberFlag(options.pollIntervalMs, 5000) ?? 5000
-  const claimTrial =
-    parseBooleanFlag(options.claimTrial ?? options.claimTeamTrial, false) ??
-    false
+  const claimTrial = normalizeChatGPTTrialPaymentMethod(
+    options.claimTrial ?? options.claimTeamTrial,
+  )
   const startedAt = new Date().toISOString()
   const sessionCapture = createChatGPTSessionCapture(page)
   const backendApiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
@@ -1078,7 +1079,7 @@ export async function registerChatGPT(
     )
     if (claimTrial) {
       options.progressReporter?.({
-        message: 'ChatGPT trial continuation is enabled',
+        message: `ChatGPT trial continuation is enabled (${claimTrial})`,
       })
     }
 
@@ -1513,6 +1514,7 @@ export async function registerChatGPT(
             storageStateIdentity: storedIdentity,
             storageStateFlowType: 'chatgpt-register',
             backendApiHeadersCapture,
+            paymentMethod: claimTrial,
           })
 
         trial = {
@@ -1553,7 +1555,7 @@ export async function registerChatGPT(
           trial,
           url: page.url(),
           lastMessage: trial
-            ? 'ChatGPT trial PayPal link captured after registration'
+            ? 'ChatGPT trial payment link captured after registration'
             : 'ChatGPT trial continuation finished without a captured link',
         },
       )

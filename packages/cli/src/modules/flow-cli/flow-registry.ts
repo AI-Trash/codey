@@ -10,7 +10,12 @@ export type CliFlowConfigFieldType =
   | 'string'
   | 'number'
   | 'boolean'
+  | 'select'
   | 'stringList'
+
+export const CHATGPT_TRIAL_CLAIM_METHODS = ['paypal', 'gopay'] as const
+export type ChatGPTTrialClaimMethod =
+  (typeof CHATGPT_TRIAL_CLAIM_METHODS)[number]
 
 export type CliFlowDisplayNameKey =
   | 'chatgptRegister'
@@ -121,7 +126,13 @@ export interface CliFlowConfigFieldDefinition {
   type: CliFlowConfigFieldType
   displayNameKey: CliFlowConfigFieldDisplayNameKey
   descriptionKey?: CliFlowConfigFieldDescriptionKey
+  options?: readonly CliFlowConfigFieldOption[]
   common?: boolean
+}
+
+export interface CliFlowConfigFieldOption {
+  value: string
+  label: string
 }
 
 export interface CliFlowDefinition {
@@ -215,9 +226,10 @@ export interface ChatGPTRegisterFlowConfig
   password?: string
 
   /**
-   * Continue into the first eligible ChatGPT trial checkout after registration.
+   * Continue into the first eligible ChatGPT trial checkout after registration
+   * using the selected payment branch.
    */
-  claimTrial?: boolean
+  claimTrial?: ChatGPTTrialClaimMethod
 
   /**
    * Maximum time to wait for the verification email, in milliseconds.
@@ -476,9 +488,13 @@ export const cliFlowConfigFieldDefinitions = [
   {
     key: 'claimTrial',
     cliFlag: '--claimTrial',
-    type: 'boolean',
+    type: 'select',
     displayNameKey: 'claimTrial',
     descriptionKey: 'claimTrial',
+    options: [
+      { value: 'paypal', label: 'PayPal' },
+      { value: 'gopay', label: 'GoPay' },
+    ],
   },
   {
     key: 'verificationTimeoutMs',
@@ -777,6 +793,45 @@ function normalizeString(value: unknown): string | undefined {
   return normalized || undefined
 }
 
+function normalizeClaimTrialMethod(value: unknown): string | undefined {
+  if (typeof value === 'boolean') {
+    return value ? 'paypal' : undefined
+  }
+
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim().toLowerCase()
+  if (!normalized || ['0', 'false', 'no', 'off', 'none'].includes(normalized)) {
+    return undefined
+  }
+
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return 'paypal'
+  }
+
+  return CHATGPT_TRIAL_CLAIM_METHODS.find((method) => method === normalized)
+}
+
+function normalizeSelect(
+  definition: CliFlowConfigFieldDefinition,
+  value: unknown,
+): string | undefined {
+  if (definition.key === 'claimTrial') {
+    return normalizeClaimTrialMethod(value)
+  }
+
+  const normalized = normalizeString(value)
+  if (!normalized) {
+    return undefined
+  }
+
+  return definition.options?.some((option) => option.value === normalized)
+    ? normalized
+    : undefined
+}
+
 function normalizeStringList(value: unknown): string[] | undefined {
   if (Array.isArray(value)) {
     const normalized = value
@@ -808,6 +863,10 @@ function normalizeCliFlowConfigFieldValue(
 
   if (definition.type === 'number') {
     return normalizeNumber(value)
+  }
+
+  if (definition.type === 'select') {
+    return normalizeSelect(definition, value)
   }
 
   if (definition.type === 'stringList') {

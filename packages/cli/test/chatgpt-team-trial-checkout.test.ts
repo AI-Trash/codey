@@ -8,6 +8,7 @@ import {
 import {
   buildChatGPTTrialPricingPromoUrl,
   clickTrialPricingFreeTrial,
+  extractGoPayPaymentRedirectLink,
   extractPaypalBillingAgreementLink,
   getChatGPTTrialPricingFreeTrialSelectors,
   getChatGPTTrialPricingPlanToggleSelectors,
@@ -580,6 +581,32 @@ describe('paypal billing agreement link extraction', () => {
     expect(
       extractPaypalBillingAgreementLink(
         'https://www.paypal.com/pay?token=EC-123456789',
+      ),
+    ).toBeUndefined()
+  })
+})
+
+describe('gopay payment redirect extraction', () => {
+  it('captures Midtrans GoPay tokenization redirect URLs', () => {
+    const url =
+      'https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking'
+
+    expect(extractGoPayPaymentRedirectLink(url)).toMatchObject({
+      url,
+      paymentMethod: 'gopay',
+      redirectId: 'b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1',
+    })
+  })
+
+  it('ignores non-GoPay Midtrans redirects', () => {
+    expect(
+      extractGoPayPaymentRedirectLink(
+        'https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/card',
+      ),
+    ).toBeUndefined()
+    expect(
+      extractGoPayPaymentRedirectLink(
+        'https://example.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking',
       ),
     ).toBeUndefined()
   })
