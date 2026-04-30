@@ -60,6 +60,7 @@ export const ONBOARDING_IDLE_WAIT_AFTER_MIN_CLICKS_MS = 3000
 export const DEFAULT_EVENT_TIMEOUT_MS = 5000
 
 export const PLUS_PRICING_FREE_TRIAL_SELECTORS: SelectorTarget[] = [
+  'button[data-testid="select-plan-button-plus-upgrade"]',
   'button[data-testid="select-plan-button-plus"]',
   'button[data-testid="select-plan-button-plus-create"]',
   'button[data-testid*="plus" i]',
@@ -87,12 +88,50 @@ export const TEAM_PRICING_FREE_TRIAL_SELECTORS: SelectorTarget[] = [
   },
 ]
 
+export const PLUS_PRICING_PLAN_TOGGLE_SELECTORS: SelectorTarget[] = [
+  'button[role="radio"][aria-label*="个人"]',
+  'button[role="radio"][aria-label*="Personal" i]',
+  'button[role="radio"]:has-text("个人")',
+  'button[role="radio"]:has-text("Personal")',
+  {
+    role: 'radio',
+    options: { name: /个人|personal/i },
+  },
+  {
+    role: 'button',
+    options: { name: /^个人$|^personal$/i },
+  },
+]
+
+export const TEAM_PRICING_PLAN_TOGGLE_SELECTORS: SelectorTarget[] = [
+  'button[role="radio"][aria-label*="Business" i]',
+  'button[role="radio"][aria-label*="企业"]',
+  'button[role="radio"]:has-text("Business")',
+  'button[role="radio"]:has-text("企业")',
+  {
+    role: 'radio',
+    options: { name: /business|team|企业/i },
+  },
+  {
+    role: 'button',
+    options: { name: /^business$|^team$|^企业$/i },
+  },
+]
+
 export function getChatGPTTrialPricingFreeTrialSelectors(
   coupon: ChatGPTTrialPromoCoupon,
 ): SelectorTarget[] {
   return coupon === CHATGPT_PLUS_TRIAL_PROMO_COUPON
     ? PLUS_PRICING_FREE_TRIAL_SELECTORS
     : TEAM_PRICING_FREE_TRIAL_SELECTORS
+}
+
+export function getChatGPTTrialPricingPlanToggleSelectors(
+  coupon: ChatGPTTrialPromoCoupon,
+): SelectorTarget[] {
+  return coupon === CHATGPT_PLUS_TRIAL_PROMO_COUPON
+    ? PLUS_PRICING_PLAN_TOGGLE_SELECTORS
+    : TEAM_PRICING_PLAN_TOGGLE_SELECTORS
 }
 
 export const CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS: SelectorTarget[] =

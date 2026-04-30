@@ -37,6 +37,7 @@ import {
   buildProfileName,
   buildChatGPTTrialPricingPromoUrl,
   getChatGPTTrialPricingFreeTrialSelectors,
+  getChatGPTTrialPricingPlanToggleSelectors,
   REGISTRATION_CONTINUE_SELECTORS,
   REGISTRATION_EMAIL_SELECTORS,
   SIGNUP_ENTRY_SELECTORS,
@@ -182,10 +183,35 @@ export async function clickTeamPricingFreeTrial(page: Page): Promise<void> {
   await clickTrialPricingFreeTrial(page, 'team-1-month-free')
 }
 
+export async function selectChatGPTTrialPricingPlanIfPresent(
+  page: Page,
+  coupon: ChatGPTTrialPromoCoupon,
+  options: {
+    timeoutMs?: number
+  } = {},
+): Promise<boolean> {
+  const selectors = getChatGPTTrialPricingPlanToggleSelectors(coupon)
+  const deadline = Date.now() + Math.max(0, options.timeoutMs ?? 10000)
+
+  do {
+    const clicked = await clickVisiblePricingPlanToggleIfNeeded(page, selectors)
+    if (clicked != null) return clicked
+
+    if (await waitForTrialPricingFreeTrialReady(page, coupon, 0)) return false
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) break
+    await sleep(Math.min(250, remainingMs))
+  } while (Date.now() <= deadline)
+
+  return false
+}
+
 export async function clickTrialPricingFreeTrial(
   page: Page,
   coupon: ChatGPTTrialPromoCoupon,
 ): Promise<void> {
+  await selectChatGPTTrialPricingPlanIfPresent(page, coupon)
   const ready = await waitForTrialPricingFreeTrialReady(page, coupon, 30000)
   if (!ready) {
     throw new Error('ChatGPT pricing free trial button did not become ready.')
@@ -193,6 +219,40 @@ export async function clickTrialPricingFreeTrial(
 
   await clickAny(page, getChatGPTTrialPricingFreeTrialSelectors(coupon))
   await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+}
+
+async function isPricingPlanToggleSelected(locator: Locator): Promise<boolean> {
+  return locator
+    .evaluate((element) => {
+      const htmlElement = element as HTMLElement
+      return (
+        htmlElement.getAttribute('aria-checked') === 'true' ||
+        htmlElement.getAttribute('aria-selected') === 'true' ||
+        htmlElement.getAttribute('aria-pressed') === 'true' ||
+        htmlElement.getAttribute('data-state') === 'on'
+      )
+    })
+    .catch(() => false)
+}
+
+async function clickVisiblePricingPlanToggleIfNeeded(
+  page: Page,
+  selectors: SelectorTarget[],
+): Promise<boolean | null> {
+  for (const selector of selectors) {
+    const locator = toLocator(page, selector).first()
+    const visible = await locator.isVisible().catch(() => false)
+    if (!visible) continue
+    if (await isPricingPlanToggleSelected(locator)) return false
+    if (!(await isLocatorEnabled(locator))) continue
+
+    await locator.click()
+    await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+    await sleep(500)
+    return true
+  }
+
+  return null
 }
 
 export async function fillChatGPTCheckoutBillingAddress(

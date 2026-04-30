@@ -19,6 +19,7 @@ import {
   getChatGPTTrialPromoPlan,
   gotoTrialPricingPromo,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
+  selectChatGPTTrialPricingPlanIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
   type ChatGPTBackendApiHeadersCapture,
   type ChatGPTTeamTrialBillingAddress,
@@ -447,6 +448,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     )
   }
   await gotoTrialPricingPromo(page, selectedCoupon)
+  await selectChatGPTTrialPricingPlanIfPresent(page, selectedCoupon)
 
   const pricingReady = await waitForTrialPricingFreeTrialReady(
     page,

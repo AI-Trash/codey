@@ -7,8 +7,10 @@ import {
 } from '../src/flows/chatgpt-team-trial'
 import {
   buildChatGPTTrialPricingPromoUrl,
+  clickTrialPricingFreeTrial,
   extractPaypalBillingAgreementLink,
   getChatGPTTrialPricingFreeTrialSelectors,
+  getChatGPTTrialPricingPlanToggleSelectors,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
 } from '../src/modules/chatgpt/shared'
@@ -162,6 +164,146 @@ class FakeCheckoutPage {
   }
 }
 
+class FakePricingLocator {
+  clicks = 0
+
+  constructor(
+    private readonly visible: boolean | (() => boolean) = false,
+    private readonly options: {
+      onClick?: () => void
+      selected?: boolean | (() => boolean)
+    } = {},
+  ) {}
+
+  first(): FakePricingLocator {
+    return this
+  }
+
+  async isVisible(): Promise<boolean> {
+    return this.isCurrentlyVisible()
+  }
+
+  async isEnabled(): Promise<boolean> {
+    return true
+  }
+
+  async waitFor(options: { state?: string } = {}): Promise<void> {
+    const state = options.state ?? 'visible'
+    const visible = this.isCurrentlyVisible()
+    if ((state === 'visible' || state === 'attached') && visible) return
+    if ((state === 'hidden' || state === 'detached') && !visible) return
+    throw new Error(`Locator did not reach state ${state}`)
+  }
+
+  async click(): Promise<void> {
+    if (!this.isCurrentlyVisible()) {
+      throw new Error('Locator is not visible')
+    }
+    this.clicks += 1
+    this.options.onClick?.()
+  }
+
+  async evaluate<T>(
+    callback: (element: HTMLElement & { disabled?: boolean }) => T,
+  ): Promise<T> {
+    const selected = this.isSelected()
+    const element = {
+      disabled: false,
+      getAttribute(name: string): string | null {
+        if (name === 'aria-disabled') return 'false'
+        if (
+          name === 'aria-checked' ||
+          name === 'aria-selected' ||
+          name === 'aria-pressed'
+        ) {
+          return selected ? 'true' : 'false'
+        }
+        if (name === 'data-state') return selected ? 'on' : 'off'
+        return null
+      },
+    } as HTMLElement & { disabled?: boolean }
+    return callback(element)
+  }
+
+  private isCurrentlyVisible(): boolean {
+    return typeof this.visible === 'function' ? this.visible() : this.visible
+  }
+
+  private isSelected(): boolean {
+    const selected = this.options.selected
+    return typeof selected === 'function' ? selected() : Boolean(selected)
+  }
+}
+
+class FakePricingPage {
+  private readonly hiddenLocator = new FakePricingLocator(false)
+
+  constructor(
+    private readonly locators: {
+      personalToggle?: FakePricingLocator
+      businessToggle?: FakePricingLocator
+      plusButton?: FakePricingLocator
+      teamButton?: FakePricingLocator
+    },
+  ) {}
+
+  locator(selector = ''): FakePricingLocator {
+    const normalizedSelector = selector.toLowerCase()
+    if (
+      normalizedSelector.includes('aria-label*="个人"') ||
+      normalizedSelector.includes('has-text("个人")') ||
+      normalizedSelector.includes('personal')
+    ) {
+      return this.locators.personalToggle ?? this.hiddenLocator
+    }
+    if (
+      normalizedSelector.includes('business') ||
+      normalizedSelector.includes('aria-label*="企业"') ||
+      normalizedSelector.includes('has-text("企业")')
+    ) {
+      return this.locators.businessToggle ?? this.hiddenLocator
+    }
+    if (normalizedSelector.includes('plus')) {
+      return this.locators.plusButton ?? this.hiddenLocator
+    }
+    if (normalizedSelector.includes('team')) {
+      return this.locators.teamButton ?? this.hiddenLocator
+    }
+
+    return this.hiddenLocator
+  }
+
+  getByRole(
+    role: string,
+    options: { name?: string | RegExp } = {},
+  ): FakePricingLocator {
+    const name = String(options.name ?? '').toLowerCase()
+    if (role === 'radio' || role === 'button') {
+      if (name.includes('个人') || name.includes('personal')) {
+        return this.locators.personalToggle ?? this.hiddenLocator
+      }
+      if (
+        name.includes('business') ||
+        name.includes('team') ||
+        name.includes('企业')
+      ) {
+        return this.locators.businessToggle ?? this.hiddenLocator
+      }
+      if (name.includes('plus')) {
+        return this.locators.plusButton ?? this.hiddenLocator
+      }
+    }
+
+    return this.hiddenLocator
+  }
+
+  getByText(): FakePricingLocator {
+    return this.hiddenLocator
+  }
+
+  async waitForLoadState(): Promise<void> {}
+}
+
 describe('chatgpt team trial checkout defaults', () => {
   it('uses the configured Netherlands billing address by default', () => {
     setRuntimeConfig({
@@ -229,7 +371,43 @@ describe('trial coupon pricing helpers', () => {
     ).toContain('button[data-testid="select-plan-button-teams-create"]')
     expect(
       getChatGPTTrialPricingFreeTrialSelectors('plus-1-month-free'),
+    ).toContain('button[data-testid="select-plan-button-plus-upgrade"]')
+    expect(
+      getChatGPTTrialPricingFreeTrialSelectors('plus-1-month-free'),
     ).toContain('button[data-testid="select-plan-button-plus"]')
+    expect(
+      getChatGPTTrialPricingPlanToggleSelectors('plus-1-month-free'),
+    ).toContain('button[role="radio"][aria-label*="个人"]')
+    expect(
+      getChatGPTTrialPricingPlanToggleSelectors('team-1-month-free'),
+    ).toContain('button[role="radio"][aria-label*="Business" i]')
+  })
+
+  it('switches Plus pricing to Personal before claiming the free trial', async () => {
+    let personalSelected = false
+    const clickOrder: string[] = []
+    const personalToggle = new FakePricingLocator(true, {
+      selected: () => personalSelected,
+      onClick: () => {
+        personalSelected = true
+        clickOrder.push('personal')
+      },
+    })
+    const plusButton = new FakePricingLocator(true, {
+      onClick: () => {
+        clickOrder.push('plus')
+      },
+    })
+    const page = new FakePricingPage({
+      personalToggle,
+      plusButton,
+    })
+
+    await clickTrialPricingFreeTrial(page as never, 'plus-1-month-free')
+
+    expect(personalToggle.clicks).toBe(1)
+    expect(plusButton.clicks).toBe(1)
+    expect(clickOrder).toEqual(['personal', 'plus'])
   })
 
   it('checks Team before Plus and selects the first eligible coupon', async () => {
