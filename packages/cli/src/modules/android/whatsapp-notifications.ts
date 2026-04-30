@@ -16,6 +16,16 @@ export const DEFAULT_WHATSAPP_WEBHOOK_PATH = '/webhooks/smsforwarder/whatsapp'
 
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 
+export class WhatsAppNotificationWebhookParseError extends Error {
+  constructor(
+    message: string,
+    readonly rawBody: string,
+  ) {
+    super(message)
+    this.name = 'WhatsAppNotificationWebhookParseError'
+  }
+}
+
 export interface WhatsAppNotificationEvent {
   packageName: string
   notificationId?: string
@@ -409,7 +419,13 @@ function parseWebhookPayload(
     normalizedContentType.includes('application/json') ||
     normalizedContentType.includes('+json')
   ) {
-    const parsed = JSON.parse(trimmed)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(trimmed)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new WhatsAppNotificationWebhookParseError(message, bodyText)
+    }
     return isRecord(parsed) ? parsed : { content: parsed }
   }
 
@@ -503,46 +519,64 @@ export function startWhatsAppNotificationWebhookServer(
         return
       }
 
-      const bodyText = await readRequestBody(request)
-      const rawPayload = parseWebhookPayload(
-        bodyText,
-        readHeaderString(request.headers['content-type']),
-      )
-      const notification =
-        normalizeSmsForwarderWhatsAppNotificationPayload(rawPayload)
+      let bodyText = ''
+      try {
+        bodyText = await readRequestBody(request)
+        const rawPayload = parseWebhookPayload(
+          bodyText,
+          readHeaderString(request.headers['content-type']),
+        )
+        const notification =
+          normalizeSmsForwarderWhatsAppNotificationPayload(rawPayload)
 
-      if (!deduper.shouldProcess(notification)) {
+        if (!deduper.shouldProcess(notification)) {
+          writeJson(response, 200, {
+            ok: true,
+            duplicate: true,
+          })
+          return
+        }
+
+        const ingestPayload = buildWhatsAppNotificationIngestPayload(
+          notification,
+          {
+            reservationId: options.reservationId,
+            email: options.email,
+            deviceId: options.deviceId,
+          },
+        )
+        const result = dryRun
+          ? undefined
+          : await options.ingestNotification?.(ingestPayload)
+
+        await options.onNotification?.(notification, ingestPayload, result)
         writeJson(response, 200, {
           ok: true,
-          duplicate: true,
+          extractedCode: ingestPayload.extractedCode,
+          notificationRecordId: result?.notificationRecordId,
+          codeRecordId: result?.codeRecordId,
+          match: result?.match,
         })
-        return
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        options.onStatus?.(`SmsForwarder webhook request failed: ${message}`)
+        const rawBody =
+          error instanceof WhatsAppNotificationWebhookParseError
+            ? error.rawBody
+            : bodyText
+        if (rawBody) {
+          options.onStatus?.(`SmsForwarder webhook raw body: ${rawBody}`)
+        }
+        writeJson(response, 400, {
+          ok: false,
+          error: message,
+          rawBody,
+        })
       }
-
-      const ingestPayload = buildWhatsAppNotificationIngestPayload(
-        notification,
-        {
-          reservationId: options.reservationId,
-          email: options.email,
-          deviceId: options.deviceId,
-        },
-      )
-      const result = dryRun
-        ? undefined
-        : await options.ingestNotification?.(ingestPayload)
-
-      await options.onNotification?.(notification, ingestPayload, result)
-      writeJson(response, 200, {
-        ok: true,
-        extractedCode: ingestPayload.extractedCode,
-        notificationRecordId: result?.notificationRecordId,
-        codeRecordId: result?.codeRecordId,
-        match: result?.match,
-      })
     })().catch((error) => {
       const message = error instanceof Error ? error.message : String(error)
       options.onStatus?.(`SmsForwarder webhook request failed: ${message}`)
-      writeJson(response, 400, {
+      writeJson(response, 500, {
         ok: false,
         error: message,
       })

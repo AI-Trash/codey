@@ -50,6 +50,40 @@ function postJson(
   })
 }
 
+function postRaw(
+  url: string,
+  body: string,
+): Promise<{
+  statusCode: number
+  body: Record<string, unknown>
+}> {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = []
+        response.on('data', (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        })
+        response.on('end', () => {
+          resolve({
+            statusCode: response.statusCode || 0,
+            body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+          })
+        })
+      },
+    )
+    request.on('error', reject)
+    request.end(body)
+  })
+}
+
 describe('SmsForwarder WhatsApp notification helpers', () => {
   it('normalizes SmsForwarder notification payloads', () => {
     expect(
@@ -160,6 +194,33 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
         body: 'Your verification code is 135790.',
         extractedCode: '135790',
       }),
+    )
+  })
+
+  it('logs the raw webhook body when JSON parsing fails', async () => {
+    const statuses: string[] = []
+    const handle = startWhatsAppNotificationWebhookServer({
+      port: 0,
+      dryRun: true,
+      onStatus: (message) => statuses.push(message),
+    })
+    openHandles.push(handle)
+    const { url } = await handle.ready
+    const rawBody =
+      '{"msg_app":"WhatsApp","msg_content":"Your code is\n135790"}'
+
+    const response = await postRaw(url, rawBody)
+
+    expect(response.statusCode).toBe(400)
+    expect(response.body).toMatchObject({
+      ok: false,
+      rawBody,
+    })
+    expect(statuses).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('SmsForwarder webhook request failed:'),
+        `SmsForwarder webhook raw body: ${rawBody}`,
+      ]),
     )
   })
 })
