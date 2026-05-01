@@ -21,6 +21,7 @@ import {
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
   submitGoPayAuthorizationOtpIfPresent,
+  fillChatGPTCheckoutBillingAddress,
 } from '../src/modules/chatgpt/shared'
 import { waitForChatGPTCheckoutReady } from '../src/modules/chatgpt/queries'
 
@@ -87,6 +88,11 @@ interface FakeCheckoutFrameOptions {
   paypalSelectorLocator?: FakeCheckoutLocator
   hasPaymentSelectionState?: () => boolean
   paypalSelected?: () => boolean
+  addressFrameReady?: boolean
+  evaluateCallback?: <T, Arg>(
+    callback: (arg: Arg) => Promise<T> | T,
+    arg: Arg,
+  ) => Promise<T>
 }
 
 interface FakeCheckoutPageOptions {
@@ -143,8 +149,31 @@ class FakeCheckoutFrame {
     ) {
       return this.options.paypalSelectorLocator ?? this.hiddenLocator
     }
+    if (
+      this.options.addressFrameReady &&
+      (normalizedSelector.includes('addressline1') ||
+        normalizedSelector.includes('address-line1') ||
+        normalizedSelector.includes('address_line1') ||
+        normalizedSelector.includes('billing_details[address][line1]') ||
+        normalizedSelector.includes('country') ||
+        normalizedSelector.includes('postal') ||
+        normalizedSelector.includes('city'))
+    ) {
+      return new FakeCheckoutLocator(true)
+    }
 
     return this.hiddenLocator
+  }
+
+  async evaluate<T, Arg>(
+    callback: (arg: Arg) => Promise<T> | T,
+    arg: Arg,
+  ): Promise<T> {
+    if (this.options.evaluateCallback) {
+      return this.options.evaluateCallback(callback, arg)
+    }
+
+    return callback(arg)
   }
 }
 
@@ -442,7 +471,7 @@ describe('chatgpt team trial checkout defaults', () => {
     expect(address.name).toBe(DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME)
     expect(address.country).toBe('SG')
     expect(address.line1).toBe('32 Penjuru Place')
-    expect(address.line2).toBe('')
+    expect(address.line2).toBe('Jurong East')
     expect(address.postalCode).toBe('608560')
     expect(address.city).toBe('Singapore')
   })
@@ -600,6 +629,110 @@ describe('trial coupon pricing helpers', () => {
     expect(buildChatGPTTrialCheckoutUrl('cs_test_123', 'openai_llc')).toBe(
       'https://chatgpt.com/checkout/openai_llc/cs_test_123',
     )
+  })
+
+  it('fills Singapore billing address fields with Stripe address names', async () => {
+    const { JSDOM } = await import('jsdom')
+    const dom = new JSDOM(
+      `<form>
+        <input name="billingName" />
+        <select name="billing_details[address][country]">
+          <option value="SG">Singapore</option>
+        </select>
+        <input name="billing_details[address][line1]" />
+        <input name="billing_details[address][line2]" />
+        <input name="billing_details[address][postal_code]" />
+        <input name="billing_details[address][city]" />
+      </form>`,
+      { pretendToBeVisual: true },
+    )
+    const window = dom.window as unknown as Window & typeof globalThis
+    window.HTMLElement.prototype.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 1,
+        bottom: 1,
+        width: 1,
+        height: 1,
+        toJSON: () => ({}),
+      }) as DOMRect
+    const previousWindow = globalThis.window
+    const previousDocument = globalThis.document
+    const previousHTMLElement = globalThis.HTMLElement
+    const previousHTMLInputElement = globalThis.HTMLInputElement
+    const previousHTMLTextAreaElement = globalThis.HTMLTextAreaElement
+    const previousHTMLSelectElement = globalThis.HTMLSelectElement
+    const previousEvent = globalThis.Event
+    const previousInputEvent = globalThis.InputEvent
+    const previousFocusEvent = globalThis.FocusEvent
+
+    Object.assign(globalThis, {
+      window,
+      document: window.document,
+      HTMLElement: window.HTMLElement,
+      HTMLInputElement: window.HTMLInputElement,
+      HTMLTextAreaElement: window.HTMLTextAreaElement,
+      HTMLSelectElement: window.HTMLSelectElement,
+      Event: window.Event,
+      InputEvent: window.InputEvent,
+      FocusEvent: window.FocusEvent,
+    })
+
+    try {
+      const addressFrame = new FakeCheckoutFrame(
+        new FakeCheckoutLocator(false),
+        'https://js.stripe.com/v3/elements-inner-address-test.html',
+        {
+          addressFrameReady: true,
+          evaluateCallback: (callback, arg) => Promise.resolve(callback(arg)),
+        },
+      )
+      const page = new FakeCheckoutPage([addressFrame], {
+        billingAddressFrameVisible: true,
+      })
+
+      await fillChatGPTCheckoutBillingAddress(
+        page as never,
+        DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS,
+      )
+
+      expect(
+        (
+          window.document.querySelector(
+            'input[name="billing_details[address][line1]"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe('32 Penjuru Place')
+      expect(
+        (
+          window.document.querySelector(
+            'input[name="billing_details[address][line2]"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe('Jurong East')
+      expect(
+        (
+          window.document.querySelector(
+            'input[name="billing_details[address][city]"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe('Singapore')
+    } finally {
+      Object.assign(globalThis, {
+        window: previousWindow,
+        document: previousDocument,
+        HTMLElement: previousHTMLElement,
+        HTMLInputElement: previousHTMLInputElement,
+        HTMLTextAreaElement: previousHTMLTextAreaElement,
+        HTMLSelectElement: previousHTMLSelectElement,
+        Event: previousEvent,
+        InputEvent: previousInputEvent,
+        FocusEvent: previousFocusEvent,
+      })
+    }
   })
 
   it('creates direct checkout links with the browser session access token', async () => {

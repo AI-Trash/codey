@@ -69,7 +69,7 @@ export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS = {
   name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
   country: 'SG',
   line1: '32 Penjuru Place',
-  line2: '',
+  line2: 'Jurong East',
   city: 'Singapore',
   state: undefined,
   postalCode: '608560',
@@ -276,6 +276,7 @@ export interface ChatGPTTeamTrialPostLoginOptions<Result = unknown> {
 }
 
 export interface ChatGPTTeamTrialGoPayUnlinkCompanion {
+  readonly status: GoPayUnlinkCompanionStatus
   wait(): Promise<GoPayAndroidUnlinkResult>
 }
 
@@ -511,6 +512,8 @@ type GoPayUnlinkCompanionOutcome =
       error: unknown
     }
 
+type GoPayUnlinkCompanionStatus = 'pending' | 'resolved' | 'failed'
+
 export function startChatGPTTeamTrialGoPayUnlinkCompanion(
   options: FlowOptions = {},
 ): ChatGPTTeamTrialGoPayUnlinkCompanion | undefined {
@@ -526,6 +529,7 @@ export function startChatGPTTeamTrialGoPayUnlinkCompanion(
     message: 'Starting GoPay unlink companion in Appium',
   })
 
+  let status: GoPayUnlinkCompanionStatus = 'pending'
   const outcome: Promise<GoPayUnlinkCompanionOutcome> = unlinkGoPayLinkedApps({
     timeoutMs: unlinkOptions.timeoutMs,
     onProgress(update) {
@@ -534,17 +538,26 @@ export function startChatGPTTeamTrialGoPayUnlinkCompanion(
       })
     },
   }).then(
-    (result) => ({
-      ok: true as const,
-      result,
-    }),
-    (error) => ({
-      ok: false as const,
-      error,
-    }),
+    (result) => {
+      status = 'resolved'
+      return {
+        ok: true as const,
+        result,
+      }
+    },
+    (error) => {
+      status = 'failed'
+      return {
+        ok: false as const,
+        error,
+      }
+    },
   )
 
   return {
+    get status() {
+      return status
+    },
     async wait() {
       const settled = await outcome
       if (settled.ok) {
@@ -1134,6 +1147,30 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
             return
           }
 
+          if (gopayUnlinkCompanion.status === 'failed') {
+            if (machine) {
+              await patchTeamTrialMachine(
+                machine,
+                'chatgpt.gopay_unlink.failed',
+                {
+                  email,
+                  coupon: selectedCoupon,
+                  trialPlan: selectedPlan,
+                  paymentMethod,
+                  url: page.url(),
+                  checkoutUrl,
+                  paymentRedirectUrl: paymentRedirect.url,
+                  paymentRedirectUrlPath,
+                  gopayActivationLinkUrl: activationLinkUrl,
+                  gopayUnlinkStatus: 'failed',
+                  lastMessage:
+                    'GoPay unlink companion failed; continuing authorization without unlink',
+                },
+              )
+            }
+            return
+          }
+
           if (machine) {
             await patchTeamTrialMachine(
               machine,
@@ -1176,13 +1213,11 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                   gopayUnlinkStatus: 'failed',
                   gopayUnlinkError: message,
                   lastMessage:
-                    'GoPay unlink companion failed before opening GoPay authorization',
+                    'GoPay unlink companion failed; continuing authorization without unlink',
                 },
               )
             }
-            throw new Error(
-              `GoPay unlink companion failed before opening GoPay authorization: ${message}`,
-            )
+            return
           }
 
           if (machine) {

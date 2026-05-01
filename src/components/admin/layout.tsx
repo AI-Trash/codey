@@ -213,7 +213,6 @@ export function AdminShell(props: {
     pathname === '/admin/cli' ||
     pathname === '/admin/flows' ||
     pathname.startsWith('/admin/flows/') ||
-    pathname === '/admin/proxy-nodes' ||
     pathname === '/admin/apps'
 
   return (

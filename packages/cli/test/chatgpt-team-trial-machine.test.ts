@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { createChatGPTTeamTrialMachine } from '../src/flows/chatgpt-team-trial'
+import {
+  createChatGPTTeamTrialMachine,
+  type ChatGPTTeamTrialGoPayUnlinkCompanion,
+} from '../src/flows/chatgpt-team-trial'
 
 describe('chatgpt team trial machine', () => {
   it('tracks login, pricing, and trial claim states', async () => {
@@ -116,6 +119,59 @@ describe('chatgpt team trial machine', () => {
         gopayUnlinkCompleted: true,
         gopayUnlinkAppiumSessionId: 'appium-1',
         lastMessage: 'GoPay had no linked apps before OpenAI authorization',
+      },
+    })
+  })
+
+  it('records failed GoPay unlink companions without entering the waiting state', async () => {
+    const machine = createChatGPTTeamTrialMachine()
+    const failedCompanion: ChatGPTTeamTrialGoPayUnlinkCompanion = {
+      status: 'failed',
+      async wait() {
+        throw new Error('Appium connection refused')
+      },
+    }
+
+    machine.start({
+      email: 'person@example.com',
+    })
+    await machine.send('chatgpt.checkout.ready', {
+      target: 'checkout-ready',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    const events: string[] = []
+    await (async function beforeAuthorizationOpen() {
+      if (failedCompanion.status === 'failed') {
+        events.push('chatgpt.gopay_unlink.failed')
+        await machine.send('chatgpt.gopay_unlink.failed', {
+          patch: {
+            gopayUnlinkStatus: 'failed',
+            lastMessage:
+              'GoPay unlink companion failed; continuing authorization without unlink',
+          },
+        })
+        return
+      }
+
+      events.push('chatgpt.gopay_unlink.waiting')
+      await machine.send('chatgpt.gopay_unlink.waiting', {
+        patch: {
+          gopayUnlinkStatus: 'waiting',
+        },
+      })
+      await failedCompanion.wait()
+    })()
+
+    expect(events).toEqual(['chatgpt.gopay_unlink.failed'])
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'checkout-ready',
+      context: {
+        gopayUnlinkStatus: 'failed',
+        lastMessage:
+          'GoPay unlink companion failed; continuing authorization without unlink',
       },
     })
   })

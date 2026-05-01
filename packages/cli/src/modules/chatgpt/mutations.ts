@@ -83,9 +83,19 @@ const AUTH_INPUT_TYPING_OPTIONS = {
 const STRIPE_ADDRESS_FRAME_URL_PATTERN = /elements-inner-address/i
 const STRIPE_PAYMENT_FRAME_URL_PATTERN = /elements-inner-payment/i
 const STRIPE_ADDRESS_FIELD_SELECTORS = [
+  'input[name="billingName"]',
+  'input[name="billing_details[name]"]',
   'input[name="addressLine1"]',
   'input[name="line1"]',
+  'input[name="address_line1"]',
+  'input[name="address-line1"]',
   'input[autocomplete*="address-line1" i]',
+  'input[name="locality"]',
+  'input[name="city"]',
+  'input[autocomplete*="address-level2" i]',
+  'input[name="postalCode"]',
+  'input[name="postal_code"]',
+  'input[autocomplete*="postal-code" i]',
   'select[name="country"]',
 ] as const
 const PAYPAL_HOST_PATTERN = /(^|\.)paypal\.com$/i
@@ -1739,6 +1749,9 @@ async function fillStripeBillingAddressFrame(
 
     const fieldSelectors: Record<BillingField, string[]> = {
       name: [
+        'input[name="billingName"]',
+        'input[name="billing_details[name]"]',
+        'input[name="billing_details[name]" i]',
         'input[name="name"]',
         'input[name="fullName"]',
         'input[name="full_name"]',
@@ -1754,9 +1767,15 @@ async function fillStripeBillingAddressFrame(
       ],
       country: [
         'select[name="country"]',
+        'select[name="billingCountry"]',
+        'select[name="billing_details[address][country]"]',
+        'select[name="billing_details[address][country]" i]',
         'select[id*="country" i]',
         'select[autocomplete*="country" i]',
         'input[name="country"]',
+        'input[name="billingCountry"]',
+        'input[name="billing_details[address][country]"]',
+        'input[name="billing_details[address][country]" i]',
         'input[autocomplete*="country" i]',
         '[role="combobox"][aria-label*="country" i]',
         '[role="combobox"][aria-label*="国家" i]',
@@ -1764,6 +1783,11 @@ async function fillStripeBillingAddressFrame(
       ],
       line1: [
         'input[name="addressLine1"]',
+        'input[name="address_line1"]',
+        'input[name="address-line1"]',
+        'input[name="billingAddressLine1"]',
+        'input[name="billing_details[address][line1]"]',
+        'input[name="billing_details[address][line1]" i]',
         'input[name="line1"]',
         'input[name="address"]',
         'input[name="street"]',
@@ -1788,9 +1812,16 @@ async function fillStripeBillingAddressFrame(
       ],
       line2: [
         'input[name="addressLine2"]',
+        'input[name="address_line2"]',
+        'input[name="address-line2"]',
+        'input[name="billingAddressLine2"]',
+        'input[name="billing_details[address][line2]"]',
+        'input[name="billing_details[address][line2]" i]',
         'input[name="line2"]',
         'input[autocomplete*="address-line2" i]',
         'input[id*="addressLine2" i]',
+        'input[id*="address_line2" i]',
+        'input[id*="address-line2" i]',
         'input[id*="line2" i]',
         'input[aria-label*="地址第 2 行" i]',
         'input[aria-label*="地址第2行" i]',
@@ -1805,18 +1836,35 @@ async function fillStripeBillingAddressFrame(
       ],
       city: [
         'input[name="locality"]',
+        'input[name="addressLocality"]',
+        'input[name="billingCity"]',
+        'input[name="billing_details[address][city]"]',
+        'input[name="billing_details[address][city]" i]',
         'input[name="city"]',
+        'input[name="town"]',
         'input[autocomplete*="address-level2" i]',
         'input[id*="locality" i]',
+        'input[id*="addressLocality" i]',
         'input[id*="city" i]',
+        'input[id*="town" i]',
         'input[aria-label*="城市" i]',
         'input[aria-label*="city" i]',
+        'input[aria-label*="town" i]',
+        'input[aria-label*="suburb" i]',
         'input[placeholder*="城市" i]',
         'input[placeholder*="city" i]',
+        'input[placeholder*="town" i]',
+        'input[placeholder*="suburb" i]',
       ],
       state: [
         'input[name="administrativeArea"]',
         'select[name="administrativeArea"]',
+        'input[name="billingState"]',
+        'select[name="billingState"]',
+        'input[name="billing_details[address][state]"]',
+        'select[name="billing_details[address][state]"]',
+        'input[name="billing_details[address][state]" i]',
+        'select[name="billing_details[address][state]" i]',
         'input[name="state"]',
         'select[name="state"]',
         'input[autocomplete*="address-level1" i]',
@@ -1835,6 +1883,10 @@ async function fillStripeBillingAddressFrame(
       postalCode: [
         'input[name="postalCode"]',
         'input[name="postal_code"]',
+        'input[name="postal-code"]',
+        'input[name="billingPostalCode"]',
+        'input[name="billing_details[address][postal_code]"]',
+        'input[name="billing_details[address][postal_code]" i]',
         'input[name="zip"]',
         'input[autocomplete*="postal-code" i]',
         'input[id*="postalCode" i]',
@@ -1856,7 +1908,7 @@ async function fillStripeBillingAddressFrame(
       country: [/国家|地区|country|region/i],
       line1: [/^地址$|地址.*1|address(?!.*2)|address line 1|street/i],
       line2: [/地址.*2|address.*2|address line 2|apt|suite|unit|公寓/i],
-      city: [/城市|city|locality/i],
+      city: [/城市|city|locality|town|suburb/i],
       state: [/州|省|state|province|administrative/i],
       postalCode: [/邮政|邮编|postal|zip/i],
     }
@@ -1982,7 +2034,7 @@ async function fillStripeBillingAddressFrame(
       }
 
       if (field === 'city') {
-        return /city|locality|town|address-level2|城市/i.test(descriptor)
+        return /city|locality|town|suburb|address-level2|城市/i.test(descriptor)
       }
 
       if (field === 'state') {
@@ -2150,6 +2202,9 @@ async function fillStripeBillingAddressFrame(
       }
       if (normalized === 'ID') {
         return ['Indonesia', '印度尼西亚', '印尼']
+      }
+      if (normalized === 'SG') {
+        return ['Singapore', '新加坡']
       }
 
       return []

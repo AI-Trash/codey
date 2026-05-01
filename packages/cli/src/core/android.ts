@@ -127,6 +127,8 @@ export async function newAndroidSession(): Promise<AndroidSession> {
           driver = await remote({
             ...endpoint,
             capabilities,
+            connectionRetryCount: 0,
+            logLevel: 'silent',
           })
           const appiumSessionId = readDriverSessionId(driver)
           logAndroidEvent('session.ready', {
