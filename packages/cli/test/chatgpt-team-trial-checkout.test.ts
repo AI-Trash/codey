@@ -430,7 +430,7 @@ class FakePricingPage {
 }
 
 describe('chatgpt team trial checkout defaults', () => {
-  it('uses the configured Netherlands billing address by default', () => {
+  it('uses the configured Singapore billing address by default', () => {
     setRuntimeConfig({
       ...baseConfig,
       chatgptTeamTrial: undefined,
@@ -440,11 +440,11 @@ describe('chatgpt team trial checkout defaults', () => {
 
     expect(address).toMatchObject(DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS)
     expect(address.name).toBe(DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME)
-    expect(address.country).toBe('NL')
-    expect(address.line1).toBe('Bertha von Suttnerlaan 97')
-    expect(address.line2).toBe('762 Effertz Stream')
-    expect(address.postalCode).toBe('1187 ST')
-    expect(address.city).toBe('Amstelveen')
+    expect(address.country).toBe('SG')
+    expect(address.line1).toBe('32 Penjuru Place')
+    expect(address.line2).toBe('')
+    expect(address.postalCode).toBe('608560')
+    expect(address.city).toBe('Singapore')
   })
 
   it('lets CLI billing options override runtime config values', () => {

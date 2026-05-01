@@ -37,6 +37,16 @@ export interface SmsForwarderWebhookConfig {
   deviceId?: string
 }
 
+export interface SingBoxProxyConfig {
+  enabled?: boolean
+  executable?: string
+  mixedHost?: string
+  mixedPort?: number
+  autoStart?: boolean
+  defaultTag?: string
+  configDir?: string
+}
+
 export interface OpenAIFlowConfig {
   baseUrl: string
   chatgptUrl: string
@@ -162,6 +172,7 @@ export interface AppConfig {
   verification?: VerificationConfig
   app?: AppAuthConfig
   smsForwarderWebhook?: SmsForwarderWebhookConfig
+  singBox?: SingBoxProxyConfig
   codex?: CodexOAuthConfig
   sub2api?: Sub2ApiConfig
   chatgptTeamTrial?: ChatGPTTeamTrialConfig
@@ -453,6 +464,22 @@ function buildSmsForwarderWebhookConfig(): SmsForwarderWebhookConfig {
   }
 }
 
+function buildSingBoxProxyConfig(): SingBoxProxyConfig {
+  return {
+    enabled: hasEnvValue(process.env.CODEY_SINGBOX_ENABLED)
+      ? parseBoolean(process.env.CODEY_SINGBOX_ENABLED, true)
+      : true,
+    executable: process.env.CODEY_SINGBOX_EXECUTABLE || 'sing-box',
+    mixedHost: process.env.CODEY_SINGBOX_MIXED_HOST || '127.0.0.1',
+    mixedPort: parseNumber(process.env.CODEY_SINGBOX_MIXED_PORT, 2080),
+    autoStart: hasEnvValue(process.env.CODEY_SINGBOX_AUTO_START)
+      ? parseBoolean(process.env.CODEY_SINGBOX_AUTO_START, true)
+      : true,
+    defaultTag: process.env.CODEY_SINGBOX_DEFAULT_TAG,
+    configDir: process.env.CODEY_SINGBOX_CONFIG_DIR,
+  }
+}
+
 function parseSub2ApiOpenAIWSMode(
   value: string | undefined,
 ): Sub2ApiConfig['openaiOAuthResponsesWebSocketV2Mode'] {
@@ -497,6 +524,7 @@ function buildDefaultConfig(): AppConfig {
   const sub2ApiConfig = buildSub2ApiConfig()
   const chatgptTeamTrialConfig = buildChatGPTTeamTrialConfig()
   const smsForwarderWebhookConfig = buildSmsForwarderWebhookConfig()
+  const singBoxConfig = buildSingBoxProxyConfig()
   const verificationConfig =
     parseVerificationProviderConfigKind(process.env.VERIFICATION_PROVIDER) ||
     codeyAppConfig
@@ -576,6 +604,7 @@ function buildDefaultConfig(): AppConfig {
     verification: verificationConfig,
     app: codeyAppConfig,
     smsForwarderWebhook: smsForwarderWebhookConfig,
+    singBox: singBoxConfig,
     codex: codexConfig,
     sub2api: sub2ApiConfig,
     chatgptTeamTrial: chatgptTeamTrialConfig,

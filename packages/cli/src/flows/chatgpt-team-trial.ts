@@ -61,18 +61,26 @@ import {
   unlinkGoPayLinkedApps,
   type GoPayAndroidUnlinkResult,
 } from '../modules/gopay/android-unlink'
+import { selectCodeySingBoxProxyTag } from '../modules/proxy/sing-box'
 
 export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME = 'Summpot'
 
 export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS = {
   name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
-  country: 'NL',
-  line1: 'Bertha von Suttnerlaan 97',
-  line2: '762 Effertz Stream',
-  city: 'Amstelveen',
+  country: 'SG',
+  line1: '32 Penjuru Place',
+  line2: '',
+  city: 'Singapore',
   state: undefined,
-  postalCode: '1187 ST',
+  postalCode: '608560',
 } as const satisfies ChatGPTTeamTrialBillingAddress
+
+const CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS = ['japan', '日本', 'jp']
+const CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS = [
+  'singapore',
+  '新加坡',
+  'sg',
+]
 
 export type ChatGPTTeamTrialFlowKind = 'chatgpt-team-trial'
 
@@ -134,6 +142,9 @@ export type ChatGPTTeamTrialFlowEvent =
   | 'chatgpt.gopay_unlink.completed'
   | 'chatgpt.gopay_unlink.failed'
   | 'chatgpt.gopay_unlink.disabled'
+  | 'chatgpt.proxy.selecting'
+  | 'chatgpt.proxy.selected'
+  | 'chatgpt.proxy.unavailable'
   | 'chatgpt.retry.requested'
   | 'chatgpt.completed'
   | 'chatgpt.failed'
@@ -175,6 +186,8 @@ export interface ChatGPTTeamTrialFlowContext<Result = unknown> {
   gopayUnlinkCompleted?: boolean
   gopayUnlinkAppiumSessionId?: string
   gopayUnlinkError?: string
+  proxyTag?: string
+  proxySelectionStatus?: 'selected' | 'unavailable'
   retryCount?: number
   retryReason?: string
   retryFromState?: ChatGPTTeamTrialFlowState
@@ -302,6 +315,9 @@ const chatgptTeamTrialMutableContextEvents = [
   'chatgpt.gopay_unlink.completed',
   'chatgpt.gopay_unlink.failed',
   'chatgpt.gopay_unlink.disabled',
+  'chatgpt.proxy.selecting',
+  'chatgpt.proxy.selected',
+  'chatgpt.proxy.unavailable',
 ] as const satisfies ChatGPTTeamTrialFlowEvent[]
 
 const chatgptTeamTrialStates = [
@@ -549,6 +565,69 @@ function formatTrialPaymentMethod(
   return paymentMethod === 'gopay' ? 'GoPay' : 'PayPal'
 }
 
+async function selectGoPayProxyTag<Result>(
+  tags: readonly string[],
+  label: string,
+  input: {
+    options: FlowOptions
+    machine?: ChatGPTTeamTrialFlowMachine<Result>
+    patch?: Partial<ChatGPTTeamTrialFlowContext<Result>>
+  },
+): Promise<boolean> {
+  input.options.progressReporter?.({
+    message: `Selecting Codey proxy tag ${label}`,
+  })
+  if (input.machine) {
+    await patchTeamTrialMachine(input.machine, 'chatgpt.proxy.selecting', {
+      ...input.patch,
+      proxyTag: label,
+      lastMessage: `Selecting Codey proxy tag ${label}`,
+    })
+  }
+
+  let selectedTag: string | undefined
+  let lastErrorMessage: string | undefined
+  for (const tag of tags) {
+    try {
+      if (await selectCodeySingBoxProxyTag(tag)) {
+        selectedTag = tag
+        break
+      }
+    } catch (error) {
+      lastErrorMessage = sanitizeErrorForOutput(error).message
+    }
+  }
+
+  const selected = selectedTag !== undefined
+  const proxyTag = selectedTag || label
+  const unavailableMessage = lastErrorMessage
+    ? `Codey proxy tag ${label} is not available: ${lastErrorMessage}`
+    : `Codey proxy tag ${label} is not available`
+
+  if (input.machine) {
+    await patchTeamTrialMachine(
+      input.machine,
+      selected ? 'chatgpt.proxy.selected' : 'chatgpt.proxy.unavailable',
+      {
+        ...input.patch,
+        proxyTag,
+        proxySelectionStatus: selected ? 'selected' : 'unavailable',
+        lastMessage: selected
+          ? `Codey proxy tag ${proxyTag} selected`
+          : unavailableMessage,
+      },
+    )
+  }
+
+  input.options.progressReporter?.({
+    message: selected
+      ? `Codey proxy tag ${proxyTag} selected`
+      : unavailableMessage,
+  })
+
+  return selected
+}
+
 export function resolveChatGPTTeamTrialPaymentMethod(
   options: FlowOptions = {},
 ): ChatGPTTrialPaymentMethod {
@@ -688,6 +767,22 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
   const useDirectCheckout = paymentMethod === 'gopay'
 
   if (useDirectCheckout) {
+    await selectGoPayProxyTag(
+      CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS,
+      'japan',
+      {
+        options,
+        machine,
+        patch: {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          couponState: selectedCouponState,
+          url: page.url(),
+        },
+      },
+    )
     trialClaimClicked = false
     if (machine) {
       await sendTeamTrialMachine(
@@ -959,6 +1054,27 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
   )
   const paypalBaTokenCaptured = paymentRedirect.paymentMethod === 'paypal'
   let gopayPayment: GoPayPaymentContinuationResult | undefined
+
+  if (paymentRedirect.paymentMethod === 'gopay') {
+    await selectGoPayProxyTag(
+      CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS,
+      'singapore',
+      {
+        options,
+        machine,
+        patch: {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          url: page.url(),
+          checkoutUrl,
+          paymentRedirectUrl: paymentRedirect.url,
+          paymentRedirectUrlPath,
+        },
+      },
+    )
+  }
 
   if (machine) {
     await sendTeamTrialMachine(

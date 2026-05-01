@@ -589,6 +589,10 @@ function getPermissionLabel(permission: AdminPermission) {
     return m.admin_users_permission_verification_domains()
   }
 
+  if (permission === 'PROXY_NODES') {
+    return m.admin_users_permission_proxy_nodes()
+  }
+
   return m.admin_users_permission_user_access()
 }
 
@@ -615,6 +619,10 @@ function getPermissionDescription(permission: AdminPermission) {
 
   if (permission === 'VERIFICATION_DOMAINS') {
     return m.admin_users_permission_verification_domains_description()
+  }
+
+  if (permission === 'PROXY_NODES') {
+    return m.admin_users_permission_proxy_nodes_description()
   }
 
   return m.admin_users_permission_user_access_description()

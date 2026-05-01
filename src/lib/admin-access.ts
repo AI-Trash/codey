@@ -5,6 +5,7 @@ export const adminPermissionValues = [
   'MANAGED_SESSIONS',
   'OAUTH_CLIENTS',
   'VERIFICATION_DOMAINS',
+  'PROXY_NODES',
   'USER_ACCESS',
 ] as const
 
@@ -18,7 +19,7 @@ const legacyAdminPermissionAliases: Record<string, readonly AdminPermission[]> =
       'CLI_OPERATIONS',
       'MANAGED_SESSIONS',
     ],
-    OAUTH_APPS: ['OAUTH_CLIENTS', 'VERIFICATION_DOMAINS'],
+    OAUTH_APPS: ['OAUTH_CLIENTS', 'VERIFICATION_DOMAINS', 'PROXY_NODES'],
     USERS: ['USER_ACCESS'],
   }
 
@@ -31,6 +32,7 @@ export const defaultAdminRouteByPermission: Record<AdminPermission, string> = {
   MANAGED_SESSIONS: '/admin/sessions',
   OAUTH_CLIENTS: '/admin/apps',
   VERIFICATION_DOMAINS: '/admin/domains',
+  PROXY_NODES: '/admin/proxy-nodes',
   USER_ACCESS: '/admin/users',
 }
 

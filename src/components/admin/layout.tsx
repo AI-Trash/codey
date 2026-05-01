@@ -11,6 +11,7 @@ import {
   LanguagesIcon,
   LogOutIcon,
   MailIcon,
+  NetworkIcon,
   ShieldCheckIcon,
   SunMoonIcon,
   UsersIcon,
@@ -173,6 +174,15 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
     })
   }
 
+  if (hasAdminPermission(currentUser, 'PROXY_NODES')) {
+    navigation.push({
+      label: m.admin_nav_proxy_nodes(),
+      to: '/admin/proxy-nodes',
+      icon: NetworkIcon,
+      matches: (pathname: string) => pathname === '/admin/proxy-nodes',
+    })
+  }
+
   if (hasAdminPermission(currentUser, 'USER_ACCESS')) {
     navigation.push({
       label: m.admin_nav_users(),
@@ -182,7 +192,7 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
     })
   }
 
-  return navigation as const
+  return navigation
 }
 
 export function AdminShell(props: {
@@ -203,6 +213,7 @@ export function AdminShell(props: {
     pathname === '/admin/cli' ||
     pathname === '/admin/flows' ||
     pathname.startsWith('/admin/flows/') ||
+    pathname === '/admin/proxy-nodes' ||
     pathname === '/admin/apps'
 
   return (

@@ -93,6 +93,20 @@ On Windows, Codey reads the enabled system proxy automatically when no explicit
 proxy env var is present. Set `CODEY_USE_SYSTEM_PROXY=false` to disable that
 fallback.
 
+Managed proxy nodes are available in the admin console at `/admin/proxy-nodes`.
+When the remote worker starts, it fetches enabled nodes from Codey Web and, if
+sing-box is available, starts a local mixed inbound for browser traffic without
+enabling the system proxy. The current managed path is optimized for hysteria2
+nodes whose shared settings are identical except for IP/server. Optional tuning:
+
+```env
+CODEY_SINGBOX_ENABLED=true
+CODEY_SINGBOX_EXECUTABLE=sing-box
+CODEY_SINGBOX_MIXED_HOST=127.0.0.1
+CODEY_SINGBOX_MIXED_PORT=2080
+CODEY_SINGBOX_DEFAULT_TAG=japan
+```
+
 Verification mail domains are now managed in the admin console at `/admin/domains` and stored in Postgres. App-backed CLI registrations now randomly pick one enabled domain for each reserved mailbox instead of binding a domain to the OAuth client. `VERIFICATION_EMAIL_PREFIX` is optional and, when set, is prepended before the generated memorable mailbox name.
 
 If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MAILBOX` or `VERIFICATION_DOMAIN` values are only used as a compatibility seed when the database does not have any registered domains yet.
@@ -189,6 +203,13 @@ pnpm codey android-healthcheck --androidUdid emulator-5554
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
 
 For GoPay trial checkout continuation, set `CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER` before running `--claimTrial gopay`. `CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE` is optional when the Midtrans page already shows the right country code. GoPay trial flows start an Appium companion that opens GoPay Linked apps and clicks `Unlink` -> `Unlink` before the browser opens the GoPay authorization link; set `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK=false` to skip it, or `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS` to tune the wait. After submitting the phone number, the flow clicks the GoPay authorization/confirmation page when it appears. If the authorization page asks for a WhatsApp OTP, the flow polls Codey app WhatsApp notification ingest and fills the latest 6-digit code received after the GoPay authorization page opens. If `CHATGPT_TEAM_TRIAL_GOPAY_PIN` is omitted, the flow opens the GoPay authorization page and waits for manual PIN completion until `CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS` (default 180000 ms).
+
+For managed sing-box proxy runs, the GoPay checkout flow selects the `japan`
+proxy tag before creating the ChatGPT checkout link, then switches to the
+`singapore` tag after the GoPay redirect link is captured. The built-in default
+billing address is now `32 Penjuru Place, Singapore, Jurong East 608560,
+Singapore`, and can still be overridden with the billing flags or
+`CHATGPT_TEAM_TRIAL_BILLING_*` environment variables.
 
 Pass `--recordPageContent true` on any flow to save the final settled `page.content()` HTML under `artifacts/` as a `*-page-content.html` file. This is intended for developing new page branches after upstream UI changes.
 

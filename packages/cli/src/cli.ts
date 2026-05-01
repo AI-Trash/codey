@@ -18,6 +18,7 @@ import {
   claimCliFlowTask,
   CliFlowTaskLeaseReporter,
 } from './modules/app-auth/flow-tasks'
+import { fetchCodeyProxyNodes } from './modules/app-auth/proxy-nodes'
 import { deriveCliTargetFromAuthState } from './modules/app-auth/target'
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
 import { DEFAULT_CODEY_APP_BASE_URL } from './modules/app-auth/http'
@@ -88,6 +89,7 @@ import {
   type WhatsAppNotificationWebhookServerHandle,
 } from './modules/android/whatsapp-notifications'
 import {
+  logCliEvent,
   setObservabilityRuntimeState,
   traceCliOperation,
   withObservabilityContext,
@@ -97,6 +99,14 @@ import {
   FlowTaskScheduler,
   FlowTaskSchedulerCancelledError,
 } from './modules/flow-cli/task-scheduler'
+import {
+  buildSingBoxProxyBrowserOverride,
+  formatSingBoxProxyStartupError,
+  startCodeySingBoxProxy,
+  stopActiveCodeySingBoxProxy,
+  summarizeProxyNodes,
+  type CodeySingBoxProxyRuntime,
+} from './modules/proxy/sing-box'
 
 initializeCliFileLogging({
   rootDir: resolveWorkspaceRoot(fileURLToPath(import.meta.url)),
@@ -563,11 +573,43 @@ async function runRemoteWorker(
   })
 
   let whatsAppWebhook: WhatsAppNotificationWebhookServerHandle | undefined
+  let singBoxProxy: CodeySingBoxProxyRuntime | undefined
 
   try {
     while (true) {
       setRuntimeConfig(config)
       const authState = await resolveCliNotificationsAuthState()
+      if (!singBoxProxy) {
+        try {
+          const proxyNodes = await fetchCodeyProxyNodes({ authState })
+          singBoxProxy = await startCodeySingBoxProxy({
+            config,
+            nodes: proxyNodes,
+          })
+          if (singBoxProxy) {
+            config = {
+              ...config,
+              ...buildSingBoxProxyBrowserOverride(singBoxProxy),
+            }
+            setRuntimeConfig(config)
+            writeCliStderrLine(
+              `[cli:singbox] Loaded ${proxyNodes.length} proxy node(s); mixed proxy ${singBoxProxy.mixedProxy.server}; selected tag ${singBoxProxy.selectedTag || 'default'}.`,
+            )
+          } else if (proxyNodes.length) {
+            writeCliStderrLine(
+              `[cli:singbox] No usable hysteria2 proxy node found in ${proxyNodes.length} configured node(s).`,
+            )
+          }
+          logCliEvent('info', 'singbox.proxy_nodes.loaded', {
+            nodes: summarizeProxyNodes(proxyNodes),
+            started: Boolean(singBoxProxy),
+          })
+        } catch (error) {
+          writeCliStderrLine(
+            `[cli:singbox] ${formatSingBoxProxyStartupError(error)}`,
+          )
+        }
+      }
       whatsAppWebhook ??= startCliWhatsAppNotificationWebhook(
         'cli',
         options,
@@ -1136,6 +1178,7 @@ async function runRemoteWorker(
     }
   } finally {
     await whatsAppWebhook?.stop()
+    await stopActiveCodeySingBoxProxy()
   }
 }
 

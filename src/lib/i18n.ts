@@ -69,6 +69,7 @@ const statusLabelMap = {
   live: () => m.status_live(),
   locked: () => m.status_locked(),
   missing: () => m.status_missing(),
+  mixed: () => m.status_mixed(),
   offline: () => m.status_offline(),
   parsed: () => m.status_parsed(),
   passed: () => m.status_passed(),
@@ -95,7 +96,10 @@ export function translateStatusLabel(value?: string | null) {
   }
 
   const normalized = value.replaceAll('_', ' ').trim().toLowerCase()
-  const message = statusLabelMap[normalized]
+  const message =
+    normalized in statusLabelMap
+      ? statusLabelMap[normalized as keyof typeof statusLabelMap]
+      : undefined
 
   if (message) {
     return message()

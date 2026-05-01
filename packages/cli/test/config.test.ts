@@ -111,6 +111,16 @@ const smsForwarderWebhookEnvNames = {
   SMS_FORWARDER_DEVICE_ID: undefined,
 }
 
+const singBoxEnvNames = {
+  CODEY_SINGBOX_ENABLED: undefined,
+  CODEY_SINGBOX_EXECUTABLE: undefined,
+  CODEY_SINGBOX_MIXED_HOST: undefined,
+  CODEY_SINGBOX_MIXED_PORT: undefined,
+  CODEY_SINGBOX_AUTO_START: undefined,
+  CODEY_SINGBOX_DEFAULT_TAG: undefined,
+  CODEY_SINGBOX_CONFIG_DIR: undefined,
+}
+
 describe('resolveConfig codex defaults', () => {
   it('uses built-in Codex OAuth defaults when env overrides are absent', async () => {
     const config = await withEnv(codexEnvNames, () => resolveConfig())
@@ -148,6 +158,7 @@ describe('resolveConfig Android Appium config', () => {
       {
         ...androidEnvNames,
         ...smsForwarderWebhookEnvNames,
+        ...singBoxEnvNames,
       },
       () => resolveConfig(),
     )
@@ -164,6 +175,41 @@ describe('resolveConfig Android Appium config', () => {
       port: 3001,
       path: '/webhooks/smsforwarder/whatsapp',
       deviceId: undefined,
+    })
+    expect(config.singBox).toEqual({
+      enabled: true,
+      executable: 'sing-box',
+      mixedHost: '127.0.0.1',
+      mixedPort: 2080,
+      autoStart: true,
+      defaultTag: undefined,
+      configDir: undefined,
+    })
+  })
+
+  it('reads managed sing-box proxy env vars', async () => {
+    const config = await withEnv(
+      {
+        ...singBoxEnvNames,
+        CODEY_SINGBOX_ENABLED: 'false',
+        CODEY_SINGBOX_EXECUTABLE: 'C:\\tools\\sing-box.exe',
+        CODEY_SINGBOX_MIXED_HOST: '127.0.0.2',
+        CODEY_SINGBOX_MIXED_PORT: '2088',
+        CODEY_SINGBOX_AUTO_START: 'false',
+        CODEY_SINGBOX_DEFAULT_TAG: 'singapore',
+        CODEY_SINGBOX_CONFIG_DIR: 'C:\\tmp\\codey-sing-box',
+      },
+      () => resolveConfig(),
+    )
+
+    expect(config.singBox).toEqual({
+      enabled: false,
+      executable: 'C:\\tools\\sing-box.exe',
+      mixedHost: '127.0.0.2',
+      mixedPort: 2088,
+      autoStart: false,
+      defaultTag: 'singapore',
+      configDir: 'C:\\tmp\\codey-sing-box',
     })
   })
 

@@ -870,6 +870,48 @@ export const verificationDomains = pgTable(
   ],
 )
 
+export const proxyNodes = pgTable(
+  'proxy_nodes',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    tag: text('tag').notNull(),
+    protocol: text('protocol')
+      .$type<'hysteria2' | 'socks' | 'http'>()
+      .default('hysteria2')
+      .notNull(),
+    server: text('server').notNull(),
+    serverPort: integer('server_port').notNull(),
+    username: text('username'),
+    passwordCiphertext: text('password_ciphertext'),
+    passwordPreview: text('password_preview'),
+    tlsServerName: text('tls_server_name'),
+    tlsInsecure: boolean('tls_insecure').default(false).notNull(),
+    description: text('description'),
+    enabled: boolean('enabled').default(true).notNull(),
+    updatedByUserId: text('updated_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('proxy_nodes_name_unique').on(table.name),
+    index('proxy_nodes_enabled_tag_idx').on(table.enabled, table.tag),
+    index('proxy_nodes_protocol_idx').on(table.protocol),
+  ],
+)
+
 export const oauthClients = pgTable(
   'oauth_clients',
   {
@@ -1289,6 +1331,13 @@ export const oauthClientsRelations = relations(oauthClients, ({ one }) => ({
   }),
 }))
 
+export const proxyNodesRelations = relations(proxyNodes, ({ one }) => ({
+  updatedByUser: one(users, {
+    fields: [proxyNodes.updatedByUserId],
+    references: [users.id],
+  }),
+}))
+
 export const cliConnectionsRelations = relations(cliConnections, ({ one }) => ({
   user: one(users, {
     fields: [cliConnections.userId],
@@ -1343,6 +1392,7 @@ export type ManagedWorkspaceMemberRow =
 export type WorkspaceInviteAuthorizeWorkflowRow =
   typeof workspaceInviteAuthorizeWorkflows.$inferSelect
 export type VerificationDomainRow = typeof verificationDomains.$inferSelect
+export type ProxyNodeRow = typeof proxyNodes.$inferSelect
 export type OAuthClientRow = typeof oauthClients.$inferSelect
 export type ExternalServiceConfigRow =
   typeof externalServiceConfigs.$inferSelect
