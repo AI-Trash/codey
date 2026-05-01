@@ -74,7 +74,7 @@ function buildFlowTaskPayloadConfig(
   const claimTrial = config.claimTrial
   const shouldAddLegacyAlias =
     flowId === 'chatgpt-register' &&
-    (claimTrial === true || claimTrial === 'paypal')
+    (claimTrial === true || claimTrial === 'paypal' || claimTrial === 'gopay')
 
   if (!shouldAddLegacyAlias) {
     return config

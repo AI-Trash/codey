@@ -174,14 +174,14 @@ describe('cli flow task dispatch', () => {
       expect.objectContaining({
         flowId: 'chatgpt-register',
         config: expect.objectContaining({
-          claimTrial: 'paypal',
+          claimTrial: 'gopay',
           claimTeamTrial: true,
         }),
       }),
     )
   })
 
-  it('does not add the legacy PayPal alias to GoPay register trial payloads', async () => {
+  it('adds the legacy trial alias to GoPay register trial payloads', async () => {
     const anchorConnection = createCliConnectionSummary({
       id: 'connection-a',
       workerId: 'worker-a',
@@ -209,15 +209,9 @@ describe('cli flow task dispatch', () => {
     expect(insertedTasks[0]?.payload).toEqual(
       expect.objectContaining({
         flowId: 'chatgpt-register',
-        config: expect.not.objectContaining({
-          claimTeamTrial: true,
-        }),
-      }),
-    )
-    expect(insertedTasks[0]?.payload).toEqual(
-      expect.objectContaining({
         config: expect.objectContaining({
           claimTrial: 'gopay',
+          claimTeamTrial: true,
         }),
       }),
     )

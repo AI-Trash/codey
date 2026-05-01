@@ -140,6 +140,21 @@ const PAYMENT_METHOD_SELECTION_STATE_SELECTORS = [
   '[data-selected]',
   ':checked',
 ] as const
+const CHATGPT_CHECKOUT_PAYMENT_ERROR_PATTERNS = [
+  /付款未获批准/i,
+  /payment (?:was )?(?:not approved|declined|failed)/i,
+  /your payment (?:could not be processed|was declined)/i,
+] as const
+const CHATGPT_CHECKOUT_PAYMENT_ERROR_SELECTORS: SelectorTarget[] = [
+  { role: 'alert' },
+  '[role="alert"]',
+  '[aria-live="assertive"]',
+  '[aria-live="polite"]',
+  { text: /付款未获批准/i },
+  {
+    text: /payment (?:was )?(?:not approved|declined|failed)|your payment (?:could not be processed|was declined)/i,
+  },
+] as const
 const CHATGPT_CHECKOUT_SELECTED_PAYMENT_METHOD_SELECTORS = {
   paypal: buildPaymentMethodStateSelectors(
     'paypal',
@@ -945,9 +960,11 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaymentLink(
     await selectChatGPTCheckoutPaymentMethodIfPresent(page, paymentMethod, {
       timeoutMs: Math.min(10000, timeoutMs),
     })
+    await throwIfChatGPTCheckoutPaymentError(page)
 
     let clickAttempt = 0
     while (Date.now() < deadline) {
+      await throwIfChatGPTCheckoutPaymentError(page)
       const existing = capture.get()
       if (existing) {
         return existing
@@ -959,24 +976,32 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaymentLink(
         Math.min(10000, remainingMs),
       )
       if (!ready) {
+        await throwIfChatGPTCheckoutPaymentError(page)
         await selectChatGPTCheckoutPaymentMethodIfPresent(page, paymentMethod, {
           timeoutMs: Math.min(2500, Math.max(1, deadline - Date.now())),
         })
-        const observed = await capture
-          .wait(Math.min(1500, Math.max(1, deadline - Date.now())))
-          .catch(() => undefined)
+        await throwIfChatGPTCheckoutPaymentError(page)
+        const observed = await waitForCheckoutPaymentLinkOrError(
+          page,
+          capture,
+          Math.min(1500, Math.max(1, deadline - Date.now())),
+        )
         if (observed) return observed
         continue
       }
 
+      await throwIfChatGPTCheckoutPaymentError(page)
       const paymentMethodSelected =
         await selectChatGPTCheckoutPaymentMethodIfPresent(page, paymentMethod, {
           timeoutMs: Math.min(5000, Math.max(1, deadline - Date.now())),
         })
+      await throwIfChatGPTCheckoutPaymentError(page)
       if (!paymentMethodSelected) {
-        const observed = await capture
-          .wait(Math.min(1500, Math.max(1, deadline - Date.now())))
-          .catch(() => undefined)
+        const observed = await waitForCheckoutPaymentLinkOrError(
+          page,
+          capture,
+          Math.min(1500, Math.max(1, deadline - Date.now())),
+        )
         if (observed) {
           return observed
         }
@@ -985,9 +1010,12 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaymentLink(
 
       clickAttempt += 1
       await clickChatGPTCheckoutSubscribe(page).catch(() => undefined)
-      const observed = await capture
-        .wait(Math.min(5000, Math.max(1, deadline - Date.now())))
-        .catch(() => undefined)
+      await throwIfChatGPTCheckoutPaymentError(page)
+      const observed = await waitForCheckoutPaymentLinkOrError(
+        page,
+        capture,
+        Math.min(5000, Math.max(1, deadline - Date.now())),
+      )
       if (observed) {
         return observed
       }
@@ -1003,6 +1031,34 @@ export async function clickChatGPTCheckoutSubscribeAndCapturePaymentLink(
   throw new Error(
     `ChatGPT ${paymentMethod} payment redirect link was not captured.`,
   )
+}
+
+async function waitForCheckoutPaymentLinkOrError(
+  page: Page,
+  capture: CheckoutPaymentLinkCapture,
+  timeoutMs: number,
+): Promise<ChatGPTCheckoutPaymentLink | undefined> {
+  const deadline = Date.now() + Math.max(1, timeoutMs)
+  do {
+    await throwIfChatGPTCheckoutPaymentError(page)
+
+    const existing = capture.get()
+    if (existing) {
+      return existing
+    }
+
+    const observed = await capture
+      .wait(
+        Math.min(PAYMENT_CAPTURE_POLL_MS, Math.max(1, deadline - Date.now())),
+      )
+      .catch(() => undefined)
+    if (observed) {
+      return observed
+    }
+  } while (Date.now() < deadline)
+
+  await throwIfChatGPTCheckoutPaymentError(page)
+  return capture.get()
 }
 
 export async function continueGoPayPaymentFromRedirect(
@@ -2787,6 +2843,42 @@ async function clickChatGPTCheckoutSubscribe(page: Page): Promise<void> {
   }
 
   await clickAny(page, CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS)
+}
+
+async function throwIfChatGPTCheckoutPaymentError(page: Page): Promise<void> {
+  const message = await getChatGPTCheckoutPaymentErrorMessage(page)
+  if (!message) {
+    return
+  }
+
+  throw new Error(`ChatGPT checkout payment was not approved: ${message}`)
+}
+
+async function getChatGPTCheckoutPaymentErrorMessage(
+  page: Page,
+): Promise<string | undefined> {
+  for (const selector of CHATGPT_CHECKOUT_PAYMENT_ERROR_SELECTORS) {
+    const locator = toLocator(page, selector).first()
+    const visible = await locator.isVisible().catch(() => false)
+    if (!visible) continue
+
+    const text = await locator.textContent().catch(() => '')
+    const normalizedText = normalizeCheckoutErrorText(text || '')
+    if (!normalizedText) continue
+    if (
+      CHATGPT_CHECKOUT_PAYMENT_ERROR_PATTERNS.some((pattern) =>
+        pattern.test(normalizedText),
+      )
+    ) {
+      return normalizedText
+    }
+  }
+
+  return undefined
+}
+
+function normalizeCheckoutErrorText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
 }
 
 interface CheckoutPaymentLinkCapture {

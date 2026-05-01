@@ -86,8 +86,10 @@ import { createFlowLifecycleFragment } from './machine-fragments'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
 import {
+  CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS,
   completeChatGPTTrialAfterAuthenticatedSession,
   createChatGPTTeamTrialMachine,
+  selectGoPayProxyTag,
   startChatGPTTeamTrialGoPayUnlinkCompanion,
   type ChatGPTTeamTrialGoPayUnlinkCompanion,
   type ChatGPTTeamTrialFlowSnapshot,
@@ -1086,6 +1088,18 @@ export async function registerChatGPT(
       })
     }
     if (claimTrial === 'gopay') {
+      await selectGoPayProxyTag(
+        CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS,
+        'japan',
+        {
+          options,
+          patch: {
+            email,
+            url: CHATGPT_ENTRY_LOGIN_URL,
+            paymentMethod: claimTrial,
+          },
+        },
+      )
       gopayUnlinkCompanion = startChatGPTTeamTrialGoPayUnlinkCompanion(options)
     }
 

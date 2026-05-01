@@ -17,10 +17,10 @@ import {
   clickChatGPTCheckoutSubscribeAndCapturePaymentLink,
   clickTrialPricingFreeTrial,
   continueGoPayPaymentFromRedirect,
+  createChatGPTTrialCheckoutLink,
   createChatGPTBackendApiHeadersCapture,
   fillChatGPTCheckoutBillingAddress,
   getChatGPTTrialPromoPlan,
-  gotoChatGPTTrialCheckout,
   gotoTrialPricingPromo,
   normalizeChatGPTTrialPaymentMethod,
   selectChatGPTCheckoutPaymentMethodIfPresent,
@@ -75,8 +75,12 @@ export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS = {
   postalCode: '608560',
 } as const satisfies ChatGPTTeamTrialBillingAddress
 
-const CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS = ['japan', '日本', 'jp']
-const CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS = [
+export const CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS = [
+  'japan',
+  '日本',
+  'jp',
+]
+export const CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS = [
   'singapore',
   '新加坡',
   'sg',
@@ -578,7 +582,7 @@ function formatTrialPaymentMethod(
   return paymentMethod === 'gopay' ? 'GoPay' : 'PayPal'
 }
 
-async function selectGoPayProxyTag<Result>(
+export async function selectGoPayProxyTag<Result>(
   tags: readonly string[],
   label: string,
   input: {
@@ -815,9 +819,33 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
       )
     }
 
-    const checkout = await gotoChatGPTTrialCheckout(page, selectedCoupon, {
-      paymentMethod,
-    })
+    const checkout = await createChatGPTTrialCheckoutLink(
+      page,
+      selectedCoupon,
+      {
+        paymentMethod,
+      },
+    )
+    await selectGoPayProxyTag(
+      CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS,
+      'singapore',
+      {
+        options,
+        machine,
+        patch: {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          couponState: selectedCouponState,
+          url: page.url(),
+          checkoutUrl: checkout.url,
+        },
+      },
+    )
+    await page.goto(checkout.url, { waitUntil: 'domcontentloaded' })
+    await page.locator('body').waitFor({ state: 'visible' })
+    await page.waitForLoadState('networkidle').catch(() => undefined)
     options.progressReporter?.({
       message: `Opened ChatGPT ${selectedPlan} direct checkout: ${checkout.url}`,
     })
@@ -1067,27 +1095,6 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
   )
   const paypalBaTokenCaptured = paymentRedirect.paymentMethod === 'paypal'
   let gopayPayment: GoPayPaymentContinuationResult | undefined
-
-  if (paymentRedirect.paymentMethod === 'gopay') {
-    await selectGoPayProxyTag(
-      CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS,
-      'singapore',
-      {
-        options,
-        machine,
-        patch: {
-          email,
-          coupon: selectedCoupon,
-          trialPlan: selectedPlan,
-          paymentMethod,
-          url: page.url(),
-          checkoutUrl,
-          paymentRedirectUrl: paymentRedirect.url,
-          paymentRedirectUrlPath,
-        },
-      },
-    )
-  }
 
   if (machine) {
     await sendTeamTrialMachine(

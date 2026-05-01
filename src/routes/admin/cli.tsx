@@ -2,6 +2,7 @@ import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   createCliFlowTaskRequest,
+  DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD,
   MAX_CLI_FLOW_TASK_BATCH_SIZE,
   type CliFlowCommandId,
   type CliFlowConfigById,
@@ -181,6 +182,14 @@ type DispatchResultSummary = {
 }
 
 type DraftOptionState = Record<string, string>
+
+const DEFAULT_DRAFT_VALUES_BY_FLOW: Partial<
+  Record<CliFlowCommandId, DraftOptionState>
+> = {
+  'chatgpt-register': {
+    claimTrial: DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD,
+  },
+}
 
 function AdminCliConnectionsPage() {
   const data = Route.useLoaderData()
@@ -705,18 +714,24 @@ function CliTaskDialog(props: {
     const nextAvailableFlows = props.connection
       ? getDispatchableFlowIds(props.connection)
       : []
-    setSelectedFlowId(nextAvailableFlows[0] || '')
+    const nextFlowId = nextAvailableFlows[0] || ''
+    setSelectedFlowId(nextFlowId)
     setDispatchCount('1')
-    setDraftValues({})
+    setDraftValues(getDefaultDraftValuesForFlow(nextFlowId))
     setSubmitting(false)
   }, [props.connection?.id, props.open])
 
   useEffect(() => {
-    setSelectedFlowId((current) =>
-      current && availableFlows.includes(current)
-        ? current
-        : availableFlows[0] || '',
-    )
+    setSelectedFlowId((current) => {
+      const nextFlowId =
+        current && availableFlows.includes(current)
+          ? current
+          : availableFlows[0] || ''
+      if (nextFlowId !== current) {
+        setDraftValues(getDefaultDraftValuesForFlow(nextFlowId))
+      }
+      return nextFlowId
+    })
   }, [availableFlowKey, availableFlows])
 
   const batchState = useMemo(
@@ -826,8 +841,10 @@ function CliTaskDialog(props: {
                   <Select
                     value={selectedFlowId}
                     onValueChange={(value) => {
-                      setSelectedFlowId(value as CliFlowCommandId)
+                      const nextFlowId = value as CliFlowCommandId
+                      setSelectedFlowId(nextFlowId)
                       setDispatchCount('1')
+                      setDraftValues(getDefaultDraftValuesForFlow(nextFlowId))
                     }}
                     disabled={!availableFlows.length || submitting}
                   >
@@ -1451,6 +1468,12 @@ function readDispatchCount(flowId: CliFlowCommandId, rawValue: string): number {
   }
 
   return parsed
+}
+
+function getDefaultDraftValuesForFlow(
+  flowId: CliFlowCommandId | '',
+): DraftOptionState {
+  return flowId ? { ...DEFAULT_DRAFT_VALUES_BY_FLOW[flowId] } : {}
 }
 
 function buildDispatchSubmission<TFlowId extends CliFlowCommandId>(

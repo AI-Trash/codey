@@ -19,6 +19,8 @@ export type CliFlowConfigFieldType =
 export const CHATGPT_TRIAL_CLAIM_METHODS = ['paypal', 'gopay'] as const
 export type ChatGPTTrialClaimMethod =
   (typeof CHATGPT_TRIAL_CLAIM_METHODS)[number]
+export const DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD: ChatGPTTrialClaimMethod =
+  'gopay'
 
 export type CliFlowDisplayNameKey =
   | 'chatgptRegister'
@@ -959,7 +961,7 @@ function normalizeString(value: unknown): string | undefined {
 
 function normalizeClaimTrialMethod(value: unknown): string | undefined {
   if (typeof value === 'boolean') {
-    return value ? 'paypal' : undefined
+    return value ? DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD : undefined
   }
 
   if (typeof value !== 'string') {
@@ -972,7 +974,7 @@ function normalizeClaimTrialMethod(value: unknown): string | undefined {
   }
 
   if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return 'paypal'
+    return DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD
   }
 
   return CHATGPT_TRIAL_CLAIM_METHODS.find((method) => method === normalized)

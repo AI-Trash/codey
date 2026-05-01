@@ -11,6 +11,7 @@ import {
   buildChatGPTTrialCheckoutPayload,
   buildChatGPTTrialCheckoutUrl,
   buildChatGPTTrialPricingPromoUrl,
+  clickChatGPTCheckoutSubscribeAndCapturePaymentLink,
   clickGoPayAuthorizationConsentIfPresent,
   createChatGPTTrialCheckoutLink,
   clickTrialPricingFreeTrial,
@@ -39,6 +40,7 @@ class FakeCheckoutLocator {
   constructor(
     private readonly visible: boolean | (() => boolean) = false,
     private readonly onClick?: () => void,
+    private readonly text: string | (() => string) = '',
   ) {}
 
   first(): FakeCheckoutLocator {
@@ -65,6 +67,10 @@ class FakeCheckoutLocator {
     }
     this.clicks += 1
     this.onClick?.()
+  }
+
+  async textContent(): Promise<string> {
+    return typeof this.text === 'function' ? this.text() : this.text
   }
 
   async evaluate<T>(
@@ -102,6 +108,8 @@ interface FakeCheckoutPageOptions {
   url?: string
   paymentMethodFrameVisible?: boolean
   billingAddressFrameVisible?: boolean
+  subscribeButton?: FakeCheckoutLocator
+  paymentErrorMessage?: string | (() => string | undefined)
 }
 
 class FakeCheckoutFrame {
@@ -267,16 +275,76 @@ class FakeCheckoutPage {
     return this.checkoutFrames
   }
 
-  getByRole(): FakeCheckoutLocator {
+  context(): {
+    pages: () => FakeCheckoutPage[]
+    on: () => void
+    off: () => void
+  } {
+    return {
+      pages: () => [this],
+      on: () => undefined,
+      off: () => undefined,
+    }
+  }
+
+  on(): void {}
+
+  off(): void {}
+
+  getByRole(
+    role: string,
+    options: { name?: string | RegExp } = {},
+  ): FakeCheckoutLocator {
+    if (role === 'alert') {
+      return this.getPaymentErrorLocator()
+    }
+
+    const name = options.name
+    const subscribePattern =
+      /订阅|購読|subscribe|start trial|start free trial|confirm/i
+    if (
+      role === 'button' &&
+      (name == null ||
+        (typeof name === 'string'
+          ? subscribePattern.test(name)
+          : name.test('Subscribe')))
+    ) {
+      return this.options.subscribeButton ?? this.hiddenLocator
+    }
+
     return this.hiddenLocator
   }
 
-  getByText(): FakeCheckoutLocator {
+  getByText(text?: string | RegExp): FakeCheckoutLocator {
+    const paymentErrorLocator = this.getPaymentErrorLocator()
+    const paymentErrorMessage = this.getPaymentErrorMessage()
+    if (
+      paymentErrorMessage &&
+      text &&
+      (typeof text === 'string'
+        ? paymentErrorMessage.includes(text)
+        : text.test(paymentErrorMessage))
+    ) {
+      return paymentErrorLocator
+    }
+
     return this.hiddenLocator
   }
 
   locator(selector = ''): FakeCheckoutLocator {
     const normalizedSelector = selector.toLowerCase()
+    if (
+      normalizedSelector.includes('checkout-submit-button') ||
+      normalizedSelector.includes('button[type="submit"]')
+    ) {
+      return this.options.subscribeButton ?? this.hiddenLocator
+    }
+    if (
+      normalizedSelector.includes('[role="alert"]') ||
+      normalizedSelector.includes('[aria-live=')
+    ) {
+      return this.getPaymentErrorLocator()
+    }
     if (normalizedSelector.includes('elements-inner-payment')) {
       return new FakeCheckoutLocator(
         Boolean(this.options.paymentMethodFrameVisible),
@@ -289,6 +357,19 @@ class FakeCheckoutPage {
     }
 
     return this.hiddenLocator
+  }
+
+  private getPaymentErrorMessage(): string | undefined {
+    const value = this.options.paymentErrorMessage
+    return typeof value === 'function' ? value() : value
+  }
+
+  private getPaymentErrorLocator(): FakeCheckoutLocator {
+    return new FakeCheckoutLocator(
+      () => Boolean(this.getPaymentErrorMessage()),
+      undefined,
+      () => this.getPaymentErrorMessage() || '',
+    )
   }
 }
 
@@ -1179,6 +1260,37 @@ describe('checkout payment method selection', () => {
     ).resolves.toBe(false)
 
     expect(gopaySelectorLocator.clicks).toBeGreaterThan(0)
+  })
+
+  it('aborts checkout when ChatGPT reports the payment was not approved', async () => {
+    let paymentErrorMessage: string | undefined
+    const subscribeButton = new FakeCheckoutLocator(true, () => {
+      paymentErrorMessage = '付款未获批准'
+    })
+    const page = new FakeCheckoutPage(
+      [
+        new FakeCheckoutFrame(
+          new FakeCheckoutLocator(true),
+          'https://js.stripe.com/v3/elements-inner-payment-test.html',
+          {
+            paypalSelected: () => true,
+          },
+        ),
+      ],
+      {
+        subscribeButton,
+        paymentErrorMessage: () => paymentErrorMessage,
+      },
+    )
+
+    await expect(
+      clickChatGPTCheckoutSubscribeAndCapturePaymentLink(page as never, {
+        paymentMethod: 'paypal',
+        timeoutMs: 1000,
+      }),
+    ).rejects.toThrow('ChatGPT checkout payment was not approved: 付款未获批准')
+
+    expect(subscribeButton.clicks).toBe(1)
   })
 })
 

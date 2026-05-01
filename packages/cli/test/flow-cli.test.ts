@@ -95,7 +95,7 @@ describe('flow cli helpers', () => {
         'NL',
       ]),
     ).toMatchObject({
-      claimTrial: 'paypal',
+      claimTrial: 'gopay',
       billingCountry: 'NL',
     })
   })
