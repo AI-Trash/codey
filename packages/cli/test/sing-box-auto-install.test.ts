@@ -1,0 +1,157 @@
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  buildSingBoxConfigForTest,
+  installSingBoxExecutableForTest,
+  resolveSingBoxExecutableForTest,
+} from '../src/modules/proxy/sing-box'
+import type { CliRuntimeConfig } from '../src/config'
+
+const fakeWindowsZipBase64 =
+  'UEsDBBQAAAAIAAAAAAAAm/ZYEwAAABEAAAArAAAAc2luZy1ib3gtMS4xMy4xMS13aW5kb3dzLWFtZDY0L3NpbmctYm94LmV4ZUtLzE5VKM7MS9dNyq9QSK1IBQA='
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+describe('managed sing-box auto install', () => {
+  it('downloads and extracts the matching Windows release asset', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    vi.spyOn(process, 'arch', 'get').mockReturnValue('x64')
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codey-sing-box-'))
+    const config = createRuntimeConfig(rootDir, {
+      version: '1.13.11',
+    })
+    const archive = Buffer.from(fakeWindowsZipBase64, 'base64')
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/tags/v1.13.11')) {
+        return createJsonResponse({
+          tag_name: 'v1.13.11',
+          assets: [
+            {
+              name: 'sing-box-1.13.11-windows-amd64.zip',
+              browser_download_url: 'https://example.test/sing-box.zip',
+            },
+          ],
+        })
+      }
+
+      if (url === 'https://example.test/sing-box.zip') {
+        return createBufferResponse(archive)
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const executable = await installSingBoxExecutableForTest(config)
+
+    expect(executable).toBe(
+      path.join(
+        rootDir,
+        '.codey',
+        'sing-box',
+        'bin',
+        '1.13.11',
+        'windows',
+        'amd64',
+        'sing-box.exe',
+      ),
+    )
+    expect(fs.readFileSync(executable, 'utf8')).toBe('fake sing-box exe')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    await installSingBoxExecutableForTest(config)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('prefers a usable configured executable before auto install', async () => {
+    const config = createRuntimeConfig(os.tmpdir(), {
+      executable: 'C:\\tools\\sing-box.exe',
+      autoInstall: true,
+    })
+
+    vi.stubGlobal('fetch', vi.fn())
+    const executable = await resolveSingBoxExecutableForTest(
+      config,
+      async () => true,
+    )
+
+    expect(executable).toBe('C:\\tools\\sing-box.exe')
+  })
+
+  it('does not emit unsupported hysteria2 username fields', () => {
+    const { config } = buildSingBoxConfigForTest({
+      host: '127.0.0.1',
+      port: 2080,
+      nodes: [
+        {
+          id: 'node-1',
+          name: 'Japan 1',
+          tag: 'japan',
+          protocol: 'hysteria2',
+          server: '203.0.113.1',
+          serverPort: 443,
+          username: 'unused-user',
+          password: 'shared-password',
+          tls: {
+            enabled: true,
+            serverName: 'example.test',
+          },
+        },
+      ],
+    })
+
+    const outbound = config.outbounds.find(
+      (entry) => entry.type === 'hysteria2',
+    )
+
+    expect(outbound).toMatchObject({
+      type: 'hysteria2',
+      password: 'shared-password',
+    })
+    expect(outbound).not.toHaveProperty('username')
+  })
+})
+
+function createRuntimeConfig(
+  rootDir: string,
+  singBox: NonNullable<CliRuntimeConfig['singBox']>,
+): CliRuntimeConfig {
+  return {
+    rootDir,
+    artifactsDir: path.join(rootDir, 'artifacts'),
+    browser: {
+      headless: true,
+      slowMo: 0,
+      defaultTimeoutMs: 30000,
+      navigationTimeoutMs: 30000,
+      recordHar: false,
+    },
+    openai: {
+      baseUrl: 'https://openai.com',
+      chatgptUrl: 'https://chatgpt.com',
+    },
+    singBox,
+  }
+}
+
+function createJsonResponse(body: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => body,
+  }
+}
+
+function createBufferResponse(body: Buffer) {
+  return {
+    ok: true,
+    status: 200,
+    arrayBuffer: async () =>
+      body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
+  }
+}

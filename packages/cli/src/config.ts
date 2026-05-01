@@ -40,6 +40,8 @@ export interface SmsForwarderWebhookConfig {
 export interface SingBoxProxyConfig {
   enabled?: boolean
   executable?: string
+  autoInstall?: boolean
+  version?: string
   mixedHost?: string
   mixedPort?: number
   autoStart?: boolean
@@ -469,7 +471,11 @@ function buildSingBoxProxyConfig(): SingBoxProxyConfig {
     enabled: hasEnvValue(process.env.CODEY_SINGBOX_ENABLED)
       ? parseBoolean(process.env.CODEY_SINGBOX_ENABLED, true)
       : true,
-    executable: process.env.CODEY_SINGBOX_EXECUTABLE || 'sing-box',
+    executable: process.env.CODEY_SINGBOX_EXECUTABLE,
+    autoInstall: hasEnvValue(process.env.CODEY_SINGBOX_AUTO_INSTALL)
+      ? parseBoolean(process.env.CODEY_SINGBOX_AUTO_INSTALL, true)
+      : true,
+    version: process.env.CODEY_SINGBOX_VERSION,
     mixedHost: process.env.CODEY_SINGBOX_MIXED_HOST || '127.0.0.1',
     mixedPort: parseNumber(process.env.CODEY_SINGBOX_MIXED_PORT, 2080),
     autoStart: hasEnvValue(process.env.CODEY_SINGBOX_AUTO_START)

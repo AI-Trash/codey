@@ -95,13 +95,17 @@ fallback.
 
 Managed proxy nodes are available in the admin console at `/admin/proxy-nodes`.
 When the remote worker starts, it fetches enabled nodes from Codey Web and, if
-sing-box is available, starts a local mixed inbound for browser traffic without
-enabling the system proxy. The current managed path is optimized for hysteria2
-nodes whose shared settings are identical except for IP/server. Optional tuning:
+needed, downloads the matching sing-box release into `.codey/sing-box/bin/`.
+It then starts a local mixed inbound for browser traffic without enabling the
+system proxy. Set `CODEY_SINGBOX_EXECUTABLE` only when you want to force a
+specific local binary. The current managed path is optimized for hysteria2 nodes
+whose shared settings are identical except for IP/server. Optional tuning:
 
 ```env
 CODEY_SINGBOX_ENABLED=true
-CODEY_SINGBOX_EXECUTABLE=sing-box
+CODEY_SINGBOX_AUTO_INSTALL=true
+CODEY_SINGBOX_VERSION=1.13.11
+CODEY_SINGBOX_EXECUTABLE=
 CODEY_SINGBOX_MIXED_HOST=127.0.0.1
 CODEY_SINGBOX_MIXED_PORT=2080
 CODEY_SINGBOX_DEFAULT_TAG=japan

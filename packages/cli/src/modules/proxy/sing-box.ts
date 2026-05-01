@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import fs from 'fs'
 import net from 'net'
 import path from 'path'
+import { createGunzip, inflateRawSync } from 'zlib'
 import { getRuntimeConfig, type CliRuntimeConfig } from '../../config'
 import { ensureDir, writeFileAtomic } from '../../utils/fs'
 import { logCliEvent } from '../../utils/observability'
@@ -14,6 +15,9 @@ const DEFAULT_MIXED_PORT = 2080
 const SELECTOR_OUTBOUND_TAG = 'codey-selector'
 const DIRECT_OUTBOUND_TAG = 'direct'
 const MAX_PROCESS_OUTPUT_CHARS = 8000
+const SING_BOX_RELEASE_API_URL =
+  'https://api.github.com/repos/SagerNet/sing-box/releases'
+const SING_BOX_EXECUTABLE_BASE_NAME = 'sing-box'
 
 interface SingBoxOutbound {
   [key: string]: unknown
@@ -21,7 +25,6 @@ interface SingBoxOutbound {
   tag: string
   server?: string
   server_port?: number
-  username?: string
   password?: string
   tls?: {
     enabled: boolean
@@ -96,6 +99,10 @@ function getSingBoxConfigPath(config: CliRuntimeConfig): string {
   return path.join(getSingBoxConfigDir(config), 'config.json')
 }
 
+function getSingBoxInstallDir(config: CliRuntimeConfig): string {
+  return path.join(getSingBoxConfigDir(config), 'bin')
+}
+
 function resolveMixedEndpoint(config: CliRuntimeConfig): {
   host: string
   port: number
@@ -150,7 +157,6 @@ function toSingBoxOutbound(
     tag: outboundTag,
     server: node.server,
     server_port: node.serverPort,
-    ...(node.username ? { username: node.username } : {}),
     ...(node.password ? { password: node.password } : {}),
     tls: {
       enabled: true,
@@ -269,6 +275,346 @@ async function waitForPort(host: string, port: number): Promise<void> {
   throw new Error(`sing-box mixed inbound did not open at ${host}:${port}`)
 }
 
+function getExecutableFileName(): string {
+  return process.platform === 'win32'
+    ? `${SING_BOX_EXECUTABLE_BASE_NAME}.exe`
+    : SING_BOX_EXECUTABLE_BASE_NAME
+}
+
+function getPlatformAssetPart(): string {
+  if (process.platform === 'win32') return 'windows'
+  if (process.platform === 'darwin') return 'darwin'
+  if (process.platform === 'linux') return 'linux'
+
+  throw new Error(
+    `Unsupported sing-box auto-install platform: ${process.platform}`,
+  )
+}
+
+function getArchAssetPart(): string {
+  if (process.arch === 'x64') return 'amd64'
+  if (process.arch === 'arm64') return 'arm64'
+  if (process.arch === 'ia32') return '386'
+  if (process.arch === 'arm') return 'armv7'
+
+  throw new Error(
+    `Unsupported sing-box auto-install architecture: ${process.arch}`,
+  )
+}
+
+function getArchiveExtension(): '.zip' | '.tar.gz' {
+  return process.platform === 'win32' ? '.zip' : '.tar.gz'
+}
+
+function normalizeSingBoxVersion(value: string): string {
+  return value.trim().replace(/^v/i, '')
+}
+
+function buildSingBoxInstallPath(config: CliRuntimeConfig, version: string) {
+  return path.join(
+    getSingBoxInstallDir(config),
+    normalizeSingBoxVersion(version),
+    getPlatformAssetPart(),
+    getArchAssetPart(),
+    getExecutableFileName(),
+  )
+}
+
+function isPathLikeExecutable(value: string): boolean {
+  return (
+    path.isAbsolute(value) ||
+    value.includes('/') ||
+    value.includes('\\') ||
+    value.endsWith('.exe')
+  )
+}
+
+async function executableRuns(executable: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(executable, ['version'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    })
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      child.kill('SIGKILL')
+      resolve(false)
+    }, 3000)
+
+    child.once('error', () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(false)
+    })
+    child.once('exit', (code) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(code === 0)
+    })
+  })
+}
+
+async function resolveConfiguredSingBoxExecutable(
+  config: CliRuntimeConfig,
+  canRunExecutable = executableRuns,
+): Promise<string | undefined> {
+  const configured = config.singBox?.executable?.trim()
+  if (!configured) {
+    return undefined
+  }
+
+  if (await canRunExecutable(configured)) {
+    return configured
+  }
+
+  if (isPathLikeExecutable(configured)) {
+    throw new Error(
+      `Configured sing-box executable is not usable: ${configured}`,
+    )
+  }
+
+  return undefined
+}
+
+interface SingBoxReleaseAsset {
+  name?: string
+  browser_download_url?: string
+}
+
+interface SingBoxRelease {
+  tag_name?: string
+  assets?: SingBoxReleaseAsset[]
+}
+
+async function fetchSingBoxRelease(version?: string): Promise<SingBoxRelease> {
+  const url = version
+    ? `${SING_BOX_RELEASE_API_URL}/tags/v${normalizeSingBoxVersion(version)}`
+    : `${SING_BOX_RELEASE_API_URL}/latest`
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'codey-cli',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`GitHub release lookup failed (${response.status})`)
+  }
+
+  return (await response.json()) as SingBoxRelease
+}
+
+function findSingBoxReleaseAsset(release: SingBoxRelease): SingBoxReleaseAsset {
+  const version = normalizeSingBoxVersion(release.tag_name || '')
+  if (!version) {
+    throw new Error('sing-box release did not include a version tag')
+  }
+
+  const platform = getPlatformAssetPart()
+  const arch = getArchAssetPart()
+  const extension = getArchiveExtension()
+  const expectedName = `sing-box-${version}-${platform}-${arch}${extension}`
+  const asset = release.assets?.find((entry) => entry.name === expectedName)
+  if (!asset?.browser_download_url) {
+    throw new Error(`sing-box release asset was not found: ${expectedName}`)
+  }
+
+  return asset
+}
+
+async function downloadReleaseAsset(
+  asset: SingBoxReleaseAsset,
+): Promise<Buffer> {
+  if (!asset.browser_download_url) {
+    throw new Error('sing-box release asset did not include a download URL')
+  }
+
+  const response = await fetch(asset.browser_download_url, {
+    headers: {
+      Accept: 'application/octet-stream',
+      'User-Agent': 'codey-cli',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`sing-box download failed (${response.status})`)
+  }
+
+  return Buffer.from(await response.arrayBuffer())
+}
+
+function extractZipFile(archive: Buffer, fileName: string): Buffer {
+  let offset = 0
+  while (offset + 30 <= archive.length) {
+    const signature = archive.readUInt32LE(offset)
+    if (signature !== 0x04034b50) {
+      break
+    }
+
+    const compressionMethod = archive.readUInt16LE(offset + 8)
+    const compressedSize = archive.readUInt32LE(offset + 18)
+    const uncompressedSize = archive.readUInt32LE(offset + 22)
+    const fileNameLength = archive.readUInt16LE(offset + 26)
+    const extraLength = archive.readUInt16LE(offset + 28)
+    const nameStart = offset + 30
+    const name = archive
+      .subarray(nameStart, nameStart + fileNameLength)
+      .toString('utf8')
+      .replace(/\\/g, '/')
+    const dataStart = nameStart + fileNameLength + extraLength
+    const dataEnd = dataStart + compressedSize
+
+    if (path.posix.basename(name) === fileName) {
+      const data = archive.subarray(dataStart, dataEnd)
+      if (compressionMethod === 0) {
+        return Buffer.from(data)
+      }
+      if (compressionMethod === 8) {
+        return inflateRawSync(data)
+      }
+      throw new Error(
+        `Unsupported zip compression method: ${compressionMethod}`,
+      )
+    }
+
+    offset = dataEnd
+    if (uncompressedSize === 0 && compressedSize === 0 && name.endsWith('/')) {
+      continue
+    }
+  }
+
+  throw new Error(
+    `sing-box executable was not found in zip archive: ${fileName}`,
+  )
+}
+
+async function gunzipBuffer(archive: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    const stream = createGunzip()
+    stream.on('data', (chunk: Buffer) => chunks.push(chunk))
+    stream.once('error', reject)
+    stream.once('end', () => resolve(Buffer.concat(chunks)))
+    stream.end(archive)
+  })
+}
+
+function readNullTerminatedString(buffer: Buffer): string {
+  const end = buffer.indexOf(0)
+  return buffer.subarray(0, end >= 0 ? end : buffer.length).toString('utf8')
+}
+
+function extractTarFile(tar: Buffer, fileName: string): Buffer {
+  let offset = 0
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512)
+    if (header.every((value) => value === 0)) {
+      break
+    }
+
+    const rawName = readNullTerminatedString(header.subarray(0, 100))
+    const rawPrefix = readNullTerminatedString(header.subarray(345, 500))
+    const name = [rawPrefix, rawName]
+      .filter(Boolean)
+      .join('/')
+      .replace(/\\/g, '/')
+    const sizeText = readNullTerminatedString(header.subarray(124, 136)).trim()
+    const size = Number.parseInt(sizeText || '0', 8)
+    const dataStart = offset + 512
+    const dataEnd = dataStart + size
+
+    if (path.posix.basename(name) === fileName) {
+      return Buffer.from(tar.subarray(dataStart, dataEnd))
+    }
+
+    offset = dataStart + Math.ceil(size / 512) * 512
+  }
+
+  throw new Error(
+    `sing-box executable was not found in tar archive: ${fileName}`,
+  )
+}
+
+async function extractSingBoxExecutable(
+  archive: Buffer,
+  assetName: string,
+): Promise<Buffer> {
+  const fileName = getExecutableFileName()
+  if (assetName.endsWith('.zip')) {
+    return extractZipFile(archive, fileName)
+  }
+  if (assetName.endsWith('.tar.gz')) {
+    return extractTarFile(await gunzipBuffer(archive), fileName)
+  }
+
+  throw new Error(`Unsupported sing-box archive type: ${assetName}`)
+}
+
+async function installSingBoxExecutable(
+  config: CliRuntimeConfig,
+): Promise<string> {
+  const requestedVersion = config.singBox?.version
+    ? normalizeSingBoxVersion(config.singBox.version)
+    : undefined
+  if (requestedVersion) {
+    const existingPath = buildSingBoxInstallPath(config, requestedVersion)
+    if (fs.existsSync(existingPath)) {
+      return existingPath
+    }
+  }
+
+  const release = await fetchSingBoxRelease(config.singBox?.version)
+  const version = normalizeSingBoxVersion(release.tag_name || '')
+  const executablePath = buildSingBoxInstallPath(config, version)
+  if (fs.existsSync(executablePath)) {
+    return executablePath
+  }
+
+  const asset = findSingBoxReleaseAsset(release)
+  const archive = await downloadReleaseAsset(asset)
+  const executable = await extractSingBoxExecutable(archive, asset.name || '')
+  const tempPath = `${executablePath}.${process.pid}.tmp`
+  ensureDir(path.dirname(executablePath))
+  fs.writeFileSync(tempPath, executable)
+  if (process.platform !== 'win32') {
+    fs.chmodSync(tempPath, 0o755)
+  }
+  fs.renameSync(tempPath, executablePath)
+
+  logCliEvent('info', 'singbox.installed', {
+    version,
+    asset: asset.name,
+    executablePath,
+  })
+
+  return executablePath
+}
+
+async function resolveSingBoxExecutable(
+  config: CliRuntimeConfig,
+  canRunExecutable = executableRuns,
+): Promise<string> {
+  const configured = await resolveConfiguredSingBoxExecutable(
+    config,
+    canRunExecutable,
+  )
+  if (configured) {
+    return configured
+  }
+
+  if (config.singBox?.autoInstall ?? true) {
+    return installSingBoxExecutable(config)
+  }
+
+  return config.singBox?.executable || 'sing-box'
+}
+
+export const buildSingBoxConfigForTest = buildSingBoxConfig
+export const installSingBoxExecutableForTest = installSingBoxExecutable
+export const resolveSingBoxExecutableForTest = resolveSingBoxExecutable
+
 function appendProcessOutput(current: string, chunk: Buffer): string {
   const next = current + chunk.toString('utf8')
   return next.length > MAX_PROCESS_OUTPUT_CHARS
@@ -379,7 +725,7 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
     ensureDir(path.dirname(configPath))
     writeFileAtomic(configPath, `${JSON.stringify(config, null, 2)}\n`)
 
-    const executable = this.config.singBox?.executable || 'sing-box'
+    const executable = await resolveSingBoxExecutable(this.config)
     const child = spawn(executable, ['run', '-c', configPath], {
       cwd: this.config.rootDir,
       windowsHide: true,

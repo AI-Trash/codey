@@ -114,6 +114,8 @@ const smsForwarderWebhookEnvNames = {
 const singBoxEnvNames = {
   CODEY_SINGBOX_ENABLED: undefined,
   CODEY_SINGBOX_EXECUTABLE: undefined,
+  CODEY_SINGBOX_AUTO_INSTALL: undefined,
+  CODEY_SINGBOX_VERSION: undefined,
   CODEY_SINGBOX_MIXED_HOST: undefined,
   CODEY_SINGBOX_MIXED_PORT: undefined,
   CODEY_SINGBOX_AUTO_START: undefined,
@@ -178,7 +180,9 @@ describe('resolveConfig Android Appium config', () => {
     })
     expect(config.singBox).toEqual({
       enabled: true,
-      executable: 'sing-box',
+      executable: undefined,
+      autoInstall: true,
+      version: undefined,
       mixedHost: '127.0.0.1',
       mixedPort: 2080,
       autoStart: true,
@@ -193,6 +197,8 @@ describe('resolveConfig Android Appium config', () => {
         ...singBoxEnvNames,
         CODEY_SINGBOX_ENABLED: 'false',
         CODEY_SINGBOX_EXECUTABLE: 'C:\\tools\\sing-box.exe',
+        CODEY_SINGBOX_AUTO_INSTALL: 'false',
+        CODEY_SINGBOX_VERSION: '1.13.11',
         CODEY_SINGBOX_MIXED_HOST: '127.0.0.2',
         CODEY_SINGBOX_MIXED_PORT: '2088',
         CODEY_SINGBOX_AUTO_START: 'false',
@@ -205,6 +211,8 @@ describe('resolveConfig Android Appium config', () => {
     expect(config.singBox).toEqual({
       enabled: false,
       executable: 'C:\\tools\\sing-box.exe',
+      autoInstall: false,
+      version: '1.13.11',
       mixedHost: '127.0.0.2',
       mixedPort: 2088,
       autoStart: false,

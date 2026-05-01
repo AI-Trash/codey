@@ -442,15 +442,17 @@ function ProxyNodeForm(props: {
         </Field>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Field label={m.proxy_nodes_field_username()}>
-          <Input
-            value={form.username}
-            onChange={(event) => patch({ username: event.target.value })}
-            placeholder={m.proxy_nodes_field_username_placeholder()}
-            disabled={props.disabled}
-          />
-        </Field>
+      <div className={isHysteria2 ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-2'}>
+        {!isHysteria2 ? (
+          <Field label={m.proxy_nodes_field_username()}>
+            <Input
+              value={form.username}
+              onChange={(event) => patch({ username: event.target.value })}
+              placeholder={m.proxy_nodes_field_username_placeholder()}
+              disabled={props.disabled}
+            />
+          </Field>
+        ) : null}
 
         <Field label={m.proxy_nodes_field_password()}>
           <Input
@@ -581,7 +583,8 @@ function toProxyNodePayload(
     protocol: form.protocol,
     server: form.server,
     serverPort: Number(form.serverPort),
-    username: form.username.trim() || null,
+    username:
+      form.protocol === 'hysteria2' ? null : form.username.trim() || null,
     ...(includeEmptyPassword || form.password.trim()
       ? { password: form.password.trim() || null }
       : {}),
