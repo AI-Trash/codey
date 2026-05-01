@@ -191,7 +191,7 @@ export interface ChatGPTTeamTrialBillingAddress {
   country: string
   line1: string
   line2?: string
-  city: string
+  city?: string
   state?: string
   postalCode: string
 }
@@ -854,7 +854,9 @@ export async function fillChatGPTCheckoutBillingAddress(
     fillResult.country ? undefined : 'country',
     fillResult.line1 ? undefined : 'address line 1',
     address.line2 && !fillResult.line2 ? 'address line 2' : undefined,
-    fillResult.city ? undefined : 'city',
+    address.city && isBillingCityRequired(address.country) && !fillResult.city
+      ? 'city'
+      : undefined,
     fillResult.postalCode ? undefined : 'postal code',
     isBillingStateRequired(address.country) && !fillResult.state
       ? 'state/province'
@@ -2433,14 +2435,22 @@ async function fillStripeBillingAddressFrame(
       input.line2 ? FIELD_WAIT_MS : SHORT_FIELD_WAIT_MS,
     )
     result.postalCode = await setField('postalCode', FIELD_WAIT_MS)
-    result.city = await setField('city', FIELD_WAIT_MS)
+    const cityRequired = input.city
+      ? !['SG'].includes(normalizeCountry(input.country))
+      : false
+    result.city = await setField(
+      'city',
+      cityRequired ? FIELD_WAIT_MS : SHORT_FIELD_WAIT_MS,
+    )
     result.state = await setField('state', SHORT_FIELD_WAIT_MS)
 
-    if (!result.postalCode || !result.city) {
+    if (!result.postalCode || (cityRequired && !result.city)) {
       await sleepInFrame(FIELD_SETTLE_MS)
       result.country ||= await setField('country', SHORT_FIELD_WAIT_MS)
       result.postalCode ||= await setField('postalCode', SHORT_FIELD_WAIT_MS)
-      result.city ||= await setField('city', SHORT_FIELD_WAIT_MS)
+      if (cityRequired) {
+        result.city ||= await setField('city', SHORT_FIELD_WAIT_MS)
+      }
     }
 
     if (input.line2 && !result.line2) {
@@ -2452,6 +2462,10 @@ async function fillStripeBillingAddressFrame(
 
     return result
   }, address)
+}
+
+function isBillingCityRequired(country: string): boolean {
+  return !['SG'].includes(country.trim().toUpperCase())
 }
 
 function isBillingStateRequired(country: string): boolean {

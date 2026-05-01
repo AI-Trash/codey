@@ -89,6 +89,78 @@ function readString(value: unknown): string | undefined {
   return undefined
 }
 
+function escapeJsonStringControlCharacter(value: string): string {
+  switch (value) {
+    case '\b':
+      return '\\b'
+    case '\f':
+      return '\\f'
+    case '\n':
+      return '\\n'
+    case '\r':
+      return '\\r'
+    case '\t':
+      return '\\t'
+    default:
+      return `\\u${value.charCodeAt(0).toString(16).padStart(4, '0')}`
+  }
+}
+
+function escapeJsonStringControlCharacters(value: string): string {
+  let result = ''
+  let inString = false
+  let escaped = false
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value.charAt(index)
+    const code = char.charCodeAt(0)
+
+    if (!inString) {
+      if (char === '"') {
+        inString = true
+      }
+      result += char
+      continue
+    }
+
+    if (escaped) {
+      escaped = false
+      result += char
+      continue
+    }
+
+    if (char === '\\') {
+      escaped = true
+      result += char
+      continue
+    }
+
+    if (char === '"') {
+      inString = false
+      result += char
+      continue
+    }
+
+    result += code < 0x20 ? escapeJsonStringControlCharacter(char) : char
+  }
+
+  return result
+}
+
+function parseJsonWithEscapedControlCharacters(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch (error) {
+    const escaped = escapeJsonStringControlCharacters(value)
+    if (escaped !== value) {
+      try {
+        return JSON.parse(escaped)
+      } catch {}
+    }
+    throw error
+  }
+}
+
 function parseJsonObject(
   value: string | undefined,
 ): Record<string, unknown> | undefined {
@@ -102,7 +174,7 @@ function parseJsonObject(
   }
 
   try {
-    const parsed = JSON.parse(trimmed)
+    const parsed = parseJsonWithEscapedControlCharacters(trimmed)
     return isRecord(parsed) ? parsed : undefined
   } catch {
     return undefined
@@ -421,7 +493,7 @@ function parseWebhookPayload(
   ) {
     let parsed: unknown
     try {
-      parsed = JSON.parse(trimmed)
+      parsed = parseJsonWithEscapedControlCharacters(trimmed)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       throw new WhatsAppNotificationWebhookParseError(message, bodyText)

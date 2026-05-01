@@ -117,6 +117,7 @@ async function runFlowCommand(
   options: FlowOptions,
   runtime: {
     abortSignal?: AbortSignal
+    onBeforeExit?: () => Promise<void> | void
   } = {},
 ): Promise<unknown> {
   let runtimeOptions: FlowOptions = {
@@ -163,6 +164,7 @@ async function runFlowCommand(
       {
         closeOnComplete: !shouldKeepFlowOpen(runtimeOptions),
         abortSignal: runtime.abortSignal,
+        onBeforeExit: runtime.onBeforeExit,
         pageContent: {
           enabled: shouldRecordPageContent(runtimeOptions),
           artifactName: subcommand,
@@ -308,6 +310,7 @@ async function executeFlowSubcommand(
   options: FlowOptions,
   runtime: {
     abortSignal?: AbortSignal
+    onBeforeExit?: () => Promise<void> | void
   } = {},
 ): Promise<FlowCommandExecution> {
   const resolvedOptions = resolveFlowCommandOptions(subcommand, options)
@@ -840,6 +843,7 @@ async function runRemoteWorker(
                     },
                     {
                       abortSignal: flowAbortController.signal,
+                      onBeforeExit: stopActiveCodeySingBoxProxy,
                     },
                   )
                   assertFlowTaskExecutionSucceeded(task.flowId, execution)

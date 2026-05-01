@@ -197,7 +197,39 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     )
   })
 
-  it('logs the raw webhook body when JSON parsing fails', async () => {
+  it('accepts SmsForwarder JSON with raw control characters inside strings', async () => {
+    const ingestNotification = vi.fn(async () => ({
+      ok: true,
+      notificationRecordId: 'notification-1',
+      codeRecordId: 'code-1',
+    }))
+    const handle = startWhatsAppNotificationWebhookServer({
+      port: 0,
+      ingestNotification,
+    })
+    openHandles.push(handle)
+    const { url } = await handle.ready
+    const rawBody =
+      '{"msg_app":"WhatsApp","msg_title":"GoPay","msg_content":"Your code is\n135790"}'
+
+    const response = await postRaw(url, rawBody)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toMatchObject({
+      ok: true,
+      extractedCode: '135790',
+    })
+    expect(ingestNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packageName: 'com.whatsapp',
+        title: 'GoPay',
+        body: 'Your code is\n135790',
+        extractedCode: '135790',
+      }),
+    )
+  })
+
+  it('logs the raw webhook body when unrecoverable JSON parsing fails', async () => {
     const statuses: string[] = []
     const handle = startWhatsAppNotificationWebhookServer({
       port: 0,
@@ -206,8 +238,7 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     })
     openHandles.push(handle)
     const { url } = await handle.ready
-    const rawBody =
-      '{"msg_app":"WhatsApp","msg_content":"Your code is\n135790"}'
+    const rawBody = '{"msg_app":"WhatsApp","msg_content":"Your code is 135790"'
 
     const response = await postRaw(url, rawBody)
 

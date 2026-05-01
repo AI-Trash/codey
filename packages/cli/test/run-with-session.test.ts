@@ -329,4 +329,39 @@ describe('runWithSession keep-open mode', () => {
     expect(process.listenerCount('SIGINT')).toBe(initialSigintListeners)
     expect(process.listenerCount('SIGTERM')).toBe(initialSigtermListeners)
   })
+
+  it('runs extra cleanup before exiting from keep-open signal handlers', async () => {
+    const browser = new FakeBrowser()
+    const context = new FakeContext()
+    const page = createPage(() => false)
+    const session = {
+      browser,
+      context: Object.assign(context, {
+        pages: vi.fn(() => [page]),
+      }),
+      page,
+      harPath: undefined,
+      close: vi.fn(async () => undefined),
+    }
+    const onBeforeExit = vi.fn(async () => undefined)
+    const exitSpy = vi
+      .spyOn(process, 'exit')
+      .mockImplementation((() => undefined) as typeof process.exit)
+
+    newSessionMock.mockResolvedValue(session)
+
+    await runWithSession({}, async () => 'ok', {
+      closeOnComplete: false,
+      onBeforeExit,
+    })
+
+    process.emit('SIGINT')
+    await vi.runAllTimersAsync()
+
+    expect(session.close).toHaveBeenCalledOnce()
+    expect(onBeforeExit).toHaveBeenCalledOnce()
+    expect(exitSpy).toHaveBeenCalledWith(130)
+
+    exitSpy.mockRestore()
+  })
 })

@@ -20,6 +20,7 @@ export function isFlowInterruptedError(error: unknown): boolean {
 export interface RunWithSessionRuntime {
   closeOnComplete?: boolean
   abortSignal?: AbortSignal
+  onBeforeExit?: () => Promise<void> | void
   pageContent?: {
     enabled?: boolean
     artifactName?: string
@@ -106,7 +107,10 @@ async function runSessionTask<TResult>(
   return result
 }
 
-function keepSessionAlive(session: Session): {
+function keepSessionAlive(
+  session: Session,
+  runtime: RunWithSessionRuntime,
+): {
   markFlowCompleted(): void
   closeNow(): Promise<void>
 } {
@@ -175,16 +179,20 @@ function keepSessionAlive(session: Session): {
     await session.close()
   }
 
+  const exitAfterCleanup = (code: number) => {
+    void cleanup()
+      .then(() => runtime.onBeforeExit?.())
+      .finally(() => {
+        process.exit(code)
+      })
+  }
+
   const handleSigint = () => {
-    void cleanup().finally(() => {
-      process.exit(130)
-    })
+    exitAfterCleanup(130)
   }
 
   const handleSigterm = () => {
-    void cleanup().finally(() => {
-      process.exit(143)
-    })
+    exitAfterCleanup(143)
   }
 
   process.once('SIGINT', handleSigint)
@@ -223,7 +231,7 @@ export async function runWithSession<TResult>(
   )
   const closeOnComplete = runtime.closeOnComplete ?? true
   if (!closeOnComplete) {
-    const keepAlive = keepSessionAlive(session)
+    const keepAlive = keepSessionAlive(session, runtime)
     try {
       const result = await runAbortable(
         runSessionTask(session, runner, runtime),
