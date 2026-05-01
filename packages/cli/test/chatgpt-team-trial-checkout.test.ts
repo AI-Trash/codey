@@ -18,6 +18,7 @@ import {
   extractPaypalBillingAgreementLink,
   getChatGPTTrialPricingFreeTrialSelectors,
   getChatGPTTrialPricingPlanToggleSelectors,
+  selectChatGPTCheckoutPaymentMethodIfPresent,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
   submitGoPayAuthorizationOtpIfPresent,
@@ -86,8 +87,10 @@ class FakeCheckoutLocator {
 
 interface FakeCheckoutFrameOptions {
   paypalSelectorLocator?: FakeCheckoutLocator
+  gopaySelectorLocator?: FakeCheckoutLocator
   hasPaymentSelectionState?: () => boolean
   paypalSelected?: () => boolean
+  gopaySelected?: () => boolean
   addressFrameReady?: boolean
   evaluateCallback?: <T, Arg>(
     callback: (arg: Arg) => Promise<T> | T,
@@ -114,7 +117,23 @@ class FakeCheckoutFrame {
     return this.frameUrl
   }
 
-  getByRole(role: string): FakeCheckoutLocator {
+  getByRole(
+    role: string,
+    options: { name?: string | RegExp } = {},
+  ): FakeCheckoutLocator {
+    if (!['button', 'radio', 'tab'].includes(role)) {
+      return this.hiddenLocator
+    }
+
+    const requestedMethod = this.getRequestedPaymentMethod(options.name)
+    if (requestedMethod === 'gopay') {
+      return this.options.gopaySelectorLocator ?? this.hiddenLocator
+    }
+
+    if (requestedMethod === 'paypal') {
+      return this.options.paypalSelectorLocator ?? this.paypalTabLocator
+    }
+
     return role === 'tab' ? this.paypalTabLocator : this.hiddenLocator
   }
 
@@ -124,27 +143,44 @@ class FakeCheckoutFrame {
 
   locator(selector = ''): FakeCheckoutLocator {
     const normalizedSelector = selector.toLowerCase()
+    const requestedMethod =
+      this.getRequestedPaymentMethodFromSelector(normalizedSelector)
+
     if (
       normalizedSelector.includes('[aria-selected="true"]') ||
       normalizedSelector.includes('[aria-checked="true"]') ||
+      normalizedSelector.includes('[aria-pressed="true"]') ||
+      normalizedSelector.includes('[data-state="active"]') ||
+      normalizedSelector.includes('[data-state="checked"]') ||
+      normalizedSelector.includes('[data-state="selected"]') ||
+      normalizedSelector.includes('[data-state="on"]') ||
+      normalizedSelector.includes('[data-selected="true"]') ||
       normalizedSelector.includes(':checked')
     ) {
       return new FakeCheckoutLocator(() =>
-        Boolean(this.options.paypalSelected?.()),
+        requestedMethod === 'gopay'
+          ? Boolean(this.options.gopaySelected?.())
+          : Boolean(this.options.paypalSelected?.()),
       )
     }
     if (
       normalizedSelector.includes('[aria-selected]') ||
-      normalizedSelector.includes('[aria-checked]')
+      normalizedSelector.includes('[aria-checked]') ||
+      normalizedSelector.includes('[aria-pressed]') ||
+      normalizedSelector.includes('[data-state]') ||
+      normalizedSelector.includes('[data-selected]') ||
+      normalizedSelector.includes('input[type="radio"]') ||
+      normalizedSelector.includes(':checked')
     ) {
       return new FakeCheckoutLocator(() =>
         Boolean(this.options.hasPaymentSelectionState?.()),
       )
     }
+    if (requestedMethod === 'gopay') {
+      return this.options.gopaySelectorLocator ?? this.hiddenLocator
+    }
     if (
-      normalizedSelector.includes('value="paypal"') ||
-      normalizedSelector.includes('data-testid="paypal"') ||
-      normalizedSelector.includes('aria-controls="paypal-panel"') ||
+      requestedMethod === 'paypal' ||
       normalizedSelector.includes('#paypal-tab')
     ) {
       return this.options.paypalSelectorLocator ?? this.hiddenLocator
@@ -163,6 +199,44 @@ class FakeCheckoutFrame {
     }
 
     return this.hiddenLocator
+  }
+
+  private getRequestedPaymentMethodFromSelector(
+    selector: string,
+  ): 'paypal' | 'gopay' | undefined {
+    if (
+      selector.includes('gopay') ||
+      selector.includes('go-pay') ||
+      selector.includes('go_pay')
+    ) {
+      return 'gopay'
+    }
+
+    if (selector.includes('paypal')) {
+      return 'paypal'
+    }
+
+    return undefined
+  }
+
+  private getRequestedPaymentMethod(
+    value: string | RegExp | undefined,
+  ): 'paypal' | 'gopay' | undefined {
+    if (!value) {
+      return undefined
+    }
+
+    const candidates = ['PayPal', 'GoPay']
+    for (const candidate of candidates) {
+      const matches =
+        typeof value === 'string'
+          ? candidate.toLowerCase().includes(value.toLowerCase())
+          : value.test(candidate)
+      if (!matches) continue
+      return candidate === 'GoPay' ? 'gopay' : 'paypal'
+    }
+
+    return undefined
   }
 
   async evaluate<T, Arg>(
@@ -865,7 +939,9 @@ describe('trial coupon pricing helpers', () => {
     const link = await createChatGPTTrialCheckoutLink(
       page as never,
       'plus-1-month-free',
-      { paymentMethod: 'gopay' },
+      {
+        paymentMethod: 'gopay',
+      },
     )
 
     expect(link).toMatchObject({
@@ -999,7 +1075,7 @@ describe('checkout readiness', () => {
   })
 })
 
-describe('paypal payment method selection', () => {
+describe('checkout payment method selection', () => {
   it('switches Stripe checkout payment tabs to PayPal inside frames', async () => {
     const paypalTabLocator = new FakeCheckoutLocator(true)
     const page = new FakeCheckoutPage([new FakeCheckoutFrame(paypalTabLocator)])
@@ -1053,6 +1129,56 @@ describe('paypal payment method selection', () => {
 
     expect(paypalSelectorLocator.clicks).toBe(1)
     expect(paypalSelected).toBe(true)
+  })
+
+  it('switches card and GoPay Stripe tablists to the GoPay tab', async () => {
+    let gopaySelected = false
+    const gopaySelectorLocator = new FakeCheckoutLocator(true, () => {
+      gopaySelected = true
+    })
+    const page = new FakeCheckoutPage([
+      new FakeCheckoutFrame(
+        new FakeCheckoutLocator(false),
+        'https://js.stripe.com/v3/elements-inner-payment-test.html',
+        {
+          gopaySelectorLocator,
+          hasPaymentSelectionState: () => true,
+          gopaySelected: () => gopaySelected,
+        },
+      ),
+    ])
+
+    await expect(
+      selectChatGPTCheckoutPaymentMethodIfPresent(page as never, 'gopay', {
+        timeoutMs: 1000,
+      }),
+    ).resolves.toBe(true)
+
+    expect(gopaySelectorLocator.clicks).toBe(1)
+    expect(gopaySelected).toBe(true)
+  })
+
+  it('does not report GoPay selected when the payment tab state remains on another method', async () => {
+    const gopaySelectorLocator = new FakeCheckoutLocator(true)
+    const page = new FakeCheckoutPage([
+      new FakeCheckoutFrame(
+        new FakeCheckoutLocator(false),
+        'https://js.stripe.com/v3/elements-inner-payment-test.html',
+        {
+          gopaySelectorLocator,
+          hasPaymentSelectionState: () => true,
+          gopaySelected: () => false,
+        },
+      ),
+    ])
+
+    await expect(
+      selectChatGPTCheckoutPaymentMethodIfPresent(page as never, 'gopay', {
+        timeoutMs: 50,
+      }),
+    ).resolves.toBe(false)
+
+    expect(gopaySelectorLocator.clicks).toBeGreaterThan(0)
   })
 })
 

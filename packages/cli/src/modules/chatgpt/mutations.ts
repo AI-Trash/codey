@@ -117,45 +117,90 @@ const PAYMENT_METHOD_LABEL_PATTERNS = {
   paypal: /paypal/i,
   gopay: /go\s*pay|gopay/i,
 } as const satisfies Record<ChatGPTTrialPaymentMethod, RegExp>
+const PAYMENT_METHOD_TEXT_LABELS = {
+  paypal: 'PayPal',
+  gopay: 'GoPay',
+} as const satisfies Record<ChatGPTTrialPaymentMethod, string>
+const PAYMENT_METHOD_ACTIVE_STATE_SELECTORS = [
+  '[aria-selected="true"]',
+  '[aria-checked="true"]',
+  '[aria-pressed="true"]',
+  '[data-state="active"]',
+  '[data-state="checked"]',
+  '[data-state="selected"]',
+  '[data-state="on"]',
+  '[data-selected="true"]',
+  ':checked',
+] as const
+const PAYMENT_METHOD_SELECTION_STATE_SELECTORS = [
+  '[aria-selected]',
+  '[aria-checked]',
+  '[aria-pressed]',
+  '[data-state]',
+  '[data-selected]',
+  ':checked',
+] as const
 const CHATGPT_CHECKOUT_SELECTED_PAYMENT_METHOD_SELECTORS = {
-  paypal: [
-    '[role="tab"][value="paypal" i][aria-selected="true"]',
-    '[role="tab"][data-testid="paypal" i][aria-selected="true"]',
-    '[role="tab"][aria-controls="paypal-panel" i][aria-selected="true"]',
-    'button[value="paypal" i][aria-selected="true"]',
-    'button[data-testid="paypal" i][aria-selected="true"]',
-    'button#paypal-tab[aria-selected="true"]',
-    'input[value="paypal" i]:checked',
-    '[role="radio"][aria-checked="true"]:has-text("PayPal")',
-    '[role="tab"][aria-selected="true"]:has-text("PayPal")',
-  ],
-  gopay: [
-    '[role="tab"][value="gopay" i][aria-selected="true"]',
-    '[role="tab"][data-testid="gopay" i][aria-selected="true"]',
-    '[role="tab"][aria-controls="gopay-panel" i][aria-selected="true"]',
-    'button[value="gopay" i][aria-selected="true"]',
-    'button[data-testid="gopay" i][aria-selected="true"]',
-    'button#gopay-tab[aria-selected="true"]',
-    'input[value="gopay" i]:checked',
-    '[role="radio"][aria-checked="true"]:has-text("GoPay")',
-    '[role="tab"][aria-selected="true"]:has-text("GoPay")',
-  ],
+  paypal: buildPaymentMethodStateSelectors(
+    'paypal',
+    PAYMENT_METHOD_ACTIVE_STATE_SELECTORS,
+  ),
+  gopay: buildPaymentMethodStateSelectors(
+    'gopay',
+    PAYMENT_METHOD_ACTIVE_STATE_SELECTORS,
+  ),
 } as const satisfies Record<ChatGPTTrialPaymentMethod, readonly string[]>
 const CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTION_STATE_SELECTORS = [
-  '[role="tab"][value="paypal" i][aria-selected]',
-  '[role="tab"][data-testid="paypal" i][aria-selected]',
-  '[role="tab"][aria-controls="paypal-panel" i][aria-selected]',
-  '[role="tab"][value="gopay" i][aria-selected]',
-  '[role="tab"][data-testid="gopay" i][aria-selected]',
-  '[role="tab"][aria-controls="gopay-panel" i][aria-selected]',
+  ...buildPaymentMethodStateSelectors(
+    'paypal',
+    PAYMENT_METHOD_SELECTION_STATE_SELECTORS,
+  ),
+  ...buildPaymentMethodStateSelectors(
+    'gopay',
+    PAYMENT_METHOD_SELECTION_STATE_SELECTORS,
+  ),
   '[role="tab"][value="card" i][aria-selected]',
+  '[role="tab"][value*="card" i][data-state]',
   '[role="tab"][data-testid="card" i][aria-selected]',
+  '[role="tab"][data-testid*="card" i][data-state]',
   'button#paypal-tab[aria-selected]',
   'button#gopay-tab[aria-selected]',
   'button#card-tab[aria-selected]',
-  'input[value="paypal" i]',
-  'input[value="gopay" i]',
+  'button#card-tab[data-state]',
+  '[role="tab"][aria-selected]',
+  '[role="tab"][data-state]',
+  '[role="radio"][aria-checked]',
+  '[role="radio"][data-state]',
+  'button[aria-pressed]',
+  'button[data-state]',
+  'input[type="radio"]',
 ] as const
+
+function buildPaymentMethodStateSelectors(
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  stateSelectors: readonly string[],
+): string[] {
+  const labelText = PAYMENT_METHOD_TEXT_LABELS[paymentMethod]
+  const selectors = new Set<string>()
+
+  for (const methodSelector of CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS[
+    paymentMethod
+  ]) {
+    for (const stateSelector of stateSelectors) {
+      selectors.add(`${methodSelector}${stateSelector}`)
+    }
+  }
+
+  for (const stateSelector of stateSelectors) {
+    if (stateSelector === ':checked') continue
+
+    selectors.add(`[role="radio"]${stateSelector}:has-text("${labelText}")`)
+    selectors.add(`[role="tab"]${stateSelector}:has-text("${labelText}")`)
+    selectors.add(`button${stateSelector}:has-text("${labelText}")`)
+  }
+
+  return [...selectors]
+}
 
 type CheckoutLocatorScope = Page | Frame
 
@@ -2513,11 +2558,21 @@ export async function selectChatGPTCheckoutPaymentMethodIfPresent(
         scope,
         paymentMethod,
       )) {
+        const remainingMs = deadline - Date.now()
+        if (timeoutMs > 0 && remainingMs <= 0) {
+          break
+        }
+
+        const settleTimeoutMs =
+          timeoutMs > 0
+            ? Math.min(PAYMENT_METHOD_SETTLE_MS, Math.max(1, remainingMs))
+            : PAYMENT_METHOD_SETTLE_MS
         if (
           await clickPaymentMethodLocatorIfPresent(
             locator,
             scope,
             paymentMethod,
+            settleTimeoutMs,
           )
         ) {
           await sleep(500)
@@ -2535,7 +2590,7 @@ export async function selectChatGPTCheckoutPaymentMethodIfPresent(
 }
 
 function getPrioritizedCheckoutScopes(page: Page): CheckoutLocatorScope[] {
-  return [page, ...getPrioritizedCheckoutFrames(page)]
+  return [...getPrioritizedCheckoutFrames(page), page]
 }
 
 function getPrioritizedCheckoutFrames(page: Page): Frame[] {
@@ -2554,7 +2609,7 @@ function getChatGPTCheckoutPaymentMethodLocators(
   paymentMethod: ChatGPTTrialPaymentMethod,
 ): Locator[] {
   const labelPattern = PAYMENT_METHOD_LABEL_PATTERNS[paymentMethod]
-  const labelText = paymentMethod === 'paypal' ? 'PayPal' : 'GoPay'
+  const labelText = PAYMENT_METHOD_TEXT_LABELS[paymentMethod]
 
   return [
     scope.getByRole('radio', { name: labelPattern }),
@@ -2563,6 +2618,9 @@ function getChatGPTCheckoutPaymentMethodLocators(
     ...CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS[paymentMethod].map(
       (selector) => scope.locator(selector),
     ),
+    scope.locator(`[role="radio"]:has-text("${labelText}")`),
+    scope.locator(`[role="tab"]:has-text("${labelText}")`),
+    scope.locator(`button:has-text("${labelText}")`),
     scope.getByText(labelPattern),
     scope.locator(`label:has-text("${labelText}")`),
   ]
@@ -2572,6 +2630,7 @@ async function clickPaymentMethodLocatorIfPresent(
   locator: Locator,
   scope: CheckoutLocatorScope,
   paymentMethod: ChatGPTTrialPaymentMethod,
+  settleTimeoutMs = PAYMENT_METHOD_SETTLE_MS,
 ): Promise<boolean> {
   const count = await locator.count().catch(() => 0)
   if (count < 1) {
@@ -2606,7 +2665,7 @@ async function clickPaymentMethodLocatorIfPresent(
     await waitForCheckoutPaymentMethodSelected(
       scope,
       paymentMethod,
-      PAYMENT_METHOD_SETTLE_MS,
+      settleTimeoutMs,
     )
   ) {
     return true
@@ -2698,9 +2757,16 @@ async function isPaymentMethodLocatorSelected(
       ) as (HTMLElement & { checked?: boolean }) | null
       const candidate =
         selectionRoot ?? (element as HTMLElement & { checked?: boolean })
+      const dataState = candidate.getAttribute('data-state')
       return (
         candidate.getAttribute('aria-selected') === 'true' ||
         candidate.getAttribute('aria-checked') === 'true' ||
+        candidate.getAttribute('aria-pressed') === 'true' ||
+        candidate.getAttribute('data-selected') === 'true' ||
+        dataState === 'active' ||
+        dataState === 'checked' ||
+        dataState === 'selected' ||
+        dataState === 'on' ||
         candidate.checked === true
       )
     })
@@ -3784,9 +3850,7 @@ function escapeCssAttributeValue(value: string): string {
 }
 
 function buildWorkspaceButtonSelector(workspaceId: string): string {
-  return `button[name="workspace_id"][value="${escapeCssAttributeValue(
-    workspaceId,
-  )}"]`
+  return `button[name="workspace_id"][value="${escapeCssAttributeValue(workspaceId)}"]`
 }
 
 async function continueWorkspaceSelection(
