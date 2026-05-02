@@ -1,0 +1,52 @@
+name: build-forwarder
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'forwarder/**'
+      - '.github/workflows/build-forwarder.yml'
+  pull_request:
+    paths:
+      - 'forwarder/**'
+      - '.github/workflows/build-forwarder.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+        working-directory: forwarder
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon
+        working-directory: forwarder
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codey-forwarder-debug-apk
+          if-no-files-found: error
+          path: |
+            forwarder/app/build/outputs/apk/debug/app-debug.apk
+            forwarder/app/build/outputs/apk/debug/output-metadata.json
