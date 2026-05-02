@@ -115,6 +115,7 @@ export function createAndroidHealthcheckMachine(): AndroidHealthcheckFlowMachine
         retryEvent: 'android.retry.requested',
         retryTarget: 'probing',
         defaultRetryMessage: 'Retrying Android healthcheck',
+        allowTargetOverride: false,
       }),
     ),
   )

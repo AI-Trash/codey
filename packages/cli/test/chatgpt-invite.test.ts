@@ -100,11 +100,13 @@ describe('inviteChatGPTWorkspaceMembers', () => {
 
     machine.start()
     await machine.send('chatgpt.invites.started', {
-      target: 'inviting-members',
+      target: 'completed',
       patch: {
         workspaceId: 'workspace-123',
       },
     })
+    expect(machine.getSnapshot().state).toBe('inviting-members')
+
     const snapshot = await machine.send('chatgpt.retry.requested', {
       reason: 'storage-state-save',
       message: 'Continuing after storage save failed',

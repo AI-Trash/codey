@@ -42,7 +42,7 @@ function mergeSelectors(
 }
 
 async function openLogin(page: Page, options: LoginOptions): Promise<void> {
-  await markAuthStep(options.machine, 'opening', 'action.started', {
+  await markAuthStep(options.machine, 'action.started', {
     url: options.url || page.url(),
     lastMessage: 'Opening login entry',
     lastSelectors: options.openLoginSelectors,
@@ -54,7 +54,7 @@ async function openLogin(page: Page, options: LoginOptions): Promise<void> {
     await clickAny(page, options.openLoginSelectors)
   }
   await markAuthOpened(options.machine, page, options.openLoginSelectors)
-  await markAuthStep(options.machine, 'ready', 'auth.ready', {
+  await markAuthStep(options.machine, 'auth.ready', {
     url: page.url(),
     lastMessage: 'Login surface ready',
   })
@@ -76,7 +76,7 @@ export async function loginParentAccount(
     async () => {
       const selectors = mergeSelectors(loginDefaults.common, options.selectors)
       await openLogin(page, { ...options, machine })
-      await markAuthStep(machine, 'typing-email', 'auth.email.typed', {
+      await markAuthStep(machine, 'auth.email.typed', {
         email: options.email || null,
         lastSelectors: selectors.email,
         lastMessage: 'Typing login email',
@@ -86,7 +86,7 @@ export async function loginParentAccount(
         strategy: 'sequential',
       })
 
-      await markAuthStep(machine, 'typing-password', 'auth.password.typed', {
+      await markAuthStep(machine, 'auth.password.typed', {
         lastSelectors: selectors.password,
         lastMessage: 'Typing login password',
       })
@@ -96,43 +96,28 @@ export async function loginParentAccount(
       })
 
       if (options.rememberMeSelectors) {
-        await markAuthStep(
-          machine,
-          'toggling-remember-me',
-          'auth.remember-me.checked',
-          {
-            lastSelectors: options.rememberMeSelectors,
-            lastMessage: 'Checking remember-me',
-          },
-        )
+        await markAuthStep(machine, 'auth.remember-me.checked', {
+          lastSelectors: options.rememberMeSelectors,
+          lastMessage: 'Checking remember-me',
+        })
         await checkIfPresent(page, options.rememberMeSelectors)
       }
 
-      await markAuthStep(machine, 'submitting', 'auth.submitted', {
+      await markAuthStep(machine, 'auth.submitted', {
         lastSelectors: selectors.submit,
         lastMessage: 'Submitting login form',
       })
       await clickAny(page, selectors.submit)
 
       if (options.afterSubmit) {
-        await markAuthStep(
-          machine,
-          'post-submit',
-          'auth.after-submit.started',
-          {
-            lastMessage: 'Running afterSubmit hook',
-          },
-        )
+        await markAuthStep(machine, 'auth.after-submit.started', {
+          lastMessage: 'Running afterSubmit hook',
+        })
         await options.afterSubmit(page)
-        await markAuthStep(
-          machine,
-          'post-submit',
-          'auth.after-submit.finished',
-          {
-            url: page.url(),
-            lastMessage: 'afterSubmit hook finished',
-          },
-        )
+        await markAuthStep(machine, 'auth.after-submit.finished', {
+          url: page.url(),
+          lastMessage: 'afterSubmit hook finished',
+        })
       }
 
       return {
@@ -167,7 +152,7 @@ export async function loginChildAccount(
       await openLogin(page, { ...options, machine })
       const method = 'password' as const
 
-      await markAuthStep(machine, 'typing-email', 'auth.email.typed', {
+      await markAuthStep(machine, 'auth.email.typed', {
         email: options.email || null,
         method,
         lastSelectors: selectors.email,
@@ -178,7 +163,7 @@ export async function loginChildAccount(
         strategy: 'sequential',
       })
 
-      await markAuthStep(machine, 'typing-password', 'auth.password.typed', {
+      await markAuthStep(machine, 'auth.password.typed', {
         method,
         lastSelectors: selectors.password,
         lastMessage: 'Typing login password',
@@ -188,7 +173,7 @@ export async function loginChildAccount(
         strategy: 'sequential',
       })
 
-      await markAuthStep(machine, 'submitting', 'auth.submitted', {
+      await markAuthStep(machine, 'auth.submitted', {
         method,
         lastSelectors: selectors.submit,
         lastMessage: 'Submitting login form',
@@ -196,26 +181,16 @@ export async function loginChildAccount(
       await clickAny(page, selectors.submit)
 
       if (options.afterSubmit) {
-        await markAuthStep(
-          machine,
-          'post-submit',
-          'auth.after-submit.started',
-          {
-            method,
-            lastMessage: 'Running afterSubmit hook',
-          },
-        )
+        await markAuthStep(machine, 'auth.after-submit.started', {
+          method,
+          lastMessage: 'Running afterSubmit hook',
+        })
         await options.afterSubmit(page)
-        await markAuthStep(
-          machine,
-          'post-submit',
-          'auth.after-submit.finished',
-          {
-            method,
-            url: page.url(),
-            lastMessage: 'afterSubmit hook finished',
-          },
-        )
+        await markAuthStep(machine, 'auth.after-submit.finished', {
+          method,
+          url: page.url(),
+          lastMessage: 'afterSubmit hook finished',
+        })
       }
 
       return {

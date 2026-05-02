@@ -150,6 +150,7 @@ function createChatGPTInviteLifecycleFragment<Result>() {
     retryEvent: 'chatgpt.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying ChatGPT workspace invite flow',
+    allowTargetOverride: false,
   })
 }
 
@@ -244,26 +245,18 @@ export async function inviteChatGPTWorkspaceMembers(
         source: 'inviteChatGPTWorkspaceMembers',
       },
     )
-    await sendInviteMachine(
-      machine,
-      'chatgpt.invite.targets.resolving',
-      {
-        url: page.url(),
-        lastMessage: 'Resolving invite targets',
-      },
-    )
+    await sendInviteMachine(machine, 'chatgpt.invite.targets.resolving', {
+      url: page.url(),
+      lastMessage: 'Resolving invite targets',
+    })
     options.progressReporter?.({
       message: 'Resolving invite targets',
     })
     const inviteInputs = resolveInviteEmails(options)
-    await sendInviteMachine(
-      machine,
-      'chatgpt.invite.targets.resolved',
-      {
-        inviteInputs,
-        lastMessage: `Resolved ${inviteInputs.emails.length} invite target(s)`,
-      },
-    )
+    await sendInviteMachine(machine, 'chatgpt.invite.targets.resolved', {
+      inviteInputs,
+      lastMessage: `Resolved ${inviteInputs.emails.length} invite target(s)`,
+    })
     if (!inviteInputs.emails.length) {
       throw new Error(
         'No invite emails were resolved. Pass --inviteEmail or --inviteFile.',
@@ -280,56 +273,40 @@ export async function inviteChatGPTWorkspaceMembers(
       autoSelectFirstWorkspace: true,
     })
     completedLogin = login
-    await sendInviteMachine(
-      machine,
-      'chatgpt.login.completed',
-      {
-        email: login.email,
-        login,
-        workspaceId: login.selectedWorkspaceId,
-        url: login.url,
-        title: login.title,
-        lastMessage: 'ChatGPT login completed for workspace invite flow',
-      },
-    )
-    await sendInviteMachine(
-      machine,
-      'chatgpt.workspace.sync.started',
-      {
-        email: login.email,
-        workspaceId: login.selectedWorkspaceId,
-        lastMessage: 'Syncing selected workspace before inviting members',
-      },
-    )
+    await sendInviteMachine(machine, 'chatgpt.login.completed', {
+      email: login.email,
+      login,
+      workspaceId: login.selectedWorkspaceId,
+      url: login.url,
+      title: login.title,
+      lastMessage: 'ChatGPT login completed for workspace invite flow',
+    })
+    await sendInviteMachine(machine, 'chatgpt.workspace.sync.started', {
+      email: login.email,
+      workspaceId: login.selectedWorkspaceId,
+      lastMessage: 'Syncing selected workspace before inviting members',
+    })
     await reportWorkspaceToCodeyApp({
       workspaceId: login.selectedWorkspaceId,
       ownerIdentityId: login.storedIdentity?.id,
       progressReporter: options.progressReporter,
     })
-    await sendInviteMachine(
-      machine,
-      'chatgpt.workspace.sync.completed',
-      {
-        email: login.email,
-        workspaceId: login.selectedWorkspaceId,
-        lastMessage: login.selectedWorkspaceId
-          ? `Synced selected workspace ${login.selectedWorkspaceId}`
-          : 'No selected workspace id was available before inviting members',
-      },
-    )
+    await sendInviteMachine(machine, 'chatgpt.workspace.sync.completed', {
+      email: login.email,
+      workspaceId: login.selectedWorkspaceId,
+      lastMessage: login.selectedWorkspaceId
+        ? `Synced selected workspace ${login.selectedWorkspaceId}`
+        : 'No selected workspace id was available before inviting members',
+    })
     options.progressReporter?.({
       message: 'Inviting workspace members',
     })
-    await sendInviteMachine(
-      machine,
-      'chatgpt.invites.started',
-      {
-        email: login.email,
-        workspaceId: login.selectedWorkspaceId,
-        inviteInputs,
-        lastMessage: 'Inviting workspace members',
-      },
-    )
+    await sendInviteMachine(machine, 'chatgpt.invites.started', {
+      email: login.email,
+      workspaceId: login.selectedWorkspaceId,
+      inviteInputs,
+      lastMessage: 'Inviting workspace members',
+    })
     const invites = await inviteWorkspaceMembers(page, inviteInputs.emails, {
       pruneUnmanagedWorkspaceMembers:
         parseBooleanFlag(options.pruneUnmanagedWorkspaceMembers, false) ??
@@ -341,26 +318,18 @@ export async function inviteChatGPTWorkspaceMembers(
     const linkedEmails = inviteInputs.emails.filter(
       (email) => !invites.erroredEmails.includes(email),
     )
-    await sendInviteMachine(
-      machine,
-      'chatgpt.invites.completed',
-      {
-        email: login.email,
-        workspaceId,
-        invites,
-        lastMessage: `Workspace invites completed for ${linkedEmails.length} member(s)`,
-      },
-    )
-    await sendInviteMachine(
-      machine,
-      'chatgpt.workspace.sync.started',
-      {
-        email: login.email,
-        workspaceId,
-        invites,
-        lastMessage: 'Syncing workspace invite results to Codey app',
-      },
-    )
+    await sendInviteMachine(machine, 'chatgpt.invites.completed', {
+      email: login.email,
+      workspaceId,
+      invites,
+      lastMessage: `Workspace invites completed for ${linkedEmails.length} member(s)`,
+    })
+    await sendInviteMachine(machine, 'chatgpt.workspace.sync.started', {
+      email: login.email,
+      workspaceId,
+      invites,
+      lastMessage: 'Syncing workspace invite results to Codey app',
+    })
     await reportWorkspaceToCodeyApp({
       workspaceId,
       ownerIdentityId: login.storedIdentity?.id,
@@ -369,43 +338,31 @@ export async function inviteChatGPTWorkspaceMembers(
       failedInviteEmails: invites.erroredEmails,
       progressReporter: options.progressReporter,
     })
-    await sendInviteMachine(
-      machine,
-      'chatgpt.workspace.sync.completed',
-      {
-        email: login.email,
-        workspaceId,
-        invites,
-        lastMessage: 'Synced workspace invite results to Codey app',
-      },
-    )
+    await sendInviteMachine(machine, 'chatgpt.workspace.sync.completed', {
+      email: login.email,
+      workspaceId,
+      invites,
+      lastMessage: 'Synced workspace invite results to Codey app',
+    })
     options.progressReporter?.({
       message: 'Workspace invitations completed',
     })
     try {
-      await sendInviteMachine(
-        machine,
-        'chatgpt.storage.saving',
-        {
-          email: login.email,
-          workspaceId,
-          lastMessage: 'Saving local ChatGPT storage state after invites',
-        },
-      )
+      await sendInviteMachine(machine, 'chatgpt.storage.saving', {
+        email: login.email,
+        workspaceId,
+        lastMessage: 'Saving local ChatGPT storage state after invites',
+      })
       await saveLocalChatGPTStorageState(page, {
         identityId: login.storedIdentity.id,
         email: login.storedIdentity.email,
         flowType: 'chatgpt-invite',
       })
-      await sendInviteMachine(
-        machine,
-        'chatgpt.storage.saved',
-        {
-          email: login.email,
-          workspaceId,
-          lastMessage: `Saved local ChatGPT storage state for ${login.storedIdentity.email}`,
-        },
-      )
+      await sendInviteMachine(machine, 'chatgpt.storage.saved', {
+        email: login.email,
+        workspaceId,
+        lastMessage: `Saved local ChatGPT storage state for ${login.storedIdentity.email}`,
+      })
       options.progressReporter?.({
         message: `Saved local ChatGPT storage state for ${login.storedIdentity.email}`,
       })

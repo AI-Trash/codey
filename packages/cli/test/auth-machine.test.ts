@@ -61,11 +61,12 @@ describe('auth machine', () => {
     })
 
     await machine.send('auth.email.typed', {
-      target: 'typing-email',
+      target: 'completed',
       patch: {
         lastMessage: 'Typing login email',
       },
     })
+    expect(machine.getSnapshot().state).toBe('typing-email')
 
     await machine.send('auth.retry.requested', {
       reason: 'email:retry',

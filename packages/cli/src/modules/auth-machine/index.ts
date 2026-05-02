@@ -1,16 +1,18 @@
 import type { Page } from 'patchright'
 import type { SelectorList } from '../../types'
 import {
+  assignContextFromInput,
   composeStateMachineConfig,
   createOpenAIAddPhoneFailureFragment,
-  createPatchTransitionMap,
   createRetryTransition,
-  createSelfPatchTransitionMap,
   createStateMachine,
   declareStateMachineStates,
   defineStateMachineFragment,
+  isStateMachinePatchInput,
   type StateMachineController,
+  type StateMachinePatchInput,
   type StateMachineSnapshot,
+  type StateMachineTransitionDefinition,
 } from '../../state-machine'
 import type { AccountType } from '../common/account-types'
 import type { LoginOptions, LoginResult } from '../login'
@@ -138,6 +140,74 @@ const authAddPhoneGuardEvents = [
   ...authMutableContextEvents,
 ] as const satisfies AuthMachineEvent[]
 
+function createFixedPatchTransition<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(target: State): StateMachineTransitionDefinition<State, Context, Event> {
+  return {
+    target,
+    actions: assignContextFromInput<
+      State,
+      Context,
+      Event,
+      StateMachinePatchInput<State, Context>
+    >(isStateMachinePatchInput, (_context, { input }) => input.patch ?? {}),
+  }
+}
+
+function createFixedPatchTransitionMap<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  targets: Partial<Record<Event, State>>,
+): Partial<
+  Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+> {
+  const transitions: Partial<
+    Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+  > = {}
+
+  for (const [event, target] of Object.entries(targets) as Array<
+    [Event, State]
+  >) {
+    transitions[event] = createFixedPatchTransition<State, Context, Event>(
+      target,
+    )
+  }
+
+  return transitions
+}
+
+function createFixedSelfPatchTransitionMap<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  events: Event[],
+): Partial<
+  Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+> {
+  const transitions: Partial<
+    Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+  > = {}
+
+  for (const event of events) {
+    transitions[event] = {
+      target: undefined,
+      actions: assignContextFromInput<
+        State,
+        Context,
+        Event,
+        StateMachinePatchInput<State, Context>
+      >(isStateMachinePatchInput, (_context, { input }) => input.patch ?? {}),
+    }
+  }
+
+  return transitions
+}
+
 function createAuthLifecycleFragment<Result>() {
   return defineStateMachineFragment<
     AuthMachineState,
@@ -145,7 +215,7 @@ function createAuthLifecycleFragment<Result>() {
     AuthMachineEvent
   >({
     on: {
-      ...createPatchTransitionMap<
+      ...createFixedPatchTransitionMap<
         AuthMachineState,
         AuthMachineContext<Result>,
         AuthMachineEvent
@@ -158,7 +228,7 @@ function createAuthLifecycleFragment<Result>() {
         target: 'retrying',
         defaultMessage: 'Retrying auth flow',
       }),
-      ...createSelfPatchTransitionMap<
+      ...createFixedSelfPatchTransitionMap<
         AuthMachineState,
         AuthMachineContext<Result>,
         AuthMachineEvent
@@ -274,7 +344,6 @@ export async function markAuthOpened<Result>(
 ): Promise<void> {
   if (!machine) return
   await machine.send('auth.opened', {
-    target: 'ready',
     patch: {
       url: page.url(),
       lastSelectors: selectors,
@@ -285,13 +354,11 @@ export async function markAuthOpened<Result>(
 
 export async function markAuthStep<Result>(
   machine: AuthMachine<Result> | undefined,
-  state: AuthMachineState,
   event: AuthMachineEvent,
   patch?: Partial<AuthMachineContext<Result>>,
 ): Promise<void> {
   if (!machine) return
   await machine.send(event, {
-    target: state,
     patch,
   })
 }

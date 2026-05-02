@@ -13,7 +13,6 @@ describe('chatgpt team trial machine', () => {
     })
 
     await machine.send('chatgpt.login.started', {
-      target: 'logging-in',
       patch: {
         email: 'person@example.com',
         lastMessage: 'Logging in before opening pricing promo',
@@ -21,7 +20,6 @@ describe('chatgpt team trial machine', () => {
     })
 
     await machine.send('chatgpt.login.completed', {
-      target: 'home-ready',
       patch: {
         email: 'person@example.com',
         url: 'https://chatgpt.com/',
@@ -30,7 +28,6 @@ describe('chatgpt team trial machine', () => {
     })
 
     await machine.send('chatgpt.pricing.ready', {
-      target: 'pricing-ready',
       patch: {
         url: 'https://chatgpt.com/?promo_campaign=team-1-month-free#pricing',
         lastMessage: 'ChatGPT team pricing free trial button is ready',
@@ -38,7 +35,6 @@ describe('chatgpt team trial machine', () => {
     })
 
     await machine.send('chatgpt.trial.claimed', {
-      target: 'trial-claimed',
       patch: {
         url: 'https://chatgpt.com/business/checkout',
         lastMessage: 'ChatGPT team free trial button clicked',
@@ -62,9 +58,7 @@ describe('chatgpt team trial machine', () => {
       email: 'person@example.com',
     })
 
-    await machine.send('chatgpt.pricing.opening', {
-      target: 'opening-pricing',
-    })
+    await machine.send('chatgpt.pricing.opening')
     await machine.send('chatgpt.retry.requested', {
       reason: 'pricing:not-ready',
       message: 'Retrying pricing page',
@@ -85,6 +79,62 @@ describe('chatgpt team trial machine', () => {
     })
   })
 
+  it('selects checkout and payment states from semantic events', async () => {
+    const machine = createChatGPTTeamTrialMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.checkout.ready', {
+      patch: {
+        checkoutUrl: 'https://chatgpt.com/business/checkout',
+        paymentMethod: 'gopay',
+      },
+    })
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'checkout-ready',
+      context: {
+        checkoutUrl: 'https://chatgpt.com/business/checkout',
+        paymentMethod: 'gopay',
+      },
+    })
+
+    await machine.send('chatgpt.paypal_payment_method.selecting', {
+      patch: {
+        lastMessage:
+          'Selecting GoPay payment method before filling billing address',
+      },
+    })
+    expect(machine.getSnapshot().state).toBe('selecting-paypal-payment-method')
+
+    await machine.send('chatgpt.billing_address.filling', {
+      patch: {
+        billingCountry: 'SG',
+      },
+    })
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'filling-billing-address',
+      context: {
+        billingCountry: 'SG',
+      },
+    })
+
+    await machine.send('chatgpt.gopay.payment_submitted', {
+      patch: {
+        gopayStatus: 'pay-now-clicked',
+        gopayPayNowClicked: true,
+      },
+    })
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'gopay-payment-submitted',
+      context: {
+        gopayStatus: 'pay-now-clicked',
+        gopayPayNowClicked: true,
+      },
+    })
+  })
+
   it('tracks GoPay unlink companion progress without moving the primary flow state', async () => {
     const machine = createChatGPTTeamTrialMachine()
 
@@ -92,7 +142,6 @@ describe('chatgpt team trial machine', () => {
       email: 'person@example.com',
     })
     await machine.send('chatgpt.checkout.ready', {
-      target: 'checkout-ready',
       patch: {
         email: 'person@example.com',
       },
@@ -136,7 +185,6 @@ describe('chatgpt team trial machine', () => {
       email: 'person@example.com',
     })
     await machine.send('chatgpt.checkout.ready', {
-      target: 'checkout-ready',
       patch: {
         email: 'person@example.com',
       },

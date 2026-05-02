@@ -51,7 +51,7 @@ async function openRegistration(
   page: Page,
   options: RegistrationOptions,
 ): Promise<void> {
-  await markAuthStep(options.machine, 'opening', 'action.started', {
+  await markAuthStep(options.machine, 'action.started', {
     url: options.url || page.url(),
     lastMessage: 'Opening registration entry',
     lastSelectors: options.openRegistrationSelectors,
@@ -63,7 +63,7 @@ async function openRegistration(
     await clickAny(page, options.openRegistrationSelectors)
   }
   await markAuthOpened(options.machine, page, options.openRegistrationSelectors)
-  await markAuthStep(options.machine, 'ready', 'auth.ready', {
+  await markAuthStep(options.machine, 'auth.ready', {
     url: page.url(),
     lastMessage: 'Registration surface ready',
   })
@@ -108,7 +108,7 @@ export async function registerAccount(
     async () => {
       await openRegistration(page, { ...options, machine })
 
-      await markAuthStep(machine, 'typing-email', 'auth.email.typed', {
+      await markAuthStep(machine, 'auth.email.typed', {
         email: options.email || null,
         lastSelectors: selectors.email,
         lastMessage: 'Typing registration email',
@@ -118,7 +118,7 @@ export async function registerAccount(
         strategy: 'sequential',
       })
 
-      await markAuthStep(machine, 'typing-password', 'auth.password.typed', {
+      await markAuthStep(machine, 'auth.password.typed', {
         lastSelectors: selectors.password,
         lastMessage: 'Typing registration password',
       })
@@ -128,16 +128,11 @@ export async function registerAccount(
       })
 
       if (selectors.organizationName) {
-        await markAuthStep(
-          machine,
-          'typing-organization',
-          'auth.organization.typed',
-          {
-            organizationName: options.organizationName || null,
-            lastSelectors: selectors.organizationName,
-            lastMessage: 'Typing organization name',
-          },
-        )
+        await markAuthStep(machine, 'auth.organization.typed', {
+          organizationName: options.organizationName || null,
+          lastSelectors: selectors.organizationName,
+          lastMessage: 'Typing organization name',
+        })
         await typeIfPresent(
           page,
           selectors.organizationName,
@@ -145,31 +140,21 @@ export async function registerAccount(
         )
       }
 
-      await markAuthStep(machine, 'submitting', 'auth.submitted', {
+      await markAuthStep(machine, 'auth.submitted', {
         lastSelectors: selectors.submit,
         lastMessage: 'Submitting registration form',
       })
       await clickAny(page, selectors.submit)
 
       if (options.afterSubmit) {
-        await markAuthStep(
-          machine,
-          'post-submit',
-          'auth.after-submit.started',
-          {
-            lastMessage: 'Running afterSubmit hook',
-          },
-        )
+        await markAuthStep(machine, 'auth.after-submit.started', {
+          lastMessage: 'Running afterSubmit hook',
+        })
         await options.afterSubmit(page)
-        await markAuthStep(
-          machine,
-          'post-submit',
-          'auth.after-submit.finished',
-          {
-            url: page.url(),
-            lastMessage: 'afterSubmit hook finished',
-          },
-        )
+        await markAuthStep(machine, 'auth.after-submit.finished', {
+          url: page.url(),
+          lastMessage: 'afterSubmit hook finished',
+        })
       }
 
       return {
