@@ -33,17 +33,17 @@ export function createFlowLifecycleFragment<
   options: FlowLifecycleFragmentOptions<State, Event>,
 ): StateMachineFragment<State, Context, Event> {
   const eventTransitions =
-    options.allowTargetOverride === false
-      ? createFixedPatchTransitionMap<State, Context, Event>(
+    options.allowTargetOverride === true
+      ? createPatchTransitionMap<State, Context, Event>(options.eventTargets)
+      : createFixedPatchTransitionMap<State, Context, Event>(
           options.eventTargets,
         )
-      : createPatchTransitionMap<State, Context, Event>(options.eventTargets)
   const contextTransitions =
-    options.allowTargetOverride === false
-      ? createFixedSelfPatchTransitionMap<State, Context, Event>([
+    options.allowTargetOverride === true
+      ? createSelfPatchTransitionMap<State, Context, Event>([
           ...options.mutableContextEvents,
         ])
-      : createSelfPatchTransitionMap<State, Context, Event>([
+      : createFixedSelfPatchTransitionMap<State, Context, Event>([
           ...options.mutableContextEvents,
         ])
 

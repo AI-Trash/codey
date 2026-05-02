@@ -496,7 +496,6 @@ function createChatGPTRegistrationLifecycleFragment<Result>() {
     retryEvent: 'chatgpt.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying ChatGPT registration',
-    allowTargetOverride: false,
   })
 }
 

@@ -150,7 +150,6 @@ function createChatGPTInviteLifecycleFragment<Result>() {
     retryEvent: 'chatgpt.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying ChatGPT workspace invite flow',
-    allowTargetOverride: false,
   })
 }
 

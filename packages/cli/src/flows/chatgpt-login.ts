@@ -364,7 +364,6 @@ function createChatGPTLoginLifecycleFragment<Result>() {
     retryEvent: 'chatgpt.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying ChatGPT login',
-    allowTargetOverride: false,
   })
 }
 

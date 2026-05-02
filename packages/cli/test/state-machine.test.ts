@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   assignContext,
   assignContextFromInput,
@@ -14,6 +16,7 @@ import {
   runStateMachineEffects,
   type StateMachineRaisedErrorArgs,
 } from '../src/state-machine'
+import { createFlowLifecycleFragment } from '../src/flows/machine-fragments'
 
 describe('state machine', () => {
   it('selects transitions by priority and runs exit, transition, and entry actions in order', async () => {
@@ -367,6 +370,100 @@ describe('state machine', () => {
     })
   })
 
+  it('ignores target overrides in flow lifecycle fragments by default', async () => {
+    type FlowLifecycleTestState = 'idle' | 'ready' | 'failed'
+    type FlowLifecycleTestContext = {
+      retryCount?: number
+      retryReason?: string
+      retryFromState?: FlowLifecycleTestState
+      lastAttempt?: number
+      lastMessage?: string
+      value?: string
+    }
+    type FlowLifecycleTestEvent =
+      | 'flow.ready'
+      | 'context.updated'
+      | 'flow.retry.requested'
+
+    const machine = createStateMachine<
+      FlowLifecycleTestState,
+      FlowLifecycleTestContext,
+      FlowLifecycleTestEvent
+    >(
+      composeStateMachineConfig(
+        {
+          id: 'flow.lifecycle.strict-default',
+          initialState: 'idle',
+          initialContext: {},
+          states: {
+            idle: {},
+            ready: {},
+            failed: {},
+          },
+        },
+        createFlowLifecycleFragment<
+          FlowLifecycleTestState,
+          FlowLifecycleTestContext,
+          FlowLifecycleTestEvent
+        >({
+          eventTargets: {
+            'flow.ready': 'ready',
+          },
+          mutableContextEvents: ['context.updated'],
+          retryEvent: 'flow.retry.requested',
+          retryTarget: 'failed',
+          defaultRetryMessage: 'Retrying flow',
+        }),
+      ),
+    )
+
+    machine.start()
+
+    await machine.send('flow.ready', {
+      target: 'failed',
+      patch: {
+        value: 'event patch',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'ready',
+      context: {
+        value: 'event patch',
+      },
+    })
+
+    await machine.send('context.updated', {
+      target: 'idle',
+      patch: {
+        value: 'context patch',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'ready',
+      context: {
+        value: 'context patch',
+      },
+    })
+  })
+
+  it('keeps flow runners from sending explicit next-state targets', () => {
+    const srcRoot = path.resolve(import.meta.dirname, '../src')
+    const files = collectTypeScriptFiles(srcRoot)
+    const source = files
+      .map((filePath) => fs.readFileSync(filePath, 'utf8'))
+      .join('\n')
+
+    expect(source).not.toMatch(
+      /send[A-Za-z0-9]*Machine\(\s*machine\s*,\s*['"][^'"]+['"]\s*,\s*['"][^'"]+['"]/,
+    )
+    expect(source).not.toMatch(
+      /markAuthStep\(\s*[^,\n]+\s*,\s*['"][^'"]+['"]\s*,\s*['"][^'"]+['"]/,
+    )
+    expect(source).not.toMatch(/target:\s*state\b/)
+  })
+
   it('identifies add-phone failures for task-level retry decisions', () => {
     expect(
       isOpenAIAddPhoneRequiredError(new Error(OPENAI_ADD_PHONE_ERROR_MESSAGE)),
@@ -379,3 +476,21 @@ describe('state machine', () => {
     )
   })
 })
+
+function collectTypeScriptFiles(root: string): string[] {
+  const files: string[] = []
+
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const fullPath = path.join(root, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...collectTypeScriptFiles(fullPath))
+      continue
+    }
+
+    if (entry.isFile() && fullPath.endsWith('.ts')) {
+      files.push(fullPath)
+    }
+  }
+
+  return files
+}

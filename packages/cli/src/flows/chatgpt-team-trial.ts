@@ -361,7 +361,6 @@ function createChatGPTTeamTrialLifecycleFragment<Result>() {
     retryEvent: 'chatgpt.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying ChatGPT trial flow',
-    allowTargetOverride: false,
   })
 }
 

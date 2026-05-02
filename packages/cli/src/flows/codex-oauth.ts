@@ -378,7 +378,6 @@ function createCodexOAuthLifecycleFragment<Result>() {
     retryEvent: 'codex.oauth.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying Codex OAuth login handoff',
-    allowTargetOverride: false,
   })
 }
 
