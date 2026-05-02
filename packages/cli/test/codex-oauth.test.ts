@@ -169,8 +169,7 @@ describe('runCodexOAuthFlow', () => {
     const machine = createCodexOAuthMachine()
 
     machine.start({}, { source: 'test' })
-    await machine.send('context.updated', {
-      target: 'email-step',
+    await machine.send('codex.oauth.email.submitting', {
       patch: {
         email: 'codey+0312fea571c7@ohmyaitrash.org',
         storedIdentity: createStoredIdentitySummary({
@@ -331,7 +330,8 @@ describe('runCodexOAuthFlow', () => {
     expect(
       result.machine.history.some(
         (entry) =>
-          entry.event === 'context.updated' && entry.to === 'password-step',
+          entry.event === 'codex.oauth.password.submitting' &&
+          entry.to === 'password-step',
       ),
     ).toBe(true)
     expect(exchangeCodexAuthorizationCode).toHaveBeenCalledWith(
@@ -555,7 +555,8 @@ describe('runCodexOAuthFlow', () => {
     expect(
       result.machine.history.some(
         (entry) =>
-          entry.event === 'context.updated' && entry.to === 'password-step',
+          entry.event === 'codex.oauth.password.submitting' &&
+          entry.to === 'password-step',
       ),
     ).toBe(true)
   })
@@ -645,7 +646,8 @@ describe('runCodexOAuthFlow', () => {
     expect(
       result.machine.history.some(
         (entry) =>
-          entry.event === 'context.updated' && entry.to === 'verification-step',
+          entry.event === 'codex.oauth.verification.submitting' &&
+          entry.to === 'verification-step',
       ),
     ).toBe(true)
     expect(result).toMatchObject({
@@ -849,7 +851,7 @@ describe('runCodexOAuthFlow', () => {
     expect(
       result.machine.history.some(
         (entry) =>
-          entry.event === 'context.updated' &&
+          entry.event === 'codex.oauth.callback.waiting' &&
           entry.to === 'waiting-for-callback',
       ),
     ).toBe(true)

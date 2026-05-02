@@ -89,6 +89,12 @@ export type CodexOAuthFlowEvent =
   | 'machine.started'
   | 'codex.oauth.started'
   | 'codex.oauth.surface.ready'
+  | 'codex.oauth.callback.waiting'
+  | 'codex.oauth.email.submitting'
+  | 'codex.oauth.password.submitting'
+  | 'codex.oauth.password.submitted'
+  | 'codex.oauth.verification.submitting'
+  | 'codex.oauth.verification.submitted'
   | 'codex.oauth.callback.received'
   | 'codex.oauth.token.exchanged'
   | 'codex.oauth.token.persisted'
@@ -223,6 +229,12 @@ const CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS = 15000
 
 const codexOAuthEventTargets = {
   'codex.oauth.started': 'starting-oauth',
+  'codex.oauth.callback.waiting': 'waiting-for-callback',
+  'codex.oauth.email.submitting': 'email-step',
+  'codex.oauth.password.submitting': 'password-step',
+  'codex.oauth.password.submitted': 'password-step',
+  'codex.oauth.verification.submitting': 'verification-step',
+  'codex.oauth.verification.submitted': 'verification-step',
   'codex.oauth.callback.received': 'exchanging-token',
   'codex.oauth.token.exchanged': 'persisting-token',
   'codex.oauth.token.persisted': 'persisting-token',
@@ -239,6 +251,12 @@ const codexOAuthMutableContextEvents = [
 const codexOAuthAddPhoneGuardEvents = [
   'codex.oauth.started',
   'codex.oauth.surface.ready',
+  'codex.oauth.callback.waiting',
+  'codex.oauth.email.submitting',
+  'codex.oauth.password.submitting',
+  'codex.oauth.password.submitted',
+  'codex.oauth.verification.submitting',
+  'codex.oauth.verification.submitted',
   'codex.oauth.callback.received',
   'codex.oauth.token.exchanged',
   'codex.oauth.token.persisted',
@@ -360,6 +378,7 @@ function createCodexOAuthLifecycleFragment<Result>() {
     retryEvent: 'codex.oauth.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying Codex OAuth login handoff',
+    allowTargetOverride: false,
   })
 }
 
@@ -415,12 +434,10 @@ export function createCodexOAuthMachine(): CodexOAuthFlowMachine<CodexOAuthFlowR
 
 async function sendCodexOAuthMachine(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
-  state: CodexOAuthFlowState,
   event: CodexOAuthFlowEvent,
   patch?: Partial<CodexOAuthFlowContext<CodexOAuthFlowRunResult>>,
 ): Promise<void> {
   await machine.send(event, {
-    target: state,
     patch,
   })
 }
@@ -824,7 +841,7 @@ async function completeCodexOAuthWorkspaceSelection(
 ): Promise<string | undefined> {
   const workspaceIndex = resolveCodexWorkspaceIndex(options)
 
-  await sendCodexOAuthMachine(machine, 'workspace-step', 'context.updated', {
+  await sendCodexOAuthMachine(machine, 'context.updated', {
     url: sanitizeUrl(page.url()),
     redirectUri,
     lastMessage: preferredWorkspaceId
@@ -847,16 +864,11 @@ async function completeCodexOAuthWorkspaceSelection(
         ? `Preferred Codex workspace ${preferredWorkspaceId} was unavailable; selected workspace #${selection.selectedWorkspaceIndex} instead and waiting for Codex OAuth callback`
         : `Selected Codex workspace #${selection.selectedWorkspaceIndex}; waiting for Codex OAuth callback`
 
-  await sendCodexOAuthMachine(
-    machine,
-    'waiting-for-callback',
-    'context.updated',
-    {
-      url: sanitizeUrl(page.url()),
-      redirectUri,
-      lastMessage: selectionMessage,
-    },
-  )
+  await sendCodexOAuthMachine(machine, 'codex.oauth.callback.waiting', {
+    url: sanitizeUrl(page.url()),
+    redirectUri,
+    lastMessage: selectionMessage,
+  })
 
   return selection.selectedWorkspaceId
 }
@@ -866,7 +878,7 @@ async function completeCodexOAuthOrganizationSelection(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
   redirectUri: string,
 ): Promise<void> {
-  await sendCodexOAuthMachine(machine, 'organization-step', 'context.updated', {
+  await sendCodexOAuthMachine(machine, 'context.updated', {
     url: sanitizeUrl(page.url()),
     redirectUri,
     lastMessage: 'Selecting Codex API organization #1 and project #1',
@@ -874,16 +886,11 @@ async function completeCodexOAuthOrganizationSelection(
 
   const selection = await continueCodexOrganizationSelection(page, 1, 1)
 
-  await sendCodexOAuthMachine(
-    machine,
-    'waiting-for-callback',
-    'context.updated',
-    {
-      url: sanitizeUrl(page.url()),
-      redirectUri,
-      lastMessage: `Selected Codex API organization #${selection.selectedOrganizationIndex} and project #${selection.selectedProjectIndex}; waiting for Codex OAuth callback`,
-    },
-  )
+  await sendCodexOAuthMachine(machine, 'codex.oauth.callback.waiting', {
+    url: sanitizeUrl(page.url()),
+    redirectUri,
+    lastMessage: `Selected Codex API organization #${selection.selectedOrganizationIndex} and project #${selection.selectedProjectIndex}; waiting for Codex OAuth callback`,
+  })
 }
 
 export function resolveCodexOAuthStoredIdentitySelection(
@@ -965,7 +972,7 @@ async function submitCodexOAuthStoredLoginEmail(
 ): Promise<StoredChatGPTIdentitySummary> {
   const stored = await requireCodexOAuthStoredLoginIdentity(machine, options)
 
-  await sendCodexOAuthMachine(machine, 'email-step', 'context.updated', {
+  await sendCodexOAuthMachine(machine, 'codex.oauth.email.submitting', {
     url: sanitizeUrl(page.url()),
     redirectUri,
     email: stored.identity.email,
@@ -992,7 +999,7 @@ async function submitCodexOAuthStoredPassword(
 ): Promise<StoredChatGPTIdentitySummary> {
   const stored = await requireCodexOAuthStoredLoginIdentity(machine, options)
 
-  await sendCodexOAuthMachine(machine, 'password-step', 'context.updated', {
+  await sendCodexOAuthMachine(machine, 'codex.oauth.password.submitting', {
     url: sanitizeUrl(page.url()),
     redirectUri,
     email: stored.identity.email,
@@ -1019,7 +1026,7 @@ async function submitCodexOAuthStoredPassword(
     pollIntervalMs,
   })
 
-  await sendCodexOAuthMachine(machine, 'password-step', 'context.updated', {
+  await sendCodexOAuthMachine(machine, 'codex.oauth.password.submitted', {
     url: sanitizeUrl(page.url()),
     redirectUri,
     email: stored.identity.email,
@@ -1043,7 +1050,7 @@ async function submitCodexOAuthStoredVerification(
 ): Promise<StoredChatGPTIdentitySummary> {
   const stored = await requireCodexOAuthStoredLoginIdentity(machine, options)
 
-  await sendCodexOAuthMachine(machine, 'verification-step', 'context.updated', {
+  await sendCodexOAuthMachine(machine, 'codex.oauth.verification.submitting', {
     url: sanitizeUrl(page.url()),
     redirectUri,
     email: stored.identity.email,
@@ -1074,7 +1081,7 @@ async function submitCodexOAuthStoredVerification(
     pollIntervalMs,
   })
 
-  await sendCodexOAuthMachine(machine, 'verification-step', 'context.updated', {
+  await sendCodexOAuthMachine(machine, 'codex.oauth.verification.submitted', {
     url: sanitizeUrl(page.url()),
     redirectUri,
     email: stored.identity.email,
@@ -1371,8 +1378,7 @@ async function resolveCodexOAuthNextStep(
               } else {
                 await sendCodexOAuthMachine(
                   machine,
-                  'waiting-for-callback',
-                  'context.updated',
+                  'codex.oauth.callback.waiting',
                   {
                     url: sanitizeUrl(page.url()),
                     redirectUri,
@@ -1629,14 +1635,9 @@ export async function runCodexOAuthFlow(
     )
     let selectedCodexWorkspaceId = preferredWorkspaceId
 
-    await sendCodexOAuthMachine(
-      machine,
-      'starting-oauth',
-      'codex.oauth.started',
-      {
-        lastMessage: 'Starting Codex PKCE OAuth',
-      },
-    )
+    await sendCodexOAuthMachine(machine, 'codex.oauth.started', {
+      lastMessage: 'Starting Codex PKCE OAuth',
+    })
 
     const started = startCodexAuthorization({
       authorizeUrl: codexConfig.authorizeUrl,
@@ -1693,7 +1694,7 @@ export async function runCodexOAuthFlow(
       throw error
     }
 
-    await sendCodexOAuthMachine(machine, 'starting-oauth', 'context.updated', {
+    await sendCodexOAuthMachine(machine, 'context.updated', {
       authorizationUrl: sanitizeUrl(started.authorizationUrl),
       url: sanitizeUrl(page.url()),
       redirectUri: started.redirectUri,
@@ -1743,16 +1744,11 @@ export async function runCodexOAuthFlow(
       throw new Error('Codex OAuth state mismatch.')
     }
 
-    await sendCodexOAuthMachine(
-      machine,
-      'exchanging-token',
-      'codex.oauth.callback.received',
-      {
-        url: sanitizeUrl(page.url()),
-        redirectUri: started.redirectUri,
-        lastMessage: 'Received Codex OAuth callback; exchanging token',
-      },
-    )
+    await sendCodexOAuthMachine(machine, 'codex.oauth.callback.received', {
+      url: sanitizeUrl(page.url()),
+      redirectUri: started.redirectUri,
+      lastMessage: 'Received Codex OAuth callback; exchanging token',
+    })
 
     const token = await exchangeCodexAuthorizationCode({
       tokenUrl: codexConfig.tokenUrl,
@@ -1765,15 +1761,10 @@ export async function runCodexOAuthFlow(
       requestContext: resolvePageRequestContext(page),
     })
 
-    await sendCodexOAuthMachine(
-      machine,
-      'persisting-token',
-      'codex.oauth.token.exchanged',
-      {
-        url: sanitizeUrl(page.url()),
-        lastMessage: 'Preparing Codex token for Codey app storage',
-      },
-    )
+    await sendCodexOAuthMachine(machine, 'codex.oauth.token.exchanged', {
+      url: sanitizeUrl(page.url()),
+      lastMessage: 'Preparing Codex token for Codey app storage',
+    })
 
     if (!hasCodeyAppSyncConfig()) {
       throw new Error(
@@ -1781,15 +1772,10 @@ export async function runCodexOAuthFlow(
       )
     }
 
-    await sendCodexOAuthMachine(
-      machine,
-      'persisting-token',
-      'codex.oauth.token.persisted',
-      {
-        url: sanitizeUrl(page.url()),
-        lastMessage: 'Codex token ready to save to Codey app',
-      },
-    )
+    await sendCodexOAuthMachine(machine, 'codex.oauth.token.persisted', {
+      url: sanitizeUrl(page.url()),
+      lastMessage: 'Codex token ready to save to Codey app',
+    })
 
     const storedIdentity = await resolveCodexOAuthStoredIdentity(
       machine,
@@ -1806,17 +1792,12 @@ export async function runCodexOAuthFlow(
       | undefined
     let tokenStorePath: string | undefined
 
-    await sendCodexOAuthMachine(
-      machine,
-      'sharing-session',
-      'codey.app.sync.started',
-      {
-        url: sanitizeUrl(page.url()),
-        email: storedIdentity.email,
-        storedIdentity,
-        lastMessage: 'Saving Codex OAuth session to Codey app',
-      },
-    )
+    await sendCodexOAuthMachine(machine, 'codey.app.sync.started', {
+      url: sanitizeUrl(page.url()),
+      email: storedIdentity.email,
+      storedIdentity,
+      lastMessage: 'Saving Codex OAuth session to Codey app',
+    })
 
     codeyApp =
       (await shareCodexOAuthSessionWithCodeyApp({
@@ -1840,20 +1821,15 @@ export async function runCodexOAuthFlow(
 
     const sub2api = codeyApp.sub2api
 
-    await sendCodexOAuthMachine(
-      machine,
-      'sharing-session',
-      'codey.app.sync.completed',
-      {
-        url: sanitizeUrl(page.url()),
-        tokenStorePath,
-        email: storedIdentity.email,
-        storedIdentity,
-        lastMessage: sub2api
-          ? 'Saved Codex OAuth session to Codey app and synced it to Sub2API'
-          : 'Saved Codex OAuth session to Codey app',
-      },
-    )
+    await sendCodexOAuthMachine(machine, 'codey.app.sync.completed', {
+      url: sanitizeUrl(page.url()),
+      tokenStorePath,
+      email: storedIdentity.email,
+      storedIdentity,
+      lastMessage: sub2api
+        ? 'Saved Codex OAuth session to Codey app and synced it to Sub2API'
+        : 'Saved Codex OAuth session to Codey app',
+    })
 
     const title = await page.title()
     const email = machine.getSnapshot().context.email || storedIdentity?.email
