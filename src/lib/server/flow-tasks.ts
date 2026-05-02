@@ -30,12 +30,18 @@ import {
 
 export const DEFAULT_FLOW_TASK_LEASE_MS = 30_000
 const DEFAULT_FLOW_TASK_RETRY_MAX_ATTEMPTS = 2
+const UNLIMITED_FLOW_TASK_RETRY_MAX_ATTEMPTS = 'unlimited'
+const CHATGPT_REGISTER_AUTO_RETRY_REASON =
+  'chatgpt-register:auto-retry-after-failure'
 
 type ActiveFlowTaskStatus = Extract<FlowTaskStatus, 'LEASED' | 'RUNNING'>
 type FinalFlowTaskStatus = Extract<
   FlowTaskStatus,
   'SUCCEEDED' | 'FAILED' | 'CANCELED'
 >
+type FlowTaskRetryMaxAttempts =
+  | number
+  | typeof UNLIMITED_FLOW_TASK_RETRY_MAX_ATTEMPTS
 
 function normalizeWorkerId(value: string | null | undefined): string | null {
   if (typeof value !== 'string') {
@@ -79,9 +85,7 @@ function readGoPayPaymentRedirectUrl(
 
   try {
     const url = new URL(normalized)
-    return url.hostname.toLowerCase() === 'app.midtrans.com'
-      ? normalized
-      : null
+    return url.hostname.toLowerCase() === 'app.midtrans.com' ? normalized : null
   } catch {
     return null
   }
@@ -122,7 +126,8 @@ async function queueGoPayContinuationFromFlowTask(input: {
     cliConnectionId: input.connection.id,
     type: 'LOG',
     status: input.task.status,
-    message: `Queued GoPay trial continuation task ${result.tasks[0]?.id || ''}`.trim(),
+    message:
+      `Queued GoPay trial continuation task ${result.tasks[0]?.id || ''}`.trim(),
     payload: {
       gopayContinuation: {
         queuedCount: result.tasks.length,
@@ -140,6 +145,30 @@ function normalizeRetryMaxAttempts(value?: number | null): number {
   }
 
   return Math.min(value, 10)
+}
+
+function formatRetryAttemptLabel(input: {
+  nextAttempt: number
+  maxAttempts: FlowTaskRetryMaxAttempts
+}): string {
+  if (input.maxAttempts === UNLIMITED_FLOW_TASK_RETRY_MAX_ATTEMPTS) {
+    return `attempt ${input.nextAttempt}`
+  }
+
+  return `attempt ${input.nextAttempt} of ${input.maxAttempts}`
+}
+
+function formatDefaultRetryMessage(input: {
+  retryReason: string
+  nextAttempt: number
+  maxAttempts: FlowTaskRetryMaxAttempts
+}): string {
+  const attemptLabel = formatRetryAttemptLabel(input)
+  if (input.retryReason === CHATGPT_REGISTER_AUTO_RETRY_REASON) {
+    return `ChatGPT registration failed; Codey Web is re-queuing the same flow task until it succeeds (${attemptLabel}).`
+  }
+
+  return `Retrying flow task after ${input.retryReason} (${attemptLabel})`
 }
 
 async function appendFlowTaskEvent(input: {
@@ -435,6 +464,102 @@ export async function refreshFlowTaskLease(input: {
   return updated
 }
 
+async function getActiveFlowTaskForWorker(input: {
+  taskId: string
+  workerId: string
+}): Promise<FlowTaskRow | null> {
+  const current = await getDb().query.flowTasks.findFirst({
+    where: and(
+      eq(flowTasks.id, input.taskId),
+      eq(flowTasks.workerId, input.workerId),
+      or(eq(flowTasks.status, 'LEASED'), eq(flowTasks.status, 'RUNNING')),
+    ),
+  })
+
+  return current || null
+}
+
+function shouldAutoRetryFailedFlowTask(
+  task: Pick<FlowTaskRow, 'flowType'>,
+): boolean {
+  return task.flowType === 'chatgpt-register'
+}
+
+async function requeueActiveFlowTask(input: {
+  connection: CliConnectionRow
+  current: FlowTaskRow
+  error?: string | null
+  retryReason: string
+  retryMessage?: string | null
+  maxAttempts: FlowTaskRetryMaxAttempts
+}): Promise<FlowTaskRow | null> {
+  const now = new Date()
+  const workerId = getCliConnectionTaskWorkerId(input.connection)
+  const retryReason =
+    normalizeTaskText(input.retryReason) || 'Recoverable flow failure'
+  const normalizedError = normalizeTaskText(input.error)
+  const nextAttempt = input.current.attemptCount + 1
+  const retryMessage =
+    normalizeTaskText(input.retryMessage) ||
+    formatDefaultRetryMessage({
+      retryReason,
+      nextAttempt,
+      maxAttempts: input.maxAttempts,
+    })
+
+  const [updated] = await getDb()
+    .update(flowTasks)
+    .set({
+      status: 'QUEUED',
+      cliConnectionId: null,
+      leaseClaimedAt: null,
+      leaseExpiresAt: null,
+      startedAt: null,
+      completedAt: null,
+      lastMessage: retryMessage,
+      lastError: null,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(flowTasks.id, input.current.id),
+        eq(flowTasks.workerId, workerId),
+        or(eq(flowTasks.status, 'LEASED'), eq(flowTasks.status, 'RUNNING')),
+      ),
+    )
+    .returning()
+
+  if (!updated) {
+    return null
+  }
+
+  await appendFlowTaskEvent({
+    taskId: updated.id,
+    cliConnectionId: input.connection.id,
+    type: 'QUEUED',
+    status: 'QUEUED',
+    message: retryMessage,
+    payload: {
+      retry: {
+        reason: retryReason,
+        previousStatus: input.current.status,
+        previousAttempt: input.current.attemptCount,
+        nextAttempt,
+        maxAttempts: input.maxAttempts,
+        ...(normalizedError ? { error: normalizedError } : {}),
+      },
+    },
+  })
+  await syncIdentityMaintenanceRunFromFlowTask({
+    task: updated,
+    status: 'QUEUED',
+    message: retryMessage,
+    error: normalizedError,
+  })
+
+  return updated
+}
+
 export async function completeFlowTask(input: {
   connectionId: string
   taskId: string
@@ -452,6 +577,23 @@ export async function completeFlowTask(input: {
   const workerId = getCliConnectionTaskWorkerId(connection)
   const normalizedError = normalizeTaskText(input.error)
   const normalizedMessage = normalizeTaskText(input.message)
+
+  if (input.status === 'FAILED') {
+    const current = await getActiveFlowTaskForWorker({
+      taskId: input.taskId,
+      workerId,
+    })
+
+    if (current && shouldAutoRetryFailedFlowTask(current)) {
+      return requeueActiveFlowTask({
+        connection,
+        current,
+        error: input.error,
+        retryReason: CHATGPT_REGISTER_AUTO_RETRY_REASON,
+        maxAttempts: UNLIMITED_FLOW_TASK_RETRY_MAX_ATTEMPTS,
+      })
+    }
+  }
 
   const [updated] = await getDb()
     .update(flowTasks)
@@ -636,12 +778,9 @@ export async function retryFlowTask(input: {
   }
 
   const workerId = getCliConnectionTaskWorkerId(connection)
-  const current = await getDb().query.flowTasks.findFirst({
-    where: and(
-      eq(flowTasks.id, input.taskId),
-      eq(flowTasks.workerId, workerId),
-      or(eq(flowTasks.status, 'LEASED'), eq(flowTasks.status, 'RUNNING')),
-    ),
+  const current = await getActiveFlowTaskForWorker({
+    taskId: input.taskId,
+    workerId,
   })
 
   if (!current) {
@@ -659,63 +798,12 @@ export async function retryFlowTask(input: {
     })
   }
 
-  const now = new Date()
-  const retryReason =
-    normalizeTaskText(input.retryReason) || 'Recoverable flow failure'
-  const normalizedError = normalizeTaskText(input.error)
-  const retryMessage =
-    normalizeTaskText(input.retryMessage) ||
-    `Retrying flow task after ${retryReason} (attempt ${current.attemptCount + 1} of ${maxAttempts})`
-
-  const [updated] = await getDb()
-    .update(flowTasks)
-    .set({
-      status: 'QUEUED',
-      cliConnectionId: null,
-      leaseClaimedAt: null,
-      leaseExpiresAt: null,
-      startedAt: null,
-      completedAt: null,
-      lastMessage: retryMessage,
-      lastError: null,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(flowTasks.id, input.taskId),
-        eq(flowTasks.workerId, workerId),
-        or(eq(flowTasks.status, 'LEASED'), eq(flowTasks.status, 'RUNNING')),
-      ),
-    )
-    .returning()
-
-  if (!updated) {
-    return null
-  }
-
-  await appendFlowTaskEvent({
-    taskId: updated.id,
-    cliConnectionId: connection.id,
-    type: 'QUEUED',
-    status: 'QUEUED',
-    message: retryMessage,
-    payload: {
-      retry: {
-        reason: retryReason,
-        previousStatus: current.status,
-        previousAttempt: current.attemptCount,
-        nextAttempt: current.attemptCount + 1,
-        maxAttempts,
-        ...(normalizedError ? { error: normalizedError } : {}),
-      },
-    },
+  return requeueActiveFlowTask({
+    connection,
+    current,
+    error: input.error,
+    retryReason: input.retryReason,
+    retryMessage: input.retryMessage,
+    maxAttempts,
   })
-  await syncIdentityMaintenanceRunFromFlowTask({
-    task: updated,
-    status: 'QUEUED',
-    message: retryMessage,
-    error: normalizedError,
-  })
-
-  return updated
 }
