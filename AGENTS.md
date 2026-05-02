@@ -30,6 +30,9 @@
 
 - Treat flow branching as a state-machine concern. Do not add new `if/else` trees in flow runners to decide between states such as email/password/verification/retry.
 - Flow runners must not own next-state selection. Runners should execute the side effects for the current state or selected transition, observe the page/API result, and send that observation back to the machine as an event/input; the machine must select the next state.
+- Before adding or changing a `packages/cli` flow, define the states, events, context fields, retry fields, and guarded transition order first. Treat the runner as an effect executor for machine-selected work, not as the source of truth for the flow graph.
+- New flow machine send helpers should accept `machine`, `event`, and an optional context patch only. Do not add helper signatures such as `sendFooMachine(machine, state, event, patch)` or `markFooStep(machine, state, event, patch)`, and do not pass `target`, `state`, or `nextState` from runner code.
+- `createFlowLifecycleFragment()` is strict by default. Do not set `allowTargetOverride: true` unless the flow has an explicit external transition target requirement that cannot be represented as semantic events; document the exception next to the machine config and add regression tests proving arbitrary target overrides are still rejected where possible. Do not set `allowTargetOverride: false`; strict mode is already the default.
 - When a reusable sequence of flow states is needed, extract a state-machine fragment or child machine and compose it with `composeStateMachineConfig()` instead of wrapping the sequence in a procedural helper that hides branching, retry, or reentry logic.
 - Reusing the same state set across different flows is allowed only when the state names, transition semantics, and required context fields mean the same thing in every caller. If the same labels would require different guards, retry behavior, side effects, or reporting semantics, create separate domain-specific states/fragments or parameterize the shared fragment with an explicit typed context contract.
 - Encode branch selection as guarded transitions with explicit priority. When multiple transitions exist for the same event, guards must be evaluated in priority order and only the first passing transition should be selected.
@@ -38,6 +41,8 @@
 - Retry states must be globally reachable from every flow state. When a branch fails in a recoverable way, emit the flow's retry event and record the fallback in context before trying the next eligible branch.
 - When a flow needs to enter one of several guarded branches at runtime, use the ordered guarded-branch runner (`runGuardedBranches`) so recoverable branch-entry failures can automatically fall through to the next matching branch.
 - States that may be revisited must be safe to re-enter. Prefer explicit same-state/reentry transitions and idempotent actions over recursive helper loops or one-off retry code paths.
+- Add tests for every new branch, retry path, and lifecycle exception. For new CLI flows, include at least one regression test that a runner-provided `target` value cannot force an arbitrary state transition.
+- If a flow starts to need nested `if/else`, loop-controlled state selection, or local variables that remember the next state, stop and move that logic into guarded transitions, context updates, or a composed machine fragment before continuing.
 
 ## Package and version management
 
