@@ -58,6 +58,7 @@ export const Route = createFileRoute('/api/ingest/cloudflare-email')({
           emailRecordId: result.emailRecord.id,
           codeRecordId: result.codeRecord?.id,
           workspaceCleanup: result.workspaceCleanup,
+          subscriptionCodexOAuth: result.subscriptionCodexOAuth,
         })
       },
     },

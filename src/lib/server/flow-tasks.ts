@@ -7,7 +7,10 @@ import {
   type CliFlowTaskMetadata,
 } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { sanitizeSummaryString } from '../../../packages/cli/src/utils/redaction'
-import { sendAstrBotPayPalNotification } from './astrbot'
+import {
+  sendAstrBotTrialPaymentNotification,
+  type AstrBotTrialPaymentMethod,
+} from './astrbot'
 import { getDb } from './db/client'
 import {
   cliConnections,
@@ -91,7 +94,8 @@ function readPayPalApprovalUrl(
     !normalized ||
     !hostnameMatches(
       normalized,
-      (hostname) => hostname === 'paypal.com' || hostname.endsWith('.paypal.com'),
+      (hostname) =>
+        hostname === 'paypal.com' || hostname.endsWith('.paypal.com'),
     )
   ) {
     return null
@@ -106,15 +110,34 @@ function readGoPayPaymentRedirectUrl(
   const normalized = readNormalizedPaymentRedirectUrl(result)
   if (
     !normalized ||
-    !hostnameMatches(
-      normalized,
-      (hostname) => hostname === 'app.midtrans.com',
-    )
+    !hostnameMatches(normalized, (hostname) => hostname === 'app.midtrans.com')
   ) {
     return null
   }
 
   return normalized
+}
+
+function readTrialPaymentNotification(
+  result: Record<string, unknown> | null | undefined,
+): { paymentMethod: AstrBotTrialPaymentMethod; paymentUrl: string } | null {
+  const paypalUrl = readPayPalApprovalUrl(result)
+  if (paypalUrl) {
+    return {
+      paymentMethod: 'paypal',
+      paymentUrl: paypalUrl,
+    }
+  }
+
+  const gopayUrl = readGoPayPaymentRedirectUrl(result)
+  if (gopayUrl) {
+    return {
+      paymentMethod: 'gopay',
+      paymentUrl: gopayUrl,
+    }
+  }
+
+  return null
 }
 
 function readTaskMetadata(
@@ -180,8 +203,7 @@ async function queueGoPayContinuationFromFlowTask(input: {
     cliConnectionId: input.connection.id,
     type: 'LOG',
     status: input.task.status,
-    message:
-      `Queued GoPay trial continuation task ${task.id || ''}`.trim(),
+    message: `Queued GoPay trial continuation task ${task.id || ''}`.trim(),
     payload: {
       gopayContinuation: {
         queuedCount: 1,
@@ -733,10 +755,11 @@ export async function completeFlowTask(input: {
       })
     }
 
-    const gopayPaymentRedirectUrl =
-      canQueueGoPayContinuationFromFlowType(updated.flowType)
-        ? readGoPayPaymentRedirectUrl(input.result)
-        : null
+    const gopayPaymentRedirectUrl = canQueueGoPayContinuationFromFlowType(
+      updated.flowType,
+    )
+      ? readGoPayPaymentRedirectUrl(input.result)
+      : null
     if (gopayPaymentRedirectUrl) {
       try {
         await queueGoPayContinuationFromFlowTask({
@@ -760,35 +783,38 @@ export async function completeFlowTask(input: {
       }
     }
 
-    const paypalUrl = readPayPalApprovalUrl(input.result)
+    const paymentNotification = readTrialPaymentNotification(input.result)
     if (
       (updated.flowType === 'chatgpt-team-trial' ||
         updated.flowType === 'chatgpt-register') &&
-      paypalUrl
+      paymentNotification
     ) {
       try {
-        const notification = await sendAstrBotPayPalNotification({
-          paypalUrl,
+        const notification = await sendAstrBotTrialPaymentNotification({
+          ...paymentNotification,
           workspace: teamTrialWorkspace,
           capturedAt: now,
         })
         if (notification) {
+          const paymentLabel =
+            paymentNotification.paymentMethod === 'gopay' ? 'GoPay' : 'PayPal'
           await appendFlowTaskEvent({
             taskId: updated.id,
             cliConnectionId: connection.id,
             type: 'LOG',
             status: updated.status,
-            message: `Sent PayPal link to AstrBot target ${notification.umo}`,
+            message: `Sent ${paymentLabel} link to AstrBot target ${notification.umo}`,
             payload: {
               astrbot: {
                 endpoint: notification.endpoint,
                 umo: notification.umo,
+                paymentMethod: paymentNotification.paymentMethod,
               },
             },
           })
         }
       } catch (error) {
-        console.error('Unable to send PayPal link to AstrBot', error)
+        console.error('Unable to send payment link to AstrBot', error)
         await appendFlowTaskEvent({
           taskId: updated.id,
           cliConnectionId: connection.id,
@@ -797,7 +823,7 @@ export async function completeFlowTask(input: {
           message:
             error instanceof Error
               ? error.message
-              : 'Unable to send PayPal link to AstrBot',
+              : 'Unable to send payment link to AstrBot',
         })
       }
     }

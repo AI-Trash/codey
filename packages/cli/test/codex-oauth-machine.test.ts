@@ -79,6 +79,48 @@ describe('codex oauth machine', () => {
     })
   })
 
+  it('selects observed oauth and post-login candidates by machine priority', async () => {
+    const machine = createCodexOAuthMachine()
+
+    machine.start({
+      redirectUri: 'http://localhost:1455/auth/callback',
+    })
+
+    await machine.send('codex.oauth.surface.observed', {
+      candidates: ['login', 'workspace'],
+      url: 'https://auth.openai.com/sign-in-with-chatgpt/codex/workspace',
+      patch: {
+        redirectUri: 'http://localhost:1455/auth/callback',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'workspace-step',
+      context: {
+        surface: 'workspace',
+        lastMessage: 'Codex workspace selection ready',
+      },
+    })
+
+    await machine.send('codex.oauth.post_login.observed', {
+      candidates: ['retry', 'verification'],
+      url: 'https://auth.openai.com/u/login/verify-email',
+      patch: {
+        redirectUri: 'http://localhost:1455/auth/callback',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'verification-step',
+      context: {
+        postLoginStep: 'verification',
+        method: 'verification',
+        lastMessage:
+          'Stored ChatGPT verification step detected during Codex OAuth',
+      },
+    })
+  })
+
   it('selects stored login and callback states from semantic events', async () => {
     const machine = createCodexOAuthMachine()
 

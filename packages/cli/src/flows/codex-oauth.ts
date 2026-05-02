@@ -10,7 +10,6 @@ import {
   declareStateMachineStates,
   defineStateMachineFragment,
   GuardedBranchError,
-  runGuardedBranches,
 } from '../state-machine'
 import type {
   StateMachineController,
@@ -88,8 +87,10 @@ export type CodexOAuthFlowState =
 export type CodexOAuthFlowEvent =
   | 'machine.started'
   | 'codex.oauth.started'
+  | 'codex.oauth.surface.observed'
   | 'codex.oauth.surface.ready'
   | 'codex.oauth.callback.waiting'
+  | 'codex.oauth.post_login.observed'
   | 'codex.oauth.email.submitting'
   | 'codex.oauth.password.submitting'
   | 'codex.oauth.password.submitted'
@@ -144,6 +145,7 @@ export interface CodexOAuthFlowContext<Result = unknown> {
   authorizationUrl?: string
   tokenStorePath?: string
   surface?: CodexOAuthLoginSurface
+  postLoginStep?: CodexOAuthLoginProgressStep
   method?: 'password' | 'verification'
   storedIdentity?: StoredChatGPTIdentitySummary
   retryCount?: number
@@ -211,6 +213,18 @@ interface CodexOAuthSurfaceInput<Result = unknown> {
   patch?: Partial<CodexOAuthFlowContext<Result>>
 }
 
+interface CodexOAuthSurfaceObservedInput<Result = unknown> {
+  candidates: CodexOAuthSurfaceCandidate[]
+  url: string
+  patch?: Partial<CodexOAuthFlowContext<Result>>
+}
+
+interface CodexOAuthPostLoginObservedInput<Result = unknown> {
+  candidates: CodexOAuthLoginProgressStep[]
+  url: string
+  patch?: Partial<CodexOAuthFlowContext<Result>>
+}
+
 interface CodexOAuthCallbackPayload {
   code: string | null
   state: string | null
@@ -250,8 +264,10 @@ const codexOAuthMutableContextEvents = [
 
 const codexOAuthAddPhoneGuardEvents = [
   'codex.oauth.started',
+  'codex.oauth.surface.observed',
   'codex.oauth.surface.ready',
   'codex.oauth.callback.waiting',
+  'codex.oauth.post_login.observed',
   'codex.oauth.email.submitting',
   'codex.oauth.password.submitting',
   'codex.oauth.password.submitted',
@@ -296,6 +312,32 @@ function isCodexOAuthSurfaceInput<Result>(
   const candidate = value as Partial<CodexOAuthSurfaceInput<Result>>
   return (
     typeof candidate.surface === 'string' && typeof candidate.url === 'string'
+  )
+}
+
+function isCodexOAuthSurfaceObservedInput<Result>(
+  value: unknown,
+): value is CodexOAuthSurfaceObservedInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<CodexOAuthSurfaceObservedInput<Result>>
+  return (
+    Array.isArray(candidate.candidates) && typeof candidate.url === 'string'
+  )
+}
+
+function isCodexOAuthPostLoginObservedInput<Result>(
+  value: unknown,
+): value is CodexOAuthPostLoginObservedInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<CodexOAuthPostLoginObservedInput<Result>>
+  return (
+    Array.isArray(candidate.candidates) && typeof candidate.url === 'string'
   )
 }
 
@@ -367,6 +409,177 @@ function createCodexOAuthSurfaceTransitions<Result>() {
   })
 }
 
+function createCodexOAuthSurfaceObservedTransitions<Result>() {
+  const assignObservedSurfaceContext = (
+    surface: CodexOAuthLoginSurface,
+    lastMessage: string,
+  ) =>
+    assignContextFromInput<
+      CodexOAuthFlowState,
+      CodexOAuthFlowContext<Result>,
+      CodexOAuthFlowEvent,
+      CodexOAuthSurfaceObservedInput<Result>
+    >(isCodexOAuthSurfaceObservedInput, (_context, { input }) => ({
+      ...input.patch,
+      surface,
+      url: input.url,
+      lastMessage,
+    }))
+
+  return createGuardedCaseTransitions<
+    CodexOAuthFlowState,
+    CodexOAuthFlowContext<Result>,
+    CodexOAuthFlowEvent,
+    CodexOAuthSurfaceObservedInput<Result>
+  >({
+    isInput: isCodexOAuthSurfaceObservedInput,
+    cases: [
+      {
+        priority: 60,
+        when: ({ input }) => input.candidates.includes('workspace'),
+        target: 'workspace-step',
+        actions: assignObservedSurfaceContext(
+          'workspace',
+          'Codex workspace selection ready',
+        ),
+      },
+      {
+        priority: 58,
+        when: ({ input }) => input.candidates.includes('organization'),
+        target: 'organization-step',
+        actions: assignObservedSurfaceContext(
+          'organization',
+          'Codex API organization selection ready',
+        ),
+      },
+      {
+        priority: 55,
+        when: ({ input }) => input.candidates.includes('consent'),
+        target: 'consent-step',
+        actions: assignObservedSurfaceContext(
+          'consent',
+          'Codex OAuth consent ready',
+        ),
+      },
+      {
+        priority: 50,
+        when: ({ input }) => input.candidates.includes('authenticated'),
+        target: 'waiting-for-callback',
+        actions: assignObservedSurfaceContext(
+          'authenticated',
+          'OpenAI session detected; waiting for Codex OAuth callback',
+        ),
+      },
+      {
+        priority: 45,
+        when: ({ input }) => input.candidates.includes('email'),
+        target: 'email-step',
+        actions: assignObservedSurfaceContext(
+          'email',
+          'OpenAI email login surface ready',
+        ),
+      },
+      {
+        priority: 40,
+        when: ({ input }) => input.candidates.includes('login'),
+        target: 'login-entry',
+        actions: assignObservedSurfaceContext(
+          'login',
+          'OpenAI login entry detected',
+        ),
+      },
+    ],
+  })
+}
+
+function createCodexOAuthPostLoginObservedTransitions<Result>() {
+  const assignObservedPostLoginContext = (
+    postLoginStep: CodexOAuthLoginProgressStep,
+    lastMessage: string,
+    extras: Partial<CodexOAuthFlowContext<Result>> = {},
+  ) =>
+    assignContextFromInput<
+      CodexOAuthFlowState,
+      CodexOAuthFlowContext<Result>,
+      CodexOAuthFlowEvent,
+      CodexOAuthPostLoginObservedInput<Result>
+    >(isCodexOAuthPostLoginObservedInput, (_context, { input }) => ({
+      ...input.patch,
+      ...extras,
+      postLoginStep,
+      url: input.url,
+      lastMessage,
+    }))
+
+  return createGuardedCaseTransitions<
+    CodexOAuthFlowState,
+    CodexOAuthFlowContext<Result>,
+    CodexOAuthFlowEvent,
+    CodexOAuthPostLoginObservedInput<Result>
+  >({
+    isInput: isCodexOAuthPostLoginObservedInput,
+    cases: [
+      {
+        priority: 50,
+        when: ({ input }) => input.candidates.includes('authenticated'),
+        target: 'waiting-for-callback',
+        actions: assignObservedPostLoginContext(
+          'authenticated',
+          'OpenAI session detected after stored login step; waiting for Codex OAuth callback or consent',
+        ),
+      },
+      {
+        priority: 25,
+        when: ({ input }) => input.candidates.includes('password'),
+        target: 'password-step',
+        actions: assignObservedPostLoginContext(
+          'password',
+          'Stored ChatGPT password step detected during Codex OAuth',
+          {
+            method: 'password',
+          },
+        ),
+      },
+      {
+        priority: 24,
+        when: ({ input }) => input.candidates.includes('verification'),
+        target: 'verification-step',
+        actions: assignObservedPostLoginContext(
+          'verification',
+          'Stored ChatGPT verification step detected during Codex OAuth',
+          {
+            method: 'verification',
+          },
+        ),
+      },
+      {
+        priority: 23,
+        when: ({ input }) => input.candidates.includes('retry'),
+        target: 'retrying',
+        actions: assignContextFromInput<
+          CodexOAuthFlowState,
+          CodexOAuthFlowContext<Result>,
+          CodexOAuthFlowEvent,
+          CodexOAuthPostLoginObservedInput<Result>
+        >(isCodexOAuthPostLoginObservedInput, (context, { input, from }) => {
+          const nextAttempt = (context.retryCount ?? 0) + 1
+          return {
+            ...input.patch,
+            postLoginStep: 'retry',
+            url: input.url,
+            retryCount: nextAttempt,
+            retryReason: 'post-login:retry',
+            retryFromState: from,
+            lastAttempt: nextAttempt,
+            lastMessage:
+              'ChatGPT login returned to the email step; retrying stored identity email submission',
+          }
+        }),
+      },
+    ],
+  })
+}
+
 function createCodexOAuthLifecycleFragment<Result>() {
   return createFlowLifecycleFragment<
     CodexOAuthFlowState,
@@ -388,7 +601,11 @@ function createCodexOAuthSurfaceFragment<Result>() {
     CodexOAuthFlowEvent
   >({
     on: {
+      'codex.oauth.surface.observed':
+        createCodexOAuthSurfaceObservedTransitions<Result>(),
       'codex.oauth.surface.ready': createCodexOAuthSurfaceTransitions<Result>(),
+      'codex.oauth.post_login.observed':
+        createCodexOAuthPostLoginObservedTransitions<Result>(),
     },
   })
 }
@@ -1177,6 +1394,366 @@ async function resolveCodexOAuthCallbackStepIfReady(
   }
 }
 
+function filterCodexOAuthSurfaceCandidates(
+  candidates: CodexOAuthSurfaceCandidate[],
+  skipped: Set<CodexOAuthSurfaceCandidate>,
+): CodexOAuthSurfaceCandidate[] {
+  return candidates.filter((candidate) => !skipped.has(candidate))
+}
+
+function filterCodexOAuthPostLoginCandidates(
+  candidates: CodexOAuthLoginProgressStep[],
+  skipped: Set<CodexOAuthLoginProgressStep>,
+): CodexOAuthLoginProgressStep[] {
+  return candidates.filter((candidate) => !skipped.has(candidate))
+}
+
+function isCodexOAuthSurfaceCandidate(
+  value: string,
+): value is CodexOAuthSurfaceCandidate {
+  return (
+    value === 'workspace' ||
+    value === 'organization' ||
+    value === 'consent' ||
+    value === 'authenticated' ||
+    value === 'login' ||
+    value === 'email'
+  )
+}
+
+function isCodexOAuthPostLoginCandidate(
+  value: string,
+): value is CodexOAuthLoginProgressStep {
+  return (
+    value === 'authenticated' ||
+    value === 'password' ||
+    value === 'verification' ||
+    value === 'retry'
+  )
+}
+
+function handleRecoverableCodexOAuthObservationError(
+  error: unknown,
+  currentStep: CodexOAuthStep,
+  skippedSurfaceCandidates: Set<CodexOAuthSurfaceCandidate>,
+  skippedPostLoginCandidates: Set<CodexOAuthLoginProgressStep>,
+): boolean {
+  if (!(error instanceof GuardedBranchError) || !error.recoverable) {
+    return false
+  }
+
+  if (
+    currentStep.kind === 'surface-candidates' &&
+    isCodexOAuthSurfaceCandidate(error.branch)
+  ) {
+    skippedSurfaceCandidates.add(error.branch)
+    return true
+  }
+
+  if (
+    currentStep.kind === 'post-login-candidates' &&
+    isCodexOAuthPostLoginCandidate(error.branch)
+  ) {
+    skippedPostLoginCandidates.add(error.branch)
+    return true
+  }
+
+  return false
+}
+
+async function waitForNextCodexOAuthSurfaceStep(
+  page: Page,
+  waitForCallback: Promise<CodexOAuthCallbackPayload>,
+  redirectUri: string,
+  getResolvedCallback: () => CodexOAuthCallbackPayload | undefined,
+): Promise<CodexOAuthStep> {
+  return waitForCodexOAuthStep(
+    page,
+    waitForCallback,
+    redirectUri,
+    CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
+    getResolvedCallback,
+  )
+}
+
+async function waitForNextCodexOAuthLoginProgressStep(
+  page: Page,
+  waitForCallback: Promise<CodexOAuthCallbackPayload>,
+  redirectUri: string,
+  getResolvedCallback: () => CodexOAuthCallbackPayload | undefined,
+): Promise<CodexOAuthStep> {
+  return waitForCodexOAuthLoginProgressStep(
+    page,
+    waitForCallback,
+    redirectUri,
+    CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
+    getResolvedCallback,
+  )
+}
+
+async function runCodexOAuthSurfaceObservation(
+  page: Page,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
+  options: FlowOptions,
+  redirectUri: string,
+  progress: CodexOAuthStoredLoginProgress,
+  step: Extract<CodexOAuthStep, { kind: 'surface-candidates' }>,
+  skippedSurfaceCandidates: Set<CodexOAuthSurfaceCandidate>,
+  waitForCallback: Promise<CodexOAuthCallbackPayload>,
+  getResolvedCallback: () => CodexOAuthCallbackPayload | undefined,
+  preferredWorkspaceId?: string,
+  onSelectedWorkspaceId?: (workspaceId: string | undefined) => void,
+): Promise<CodexOAuthStep> {
+  const candidates = filterCodexOAuthSurfaceCandidates(
+    step.candidates,
+    skippedSurfaceCandidates,
+  )
+  if (candidates.length === 0) {
+    throw new Error(
+      `Codex OAuth reached unsupported surface candidates: ${step.candidates.join(', ')}`,
+    )
+  }
+
+  const snapshot = await machine.send('codex.oauth.surface.observed', {
+    candidates,
+    url: sanitizeUrl(page.url()),
+    patch: {
+      redirectUri,
+    },
+  })
+  const selectedSurface = snapshot.context.surface
+  if (selectedSurface) {
+    await sendCodexOAuthSurfaceReady(
+      machine,
+      page,
+      selectedSurface,
+      redirectUri,
+    )
+  }
+
+  switch (selectedSurface) {
+    case 'workspace':
+      try {
+        const selectedWorkspaceId = await completeCodexOAuthWorkspaceSelection(
+          page,
+          machine,
+          options,
+          redirectUri,
+          preferredWorkspaceId,
+        )
+        onSelectedWorkspaceId?.(selectedWorkspaceId)
+      } catch (error) {
+        const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
+          page,
+          waitForCallback,
+          redirectUri,
+          getResolvedCallback,
+        )
+        if (callbackStep) return callbackStep
+        throw wrapRecoverableCodexOAuthBranchError('workspace', error)
+      }
+
+      return waitForNextCodexOAuthSurfaceStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+
+    case 'organization':
+      try {
+        await completeCodexOAuthOrganizationSelection(
+          page,
+          machine,
+          redirectUri,
+        )
+      } catch (error) {
+        const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
+          page,
+          waitForCallback,
+          redirectUri,
+          getResolvedCallback,
+        )
+        if (callbackStep) return callbackStep
+        throw wrapRecoverableCodexOAuthBranchError('organization', error)
+      }
+
+      return waitForNextCodexOAuthSurfaceStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+
+    case 'consent':
+      try {
+        await continueCodexOAuthConsent(page)
+      } catch (error) {
+        const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
+          page,
+          waitForCallback,
+          redirectUri,
+          getResolvedCallback,
+        )
+        if (callbackStep) return callbackStep
+        throw wrapRecoverableCodexOAuthBranchError('consent', error)
+      }
+
+      return waitForNextCodexOAuthSurfaceStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+
+    case 'authenticated':
+      return waitForNextCodexOAuthSurfaceStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+
+    case 'email':
+      await submitCodexOAuthStoredLoginEmail(
+        page,
+        machine,
+        options,
+        redirectUri,
+        progress,
+      )
+      return waitForNextCodexOAuthLoginProgressStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+
+    case 'login': {
+      try {
+        if (!(await clickLoginEntryIfPresent(page))) {
+          throw new Error(
+            'OpenAI login entry button became visible but could not be clicked.',
+          )
+        }
+      } catch (error) {
+        throw wrapRecoverableCodexOAuthBranchError('login', error)
+      }
+
+      const postLoginStep = await waitForNextCodexOAuthSurfaceStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+      if (
+        postLoginStep.kind === 'surface-candidates' &&
+        postLoginStep.candidates.every((candidate) => candidate === 'login') &&
+        postLoginStep.candidates.includes('login')
+      ) {
+        throw new GuardedBranchError(
+          'login',
+          'OpenAI login entry did not advance to an authenticated, workspace, organization, consent, or email surface.',
+        )
+      }
+      return postLoginStep
+    }
+  }
+
+  throw new Error(
+    `Codex OAuth reached unsupported surface candidates: ${candidates.join(', ')}`,
+  )
+}
+
+async function runCodexOAuthPostLoginObservation(
+  page: Page,
+  machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
+  options: FlowOptions,
+  redirectUri: string,
+  progress: CodexOAuthStoredLoginProgress,
+  step: Extract<CodexOAuthStep, { kind: 'post-login-candidates' }>,
+  skippedPostLoginCandidates: Set<CodexOAuthLoginProgressStep>,
+  waitForCallback: Promise<CodexOAuthCallbackPayload>,
+  getResolvedCallback: () => CodexOAuthCallbackPayload | undefined,
+): Promise<CodexOAuthStep> {
+  const candidates = filterCodexOAuthPostLoginCandidates(
+    step.candidates,
+    skippedPostLoginCandidates,
+  )
+  if (candidates.length === 0) {
+    throw new Error(
+      `Codex OAuth reached unsupported post-email login candidates: ${step.candidates.join(', ')}`,
+    )
+  }
+
+  const snapshot = await machine.send('codex.oauth.post_login.observed', {
+    candidates,
+    url: sanitizeUrl(page.url()),
+    patch: {
+      redirectUri,
+    },
+  })
+
+  switch (snapshot.context.postLoginStep) {
+    case 'authenticated':
+      return waitForNextCodexOAuthSurfaceStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+
+    case 'password':
+      await submitCodexOAuthStoredPassword(
+        page,
+        machine,
+        options,
+        redirectUri,
+        progress,
+      )
+      return waitForNextCodexOAuthLoginProgressStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+
+    case 'verification':
+      await submitCodexOAuthStoredVerification(
+        page,
+        machine,
+        options,
+        redirectUri,
+        progress,
+      )
+      return waitForNextCodexOAuthLoginProgressStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+
+    case 'retry':
+      await submitCodexOAuthStoredLoginEmail(
+        page,
+        machine,
+        options,
+        redirectUri,
+        progress,
+      )
+      return waitForNextCodexOAuthLoginProgressStep(
+        page,
+        waitForCallback,
+        redirectUri,
+        getResolvedCallback,
+      )
+  }
+
+  throw new Error(
+    `Codex OAuth reached unsupported post-email login candidates: ${candidates.join(', ')}`,
+  )
+}
+
 async function resolveCodexOAuthNextStep(
   page: Page,
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
@@ -1190,415 +1767,72 @@ async function resolveCodexOAuthNextStep(
   onSelectedWorkspaceId?: (workspaceId: string | undefined) => void,
 ): Promise<CodexOAuthCallbackPayload> {
   let currentStep = nextStep
+  const skippedSurfaceCandidates = new Set<CodexOAuthSurfaceCandidate>()
+  const skippedPostLoginCandidates = new Set<CodexOAuthLoginProgressStep>()
 
   for (let transitionCount = 0; transitionCount < 12; transitionCount += 1) {
-    currentStep = (
-      await runGuardedBranches<
-        CodexOAuthFlowContext<CodexOAuthFlowRunResult>,
-        CodexOAuthStep,
-        CodexOAuthStep,
-        | 'callback'
-        | 'callback-navigation'
-        | 'authenticated'
-        | 'login'
-        | 'email'
-        | 'password'
-        | 'verification'
-        | 'retry'
-        | 'unsupported-surface'
-        | 'unsupported-post-login'
-        | 'workspace'
-        | 'organization'
-        | 'consent'
-      >(
-        [
-          {
-            branch: 'callback' as const,
-            priority: 70,
-            guard: ({ input }) => input.kind === 'callback',
-            run: async ({ input }) => {
-              if (input.kind !== 'callback') {
-                throw new Error('Codex OAuth callback was not ready yet.')
-              }
-              return input
-            },
-          },
-          {
-            branch: 'callback-navigation' as const,
-            priority: 65,
-            guard: ({ input }) => input.kind === 'callback-navigation',
-            run: async () => ({
-              kind: 'callback' as const,
-              callback: await waitForCallback,
-            }),
-          },
-          {
-            branch: 'workspace' as const,
-            priority: 60,
-            guard: ({ input }) =>
-              input.kind === 'surface-candidates' &&
-              input.candidates.includes('workspace'),
-            run: async () => {
-              await sendCodexOAuthSurfaceReady(
-                machine,
-                page,
-                'workspace',
-                redirectUri,
-              )
-              try {
-                const selectedWorkspaceId =
-                  await completeCodexOAuthWorkspaceSelection(
-                    page,
-                    machine,
-                    options,
-                    redirectUri,
-                    preferredWorkspaceId,
-                  )
-                onSelectedWorkspaceId?.(selectedWorkspaceId)
-              } catch (error) {
-                const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
-                  page,
-                  waitForCallback,
-                  redirectUri,
-                  getResolvedCallback,
-                )
-                if (callbackStep) {
-                  return callbackStep
-                }
-                throw wrapRecoverableCodexOAuthBranchError('workspace', error)
-              }
-
-              return waitForCodexOAuthStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'organization' as const,
-            priority: 58,
-            guard: ({ input }) =>
-              input.kind === 'surface-candidates' &&
-              input.candidates.includes('organization'),
-            run: async () => {
-              await sendCodexOAuthSurfaceReady(
-                machine,
-                page,
-                'organization',
-                redirectUri,
-              )
-              try {
-                await completeCodexOAuthOrganizationSelection(
-                  page,
-                  machine,
-                  redirectUri,
-                )
-              } catch (error) {
-                const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
-                  page,
-                  waitForCallback,
-                  redirectUri,
-                  getResolvedCallback,
-                )
-                if (callbackStep) {
-                  return callbackStep
-                }
-                throw wrapRecoverableCodexOAuthBranchError(
-                  'organization',
-                  error,
-                )
-              }
-
-              return waitForCodexOAuthStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'consent' as const,
-            priority: 55,
-            guard: ({ input }) =>
-              input.kind === 'surface-candidates' &&
-              input.candidates.includes('consent'),
-            run: async () => {
-              await sendCodexOAuthSurfaceReady(
-                machine,
-                page,
-                'consent',
-                redirectUri,
-              )
-              try {
-                await continueCodexOAuthConsent(page)
-              } catch (error) {
-                const callbackStep = await resolveCodexOAuthCallbackStepIfReady(
-                  page,
-                  waitForCallback,
-                  redirectUri,
-                  getResolvedCallback,
-                )
-                if (callbackStep) {
-                  return callbackStep
-                }
-                throw wrapRecoverableCodexOAuthBranchError('consent', error)
-              }
-
-              return waitForCodexOAuthStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'authenticated' as const,
-            priority: 50,
-            guard: ({ input }) =>
-              (input.kind === 'surface-candidates' &&
-                input.candidates.includes('authenticated')) ||
-              (input.kind === 'post-login-candidates' &&
-                input.candidates.includes('authenticated')),
-            run: async () => {
-              if (currentStep.kind === 'surface-candidates') {
-                await sendCodexOAuthSurfaceReady(
-                  machine,
-                  page,
-                  'authenticated',
-                  redirectUri,
-                )
-              } else {
-                await sendCodexOAuthMachine(
-                  machine,
-                  'codex.oauth.callback.waiting',
-                  {
-                    url: sanitizeUrl(page.url()),
-                    redirectUri,
-                    lastMessage:
-                      'OpenAI session detected after stored login step; waiting for Codex OAuth callback or consent',
-                  },
-                )
-              }
-
-              return waitForCodexOAuthStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'email' as const,
-            priority: 45,
-            guard: ({ input }) =>
-              input.kind === 'surface-candidates' &&
-              input.candidates.includes('email'),
-            run: async () => {
-              await sendCodexOAuthSurfaceReady(
-                machine,
-                page,
-                'email',
-                redirectUri,
-              )
-              await submitCodexOAuthStoredLoginEmail(
-                page,
-                machine,
-                options,
-                redirectUri,
-                progress,
-              )
-              return waitForCodexOAuthLoginProgressStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'login' as const,
-            priority: 40,
-            guard: ({ input }) =>
-              input.kind === 'surface-candidates' &&
-              input.candidates.includes('login'),
-            run: async () => {
-              await sendCodexOAuthSurfaceReady(
-                machine,
-                page,
-                'login',
-                redirectUri,
-              )
-              try {
-                if (!(await clickLoginEntryIfPresent(page))) {
-                  throw new Error(
-                    'OpenAI login entry button became visible but could not be clicked.',
-                  )
-                }
-              } catch (error) {
-                throw wrapRecoverableCodexOAuthBranchError('login', error)
-              }
-
-              const postLoginStep = await waitForCodexOAuthStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-              if (
-                postLoginStep.kind === 'surface-candidates' &&
-                postLoginStep.candidates.every(
-                  (candidate) => candidate === 'login',
-                ) &&
-                postLoginStep.candidates.includes('login')
-              ) {
-                throw new GuardedBranchError(
-                  'login',
-                  'OpenAI login entry did not advance to an authenticated, workspace, organization, consent, or email surface.',
-                )
-              }
-              return postLoginStep
-            },
-          },
-          {
-            branch: 'password' as const,
-            priority: 25,
-            guard: async ({ input }) =>
-              input.kind === 'post-login-candidates' &&
-              (input.candidates.includes('password') ||
-                (await waitForPasswordInputReady(page, 500))),
-            run: async () => {
-              await submitCodexOAuthStoredPassword(
-                page,
-                machine,
-                options,
-                redirectUri,
-                progress,
-              )
-              return waitForCodexOAuthLoginProgressStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'verification' as const,
-            priority: 24,
-            guard: async ({ input }) =>
-              input.kind === 'post-login-candidates' &&
-              (input.candidates.includes('verification') ||
-                (await waitForVerificationCodeInputReady(page, 500))),
-            run: async () => {
-              await submitCodexOAuthStoredVerification(
-                page,
-                machine,
-                options,
-                redirectUri,
-                progress,
-              )
-              return waitForCodexOAuthLoginProgressStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'retry' as const,
-            priority: 23,
-            guard: ({ input }) =>
-              input.kind === 'post-login-candidates' &&
-              input.candidates.includes('retry'),
-            run: async () => {
-              await machine.send('codex.oauth.retry.requested', {
-                reason: 'post-login:retry',
-                message:
-                  'ChatGPT login returned to the email step; retrying stored identity email submission',
-                patch: {
-                  url: sanitizeUrl(page.url()),
-                  redirectUri,
-                },
-              })
-              await submitCodexOAuthStoredLoginEmail(
-                page,
-                machine,
-                options,
-                redirectUri,
-                progress,
-              )
-              return waitForCodexOAuthLoginProgressStep(
-                page,
-                waitForCallback,
-                redirectUri,
-                CODEX_OAUTH_POST_ENTRY_TIMEOUT_MS,
-                getResolvedCallback,
-              )
-            },
-          },
-          {
-            branch: 'unsupported-surface' as const,
-            priority: 22,
-            guard: ({ input }) => input.kind === 'surface-candidates',
-            run: async ({ input }) => {
-              if (input.kind !== 'surface-candidates') {
-                throw new Error('Codex OAuth reached an unsupported surface.')
-              }
-              throw new Error(
-                `Codex OAuth reached unsupported surface candidates: ${input.candidates.join(', ')}`,
-              )
-            },
-          },
-          {
-            branch: 'unsupported-post-login' as const,
-            priority: 21,
-            guard: ({ input }) => input.kind === 'post-login-candidates',
-            run: async ({ input }) => {
-              if (input.kind !== 'post-login-candidates') {
-                throw new Error(
-                  'Codex OAuth reached an unsupported post-email login step.',
-                )
-              }
-              throw new Error(
-                `Codex OAuth reached unsupported post-email login candidates: ${input.candidates.join(', ')}`,
-              )
-            },
-          },
-        ],
-        {
-          context: machine.getSnapshot().context,
-          input: currentStep,
-          onFallback: async ({ branch, error }) => {
-            await machine.send('codex.oauth.retry.requested', {
-              reason: `surface:${branch}`,
-              message: `Retrying Codex OAuth ${branch} surface after branch entry failed`,
-              patch: {
-                url: sanitizeUrl(page.url()),
-                redirectUri,
-                lastMessage: error.message,
-              },
-            })
-          },
-        },
-      )
-    ).result
-
     if (currentStep.kind === 'callback') {
       return currentStep.callback
+    }
+
+    if (currentStep.kind === 'callback-navigation') {
+      currentStep = {
+        kind: 'callback',
+        callback: await waitForCallback,
+      }
+      continue
+    }
+
+    try {
+      currentStep =
+        currentStep.kind === 'surface-candidates'
+          ? await runCodexOAuthSurfaceObservation(
+              page,
+              machine,
+              options,
+              redirectUri,
+              progress,
+              currentStep,
+              skippedSurfaceCandidates,
+              waitForCallback,
+              getResolvedCallback,
+              preferredWorkspaceId,
+              onSelectedWorkspaceId,
+            )
+          : await runCodexOAuthPostLoginObservation(
+              page,
+              machine,
+              options,
+              redirectUri,
+              progress,
+              currentStep,
+              skippedPostLoginCandidates,
+              waitForCallback,
+              getResolvedCallback,
+            )
+      skippedSurfaceCandidates.clear()
+      skippedPostLoginCandidates.clear()
+    } catch (error) {
+      if (
+        !handleRecoverableCodexOAuthObservationError(
+          error,
+          currentStep,
+          skippedSurfaceCandidates,
+          skippedPostLoginCandidates,
+        )
+      ) {
+        throw error
+      }
+
+      await machine.send('codex.oauth.retry.requested', {
+        reason: `surface:${(error as GuardedBranchError).branch}`,
+        message: `Retrying Codex OAuth ${(error as GuardedBranchError).branch} surface after branch entry failed`,
+        patch: {
+          url: sanitizeUrl(page.url()),
+          redirectUri,
+          lastMessage: (error as GuardedBranchError).message,
+        },
+      })
     }
   }
 

@@ -30,6 +30,7 @@ type FakeGoPayScreen =
   | 'empty'
   | 'notification'
   | 'linked-app-without-unlink'
+  | 'loading'
 
 class FakeAndroidElement {
   constructor(
@@ -104,7 +105,8 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
     if (
       (this.screen === 'linked-apps' ||
         this.screen === 'empty' ||
-        this.screen === 'linked-app-without-unlink') &&
+        this.screen === 'linked-app-without-unlink' ||
+        this.screen === 'loading') &&
       selector === GOPAY_LINKED_APPS_TITLE_XPATH
     ) {
       return [new FakeAndroidElement(this, 'linked-apps-title')]
@@ -177,6 +179,17 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
       this.screen === 'linked-app-without-unlink'
     ) {
       return '<android.widget.FrameLayout pane-title="Linked apps" />'
+    }
+    if (this.screen === 'loading') {
+      return [
+        '<android.widget.FrameLayout package="com.gojek.gopay" pane-title="Linked apps">',
+        '<android.widget.Button><android.widget.ImageView content-desc="Back" /></android.widget.Button>',
+        '<android.view.View content-desc="Linked apps" heading="true" />',
+        '<android.view.View bounds="[48,375][1296,762]" />',
+        '<android.view.View bounds="[48,762][1296,1149]" />',
+        '<android.view.View bounds="[48,1149][1296,1533]" />',
+        '</android.widget.FrameLayout>',
+      ].join('')
     }
     if (this.screen === 'home') {
       return '<android.widget.ImageView package="com.gojek.gopay" content-desc="Profile" />'
@@ -351,25 +364,38 @@ describe('GoPay Android unlink helper', () => {
     ])
   })
 
-  it('treats Linked apps without app rows or unlink buttons as already unlinked', async () => {
+  it('fails when Linked apps shows only loading placeholders', async () => {
+    const driver = new FakeGoPayAndroidDriver('loading')
+
+    await expect(
+      unlinkGoPayLinkedAppsInSession(
+        {
+          appiumSessionId: 'appium-loading',
+          driver: driver as never,
+        },
+        { timeoutMs: 50 },
+      ),
+    ).rejects.toThrow(
+      'GoPay Linked apps content did not finish loading before timeout.',
+    )
+    expect(driver.clicks).toEqual([])
+  })
+
+  it('fails when Linked apps has no confirmed empty state, app rows, or unlink buttons', async () => {
     const driver = new FakeGoPayAndroidDriver('linked-apps', 0)
 
-    const result = await unlinkGoPayLinkedAppsInSession(
-      {
-        appiumSessionId: 'appium-6',
-        driver: driver as never,
-      },
-      { timeoutMs: 1000 },
+    await expect(
+      unlinkGoPayLinkedAppsInSession(
+        {
+          appiumSessionId: 'appium-6',
+          driver: driver as never,
+        },
+        { timeoutMs: 50 },
+      ),
+    ).rejects.toThrow(
+      'GoPay Linked apps content did not finish loading before timeout.',
     )
-
-    expect(result).toMatchObject({
-      status: 'already-unlinked',
-      clickedInitialUnlink: false,
-      clickedConfirmUnlink: false,
-      unlinkedAppCount: 0,
-      exitedLinkedApps: true,
-    })
-    expect(driver.clicks).toEqual(['linked-apps-back'])
+    expect(driver.clicks).toEqual([])
   })
 
   it('fails when a linked app row exists but no Unlink button appears', async () => {

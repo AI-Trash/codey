@@ -3,14 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   createId: vi.fn(),
   getDb: vi.fn(),
-  sendAstrBotPayPalNotification: vi.fn(),
+  sendAstrBotTrialPaymentNotification: vi.fn(),
   syncIdentityMaintenanceRunFromFlowTask: vi.fn(),
 }))
 
 vi.mock('@tanstack/react-start/server-only', () => ({}))
 
 vi.mock('./astrbot', () => ({
-  sendAstrBotPayPalNotification: mocks.sendAstrBotPayPalNotification,
+  sendAstrBotTrialPaymentNotification:
+    mocks.sendAstrBotTrialPaymentNotification,
 }))
 
 vi.mock('./db/client', () => ({
@@ -403,7 +404,12 @@ describe('flow task completion', () => {
           }),
         ]),
       )
-      expect(mocks.sendAstrBotPayPalNotification).not.toHaveBeenCalled()
+      expect(mocks.sendAstrBotTrialPaymentNotification).toHaveBeenCalledWith({
+        paymentMethod: 'gopay',
+        paymentUrl: gopayUrl,
+        workspace: undefined,
+        capturedAt: expect.any(Date),
+      })
     },
   )
 })

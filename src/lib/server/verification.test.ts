@@ -408,6 +408,16 @@ describe('ChatGPT Plus subscription email handling', () => {
     ).toBe(true)
     expect(
       isChatGptPlusSubscriptionSuccessEmail({
+        subject: '=?UTF-8?B?Q2hhdEdQVCAtIOS9oOeahOaWsOWll+mkkA==?=',
+      }),
+    ).toBe(true)
+    expect(
+      isChatGptPlusSubscriptionSuccessEmail({
+        subject: 'Your new ChatGPT plan',
+      }),
+    ).toBe(true)
+    expect(
+      isChatGptPlusSubscriptionSuccessEmail({
         subject: 'Receipt from OpenAI',
         textBody: '你已成功订阅 ChatGPT Plus。',
       }),
@@ -441,11 +451,9 @@ describe('ChatGPT Plus subscription email handling', () => {
       email: 'alias@example.com',
       identityId: 'identity-plus-1',
     }
-    const findManagedIdentity = vi
-      .fn()
-      .mockResolvedValueOnce({
-        email: 'owner@example.com',
-      })
+    const findManagedIdentity = vi.fn().mockResolvedValueOnce({
+      email: 'owner@example.com',
+    })
     const preferredConnection = createCliConnectionSummary({
       id: 'connection-preferred',
       storageStateEmails: ['owner@example.com'],
@@ -506,6 +514,75 @@ describe('ChatGPT Plus subscription email handling', () => {
         email: 'owner@example.com',
       },
     })
+  })
+
+  it('dispatches Codex OAuth when the subscription subject is MIME-encoded', async () => {
+    const receivedAt = new Date('2026-05-03T00:00:00.000Z')
+    const emailRecord = {
+      id: 'email-record-plus-encoded',
+      reservationId: null,
+      messageId: 'message-plus-encoded',
+      recipient: 'owner@example.com',
+      subject: 'ChatGPT - 你的新套餐',
+      textBody: null,
+      htmlBody: null,
+      rawPayload: null,
+      verificationCode: null,
+      receivedAt,
+      createdAt: receivedAt,
+    }
+    const connection = createCliConnectionSummary({
+      id: 'connection-encoded',
+    })
+    const insertChain = createEmailInsertChain(emailRecord)
+
+    mocks.listAdminCliConnectionState.mockResolvedValue({
+      snapshotAt: '2026-05-03T00:00:30.000Z',
+      activeConnections: [connection],
+    })
+    mocks.dispatchCliFlowTasks.mockResolvedValue({
+      tasks: [{ id: 'codex-oauth-task-encoded' }],
+      connection,
+      assignedCliCount: 1,
+    })
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+        managedIdentities: {
+          findFirst: vi.fn().mockResolvedValue({
+            email: 'owner@example.com',
+          }),
+        },
+        flowTasks: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      },
+      insert: insertChain.insert,
+    })
+
+    await expect(
+      ingestCloudflareEmail({
+        recipient: 'owner@example.com',
+        subject: '=?UTF-8?B?Q2hhdEdQVCAtIOS9oOeahOaWsOWll+mkkA==?=',
+        messageId: 'message-plus-encoded',
+        receivedAt: receivedAt.toISOString(),
+      }),
+    ).resolves.toMatchObject({
+      subscriptionCodexOAuth: {
+        status: 'queued',
+        targetEmail: 'owner@example.com',
+        connectionId: 'connection-encoded',
+        taskIds: ['codex-oauth-task-encoded'],
+      },
+    })
+
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: 'ChatGPT - 你的新套餐',
+      }),
+    )
   })
 
   it('skips Codex OAuth dispatch when a recent task already exists for the email', async () => {

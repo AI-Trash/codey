@@ -177,8 +177,7 @@ type WhatsAppReservationMatch =
 
 const CHATGPT_BUSINESS_TRIAL_ENDED_CLEANUP_REASON =
   'chatgpt_business_trial_ended'
-const CHATGPT_PLUS_SUBSCRIPTION_CODEX_OAUTH_DEDUP_MS =
-  24 * 60 * 60 * 1000
+const CHATGPT_PLUS_SUBSCRIPTION_CODEX_OAUTH_DEDUP_MS = 24 * 60 * 60 * 1000
 const DEFAULT_ADMIN_INBOX_PAGE_SIZE = 25
 const MAX_ADMIN_INBOX_PAGE_SIZE = 100
 const RESERVATION_MAILBOX_ADJECTIVES = [
@@ -617,6 +616,51 @@ function normalizeStoredEmailContent(value: string | null | undefined) {
   return normalized ? normalized : undefined
 }
 
+function decodeMimeEncodedWords(value: string) {
+  const compacted = value.replace(
+    /(=\?[^?]+\?[bq]\?[^?]*\?=)\s+(?==\?[^?]+\?[bq]\?)/gi,
+    '$1',
+  )
+
+  return compacted.replace(
+    /=\?([^?]+)\?([bq])\?([^?]*)\?=/gi,
+    (encodedWord, charset: string, encoding: string, encodedText: string) => {
+      let bytes: Buffer
+      if (encoding.toLowerCase() === 'b') {
+        bytes = Buffer.from(encodedText.replace(/\s+/g, ''), 'base64')
+      } else {
+        const byteValues: number[] = []
+        const text = encodedText.replace(/_/g, ' ')
+        for (let index = 0; index < text.length; index += 1) {
+          const character = text[index]
+          if (
+            character === '=' &&
+            /^[0-9a-f]{2}$/i.test(text.slice(index + 1, index + 3))
+          ) {
+            byteValues.push(
+              Number.parseInt(text.slice(index + 1, index + 3), 16),
+            )
+            index += 2
+          } else {
+            byteValues.push(character.charCodeAt(0))
+          }
+        }
+        bytes = Buffer.from(byteValues)
+      }
+
+      try {
+        return new TextDecoder(charset).decode(bytes)
+      } catch {
+        try {
+          return new TextDecoder('utf-8').decode(bytes)
+        } catch {
+          return encodedWord
+        }
+      }
+    },
+  )
+}
+
 function normalizeManualVerificationCodeInput(value: string) {
   const normalized = value.replace(/[０-９]/g, (character) =>
     String.fromCharCode(character.charCodeAt(0) - 0xfee0),
@@ -752,11 +796,17 @@ function resolveVerificationEmailSubject(params: {
     return subject
   }
 
-  return params.parsedEmail?.subject || subject || null
+  const decodedSubject = subject
+    ? normalizeStoredEmailContent(decodeMimeEncodedWords(subject))
+    : undefined
+
+  return params.parsedEmail?.subject || decodedSubject || subject || null
 }
 
 function normalizeSubjectForMatching(subject: string) {
-  let normalized = subject.normalize('NFKC').toLowerCase()
+  let normalized = decodeMimeEncodedWords(subject)
+    .normalize('NFKC')
+    .toLowerCase()
   normalized = normalized.replace(/\s+/g, ' ').trim()
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -819,7 +869,11 @@ export function isChatGptPlusSubscriptionSuccessEmail(params: {
   const subject = params.subject
     ? normalizeSubjectForMatching(params.subject)
     : ''
-  if (/^chatgpt\s*[-–—]\s*你的新套餐$/.test(subject)) {
+  if (
+    /\bchatgpt\b/.test(subject) &&
+    (/[你您]\s*的\s*新\s*套餐/.test(subject) ||
+      /\byour\s+new\s+(?:chatgpt\s+)?plan\b/.test(subject))
+  ) {
     return true
   }
 
@@ -869,8 +923,8 @@ async function resolveCodexOAuthEmailForSubscriptionSuccess(params: {
 function isCliConnectionRunningFlow(connection: AdminCliConnectionSummary) {
   return Boolean(
     connection.runtimeFlowId &&
-      !connection.runtimeFlowCompletedAt &&
-      connection.runtimeFlowStatus !== 'completed',
+    !connection.runtimeFlowCompletedAt &&
+    connection.runtimeFlowStatus !== 'completed',
   )
 }
 

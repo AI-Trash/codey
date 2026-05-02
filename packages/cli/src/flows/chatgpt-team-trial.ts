@@ -24,6 +24,7 @@ import {
   clickTrialPricingFreeTrial,
   continueGoPayPaymentFromRedirect,
   createChatGPTTrialCheckoutLink,
+  type ChatGPTCheckoutPaymentLink,
   createChatGPTBackendApiHeadersCapture,
   extractGoPayPaymentRedirectLink,
   fillChatGPTCheckoutBillingAddress,
@@ -914,6 +915,507 @@ function formatTrialCouponChecks(
     .join('; ')
 }
 
+interface ChatGPTTeamTrialCheckoutContext<Result = unknown> {
+  options: FlowOptions
+  email: string
+  machine?: ChatGPTTeamTrialFlowMachine<Result>
+  paymentMethod: ChatGPTTrialPaymentMethod
+  paymentMethodLabel: string
+  coupon: ChatGPTTrialPromoCoupon
+  plan: ChatGPTTrialPromoPlan
+  couponState?: string
+  pricingUrl: string
+}
+
+interface ChatGPTTeamTrialCheckoutEntry {
+  checkoutUrl: string
+  checkoutTitle: string
+  trialClaimClicked: boolean
+}
+
+interface ChatGPTTeamTrialSubmittedPayment {
+  redirect: ChatGPTCheckoutPaymentLink
+  redirectUrlPath: string
+  paypalBaTokenCaptured: boolean
+}
+
+async function startChatGPTTeamTrialGoPayUnlinkRegion<Result>(
+  machine: ChatGPTTeamTrialFlowMachine<Result> | undefined,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  shouldContinueGoPayPayment: boolean,
+  gopayUnlinkTask: ChatGPTTeamTrialGoPayUnlinkTask | undefined,
+): Promise<void> {
+  if (paymentMethod !== 'gopay' || !shouldContinueGoPayPayment || !machine) {
+    return
+  }
+
+  await patchTeamTrialMachine(
+    machine,
+    gopayUnlinkTask
+      ? 'chatgpt.gopay_unlink.started'
+      : 'chatgpt.gopay_unlink.disabled',
+    {
+      paymentMethod,
+      gopayUnlinkStarted: Boolean(gopayUnlinkTask),
+      gopayUnlinkStatus: gopayUnlinkTask ? 'running' : 'disabled',
+      lastMessage: gopayUnlinkTask
+        ? 'GoPay unlink task is running in Appium'
+        : 'GoPay unlink task is disabled',
+    },
+  )
+}
+
+async function requireChatGPTTeamTrialAuthenticatedHome<Result>(
+  page: Page,
+  context: Pick<
+    ChatGPTTeamTrialCheckoutContext<Result>,
+    'email' | 'machine' | 'paymentMethod'
+  >,
+): Promise<void> {
+  const authenticated = await waitForAuthenticatedSession(page, 30000)
+  if (!authenticated) {
+    throw new Error(
+      'ChatGPT trial flow lost the authenticated session before checkout.',
+    )
+  }
+
+  if (context.machine) {
+    await sendTeamTrialMachine(context.machine, 'chatgpt.home.ready', {
+      email: context.email,
+      paymentMethod: context.paymentMethod,
+      url: page.url(),
+      lastMessage: 'Authenticated ChatGPT home is ready',
+    })
+  }
+}
+
+async function selectChatGPTTeamTrialCoupon<Result>(
+  page: Page,
+  input: ChatGPTTeamTrialPostLoginOptions<Result>,
+  context: Pick<
+    ChatGPTTeamTrialCheckoutContext<Result>,
+    'email' | 'machine' | 'options' | 'paymentMethod'
+  >,
+): Promise<{
+  coupon: ChatGPTTrialPromoCoupon
+  plan: ChatGPTTrialPromoPlan
+  couponState?: string
+  pricingUrl: string
+}> {
+  if (context.machine) {
+    await context.machine.send('context.updated', {
+      patch: {
+        email: context.email,
+        paymentMethod: context.paymentMethod,
+        url: page.url(),
+        lastMessage: 'Checking ChatGPT trial coupon eligibility',
+      },
+    })
+  }
+
+  const couponSelection = await selectEligibleChatGPTTrialPromoCoupon(page, {
+    requestHeaders: input.backendApiHeadersCapture?.get()?.headers,
+  })
+  const coupon = couponSelection.selected?.coupon
+  if (!coupon) {
+    throw new Error(
+      `No eligible ChatGPT trial coupon was found (${formatTrialCouponChecks(couponSelection.checked)}).`,
+    )
+  }
+
+  const plan = getChatGPTTrialPromoPlan(coupon)
+  const couponState = couponSelection.selected?.state
+  const pricingUrl = buildChatGPTTrialPricingPromoUrl(coupon)
+  context.options.progressReporter?.({
+    message: `Selected ChatGPT ${plan} trial coupon ${coupon}`,
+  })
+
+  if (context.machine) {
+    await context.machine.send('context.updated', {
+      patch: {
+        email: context.email,
+        coupon,
+        trialPlan: plan,
+        paymentMethod: context.paymentMethod,
+        couponState,
+        url: page.url(),
+        lastMessage: `Selected ChatGPT ${plan} trial coupon ${coupon}`,
+      },
+    })
+  }
+
+  return {
+    coupon,
+    plan,
+    couponState,
+    pricingUrl,
+  }
+}
+
+async function openChatGPTTeamTrialCheckout<Result>(
+  page: Page,
+  context: ChatGPTTeamTrialCheckoutContext<Result>,
+): Promise<ChatGPTTeamTrialCheckoutEntry> {
+  if (context.paymentMethod === 'gopay') {
+    await openDirectGoPayTrialCheckout(page, context)
+    const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
+    if (!checkoutReady) {
+      throw new Error(
+        `ChatGPT ${context.plan} trial checkout did not become ready.`,
+      )
+    }
+    return {
+      checkoutUrl: page.url(),
+      checkoutTitle: await page.title(),
+      trialClaimClicked: false,
+    }
+  }
+
+  await openPricingTrialCheckout(page, context)
+  const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
+  if (!checkoutReady) {
+    throw new Error(
+      `ChatGPT ${context.plan} trial checkout did not become ready.`,
+    )
+  }
+
+  return {
+    checkoutUrl: page.url(),
+    checkoutTitle: await page.title(),
+    trialClaimClicked: true,
+  }
+}
+
+async function openDirectGoPayTrialCheckout<Result>(
+  page: Page,
+  context: ChatGPTTeamTrialCheckoutContext<Result>,
+): Promise<void> {
+  await applyChatGPTTeamTrialStateProxyConfig('creating-checkout', {
+    options: context.options,
+    machine: context.machine,
+    paymentMethod: context.paymentMethod,
+    patch: {
+      email: context.email,
+      coupon: context.coupon,
+      trialPlan: context.plan,
+      paymentMethod: context.paymentMethod,
+      couponState: context.couponState,
+      url: page.url(),
+    },
+  })
+  if (context.machine) {
+    await sendTeamTrialMachine(context.machine, 'chatgpt.checkout.creating', {
+      email: context.email,
+      coupon: context.coupon,
+      trialPlan: context.plan,
+      paymentMethod: context.paymentMethod,
+      couponState: context.couponState,
+      pricingRegion: CHATGPT_GOPAY_PRICING_REGION,
+      url: page.url(),
+      lastMessage: `Creating ChatGPT ${context.plan} trial checkout link directly`,
+    })
+  }
+
+  await selectGoPayProxyTag(
+    CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS,
+    'singapore',
+    {
+      options: context.options,
+      machine: context.machine,
+      patch: {
+        email: context.email,
+        coupon: context.coupon,
+        trialPlan: context.plan,
+        paymentMethod: context.paymentMethod,
+        couponState: context.couponState,
+        url: page.url(),
+      },
+    },
+  )
+
+  const checkout = await createChatGPTTrialCheckoutLink(page, context.coupon, {
+    paymentMethod: context.paymentMethod,
+  })
+  await applyChatGPTTeamTrialStateProxyConfig('checkout-ready', {
+    options: context.options,
+    machine: context.machine,
+    paymentMethod: context.paymentMethod,
+    patch: {
+      email: context.email,
+      coupon: context.coupon,
+      trialPlan: context.plan,
+      paymentMethod: context.paymentMethod,
+      couponState: context.couponState,
+      url: page.url(),
+      checkoutUrl: checkout.url,
+    },
+  })
+  await page.goto(checkout.url, { waitUntil: 'domcontentloaded' })
+  await page.locator('body').waitFor({ state: 'visible' })
+  await page.waitForLoadState('networkidle').catch(() => undefined)
+  context.options.progressReporter?.({
+    message: `Opened ChatGPT ${context.plan} direct checkout: ${checkout.url}`,
+  })
+}
+
+async function openPricingTrialCheckout<Result>(
+  page: Page,
+  context: ChatGPTTeamTrialCheckoutContext<Result>,
+): Promise<void> {
+  if (context.machine) {
+    await sendTeamTrialMachine(context.machine, 'chatgpt.pricing.opening', {
+      email: context.email,
+      coupon: context.coupon,
+      trialPlan: context.plan,
+      paymentMethod: context.paymentMethod,
+      couponState: context.couponState,
+      url: context.pricingUrl,
+      lastMessage: `Opening ChatGPT ${context.plan} pricing promo`,
+    })
+  }
+  await gotoTrialPricingPromo(page, context.coupon)
+  await selectChatGPTTrialPricingPlanIfPresent(page, context.coupon)
+
+  const pricingReady = await waitForTrialPricingFreeTrialReady(
+    page,
+    context.coupon,
+    30000,
+  )
+  if (!pricingReady) {
+    throw new Error(
+      `ChatGPT ${context.plan} pricing free trial button was not visible.`,
+    )
+  }
+
+  if (context.machine) {
+    await sendTeamTrialMachine(context.machine, 'chatgpt.pricing.ready', {
+      email: context.email,
+      coupon: context.coupon,
+      trialPlan: context.plan,
+      paymentMethod: context.paymentMethod,
+      couponState: context.couponState,
+      url: page.url(),
+      lastMessage: `ChatGPT ${context.plan} pricing free trial button is ready`,
+    })
+    await sendTeamTrialMachine(context.machine, 'chatgpt.trial.claiming', {
+      email: context.email,
+      coupon: context.coupon,
+      trialPlan: context.plan,
+      paymentMethod: context.paymentMethod,
+      pricingRegion: undefined,
+      url: page.url(),
+      lastMessage: `Clicking ChatGPT ${context.plan} free trial button`,
+    })
+  }
+
+  await clickTrialPricingFreeTrial(page, context.coupon)
+  const trialClaimTitle = await page.title()
+
+  if (context.machine) {
+    await sendTeamTrialMachine(context.machine, 'chatgpt.trial.claimed', {
+      email: context.email,
+      coupon: context.coupon,
+      trialPlan: context.plan,
+      paymentMethod: context.paymentMethod,
+      url: page.url(),
+      title: trialClaimTitle,
+      lastMessage: `ChatGPT ${context.plan} free trial button clicked`,
+    })
+  }
+}
+
+async function saveTeamTrialStorageStateIfRequested<Result>(
+  page: Page,
+  input: ChatGPTTeamTrialPostLoginOptions<Result>,
+  options: FlowOptions,
+): Promise<void> {
+  if (!input.storageStateIdentity) {
+    return
+  }
+
+  try {
+    await saveLocalChatGPTStorageState(page, {
+      identityId: input.storageStateIdentity.id,
+      email: input.storageStateIdentity.email,
+      flowType: input.storageStateFlowType || 'chatgpt-team-trial',
+    })
+    options.progressReporter?.({
+      message: `Saved local ChatGPT storage state for ${input.storageStateIdentity.email}`,
+    })
+  } catch (error) {
+    options.progressReporter?.({
+      message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
+    })
+  }
+}
+
+async function prepareChatGPTTeamTrialCheckout<Result>(
+  page: Page,
+  context: ChatGPTTeamTrialCheckoutContext<Result>,
+  checkout: ChatGPTTeamTrialCheckoutEntry,
+): Promise<void> {
+  if (context.machine) {
+    await sendTeamTrialMachine(context.machine, 'chatgpt.checkout.ready', {
+      email: context.email,
+      coupon: context.coupon,
+      trialPlan: context.plan,
+      paymentMethod: context.paymentMethod,
+      url: checkout.checkoutUrl,
+      checkoutUrl: checkout.checkoutUrl,
+      title: checkout.checkoutTitle,
+      lastMessage: `ChatGPT ${context.plan} checkout is ready`,
+    })
+  }
+}
+
+async function submitChatGPTTeamTrialCheckout<Result>(
+  page: Page,
+  context: ChatGPTTeamTrialCheckoutContext<Result>,
+  checkoutUrl: string,
+): Promise<ChatGPTTeamTrialSubmittedPayment> {
+  const billingAddress = resolveChatGPTTeamTrialBillingAddress(context.options)
+
+  if (context.machine) {
+    await sendTeamTrialMachine(
+      context.machine,
+      'chatgpt.paypal_payment_method.selecting',
+      {
+        email: context.email,
+        coupon: context.coupon,
+        trialPlan: context.plan,
+        paymentMethod: context.paymentMethod,
+        url: checkoutUrl,
+        checkoutUrl,
+        lastMessage: `Selecting ${context.paymentMethodLabel} payment method before filling billing address`,
+      },
+    )
+  }
+  const paymentMethodSelected =
+    await selectChatGPTCheckoutPaymentMethodIfPresent(
+      page,
+      context.paymentMethod,
+      {
+        timeoutMs: 30000,
+      },
+    )
+  if (!paymentMethodSelected) {
+    throw new Error(
+      `ChatGPT checkout ${context.paymentMethodLabel} payment method was not visible before billing address.`,
+    )
+  }
+
+  if (context.machine) {
+    await sendTeamTrialMachine(
+      context.machine,
+      'chatgpt.paypal_payment_method.selected',
+      {
+        email: context.email,
+        coupon: context.coupon,
+        trialPlan: context.plan,
+        paymentMethod: context.paymentMethod,
+        url: page.url(),
+        checkoutUrl,
+        paymentMethodSelected: true,
+        paypalPaymentMethodSelected: context.paymentMethod === 'paypal',
+        lastMessage: `ChatGPT checkout ${context.paymentMethodLabel} payment method selected`,
+      },
+    )
+    await sendTeamTrialMachine(
+      context.machine,
+      'chatgpt.billing_address.filling',
+      {
+        email: context.email,
+        coupon: context.coupon,
+        trialPlan: context.plan,
+        paymentMethod: context.paymentMethod,
+        url: checkoutUrl,
+        checkoutUrl,
+        billingCountry: billingAddress.country,
+        paymentMethodSelected: true,
+        paypalPaymentMethodSelected: context.paymentMethod === 'paypal',
+        lastMessage: 'Filling ChatGPT checkout billing address',
+      },
+    )
+  }
+  await fillChatGPTCheckoutBillingAddress(page, billingAddress)
+
+  if (context.machine) {
+    await sendTeamTrialMachine(
+      context.machine,
+      'chatgpt.billing_address.filled',
+      {
+        email: context.email,
+        coupon: context.coupon,
+        trialPlan: context.plan,
+        paymentMethod: context.paymentMethod,
+        url: page.url(),
+        checkoutUrl,
+        billingCountry: billingAddress.country,
+        paymentMethodSelected: true,
+        billingAddressFilled: true,
+        lastMessage: 'ChatGPT checkout billing address filled',
+      },
+    )
+    await sendTeamTrialMachine(
+      context.machine,
+      'chatgpt.subscription.submitting',
+      {
+        email: context.email,
+        coupon: context.coupon,
+        trialPlan: context.plan,
+        paymentMethod: context.paymentMethod,
+        url: page.url(),
+        checkoutUrl,
+        paymentMethodSelected: true,
+        billingAddressFilled: true,
+        lastMessage: `Submitting ChatGPT ${context.plan} trial subscription with ${context.paymentMethodLabel}`,
+      },
+    )
+  }
+
+  const redirect = await clickChatGPTCheckoutSubscribeAndCapturePaymentLink(
+    page,
+    {
+      paymentMethod: context.paymentMethod,
+    },
+  )
+  const redirectUrlPath = saveTrialPaymentRedirectUrl(
+    redirect.url,
+    context.paymentMethod,
+  )
+  const paypalBaTokenCaptured = redirect.paymentMethod === 'paypal'
+
+  if (context.machine) {
+    await sendTeamTrialMachine(
+      context.machine,
+      'chatgpt.paypal_link.captured',
+      {
+        email: context.email,
+        coupon: context.coupon,
+        trialPlan: context.plan,
+        paymentMethod: context.paymentMethod,
+        url: page.url(),
+        checkoutUrl,
+        paymentMethodSelected: true,
+        billingAddressFilled: true,
+        subscribeClicked: true,
+        paypalBaTokenCaptured,
+        paymentRedirectUrl: redirect.url,
+        paymentRedirectUrlPath: redirectUrlPath,
+        paypalApprovalUrl: redirect.url,
+        paypalApprovalUrlPath: redirectUrlPath,
+        lastMessage: `Captured ${context.paymentMethodLabel} payment redirect link: ${redirect.url}`,
+      },
+    )
+  }
+
+  return {
+    redirect,
+    redirectUrlPath,
+    paypalBaTokenCaptured,
+  }
+}
+
 export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
   Result = unknown,
 >(
@@ -931,361 +1433,59 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     paymentMethod === 'gopay' && shouldContinueGoPayPayment
       ? input.gopayUnlinkTask === false
         ? undefined
-        : (input.gopayUnlinkTask ?? startChatGPTTeamTrialGoPayUnlinkTask(options))
+        : (input.gopayUnlinkTask ??
+          startChatGPTTeamTrialGoPayUnlinkTask(options))
       : undefined
   let gopayUnlink: GoPayAndroidUnlinkResult | undefined
 
-  if (paymentMethod === 'gopay' && shouldContinueGoPayPayment && machine) {
-    await patchTeamTrialMachine(
-      machine,
-      gopayUnlinkTask
-        ? 'chatgpt.gopay_unlink.started'
-        : 'chatgpt.gopay_unlink.disabled',
-      {
-        paymentMethod,
-        gopayUnlinkStarted: Boolean(gopayUnlinkTask),
-        gopayUnlinkStatus: gopayUnlinkTask ? 'running' : 'disabled',
-        lastMessage: gopayUnlinkTask
-          ? 'GoPay unlink task is running in Appium'
-          : 'GoPay unlink task is disabled',
-      },
-    )
-  }
-
-  const authenticated = await waitForAuthenticatedSession(page, 30000)
-  if (!authenticated) {
-    throw new Error(
-      'ChatGPT trial flow lost the authenticated session before checkout.',
-    )
-  }
-
-  if (machine) {
-    await sendTeamTrialMachine(machine, 'chatgpt.home.ready', {
-      email,
-      paymentMethod,
-      url: page.url(),
-      lastMessage: 'Authenticated ChatGPT home is ready',
-    })
-  }
-
-  if (machine) {
-    await machine.send('context.updated', {
-      patch: {
-        email,
-        paymentMethod,
-        url: page.url(),
-        lastMessage: 'Checking ChatGPT trial coupon eligibility',
-      },
-    })
-  }
-  const couponSelection = await selectEligibleChatGPTTrialPromoCoupon(page, {
-    requestHeaders: input.backendApiHeadersCapture?.get()?.headers,
-  })
-  const selectedCoupon = couponSelection.selected?.coupon
-  if (!selectedCoupon) {
-    throw new Error(
-      `No eligible ChatGPT trial coupon was found (${formatTrialCouponChecks(couponSelection.checked)}).`,
-    )
-  }
-  const selectedPlan = getChatGPTTrialPromoPlan(selectedCoupon)
-  const selectedCouponState = couponSelection.selected?.state
-  const pricingUrl = buildChatGPTTrialPricingPromoUrl(selectedCoupon)
-  options.progressReporter?.({
-    message: `Selected ChatGPT ${selectedPlan} trial coupon ${selectedCoupon}`,
-  })
-
-  if (machine) {
-    await machine.send('context.updated', {
-      patch: {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        couponState: selectedCouponState,
-        url: page.url(),
-        lastMessage: `Selected ChatGPT ${selectedPlan} trial coupon ${selectedCoupon}`,
-      },
-    })
-  }
-
-  let trialClaimClicked = true
-  const useDirectCheckout = paymentMethod === 'gopay'
-
-  if (useDirectCheckout) {
-    trialClaimClicked = false
-    await applyChatGPTTeamTrialStateProxyConfig('creating-checkout', {
-      options,
-      machine,
-      paymentMethod,
-      patch: {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        couponState: selectedCouponState,
-        url: page.url(),
-      },
-    })
-    if (machine) {
-      await sendTeamTrialMachine(machine, 'chatgpt.checkout.creating', {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        couponState: selectedCouponState,
-        pricingRegion: CHATGPT_GOPAY_PRICING_REGION,
-        url: page.url(),
-        lastMessage: `Creating ChatGPT ${selectedPlan} trial checkout link directly`,
-      })
-    }
-
-    await selectGoPayProxyTag(
-      CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS,
-      'singapore',
-      {
-        options,
-        machine,
-        patch: {
-          email,
-          coupon: selectedCoupon,
-          trialPlan: selectedPlan,
-          paymentMethod,
-          couponState: selectedCouponState,
-          url: page.url(),
-        },
-      },
-    )
-
-    const checkout = await createChatGPTTrialCheckoutLink(
-      page,
-      selectedCoupon,
-      {
-        paymentMethod,
-      },
-    )
-    await applyChatGPTTeamTrialStateProxyConfig('checkout-ready', {
-      options,
-      machine,
-      paymentMethod,
-      patch: {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        couponState: selectedCouponState,
-        url: page.url(),
-        checkoutUrl: checkout.url,
-      },
-    })
-    await page.goto(checkout.url, { waitUntil: 'domcontentloaded' })
-    await page.locator('body').waitFor({ state: 'visible' })
-    await page.waitForLoadState('networkidle').catch(() => undefined)
-    options.progressReporter?.({
-      message: `Opened ChatGPT ${selectedPlan} direct checkout: ${checkout.url}`,
-    })
-  } else {
-    if (machine) {
-      await sendTeamTrialMachine(machine, 'chatgpt.pricing.opening', {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        couponState: selectedCouponState,
-        url: pricingUrl,
-        lastMessage: `Opening ChatGPT ${selectedPlan} pricing promo`,
-      })
-    }
-    await gotoTrialPricingPromo(page, selectedCoupon)
-    await selectChatGPTTrialPricingPlanIfPresent(page, selectedCoupon)
-
-    const pricingReady = await waitForTrialPricingFreeTrialReady(
-      page,
-      selectedCoupon,
-      30000,
-    )
-    if (!pricingReady) {
-      throw new Error(
-        `ChatGPT ${selectedPlan} pricing free trial button was not visible.`,
-      )
-    }
-
-    if (machine) {
-      await sendTeamTrialMachine(machine, 'chatgpt.pricing.ready', {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        couponState: selectedCouponState,
-        url: page.url(),
-        lastMessage: `ChatGPT ${selectedPlan} pricing free trial button is ready`,
-      })
-    }
-
-    if (machine) {
-      await sendTeamTrialMachine(machine, 'chatgpt.trial.claiming', {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        pricingRegion: undefined,
-        url: page.url(),
-        lastMessage: `Clicking ChatGPT ${selectedPlan} free trial button`,
-      })
-    }
-    await clickTrialPricingFreeTrial(page, selectedCoupon)
-    const trialClaimTitle = await page.title()
-
-    if (machine) {
-      await sendTeamTrialMachine(machine, 'chatgpt.trial.claimed', {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        url: page.url(),
-        title: trialClaimTitle,
-        lastMessage: `ChatGPT ${selectedPlan} free trial button clicked`,
-      })
-    }
-  }
-
-  const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
-  if (!checkoutReady) {
-    throw new Error(
-      `ChatGPT ${selectedPlan} trial checkout did not become ready.`,
-    )
-  }
-
-  const checkoutUrl = page.url()
-  const checkoutTitle = await page.title()
-
-  if (input.storageStateIdentity) {
-    try {
-      await saveLocalChatGPTStorageState(page, {
-        identityId: input.storageStateIdentity.id,
-        email: input.storageStateIdentity.email,
-        flowType: input.storageStateFlowType || 'chatgpt-team-trial',
-      })
-      options.progressReporter?.({
-        message: `Saved local ChatGPT storage state for ${input.storageStateIdentity.email}`,
-      })
-    } catch (error) {
-      options.progressReporter?.({
-        message: `Local ChatGPT storage state save failed: ${sanitizeErrorForOutput(error).message}`,
-      })
-    }
-  }
-
-  if (machine) {
-    await sendTeamTrialMachine(machine, 'chatgpt.checkout.ready', {
-      email,
-      coupon: selectedCoupon,
-      trialPlan: selectedPlan,
-      paymentMethod,
-      url: checkoutUrl,
-      checkoutUrl,
-      title: checkoutTitle,
-      lastMessage: `ChatGPT ${selectedPlan} checkout is ready`,
-    })
-  }
-
-  const billingAddress = resolveChatGPTTeamTrialBillingAddress(options)
-
-  if (machine) {
-    await sendTeamTrialMachine(
-      machine,
-      'chatgpt.paypal_payment_method.selecting',
-      {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        url: checkoutUrl,
-        checkoutUrl,
-        lastMessage: `Selecting ${paymentMethodLabel} payment method before filling billing address`,
-      },
-    )
-  }
-  const paymentMethodSelected =
-    await selectChatGPTCheckoutPaymentMethodIfPresent(page, paymentMethod, {
-      timeoutMs: 30000,
-    })
-  if (!paymentMethodSelected) {
-    throw new Error(
-      `ChatGPT checkout ${paymentMethodLabel} payment method was not visible before billing address.`,
-    )
-  }
-
-  if (machine) {
-    await sendTeamTrialMachine(
-      machine,
-      'chatgpt.paypal_payment_method.selected',
-      {
-        email,
-        coupon: selectedCoupon,
-        trialPlan: selectedPlan,
-        paymentMethod,
-        url: page.url(),
-        checkoutUrl,
-        paymentMethodSelected: true,
-        paypalPaymentMethodSelected: paymentMethod === 'paypal',
-        lastMessage: `ChatGPT checkout ${paymentMethodLabel} payment method selected`,
-      },
-    )
-  }
-
-  if (machine) {
-    await sendTeamTrialMachine(machine, 'chatgpt.billing_address.filling', {
-      email,
-      coupon: selectedCoupon,
-      trialPlan: selectedPlan,
-      paymentMethod,
-      url: checkoutUrl,
-      checkoutUrl,
-      billingCountry: billingAddress.country,
-      paymentMethodSelected: true,
-      paypalPaymentMethodSelected: paymentMethod === 'paypal',
-      lastMessage: 'Filling ChatGPT checkout billing address',
-    })
-  }
-  await fillChatGPTCheckoutBillingAddress(page, billingAddress)
-
-  if (machine) {
-    await sendTeamTrialMachine(machine, 'chatgpt.billing_address.filled', {
-      email,
-      coupon: selectedCoupon,
-      trialPlan: selectedPlan,
-      paymentMethod,
-      url: page.url(),
-      checkoutUrl,
-      billingCountry: billingAddress.country,
-      paymentMethodSelected: true,
-      billingAddressFilled: true,
-      lastMessage: 'ChatGPT checkout billing address filled',
-    })
-  }
-
-  if (machine) {
-    await sendTeamTrialMachine(machine, 'chatgpt.subscription.submitting', {
-      email,
-      coupon: selectedCoupon,
-      trialPlan: selectedPlan,
-      paymentMethod,
-      url: page.url(),
-      checkoutUrl,
-      paymentMethodSelected: true,
-      billingAddressFilled: true,
-      lastMessage: `Submitting ChatGPT ${selectedPlan} trial subscription with ${paymentMethodLabel}`,
-    })
-  }
-  const paymentRedirect =
-    await clickChatGPTCheckoutSubscribeAndCapturePaymentLink(page, {
-      paymentMethod,
-    })
-  const paymentRedirectUrlPath = saveTrialPaymentRedirectUrl(
-    paymentRedirect.url,
+  await startChatGPTTeamTrialGoPayUnlinkRegion(
+    machine,
     paymentMethod,
+    shouldContinueGoPayPayment,
+    gopayUnlinkTask,
   )
-  const paypalBaTokenCaptured = paymentRedirect.paymentMethod === 'paypal'
+  await requireChatGPTTeamTrialAuthenticatedHome(page, {
+    email,
+    machine,
+    paymentMethod,
+  })
+
+  const selected = await selectChatGPTTeamTrialCoupon(page, input, {
+    email,
+    machine,
+    options,
+    paymentMethod,
+  })
+  const selectedCoupon = selected.coupon
+  const selectedPlan = selected.plan
+  const selectedCouponState = selected.couponState
+  const pricingUrl = selected.pricingUrl
+  const checkoutContext: ChatGPTTeamTrialCheckoutContext<Result> = {
+    email,
+    machine,
+    options,
+    paymentMethod,
+    paymentMethodLabel,
+    coupon: selectedCoupon,
+    plan: selectedPlan,
+    couponState: selectedCouponState,
+    pricingUrl,
+  }
+
+  const checkout = await openChatGPTTeamTrialCheckout(page, checkoutContext)
+  const checkoutUrl = checkout.checkoutUrl
+  const trialClaimClicked = checkout.trialClaimClicked
+  await saveTeamTrialStorageStateIfRequested(page, input, options)
+  await prepareChatGPTTeamTrialCheckout(page, checkoutContext, checkout)
+
+  const submittedPayment = await submitChatGPTTeamTrialCheckout(
+    page,
+    checkoutContext,
+    checkoutUrl,
+  )
+  const paymentRedirect = submittedPayment.redirect
+  const paymentRedirectUrlPath = submittedPayment.redirectUrlPath
+  const paypalBaTokenCaptured = submittedPayment.paypalBaTokenCaptured
   let gopayPayment: GoPayPaymentContinuationResult | undefined
 
   if (machine) {
@@ -1573,92 +1773,88 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
     lastMessage: 'Opening GoPay tokenization link',
   })
 
-  const gopayPayment = await continueGoPayPaymentFromRedirect(
-    page,
-    redirect,
-    {
-      ...resolveChatGPTTeamTrialGoPayAccount(),
-      waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
-      async beforeAuthorizationOpen({ activationLinkUrl }) {
-        if (!gopayUnlinkTask) {
-          return
-        }
+  const gopayPayment = await continueGoPayPaymentFromRedirect(page, redirect, {
+    ...resolveChatGPTTeamTrialGoPayAccount(),
+    waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
+    async beforeAuthorizationOpen({ activationLinkUrl }) {
+      if (!gopayUnlinkTask) {
+        return
+      }
 
-        if (gopayUnlinkTask.status === 'failed') {
-          await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.failed', {
-            paymentMethod,
-            url: page.url(),
-            paymentRedirectUrl: redirect.url,
-            paypalApprovalUrl: redirect.url,
-            gopayActivationLinkUrl: activationLinkUrl,
-            gopayUnlinkStatus: 'failed',
-            lastMessage:
-              'GoPay unlink task failed; continuing authorization without unlink',
-          })
-          return
-        }
-
-        await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.waiting', {
+      if (gopayUnlinkTask.status === 'failed') {
+        await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.failed', {
           paymentMethod,
           url: page.url(),
           paymentRedirectUrl: redirect.url,
           paypalApprovalUrl: redirect.url,
           gopayActivationLinkUrl: activationLinkUrl,
-          gopayUnlinkStatus: 'waiting',
+          gopayUnlinkStatus: 'failed',
           lastMessage:
-            'Waiting for GoPay unlink task before opening GoPay authorization',
+            'GoPay unlink task failed; continuing authorization without unlink',
         })
+        return
+      }
 
-        try {
-          gopayUnlink = await gopayUnlinkTask.wait()
-        } catch (error) {
-          await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.failed', {
-            paymentMethod,
-            url: page.url(),
-            paymentRedirectUrl: redirect.url,
-            paypalApprovalUrl: redirect.url,
-            gopayActivationLinkUrl: activationLinkUrl,
-            gopayUnlinkStatus: 'failed',
-            gopayUnlinkError: sanitizeErrorForOutput(error).message,
-            lastMessage:
-              'GoPay unlink task failed; continuing authorization without unlink',
-          })
-          return
-        }
+      await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.waiting', {
+        paymentMethod,
+        url: page.url(),
+        paymentRedirectUrl: redirect.url,
+        paypalApprovalUrl: redirect.url,
+        gopayActivationLinkUrl: activationLinkUrl,
+        gopayUnlinkStatus: 'waiting',
+        lastMessage:
+          'Waiting for GoPay unlink task before opening GoPay authorization',
+      })
 
-        await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.completed', {
+      try {
+        gopayUnlink = await gopayUnlinkTask.wait()
+      } catch (error) {
+        await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.failed', {
           paymentMethod,
           url: page.url(),
           paymentRedirectUrl: redirect.url,
           paypalApprovalUrl: redirect.url,
           gopayActivationLinkUrl: activationLinkUrl,
-          gopayUnlinkStatus: gopayUnlink.status,
-          gopayUnlinkCompleted: true,
-          gopayUnlinkAppiumSessionId: gopayUnlink.appiumSessionId,
+          gopayUnlinkStatus: 'failed',
+          gopayUnlinkError: sanitizeErrorForOutput(error).message,
           lastMessage:
-            gopayUnlink.status === 'already-unlinked'
-              ? 'GoPay had no linked apps before OpenAI authorization'
-              : 'GoPay linked app was unlinked before OpenAI authorization',
+            'GoPay unlink task failed; continuing authorization without unlink',
         })
-      },
-      onProgress(update) {
-        const messages = {
-          'redirect-opened': 'Opened GoPay tokenization link',
-          'phone-submitted': 'Submitted GoPay phone number',
-          'authorization-opened': 'Opened GoPay authorization page',
-          'authorization-consented': 'Clicked GoPay authorization consent',
-          'otp-requested': 'Waiting for GoPay WhatsApp OTP from Codey app',
-          'otp-submitted': 'Submitted GoPay WhatsApp OTP',
-          'pin-submitted': 'Submitted GoPay PIN',
-          'payment-page-ready': 'GoPay payment page is ready',
-          'pay-now-clicked': 'Clicked GoPay Pay now',
-        } as const
-        options.progressReporter?.({
-          message: messages[update.step],
-        })
-      },
+        return
+      }
+
+      await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.completed', {
+        paymentMethod,
+        url: page.url(),
+        paymentRedirectUrl: redirect.url,
+        paypalApprovalUrl: redirect.url,
+        gopayActivationLinkUrl: activationLinkUrl,
+        gopayUnlinkStatus: gopayUnlink.status,
+        gopayUnlinkCompleted: true,
+        gopayUnlinkAppiumSessionId: gopayUnlink.appiumSessionId,
+        lastMessage:
+          gopayUnlink.status === 'already-unlinked'
+            ? 'GoPay had no linked apps before OpenAI authorization'
+            : 'GoPay linked app was unlinked before OpenAI authorization',
+      })
     },
-  )
+    onProgress(update) {
+      const messages = {
+        'redirect-opened': 'Opened GoPay tokenization link',
+        'phone-submitted': 'Submitted GoPay phone number',
+        'authorization-opened': 'Opened GoPay authorization page',
+        'authorization-consented': 'Clicked GoPay authorization consent',
+        'otp-requested': 'Waiting for GoPay WhatsApp OTP from Codey app',
+        'otp-submitted': 'Submitted GoPay WhatsApp OTP',
+        'pin-submitted': 'Submitted GoPay PIN',
+        'payment-page-ready': 'GoPay payment page is ready',
+        'pay-now-clicked': 'Clicked GoPay Pay now',
+      } as const
+      options.progressReporter?.({
+        message: messages[update.step],
+      })
+    },
+  })
 
   const gopayTargetEvent =
     gopayPayment.status === 'pay-now-clicked'
@@ -1673,8 +1869,7 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
     paypalApprovalUrl: redirect.url,
     gopayActivationLinkUrl: gopayPayment.activationLinkUrl,
     gopayStatus: gopayPayment.status,
-    gopayAuthorizationConsentClicked:
-      gopayPayment.authorizationConsentClicked,
+    gopayAuthorizationConsentClicked: gopayPayment.authorizationConsentClicked,
     gopayOtpSubmitted: gopayPayment.otpSubmitted,
     gopayPinSubmitted: gopayPayment.pinSubmitted,
     gopayPayNowClicked: gopayPayment.payNowClicked,
@@ -1704,7 +1899,8 @@ export async function runChatGPTTeamTrialGoPay(
   page: Page,
   options: FlowOptions = {},
 ): Promise<ChatGPTTeamTrialGoPayFlowResult> {
-  const machine = createChatGPTTeamTrialMachine<ChatGPTTeamTrialGoPayFlowResult>()
+  const machine =
+    createChatGPTTeamTrialMachine<ChatGPTTeamTrialGoPayFlowResult>()
   const detachProgress = attachStateMachineProgressReporter(
     machine,
     options.progressReporter,

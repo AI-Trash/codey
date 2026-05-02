@@ -45,6 +45,48 @@ describe('chatgpt registration machine', () => {
     })
   })
 
+  it('selects observed entry and post-email candidates by machine priority', async () => {
+    const machine = createChatGPTRegistrationMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.entry.observed', {
+      candidates: ['signup', 'email'],
+      url: 'https://chatgpt.com/auth/login',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'email-step',
+      context: {
+        entrySurface: 'email',
+        lastMessage: 'Registration email surface ready',
+      },
+    })
+
+    await machine.send('chatgpt.email.observed', {
+      candidates: ['retry', 'verification'],
+      url: 'https://auth.openai.com/u/signup/verify-email',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'verification-polling',
+      context: {
+        postEmailStep: 'verification',
+        method: 'verification',
+        lastMessage:
+          'Verification step detected after registration email submission',
+      },
+    })
+  })
+
   it('selects the post-email transition with guards', async () => {
     const machine = createChatGPTRegistrationMachine()
 

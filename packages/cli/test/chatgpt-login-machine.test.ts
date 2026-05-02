@@ -55,6 +55,30 @@ describe('chatgpt login machine', () => {
     })
   })
 
+  it('selects observed post-email candidates by machine priority', async () => {
+    const machine = createChatGPTLoginMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.email.observed', {
+      candidates: ['retry', 'password'],
+      url: 'https://auth.openai.com/u/login/password',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'password-step',
+      context: {
+        postEmailStep: 'password',
+        lastMessage: 'Password step detected after email submission',
+      },
+    })
+  })
+
   it('tracks the local storage-state restore check before login steps', async () => {
     const machine = createChatGPTLoginMachine()
 

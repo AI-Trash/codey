@@ -10,7 +10,6 @@ import {
   declareStateMachineStates,
   defineStateMachineFragment,
   GuardedBranchError,
-  runGuardedBranches,
 } from '../state-machine'
 import type { RegistrationResult } from '../modules/registration'
 import {
@@ -115,7 +114,9 @@ export type ChatGPTRegistrationFlowState =
 export type ChatGPTRegistrationFlowEvent =
   | 'machine.started'
   | 'chatgpt.entry.opened'
+  | 'chatgpt.entry.observed'
   | 'chatgpt.email.started'
+  | 'chatgpt.email.observed'
   | 'chatgpt.email.submitted'
   | 'chatgpt.password.started'
   | 'chatgpt.password.submitted'
@@ -136,7 +137,8 @@ export type ChatGPTRegistrationFlowEvent =
   | 'action.started'
   | 'action.finished'
 
-interface RegistrationPostEmailResolution {
+interface RegistrationPostEmailBranchSelection {
+  branch: 'password' | 'verification' | 'retry'
   verificationEvent: 'chatgpt.password.submitted' | 'context.updated'
   verificationMessage: string
 }
@@ -147,6 +149,7 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   title?: string
   email?: string
   claimTrial?: ChatGPTTrialPaymentMethod
+  entrySurface?: Exclude<ChatGPTRegistrationEntrySurface, 'unknown'>
   postEmailStep?: ChatGPTPostEmailLoginStep
   prefix?: string
   verificationCode?: string
@@ -211,6 +214,10 @@ export interface ChatGPTRegistrationFlowResult {
 }
 
 export type ChatGPTRegistrationEntryResolution = 'authenticated' | 'email'
+type ChatGPTRegistrationEntryAction =
+  | 'authenticated'
+  | 'email-ready'
+  | 'click-signup'
 
 const MAX_AGE_GATE_SUBMIT_ATTEMPTS = 3
 const MAX_REGISTRATION_ENTRY_ATTEMPTS = 3
@@ -229,6 +236,18 @@ interface ChatGPTVerificationSubmittedInput {
 
 interface ChatGPTRegistrationEmailSubmittedInput<Result = unknown> {
   step: ChatGPTPostEmailLoginStep
+  url: string
+  patch?: Partial<ChatGPTRegistrationFlowContext<Result>>
+}
+
+interface ChatGPTRegistrationEntryObservedInput<Result = unknown> {
+  candidates: Exclude<ChatGPTRegistrationEntrySurface, 'unknown'>[]
+  url: string
+  patch?: Partial<ChatGPTRegistrationFlowContext<Result>>
+}
+
+interface ChatGPTRegistrationPostEmailObservedInput<Result = unknown> {
+  candidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
   url: string
   patch?: Partial<ChatGPTRegistrationFlowContext<Result>>
 }
@@ -279,6 +298,36 @@ function isChatGPTRegistrationEmailSubmittedInput<Result>(
   return typeof candidate.step === 'string' && typeof candidate.url === 'string'
 }
 
+function isChatGPTRegistrationEntryObservedInput<Result>(
+  value: unknown,
+): value is ChatGPTRegistrationEntryObservedInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<
+    ChatGPTRegistrationEntryObservedInput<Result>
+  >
+  return (
+    Array.isArray(candidate.candidates) && typeof candidate.url === 'string'
+  )
+}
+
+function isChatGPTRegistrationPostEmailObservedInput<Result>(
+  value: unknown,
+): value is ChatGPTRegistrationPostEmailObservedInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<
+    ChatGPTRegistrationPostEmailObservedInput<Result>
+  >
+  return (
+    Array.isArray(candidate.candidates) && typeof candidate.url === 'string'
+  )
+}
+
 function isChatGPTRegistrationLoginSurfaceInput<Result>(
   value: unknown,
 ): value is ChatGPTRegistrationLoginSurfaceInput<Result> {
@@ -313,7 +362,9 @@ const chatgptRegistrationMutableContextEvents = [
 
 const chatgptRegistrationAddPhoneGuardEvents = [
   'chatgpt.entry.opened',
+  'chatgpt.entry.observed',
   'chatgpt.email.started',
+  'chatgpt.email.observed',
   'chatgpt.email.submitted',
   'chatgpt.password.started',
   'chatgpt.password.submitted',
@@ -348,6 +399,150 @@ const chatgptRegistrationStates = [
   'completed',
   'failed',
 ] as const satisfies readonly ChatGPTRegistrationFlowState[]
+
+function createChatGPTRegistrationEntryObservedTransitions<Result>() {
+  const assignEntryContext = (
+    entrySurface: Exclude<ChatGPTRegistrationEntrySurface, 'unknown'>,
+    lastMessage: string,
+  ) =>
+    assignContextFromInput<
+      ChatGPTRegistrationFlowState,
+      ChatGPTRegistrationFlowContext<Result>,
+      ChatGPTRegistrationFlowEvent,
+      ChatGPTRegistrationEntryObservedInput<Result>
+    >(isChatGPTRegistrationEntryObservedInput, (_context, { input }) => ({
+      ...input.patch,
+      entrySurface,
+      url: input.url,
+      lastMessage,
+    }))
+
+  return createGuardedCaseTransitions<
+    ChatGPTRegistrationFlowState,
+    ChatGPTRegistrationFlowContext<Result>,
+    ChatGPTRegistrationFlowEvent,
+    ChatGPTRegistrationEntryObservedInput<Result>
+  >({
+    isInput: isChatGPTRegistrationEntryObservedInput,
+    cases: [
+      {
+        priority: 30,
+        when: ({ input }) => input.candidates.includes('authenticated'),
+        target: 'authenticated',
+        actions: assignEntryContext(
+          'authenticated',
+          'Already authenticated on registration entry',
+        ),
+      },
+      {
+        priority: 20,
+        when: ({ input }) => input.candidates.includes('email'),
+        target: 'email-step',
+        actions: assignEntryContext(
+          'email',
+          'Registration email surface ready',
+        ),
+      },
+      {
+        priority: 10,
+        when: ({ input }) => input.candidates.includes('signup'),
+        target: 'login-surface',
+        actions: assignEntryContext(
+          'signup',
+          'Registration signup surface ready',
+        ),
+      },
+    ],
+  })
+}
+
+function createChatGPTRegistrationPostEmailObservedTransitions<Result>() {
+  const assignObservedPostEmailContext = (
+    postEmailStep: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>,
+    lastMessage: string,
+    extras: Partial<ChatGPTRegistrationFlowContext<Result>> = {},
+  ) =>
+    assignContextFromInput<
+      ChatGPTRegistrationFlowState,
+      ChatGPTRegistrationFlowContext<Result>,
+      ChatGPTRegistrationFlowEvent,
+      ChatGPTRegistrationPostEmailObservedInput<Result>
+    >(isChatGPTRegistrationPostEmailObservedInput, (_context, { input }) => ({
+      ...input.patch,
+      ...extras,
+      postEmailStep,
+      url: input.url,
+      lastMessage,
+    }))
+
+  return createGuardedCaseTransitions<
+    ChatGPTRegistrationFlowState,
+    ChatGPTRegistrationFlowContext<Result>,
+    ChatGPTRegistrationFlowEvent,
+    ChatGPTRegistrationPostEmailObservedInput<Result>
+  >({
+    isInput: isChatGPTRegistrationPostEmailObservedInput,
+    cases: [
+      {
+        priority: 60,
+        when: ({ input }) => input.candidates.includes('authenticated'),
+        target: 'authenticated',
+        actions: assignObservedPostEmailContext(
+          'authenticated',
+          'Authenticated after registration email submission',
+        ),
+      },
+      {
+        priority: 50,
+        when: ({ input }) => input.candidates.includes('password'),
+        target: 'password-step',
+        actions: assignObservedPostEmailContext(
+          'password',
+          'Password step detected after registration email submission',
+        ),
+      },
+      {
+        priority: 40,
+        when: ({ input }) => input.candidates.includes('verification'),
+        target: 'verification-polling',
+        actions: assignObservedPostEmailContext(
+          'verification',
+          'Verification step detected after registration email submission',
+          {
+            method: 'verification',
+          },
+        ),
+      },
+      {
+        priority: 30,
+        when: ({ input }) => input.candidates.includes('retry'),
+        target: 'retrying',
+        actions: assignContextFromInput<
+          ChatGPTRegistrationFlowState,
+          ChatGPTRegistrationFlowContext<Result>,
+          ChatGPTRegistrationFlowEvent,
+          ChatGPTRegistrationPostEmailObservedInput<Result>
+        >(
+          isChatGPTRegistrationPostEmailObservedInput,
+          (context, { input, from }) => {
+            const nextAttempt = (context.retryCount ?? 0) + 1
+            return {
+              ...input.patch,
+              postEmailStep: 'retry',
+              url: input.url,
+              retryCount: nextAttempt,
+              retryReason: 'post-email:retry',
+              retryFromState: from,
+              lastAttempt: nextAttempt,
+              lastMessage:
+                'Retry step detected after registration email submission',
+            }
+          },
+        ),
+      },
+    ],
+  })
+}
 
 function createChatGPTRegistrationEmailSubmittedTransitions<Result>() {
   const assignPostEmailContext = (
@@ -503,6 +698,8 @@ function createChatGPTRegistrationLoginSurfaceFragment<Result>() {
     ChatGPTRegistrationFlowEvent
   >({
     on: {
+      'chatgpt.entry.observed':
+        createChatGPTRegistrationEntryObservedTransitions<Result>(),
       'chatgpt.login.surface.ready':
         createChatGPTRegistrationLoginSurfaceTransitions<Result>(),
     },
@@ -516,6 +713,8 @@ function createChatGPTRegistrationPostEmailFragment<Result>() {
     ChatGPTRegistrationFlowEvent
   >({
     on: {
+      'chatgpt.email.observed':
+        createChatGPTRegistrationPostEmailObservedTransitions<Result>(),
       'chatgpt.email.submitted':
         createChatGPTRegistrationEmailSubmittedTransitions<Result>(),
       'chatgpt.verification.submitted': {
@@ -745,106 +944,47 @@ export async function resolveRegistrationEntrySurface(
     }
 
     try {
-      return (
-        await runGuardedBranches(
-          [
-            {
-              branch: 'authenticated' as const,
-              priority: 60,
-              guard: ({ input }) =>
-                input.entryCandidates.includes('authenticated'),
-              run: async () => {
-                await options.machine.send('chatgpt.login.surface.ready', {
-                  step: 'authenticated',
-                  url: page.url(),
-                  patch: {
-                    email: options.email,
-                  },
-                })
-                return 'authenticated' as const
-              },
-            },
-            {
-              branch: 'email' as const,
-              priority: 50,
-              guard: ({ input }) => input.entryCandidates.includes('email'),
-              run: async () => {
-                try {
-                  const ready = await waitForLoginEmailFormReady(page, 5000)
-                  if (!ready) {
-                    throw new Error(
-                      'Registration email form did not become ready on the direct email surface.',
-                    )
-                  }
-                  await options.machine.send('chatgpt.login.surface.ready', {
-                    step: 'email',
-                    url: page.url(),
-                    patch: {
-                      email: options.email,
-                    },
-                  })
-                  return 'email' as const
-                } catch (error) {
-                  throw wrapRecoverableRegistrationBranchError('email', error)
-                }
-              },
-            },
-            {
-              branch: 'signup' as const,
-              priority: 40,
-              guard: ({ input }) => input.entryCandidates.includes('signup'),
-              run: async () => {
-                await options.machine.send('chatgpt.login.surface.ready', {
-                  step: 'signup',
-                  url: page.url(),
-                  patch: {
-                    email: options.email,
-                  },
-                })
-                try {
-                  await clickSignupEntry(page)
-                  const ready = await waitForLoginEmailFormReady(page, 15000)
-                  if (!ready) {
-                    throw new Error(
-                      'Registration email form did not become ready after selecting signup.',
-                    )
-                  }
-                  await options.machine.send('chatgpt.login.surface.ready', {
-                    step: 'email',
-                    url: page.url(),
-                    patch: {
-                      email: options.email,
-                    },
-                  })
-                  return 'email' as const
-                } catch (error) {
-                  throw wrapRecoverableRegistrationBranchError('signup', error)
-                }
-              },
-            },
-          ],
-          {
-            context: {
-              email: options.email,
-            },
-            input: {
-              attempt,
-              entryCandidates,
-            },
-            onFallback: async ({ branch, error }) => {
-              await options.machine.send('chatgpt.retry.requested', {
-                reason: `entry:${branch}`,
-                message: `Retrying registration entry after ${branch} branch failed`,
-                patch: {
-                  email: options.email,
-                  url: page.url(),
-                  lastMessage: error.message,
-                },
-              })
-            },
-          },
+      const entryAction = await observeRegistrationEntrySurface(
+        options.machine,
+        page,
+        options.email,
+        entryCandidates,
+      )
+
+      if (entryAction === 'authenticated') {
+        return 'authenticated'
+      }
+
+      if (entryAction === 'click-signup') {
+        await clickSignupEntry(page)
+      }
+
+      const ready = await waitForLoginEmailFormReady(
+        page,
+        entryAction === 'click-signup' ? 15000 : 5000,
+      )
+      if (!ready) {
+        throw wrapRecoverableRegistrationBranchError(
+          entryAction === 'click-signup' ? 'signup' : 'email',
+          new Error(
+            entryAction === 'click-signup'
+              ? 'Registration email form did not become ready after selecting signup.'
+              : 'Registration email form did not become ready on the direct email surface.',
+          ),
         )
-      ).result
+      }
+
+      if (entryAction === 'click-signup') {
+        await options.machine.send('chatgpt.entry.observed', {
+          candidates: ['email'],
+          url: page.url(),
+          patch: {
+            email: options.email,
+          },
+        })
+      }
+
+      return 'email'
     } catch (error) {
       if (
         error instanceof GuardedBranchError &&
@@ -852,6 +992,15 @@ export async function resolveRegistrationEntrySurface(
         attempt < maxAttempts
       ) {
         lastRecoverableError = error
+        await options.machine.send('chatgpt.retry.requested', {
+          reason: `entry:${error.branch}`,
+          message: `Retrying registration entry after ${error.branch} branch failed`,
+          patch: {
+            email: options.email,
+            url: page.url(),
+            lastMessage: error.message,
+          },
+        })
         continue
       }
 
@@ -867,54 +1016,65 @@ export async function resolveRegistrationEntrySurface(
   )
 }
 
+async function observeRegistrationEntrySurface(
+  machine: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
+  page: Page,
+  email: string,
+  entryCandidates: Exclude<ChatGPTRegistrationEntrySurface, 'unknown'>[],
+): Promise<ChatGPTRegistrationEntryAction> {
+  const snapshot = await machine.send('chatgpt.entry.observed', {
+    candidates: entryCandidates,
+    url: page.url(),
+    patch: {
+      email,
+    },
+  })
+
+  if (snapshot.state === 'authenticated') {
+    return 'authenticated'
+  }
+  if (snapshot.context.entrySurface === 'email') {
+    return 'email-ready'
+  }
+  if (snapshot.context.entrySurface === 'signup') {
+    return 'click-signup'
+  }
+
+  throw new Error(
+    `ChatGPT registration entry page reached unsupported surface candidates: ${entryCandidates.join(', ')}`,
+  )
+}
+
 async function fillRegistrationAgeGateFields(
   page: Page,
   email?: string,
 ): Promise<'birthday' | 'age' | null> {
   await fillAgeGateName(page, email)
   const candidates = await waitForAgeGateFieldCandidates(page, 3000)
-  if (candidates.length === 0) {
-    return null
+  const mode = selectRegistrationAgeGateFieldMode(candidates)
+  if (!mode) return null
+
+  const filled =
+    mode === 'age'
+      ? await fillAgeGateAge(page)
+      : await fillAgeGateBirthday(page)
+  if (!filled) {
+    throw new Error(
+      mode === 'age'
+        ? 'Age gate age field could not be filled.'
+        : 'Age gate birthday field could not be filled.',
+    )
   }
 
-  return (
-    await runGuardedBranches(
-      [
-        {
-          branch: 'age' as const,
-          priority: 20,
-          guard: ({ input }) => input.candidates.includes('age'),
-          run: async () => {
-            const filled = await fillAgeGateAge(page)
-            if (!filled) {
-              throw new Error('Age gate age field could not be filled.')
-            }
-            return 'age' as const
-          },
-        },
-        {
-          branch: 'birthday' as const,
-          priority: 10,
-          guard: ({ input }) => input.candidates.includes('birthday'),
-          run: async () => {
-            const filled = await fillAgeGateBirthday(page)
-            if (!filled) {
-              throw new Error('Age gate birthday field could not be filled.')
-            }
-            return 'birthday' as const
-          },
-        },
-      ],
-      {
-        context: {},
-        input: {
-          candidates,
-        } satisfies {
-          candidates: ChatGPTAgeGateFieldMode[]
-        },
-      },
-    )
-  ).result
+  return mode
+}
+
+function selectRegistrationAgeGateFieldMode(
+  candidates: ChatGPTAgeGateFieldMode[],
+): ChatGPTAgeGateFieldMode | null {
+  if (candidates.includes('age')) return 'age'
+  if (candidates.includes('birthday')) return 'birthday'
+  return null
 }
 
 async function waitForAgeGateSubmissionOutcome(
@@ -1037,6 +1197,99 @@ async function completeRegistrationAgeGate(
   throw new Error('Age gate submission did not complete successfully.')
 }
 
+async function observeRegistrationPostEmailBranch(
+  machine: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
+  page: Page,
+  email: string,
+  postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[],
+): Promise<RegistrationPostEmailBranchSelection> {
+  const snapshot = await machine.send('chatgpt.email.observed', {
+    candidates: postEmailCandidates,
+    url: page.url(),
+    patch: {
+      email,
+    },
+  })
+
+  if (snapshot.state === 'password-step') {
+    return {
+      branch: 'password',
+      verificationEvent: 'chatgpt.password.submitted',
+      verificationMessage: 'Waiting for verification email',
+    }
+  }
+
+  if (snapshot.state === 'verification-polling') {
+    return {
+      branch: 'verification',
+      verificationEvent: 'context.updated',
+      verificationMessage: 'Registration requested email verification',
+    }
+  }
+
+  if (snapshot.state === 'retrying') {
+    return {
+      branch: 'retry',
+      verificationEvent: 'context.updated',
+      verificationMessage:
+        'ChatGPT registration returned to the email step repeatedly after submission.',
+    }
+  }
+
+  if (snapshot.state === 'authenticated') {
+    throw new Error(
+      'ChatGPT was already authenticated after registration email submission.',
+    )
+  }
+
+  throw new Error(
+    `ChatGPT registration reached unsupported post-email candidates: ${postEmailCandidates.join(', ')}`,
+  )
+}
+
+async function completeRegistrationPasswordBranch(
+  page: Page,
+  password: string,
+): Promise<void> {
+  try {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const passwordReady = await waitForPasswordInputReady(page, 10000)
+      if (!passwordReady) {
+        throw new Error('ChatGPT password step did not become ready.')
+      }
+      const passwordTyped = await typePassword(page, password)
+      if (!passwordTyped) {
+        throw new Error(
+          'ChatGPT password field was visible but could not be typed into.',
+        )
+      }
+      await waitForEnabledSelector(
+        page,
+        [
+          'button[type="submit"]',
+          {
+            role: 'button',
+            options: { name: /继续|continue|注册|create/i },
+          },
+          { text: /继续|continue|注册|create/i },
+        ],
+        5000,
+      )
+      await clickPasswordSubmit(page)
+      const outcome = await waitForPasswordSubmissionOutcome(page)
+      if (outcome === 'verification' || outcome === 'unknown') return
+      const retried = await clickPasswordTimeoutRetry(page)
+      if (!retried) {
+        throw new Error(
+          'Password submission timed out and retry button was not clickable.',
+        )
+      }
+    }
+  } catch (error) {
+    throw wrapRecoverableRegistrationBranchError('password', error)
+  }
+}
+
 export async function registerChatGPT(
   page: Page,
   options: FlowOptions = {},
@@ -1142,153 +1395,25 @@ export async function registerChatGPT(
       )
     }
 
-    const postEmailResolution = (
-      await runGuardedBranches<
-        {
-          email: string
-        },
-        {
-          postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
-        },
-        RegistrationPostEmailResolution,
-        'password' | 'verification' | 'retry'
-      >(
-        [
-          {
-            branch: 'password' as const,
-            priority: 50,
-            guard: async ({ input }) =>
-              input.postEmailCandidates.includes('password') ||
-              (await waitForPasswordInputReady(page, 500)),
-            run: async () => {
-              await machine.send('chatgpt.email.submitted', {
-                step: 'password',
-                url: page.url(),
-                patch: {
-                  email,
-                },
-              })
-              await sendRegistrationMachine(
-                machine,
-                'chatgpt.password.started',
-                {
-                  url: page.url(),
-                  lastMessage: 'Waiting for password step',
-                },
-              )
-
-              try {
-                for (let attempt = 1; attempt <= 3; attempt += 1) {
-                  const passwordReady = await waitForPasswordInputReady(
-                    page,
-                    10000,
-                  )
-                  if (!passwordReady) {
-                    throw new Error(
-                      'ChatGPT password step did not become ready.',
-                    )
-                  }
-                  const passwordTyped = await typePassword(page, password)
-                  if (!passwordTyped) {
-                    throw new Error(
-                      'ChatGPT password field was visible but could not be typed into.',
-                    )
-                  }
-                  await waitForEnabledSelector(
-                    page,
-                    [
-                      'button[type="submit"]',
-                      {
-                        role: 'button',
-                        options: { name: /继续|continue|注册|create/i },
-                      },
-                      { text: /继续|continue|注册|create/i },
-                    ],
-                    5000,
-                  )
-                  await clickPasswordSubmit(page)
-                  const outcome = await waitForPasswordSubmissionOutcome(page)
-                  if (outcome === 'verification' || outcome === 'unknown') break
-                  const retried = await clickPasswordTimeoutRetry(page)
-                  if (!retried) {
-                    throw new Error(
-                      'Password submission timed out and retry button was not clickable.',
-                    )
-                  }
-                }
-              } catch (error) {
-                throw wrapRecoverableRegistrationBranchError('password', error)
-              }
-
-              return {
-                verificationEvent: 'chatgpt.password.submitted' as const,
-                verificationMessage: 'Waiting for verification email',
-              }
-            },
-          },
-          {
-            branch: 'verification' as const,
-            priority: 40,
-            guard: async ({ input }) =>
-              input.postEmailCandidates.includes('verification') ||
-              (await waitForVerificationCodeInputReady(page, 500)),
-            run: async () => {
-              await machine.send('chatgpt.email.submitted', {
-                step: 'verification',
-                url: page.url(),
-                patch: {
-                  email,
-                },
-              })
-              return {
-                verificationEvent: 'context.updated' as const,
-                verificationMessage:
-                  'Registration requested email verification',
-              }
-            },
-          },
-          {
-            branch: 'retry' as const,
-            priority: 30,
-            guard: ({ input }) => input.postEmailCandidates.includes('retry'),
-            run: async () => {
-              await machine.send('chatgpt.email.submitted', {
-                step: 'retry',
-                url: page.url(),
-                patch: {
-                  email,
-                },
-              })
-              throw new GuardedBranchError(
-                'retry',
-                'ChatGPT registration returned to the email step repeatedly after submission.',
-              )
-            },
-          },
-        ],
-        {
-          context: {
-            email,
-          },
-          input: {
-            postEmailCandidates,
-          },
-          onFallback: async ({ branch, error }) => {
-            if (branch !== 'retry') {
-              await machine.send('chatgpt.retry.requested', {
-                reason: `registration-post-email:${branch}`,
-                message: `Falling back from registration ${branch} branch`,
-                patch: {
-                  email,
-                  url: page.url(),
-                  lastMessage: error.message,
-                },
-              })
-            }
-          },
-        },
+    const postEmailResolution = await observeRegistrationPostEmailBranch(
+      machine,
+      page,
+      email,
+      postEmailCandidates,
+    )
+    if (postEmailResolution.branch === 'retry') {
+      throw new GuardedBranchError(
+        'retry',
+        postEmailResolution.verificationMessage,
       )
-    ).result
+    }
+    if (postEmailResolution.branch === 'password') {
+      await sendRegistrationMachine(machine, 'chatgpt.password.started', {
+        url: page.url(),
+        lastMessage: 'Waiting for password step',
+      })
+      await completeRegistrationPasswordBranch(page, password)
+    }
 
     await sendRegistrationMachine(
       machine,

@@ -8,7 +8,7 @@ vi.mock('./external-service-configs', () => ({
   getAstrBotPayPalNotificationConfig: mocks.getAstrBotPayPalNotificationConfig,
 }))
 
-describe('AstrBot PayPal notifications', () => {
+describe('AstrBot trial payment notifications', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.unstubAllGlobals()
@@ -134,6 +134,33 @@ describe('AstrBot PayPal notifications', () => {
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1].body)
     expect(body.message).toBe(
       'Pay unknown owner: https://www.paypal.com/pay?token=BA-123ABC',
+    )
+  })
+
+  it('sends captured GoPay links to AstrBot with generic template placeholders', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    mocks.getAstrBotPayPalNotificationConfig.mockResolvedValue({
+      baseUrl: 'http://astrbot:6185',
+      messagePath: '/api/v1/im/message',
+      umo: 'webchat:FriendMessage:operator',
+      timeoutMs: 5_000,
+      apiKey: 'astrbot-key',
+      messageTemplate: '{paymentLabel}: {paymentUrl}',
+    })
+
+    const { sendAstrBotTrialPaymentNotification } = await import('./astrbot')
+
+    await sendAstrBotTrialPaymentNotification({
+      paymentMethod: 'gopay',
+      paymentUrl:
+        'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking',
+      workspace: null,
+    })
+
+    const body = JSON.parse(fetchMock.mock.calls[0]?.[1].body)
+    expect(body.message).toBe(
+      'GoPay: https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking',
     )
   })
 

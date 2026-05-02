@@ -6,8 +6,17 @@ import {
 } from './external-service-configs'
 import type { AdminManagedWorkspaceSummary } from './workspaces'
 
+export type AstrBotTrialPaymentMethod = 'paypal' | 'gopay'
+
 export interface AstrBotPayPalNotificationInput {
   paypalUrl: string
+  workspace?: AdminManagedWorkspaceSummary | null
+  capturedAt?: Date
+}
+
+export interface AstrBotTrialPaymentNotificationInput {
+  paymentUrl: string
+  paymentMethod: AstrBotTrialPaymentMethod
   workspace?: AdminManagedWorkspaceSummary | null
   capturedAt?: Date
 }
@@ -46,10 +55,15 @@ function applyTemplate(
   })
 }
 
-function buildPayPalNotificationMessage(
-  input: AstrBotPayPalNotificationInput,
+function formatPaymentMethodLabel(method: AstrBotTrialPaymentMethod): string {
+  return method === 'gopay' ? 'GoPay' : 'PayPal'
+}
+
+function buildTrialPaymentNotificationMessage(
+  input: AstrBotTrialPaymentNotificationInput,
   template?: string,
 ): string {
+  const paymentLabel = formatPaymentMethodLabel(input.paymentMethod)
   const workspaceLabel =
     input.workspace?.label ||
     input.workspace?.workspaceId ||
@@ -59,7 +73,11 @@ function buildPayPalNotificationMessage(
   const capturedAt = (input.capturedAt || new Date()).toISOString()
   const expiresAt = input.workspace?.teamTrialPaypalExpiresAt || ''
   const values = {
-    paypalUrl: input.paypalUrl,
+    paymentUrl: input.paymentUrl,
+    paymentMethod: input.paymentMethod,
+    paymentLabel,
+    paypalUrl: input.paymentUrl,
+    gopayUrl: input.paymentMethod === 'gopay' ? input.paymentUrl : '',
     workspaceLabel,
     workspaceId: input.workspace?.workspaceId || '',
     workspaceRecordId: input.workspace?.id || '',
@@ -73,11 +91,11 @@ function buildPayPalNotificationMessage(
   }
 
   return [
-    'Codey captured a ChatGPT Team trial PayPal payment link.',
+    `Codey captured a ChatGPT Team trial ${paymentLabel} payment link.`,
     `Workspace: ${workspaceLabel}`,
     `Owner: ${ownerEmail}`,
     expiresAt ? `Expires at: ${expiresAt}` : 'Expires in: 10 minutes',
-    `PayPal: ${input.paypalUrl}`,
+    `${paymentLabel}: ${input.paymentUrl}`,
   ].join('\n')
 }
 
@@ -197,15 +215,27 @@ async function sendAstrBotMessageWithConfig(
 export async function sendAstrBotPayPalNotification(
   input: AstrBotPayPalNotificationInput,
 ): Promise<AstrBotPayPalNotificationResult | null> {
+  return sendAstrBotTrialPaymentNotification({
+    paymentMethod: 'paypal',
+    paymentUrl: input.paypalUrl,
+    workspace: input.workspace,
+    capturedAt: input.capturedAt,
+  })
+}
+
+export async function sendAstrBotTrialPaymentNotification(
+  input: AstrBotTrialPaymentNotificationInput,
+): Promise<AstrBotPayPalNotificationResult | null> {
   const config = await getAstrBotPayPalNotificationConfig()
   if (!config) {
     return null
   }
+  const paymentLabel = formatPaymentMethodLabel(input.paymentMethod)
 
   return sendAstrBotMessageWithConfig(
     config,
-    buildPayPalNotificationMessage(input, config.messageTemplate),
-    'PayPal notification',
+    buildTrialPaymentNotificationMessage(input, config.messageTemplate),
+    `${paymentLabel} notification`,
   )
 }
 

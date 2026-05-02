@@ -544,14 +544,19 @@ async function hasLinkedAppItem(
 async function waitForLinkedAppsContent(
   driver: GoPayAndroidUnlinkDriver,
   deadline: number,
-): Promise<void> {
-  const contentDeadline = Math.min(deadline, Date.now() + 3000)
-  await waitUntil(
+): Promise<boolean> {
+  return waitUntil(
     async () =>
       (await isNoLinkedAppsState(driver)) ||
       (await getDisplayedUnlinkButtons(driver)).length > 0 ||
       (await hasLinkedAppItem(driver)),
-    contentDeadline,
+    deadline,
+  )
+}
+
+function createLinkedAppsContentTimeoutError(): Error {
+  return new Error(
+    'GoPay Linked apps content did not finish loading before timeout.',
   )
 }
 
@@ -752,7 +757,10 @@ async function unlinkVisibleLinkedApps(
   let unlinkedAppCount = 0
 
   do {
-    await waitForLinkedAppsContent(driver, deadline)
+    const contentLoaded = await waitForLinkedAppsContent(driver, deadline)
+    if (!contentLoaded) {
+      throw createLinkedAppsContentTimeoutError()
+    }
 
     if (await isNoLinkedAppsState(driver)) {
       return unlinkedAppCount
@@ -761,7 +769,7 @@ async function unlinkVisibleLinkedApps(
     const unlinkButtons = await getDisplayedUnlinkButtons(driver)
     if (unlinkButtons.length === 0) {
       if (!(await hasLinkedAppItem(driver))) {
-        return unlinkedAppCount
+        throw createLinkedAppsContentTimeoutError()
       }
 
       throw new Error(
@@ -827,7 +835,10 @@ export async function unlinkGoPayLinkedAppsInSession(
       : 'GoPay Linked apps page is already open',
   })
 
-  await waitForLinkedAppsContent(driver, deadline)
+  const contentLoaded = await waitForLinkedAppsContent(driver, deadline)
+  if (!contentLoaded) {
+    throw createLinkedAppsContentTimeoutError()
+  }
   const hasNoLinkedApps = await isNoLinkedAppsState(driver)
   const initialUnlinkButtons = hasNoLinkedApps
     ? []
@@ -836,10 +847,7 @@ export async function unlinkGoPayLinkedAppsInSession(
     ? false
     : await hasLinkedAppItem(driver)
 
-  if (
-    hasNoLinkedApps ||
-    (initialUnlinkButtons.length === 0 && !hasInitialLinkedApp)
-  ) {
+  if (hasNoLinkedApps) {
     const exitedLinkedApps = await exitLinkedAppsPage(driver, deadline)
     if (exitedLinkedApps) {
       await reportProgress(options, {
@@ -865,6 +873,10 @@ export async function unlinkGoPayLinkedAppsInSession(
       unlinkedAppCount: 0,
       exitedLinkedApps,
     }
+  }
+
+  if (initialUnlinkButtons.length === 0 && !hasInitialLinkedApp) {
+    throw createLinkedAppsContentTimeoutError()
   }
 
   const unlinkedAppCount = await unlinkVisibleLinkedApps(

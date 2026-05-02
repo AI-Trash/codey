@@ -10,7 +10,6 @@ import {
   declareStateMachineStates,
   defineStateMachineFragment,
   GuardedBranchError,
-  runGuardedBranches,
 } from '../state-machine'
 import {
   resolveStoredChatGPTIdentity,
@@ -41,11 +40,9 @@ import {
   completePasswordOrVerificationLoginFallback,
   gotoLoginEntry,
   submitLoginEmail,
-  waitForPasswordInputReady,
   waitForPostLoginCompletionCandidates,
   waitForPostEmailLoginCandidates,
   createChatGPTBackendMeSessionProbe,
-  waitForVerificationCodeInputReady,
 } from '../modules/chatgpt/shared'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
 import type { ChatGPTSessionCapture } from '../modules/chatgpt/session'
@@ -92,6 +89,7 @@ export type ChatGPTLoginFlowEvent =
   | 'chatgpt.session.restoring'
   | 'chatgpt.entry.opened'
   | 'chatgpt.email.started'
+  | 'chatgpt.email.observed'
   | 'chatgpt.email.submitted'
   | 'chatgpt.password.started'
   | 'chatgpt.password.submitted'
@@ -171,6 +169,7 @@ interface ChatGPTStoredLoginRetryCallbacks {
     attempt: number,
     reason: 'retry' | 'timeout',
   ) => void | Promise<void>
+  machineObserver?: ChatGPTStoredLoginMachineObserver
 }
 
 export interface ChatGPTStoredLoginResult {
@@ -181,13 +180,19 @@ export interface ChatGPTStoredLoginResult {
   verificationCode?: string
 }
 
-interface StoredLoginBranchResolution {
-  method: 'password' | 'verification'
-  verificationCode?: string
+interface ChatGPTStoredLoginMachineObserver {
+  machine: ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult>
+  storedIdentity: StoredChatGPTIdentitySummary
 }
 
 interface ChatGPTLoginEmailSubmittedInput<Result = unknown> {
   step: ChatGPTPostEmailLoginStep
+  url: string
+  patch?: Partial<ChatGPTLoginFlowContext<Result>>
+}
+
+interface ChatGPTLoginPostEmailObservedInput<Result = unknown> {
+  candidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
   url: string
   patch?: Partial<ChatGPTLoginFlowContext<Result>>
 }
@@ -201,6 +206,19 @@ function isChatGPTLoginEmailSubmittedInput<Result>(
 
   const candidate = value as Partial<ChatGPTLoginEmailSubmittedInput<Result>>
   return typeof candidate.step === 'string' && typeof candidate.url === 'string'
+}
+
+function isChatGPTLoginPostEmailObservedInput<Result>(
+  value: unknown,
+): value is ChatGPTLoginPostEmailObservedInput<Result> {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<ChatGPTLoginPostEmailObservedInput<Result>>
+  return (
+    Array.isArray(candidate.candidates) && typeof candidate.url === 'string'
+  )
 }
 
 const chatgptLoginEventTargets = {
@@ -235,6 +253,7 @@ const chatgptLoginAddPhoneGuardEvents = [
   'chatgpt.session.restoring',
   'chatgpt.entry.opened',
   'chatgpt.email.started',
+  'chatgpt.email.observed',
   'chatgpt.email.submitted',
   'chatgpt.password.started',
   'chatgpt.password.submitted',
@@ -274,6 +293,90 @@ const chatgptLoginStates = [
   'completed',
   'failed',
 ] as const satisfies readonly ChatGPTLoginFlowState[]
+
+function createChatGPTLoginPostEmailObservedTransitions<Result>() {
+  const assignObservedPostEmailContext = (
+    postEmailStep: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>,
+    lastMessage: string,
+    extras: Partial<ChatGPTLoginFlowContext<Result>> = {},
+  ) =>
+    assignContextFromInput<
+      ChatGPTLoginFlowState,
+      ChatGPTLoginFlowContext<Result>,
+      ChatGPTLoginFlowEvent,
+      ChatGPTLoginPostEmailObservedInput<Result>
+    >(isChatGPTLoginPostEmailObservedInput, (_context, { input }) => ({
+      ...input.patch,
+      ...extras,
+      postEmailStep,
+      url: input.url,
+      lastMessage,
+    }))
+
+  return createGuardedCaseTransitions<
+    ChatGPTLoginFlowState,
+    ChatGPTLoginFlowContext<Result>,
+    ChatGPTLoginFlowEvent,
+    ChatGPTLoginPostEmailObservedInput<Result>
+  >({
+    isInput: isChatGPTLoginPostEmailObservedInput,
+    cases: [
+      {
+        priority: 60,
+        when: ({ input }) => input.candidates.includes('authenticated'),
+        target: 'authenticated',
+        actions: assignObservedPostEmailContext(
+          'authenticated',
+          'Authenticated after email submission',
+        ),
+      },
+      {
+        priority: 50,
+        when: ({ input }) => input.candidates.includes('password'),
+        target: 'password-step',
+        actions: assignObservedPostEmailContext(
+          'password',
+          'Password step detected after email submission',
+        ),
+      },
+      {
+        priority: 40,
+        when: ({ input }) => input.candidates.includes('verification'),
+        target: 'verification-polling',
+        actions: assignObservedPostEmailContext(
+          'verification',
+          'Verification step detected after email submission',
+          {
+            method: 'verification',
+          },
+        ),
+      },
+      {
+        priority: 30,
+        when: ({ input }) => input.candidates.includes('retry'),
+        target: 'retrying',
+        actions: assignContextFromInput<
+          ChatGPTLoginFlowState,
+          ChatGPTLoginFlowContext<Result>,
+          ChatGPTLoginFlowEvent,
+          ChatGPTLoginPostEmailObservedInput<Result>
+        >(isChatGPTLoginPostEmailObservedInput, (context, { input, from }) => {
+          const nextAttempt = (context.retryCount ?? 0) + 1
+          return {
+            ...input.patch,
+            postEmailStep: 'retry',
+            url: input.url,
+            retryCount: nextAttempt,
+            retryReason: 'post-email:retry',
+            retryFromState: from,
+            lastAttempt: nextAttempt,
+            lastMessage: 'Retry step detected after email submission',
+          }
+        }),
+      },
+    ],
+  })
+}
 
 function createChatGPTLoginEmailSubmittedTransitions<Result>() {
   const assignPostEmailContext = (
@@ -374,6 +477,8 @@ function createChatGPTLoginPostEmailFragment<Result>() {
     ChatGPTLoginFlowEvent
   >({
     on: {
+      'chatgpt.email.observed':
+        createChatGPTLoginPostEmailObservedTransitions<Result>(),
       'chatgpt.email.submitted':
         createChatGPTLoginEmailSubmittedTransitions<Result>(),
     },
@@ -574,6 +679,14 @@ async function triggerStoredLogin(
   verificationCode?: string
 }> {
   if (await waitForAuthenticatedSession(page, 5000)) {
+    await options.machineObserver?.machine.send('chatgpt.email.observed', {
+      candidates: ['authenticated'],
+      url: page.url(),
+      patch: {
+        email: stored.identity.email,
+        storedIdentity: options.machineObserver.storedIdentity,
+      },
+    })
     return {
       method: 'password',
     }
@@ -591,113 +704,109 @@ async function triggerStoredLogin(
 
   const config = getRuntimeConfig()
   let verificationProvider: VerificationProvider | undefined
-  return (
-    await runGuardedBranches<
-      {
-        email: string
-      },
-      {
-        postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]
-      },
-      StoredLoginBranchResolution,
-      'authenticated' | 'password' | 'verification' | 'retry'
-    >(
-      [
-        {
-          branch: 'authenticated' as const,
-          priority: 60,
-          guard: ({ input }) =>
-            input.postEmailCandidates.includes('authenticated'),
-          run: async () => ({
-            method: 'password',
-          }),
-        },
-        {
-          branch: 'password' as const,
-          priority: 50,
-          guard: async ({ input }) =>
-            input.postEmailCandidates.includes('password') ||
-            (await waitForPasswordInputReady(page, 500)),
-          run: async () => {
-            try {
-              const fallback =
-                await completePasswordOrVerificationLoginFallback(page, {
-                  email: stored.identity.email,
-                  password: stored.identity.password,
-                  step: 'password',
-                  startedAt,
-                  getVerificationProvider: () => {
-                    verificationProvider ??= createVerificationProvider(config)
-                    return verificationProvider
-                  },
-                })
-              return {
-                method: fallback.method,
-                verificationCode: fallback.verificationCode,
-              }
-            } catch (error) {
-              throw wrapRecoverableLoginBranchError('password', error)
-            }
-          },
-        },
-        {
-          branch: 'verification' as const,
-          priority: 40,
-          guard: async ({ input }) =>
-            input.postEmailCandidates.includes('verification') ||
-            (await waitForVerificationCodeInputReady(page, 500)),
-          run: async () => {
-            try {
-              const fallback =
-                await completePasswordOrVerificationLoginFallback(page, {
-                  email: stored.identity.email,
-                  password: stored.identity.password,
-                  step: 'verification',
-                  startedAt,
-                  getVerificationProvider: () => {
-                    verificationProvider ??= createVerificationProvider(config)
-                    return verificationProvider
-                  },
-                })
-              return {
-                method: fallback.method,
-                verificationCode: fallback.verificationCode,
-              }
-            } catch (error) {
-              throw wrapRecoverableLoginBranchError('verification', error)
-            }
-          },
-        },
-        {
-          branch: 'retry' as const,
-          priority: 30,
-          guard: ({ input }) => input.postEmailCandidates.includes('retry'),
-          run: async () => {
-            throw new GuardedBranchError(
-              'retry',
-              'ChatGPT login returned to the email step repeatedly after submission.',
-            )
-          },
-        },
-      ],
-      {
-        context: {
-          email: stored.identity.email,
-        },
-        input: {
-          postEmailCandidates,
-        },
-        onFallback: async ({ branch, error }) => {
-          logStep('login_post_email_branch_fallback', {
-            email: stored.identity.email,
-            branch,
-            message: error.message,
-            candidates: postEmailCandidates,
-          })
-        },
-      },
+  const selectedStep = await observeStoredLoginPostEmailStep(
+    page,
+    stored,
+    postEmailCandidates,
+    options.machineObserver,
+  )
+
+  if (selectedStep === 'authenticated') {
+    return {
+      method: 'password',
+    }
+  }
+
+  if (selectedStep === 'retry') {
+    throw new GuardedBranchError(
+      'retry',
+      'ChatGPT login returned to the email step repeatedly after submission.',
     )
-  ).result
+  }
+
+  try {
+    const fallback = await completePasswordOrVerificationLoginFallback(page, {
+      email: stored.identity.email,
+      password: stored.identity.password,
+      step: selectedStep,
+      startedAt,
+      getVerificationProvider: () => {
+        verificationProvider ??= createVerificationProvider(config)
+        return verificationProvider
+      },
+    })
+    return {
+      method: fallback.method,
+      verificationCode: fallback.verificationCode,
+    }
+  } catch (error) {
+    const wrapped = wrapRecoverableLoginBranchError(selectedStep, error)
+    logStep('login_post_email_branch_fallback', {
+      email: stored.identity.email,
+      branch: selectedStep,
+      message: wrapped.message,
+      candidates: postEmailCandidates,
+    })
+    throw wrapped
+  }
+}
+
+async function observeStoredLoginPostEmailStep(
+  page: Page,
+  stored: ResolvedChatGPTIdentity,
+  postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[],
+  observer?: ChatGPTStoredLoginMachineObserver,
+): Promise<'authenticated' | 'password' | 'verification' | 'retry'> {
+  const step = observer
+    ? await observeStoredLoginPostEmailStepWithMachine(
+        page,
+        stored,
+        postEmailCandidates,
+        observer,
+      )
+    : selectStoredLoginPostEmailStep(postEmailCandidates)
+
+  if (!step) {
+    throw new Error(
+      `ChatGPT login reached unsupported post-email candidates: ${postEmailCandidates.join(', ')}`,
+    )
+  }
+
+  return step
+}
+
+async function observeStoredLoginPostEmailStepWithMachine(
+  page: Page,
+  stored: ResolvedChatGPTIdentity,
+  postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[],
+  observer: ChatGPTStoredLoginMachineObserver,
+): Promise<
+  'authenticated' | 'password' | 'verification' | 'retry' | undefined
+> {
+  const snapshot = await observer.machine.send('chatgpt.email.observed', {
+    candidates: postEmailCandidates,
+    url: page.url(),
+    patch: {
+      email: stored.identity.email,
+      storedIdentity: observer.storedIdentity,
+    },
+  })
+
+  if (snapshot.state === 'authenticated') return 'authenticated'
+  if (snapshot.state === 'password-step') return 'password'
+  if (snapshot.state === 'verification-polling') return 'verification'
+  if (snapshot.state === 'retrying') return 'retry'
+  return undefined
+}
+
+function selectStoredLoginPostEmailStep(
+  postEmailCandidates: Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[],
+): 'authenticated' | 'password' | 'verification' | 'retry' | undefined {
+  if (postEmailCandidates.includes('authenticated')) return 'authenticated'
+  if (postEmailCandidates.includes('password')) return 'password'
+  if (postEmailCandidates.includes('verification')) return 'verification'
+  if (postEmailCandidates.includes('retry')) return 'retry'
+  return undefined
 }
 
 export async function performStoredLogin(
@@ -740,86 +849,56 @@ async function completeChatGPTPostLoginSurface(
     return { authenticated: false }
   }
 
-  return (
-    await runGuardedBranches<
-      ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>,
-      {
-        candidates: ChatGPTPostLoginCompletionSurface[]
-      },
-      ChatGPTLoginCompletionResult,
-      'workspace' | 'authenticated'
-    >(
-      [
-        {
-          branch: 'workspace' as const,
-          priority: 60,
-          guard: ({ input }) => input.candidates.includes('workspace'),
-          run: async () => {
-            await sendLoginMachine(machine, 'chatgpt.workspace.ready', {
-              url: page.url(),
-              lastMessage:
-                'OpenAI workspace selection ready; selecting the first workspace',
-            })
+  if (candidates.includes('workspace')) {
+    await sendLoginMachine(machine, 'chatgpt.workspace.ready', {
+      url: page.url(),
+      lastMessage:
+        'OpenAI workspace selection ready; selecting the first workspace',
+    })
 
-            try {
-              const selection = await continueOpenAIWorkspaceSelection(page, 1)
-              await sendLoginMachine(machine, 'chatgpt.workspace.selected', {
-                url: page.url(),
-                selectedWorkspaceId: selection.selectedWorkspaceId,
-                lastMessage: selection.selectedWorkspaceId
-                  ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
-                  : `Selected OpenAI workspace #${selection.selectedWorkspaceIndex}`,
-              })
-              options.progressReporter?.({
-                message: selection.selectedWorkspaceId
-                  ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
-                  : `Selected OpenAI workspace #${selection.selectedWorkspaceIndex}`,
-              })
+    try {
+      const selection = await continueOpenAIWorkspaceSelection(page, 1)
+      await sendLoginMachine(machine, 'chatgpt.workspace.selected', {
+        url: page.url(),
+        selectedWorkspaceId: selection.selectedWorkspaceId,
+        lastMessage: selection.selectedWorkspaceId
+          ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
+          : `Selected OpenAI workspace #${selection.selectedWorkspaceIndex}`,
+      })
+      options.progressReporter?.({
+        message: selection.selectedWorkspaceId
+          ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
+          : `Selected OpenAI workspace #${selection.selectedWorkspaceIndex}`,
+      })
 
-              return {
-                authenticated: await waitForAuthenticatedSession(page, 30000),
-                selectedWorkspaceId: selection.selectedWorkspaceId,
-              }
-            } catch (error) {
-              throw new GuardedBranchError(
-                'workspace',
-                error instanceof Error ? error.message : String(error),
-                {
-                  cause: error,
-                  recoverable: true,
-                },
-              )
-            }
-          },
+      return {
+        authenticated: await waitForAuthenticatedSession(page, 30000),
+        selectedWorkspaceId: selection.selectedWorkspaceId,
+      }
+    } catch (error) {
+      await machine.send('chatgpt.retry.requested', {
+        reason: 'workspace-selection',
+        message:
+          'Retrying ChatGPT login completion after workspace selection failed',
+        patch: {
+          url: page.url(),
+          lastMessage: error instanceof Error ? error.message : String(error),
         },
+      })
+      throw new GuardedBranchError(
+        'workspace',
+        error instanceof Error ? error.message : String(error),
         {
-          branch: 'authenticated' as const,
-          priority: 50,
-          guard: ({ input }) => input.candidates.includes('authenticated'),
-          run: async () => ({
-            authenticated: true,
-          }),
+          cause: error,
+          recoverable: true,
         },
-      ],
-      {
-        context: machine.getSnapshot().context,
-        input: {
-          candidates,
-        },
-        onFallback: async ({ error }) => {
-          await machine.send('chatgpt.retry.requested', {
-            reason: 'workspace-selection',
-            message:
-              'Retrying ChatGPT login completion after workspace selection failed',
-            patch: {
-              url: page.url(),
-              lastMessage: error.message,
-            },
-          })
-        },
-      },
-    )
-  ).result
+      )
+    }
+  }
+
+  return {
+    authenticated: candidates.includes('authenticated'),
+  }
 }
 
 // Continue an already-open ChatGPT/OpenAI login challenge without navigating away.
@@ -953,6 +1032,10 @@ export async function loginChatGPT(
       lastMessage: 'Opening ChatGPT login entry',
     })
     const login = await performStoredLogin(page, stored, {
+      machineObserver: {
+        machine,
+        storedIdentity: stored.summary,
+      },
       onEmailRetry: async (attempt, reason) => {
         await machine.send('chatgpt.retry.requested', {
           reason: `email:${reason}`,
