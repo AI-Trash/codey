@@ -6,10 +6,12 @@ const mocks = vi.hoisted(() => ({
   findAdminManagedWorkspaceSummaryByOwnerIdentity: vi.fn(),
   getDb: vi.fn(),
   hasAdminInboxEmailSubscribers: vi.fn(() => false),
+  listAdminCliConnectionState: vi.fn(),
   removeDisabledSub2ApiAccountsForWorkspace: vi.fn(),
   sendAstrBotWorkspaceRemovalNotification: vi.fn(),
   publishAdminInboxEmailEvent: vi.fn(),
   publishVerificationCodeEvent: vi.fn(),
+  dispatchCliFlowTasks: vi.fn(),
 }))
 
 vi.mock('./db/client', () => ({
@@ -45,10 +47,19 @@ vi.mock('./astrbot', () => ({
     mocks.sendAstrBotWorkspaceRemovalNotification,
 }))
 
+vi.mock('./cli-connections', () => ({
+  listAdminCliConnectionState: mocks.listAdminCliConnectionState,
+}))
+
+vi.mock('./cli-tasks', () => ({
+  dispatchCliFlowTasks: mocks.dispatchCliFlowTasks,
+}))
+
 import {
   ingestCloudflareEmail,
   ingestWhatsAppNotification,
   isChatGptBusinessTrialEndedSubject,
+  isChatGptPlusSubscriptionSuccessEmail,
 } from './verification'
 
 function createEmailInsertChain(emailRecord: unknown) {
@@ -80,6 +91,39 @@ function createInsertChain(record: unknown) {
     returning,
     onConflictDoNothing,
     values,
+  }
+}
+
+function createCliConnectionSummary(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'connection-1',
+    workerId: 'worker-1',
+    sessionRef: null,
+    userId: null,
+    authClientId: 'service-client-1',
+    cliName: 'CLI 1',
+    target: null,
+    userAgent: 'codey-test',
+    registeredFlows: ['codex-oauth'],
+    storageStateIdentityIds: [],
+    storageStateEmails: [],
+    browserLimit: 10,
+    connectionPath: '/tmp/codey',
+    status: 'active',
+    connectedAt: '2026-05-03T00:00:00.000Z',
+    lastSeenAt: '2026-05-03T00:00:10.000Z',
+    disconnectedAt: null,
+    githubLogin: null,
+    email: null,
+    userLabel: 'Service client',
+    runtimeFlowId: null,
+    runtimeTaskId: null,
+    runtimeFlowStatus: null,
+    runtimeFlowMessage: null,
+    runtimeFlowStartedAt: null,
+    runtimeFlowCompletedAt: null,
+    runtimeFlowUpdatedAt: null,
+    ...overrides,
   }
 }
 
@@ -346,6 +390,176 @@ describe('ChatGPT Business trial-ended email handling', () => {
       mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity,
     ).not.toHaveBeenCalled()
     expect(mocks.deleteManagedWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatGPT Plus subscription email handling', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.hasAdminInboxEmailSubscribers.mockReturnValue(false)
+    mocks.createId.mockImplementation(() => 'generated-id')
+  })
+
+  it('matches ChatGPT Plus subscription success emails', () => {
+    expect(
+      isChatGptPlusSubscriptionSuccessEmail({
+        subject: 'ChatGPT - 你的新套餐',
+      }),
+    ).toBe(true)
+    expect(
+      isChatGptPlusSubscriptionSuccessEmail({
+        subject: 'Receipt from OpenAI',
+        textBody: '你已成功订阅 ChatGPT Plus。',
+      }),
+    ).toBe(true)
+    expect(
+      isChatGptPlusSubscriptionSuccessEmail({
+        subject: 'Your ChatGPT Business trial has ended',
+        textBody: 'No Plus subscription.',
+      }),
+    ).toBe(false)
+  })
+
+  it('dispatches Codex OAuth for the managed identity email when Plus subscription succeeds', async () => {
+    const receivedAt = new Date('2026-05-03T00:00:00.000Z')
+    const emailRecord = {
+      id: 'email-record-plus-1',
+      reservationId: 'reservation-plus-1',
+      messageId: 'message-plus-1',
+      recipient: 'alias@example.com',
+      subject: 'ChatGPT - 你的新套餐',
+      textBody: '你已成功订阅 ChatGPT Plus。',
+      htmlBody: null,
+      rawPayload: null,
+      verificationCode: null,
+      receivedAt,
+      createdAt: receivedAt,
+    }
+    const insertChain = createEmailInsertChain(emailRecord)
+    const reservation = {
+      id: 'reservation-plus-1',
+      email: 'alias@example.com',
+      identityId: 'identity-plus-1',
+    }
+    const findManagedIdentity = vi
+      .fn()
+      .mockResolvedValueOnce({
+        email: 'owner@example.com',
+      })
+    const preferredConnection = createCliConnectionSummary({
+      id: 'connection-preferred',
+      storageStateEmails: ['owner@example.com'],
+      lastSeenAt: '2026-05-03T00:00:20.000Z',
+    })
+    const fallbackConnection = createCliConnectionSummary({
+      id: 'connection-fallback',
+      storageStateEmails: [],
+      lastSeenAt: '2026-05-03T00:00:30.000Z',
+    })
+
+    mocks.listAdminCliConnectionState.mockResolvedValue({
+      snapshotAt: '2026-05-03T00:00:30.000Z',
+      activeConnections: [fallbackConnection, preferredConnection],
+    })
+    mocks.dispatchCliFlowTasks.mockResolvedValue({
+      tasks: [{ id: 'codex-oauth-task-1' }],
+      connection: preferredConnection,
+      assignedCliCount: 1,
+    })
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findFirst: vi.fn().mockResolvedValue(reservation),
+        },
+        managedIdentities: {
+          findFirst: findManagedIdentity,
+        },
+        flowTasks: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+      },
+      insert: insertChain.insert,
+    })
+
+    await expect(
+      ingestCloudflareEmail({
+        recipient: 'alias@example.com',
+        subject: 'ChatGPT - 你的新套餐',
+        textBody: '你已成功订阅 ChatGPT Plus。',
+        messageId: 'message-plus-1',
+        receivedAt: receivedAt.toISOString(),
+      }),
+    ).resolves.toMatchObject({
+      subscriptionCodexOAuth: {
+        status: 'queued',
+        targetEmail: 'owner@example.com',
+        connectionId: 'connection-preferred',
+        queuedCount: 1,
+        taskIds: ['codex-oauth-task-1'],
+      },
+    })
+
+    expect(mocks.dispatchCliFlowTasks).toHaveBeenCalledWith({
+      connectionId: 'connection-preferred',
+      flowId: 'codex-oauth',
+      config: {
+        email: 'owner@example.com',
+      },
+    })
+  })
+
+  it('skips Codex OAuth dispatch when a recent task already exists for the email', async () => {
+    const receivedAt = new Date('2026-05-03T00:00:00.000Z')
+    const emailRecord = {
+      id: 'email-record-plus-2',
+      reservationId: null,
+      messageId: null,
+      recipient: 'owner@example.com',
+      subject: 'Receipt',
+      textBody: '你已成功订阅 ChatGPT Plus。',
+      htmlBody: null,
+      rawPayload: null,
+      verificationCode: null,
+      receivedAt,
+      createdAt: receivedAt,
+    }
+    const insertChain = createEmailInsertChain(emailRecord)
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findFirst: vi.fn().mockResolvedValue(null),
+        },
+        managedIdentities: {
+          findFirst: vi.fn().mockResolvedValue({
+            email: 'owner@example.com',
+          }),
+        },
+        flowTasks: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'existing-codex-oauth-task',
+          }),
+        },
+      },
+      insert: insertChain.insert,
+    })
+
+    await expect(
+      ingestCloudflareEmail({
+        recipient: 'owner@example.com',
+        subject: 'Receipt',
+        textBody: '你已成功订阅 ChatGPT Plus。',
+      }),
+    ).resolves.toMatchObject({
+      subscriptionCodexOAuth: {
+        status: 'skipped',
+        reason: 'existing_codex_oauth_task',
+        targetEmail: 'owner@example.com',
+        taskId: 'existing-codex-oauth-task',
+      },
+    })
+
+    expect(mocks.listAdminCliConnectionState).not.toHaveBeenCalled()
+    expect(mocks.dispatchCliFlowTasks).not.toHaveBeenCalled()
   })
 })
 

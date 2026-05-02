@@ -23,10 +23,12 @@ import {
   lte,
   notExists,
   or,
+  sql,
 } from 'drizzle-orm'
 import { getAppEnv } from './env'
 import {
   emailIngestRecords,
+  flowTasks,
   managedIdentities,
   verificationCodes,
   verificationEmailReservations,
@@ -42,6 +44,11 @@ import { sendAstrBotWorkspaceRemovalNotification } from './astrbot'
 import { publishVerificationCodeEvent } from './verification-events'
 import { resolveReservationVerificationDomain } from './verification-domains'
 import { removeDisabledSub2ApiAccountsForWorkspace } from './sub2api-codex-oauth'
+import {
+  listAdminCliConnectionState,
+  type AdminCliConnectionSummary,
+} from './cli-connections'
+import { dispatchCliFlowTasks } from './cli-tasks'
 import {
   deleteManagedWorkspace,
   findAdminManagedWorkspaceSummaryByOwnerIdentity,
@@ -170,6 +177,8 @@ type WhatsAppReservationMatch =
 
 const CHATGPT_BUSINESS_TRIAL_ENDED_CLEANUP_REASON =
   'chatgpt_business_trial_ended'
+const CHATGPT_PLUS_SUBSCRIPTION_CODEX_OAUTH_DEDUP_MS =
+  24 * 60 * 60 * 1000
 const DEFAULT_ADMIN_INBOX_PAGE_SIZE = 25
 const MAX_ADMIN_INBOX_PAGE_SIZE = 100
 const RESERVATION_MAILBOX_ADJECTIVES = [
@@ -787,6 +796,219 @@ export function isChatGptBusinessTrialEndedSubject(
     )
 
   return englishTrialEnded || chineseTrialEnded
+}
+
+function normalizeEmailTextForMatching(value?: string | null): string {
+  return (value || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function isChatGptPlusSubscriptionSuccessEmail(params: {
+  subject?: string | null
+  textBody?: string | null
+  htmlBody?: string | null
+}): boolean {
+  const subject = params.subject
+    ? normalizeSubjectForMatching(params.subject)
+    : ''
+  if (/^chatgpt\s*[-–—]\s*你的新套餐$/.test(subject)) {
+    return true
+  }
+
+  const body = [
+    normalizeEmailTextForMatching(params.textBody),
+    normalizeEmailTextForMatching(params.htmlBody),
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return /[你您]\s*已\s*成功\s*订阅\s*(?:了\s*)?chatgpt\s*plus/.test(body)
+}
+
+async function resolveCodexOAuthEmailForSubscriptionSuccess(params: {
+  recipient: string
+  reservation?: EmailIngestReservation | null
+}): Promise<string | null> {
+  const reservationIdentityId = params.reservation?.identityId?.trim()
+  if (reservationIdentityId) {
+    const identity = await getDb().query.managedIdentities.findFirst({
+      where: eq(managedIdentities.identityId, reservationIdentityId),
+      columns: {
+        email: true,
+      },
+    })
+    const identityEmail = normalizeOptionalEmail(identity?.email)
+    if (identityEmail) {
+      return identityEmail
+    }
+  }
+
+  const recipient = normalizeOptionalEmail(params.recipient)
+  if (!recipient) {
+    return null
+  }
+
+  const identity = await getDb().query.managedIdentities.findFirst({
+    where: eq(managedIdentities.email, recipient),
+    columns: {
+      email: true,
+    },
+  })
+
+  return normalizeOptionalEmail(identity?.email) || recipient
+}
+
+function isCliConnectionRunningFlow(connection: AdminCliConnectionSummary) {
+  return Boolean(
+    connection.runtimeFlowId &&
+      !connection.runtimeFlowCompletedAt &&
+      connection.runtimeFlowStatus !== 'completed',
+  )
+}
+
+function selectCodexOAuthConnection(
+  connections: AdminCliConnectionSummary[],
+  targetEmail: string,
+): AdminCliConnectionSummary | null {
+  const normalizedTargetEmail = targetEmail.trim().toLowerCase()
+  const capableConnections = connections.filter(
+    (connection) =>
+      connection.status === 'active' &&
+      connection.registeredFlows.includes('codex-oauth'),
+  )
+
+  return (
+    [...capableConnections].sort((left, right) => {
+      const affinityDelta =
+        Number(right.storageStateEmails.includes(normalizedTargetEmail)) -
+        Number(left.storageStateEmails.includes(normalizedTargetEmail))
+      if (affinityDelta) {
+        return affinityDelta
+      }
+
+      const busyDelta =
+        Number(isCliConnectionRunningFlow(left)) -
+        Number(isCliConnectionRunningFlow(right))
+      if (busyDelta) {
+        return busyDelta
+      }
+
+      return (
+        new Date(right.lastSeenAt).getTime() -
+        new Date(left.lastSeenAt).getTime()
+      )
+    })[0] || null
+  )
+}
+
+async function dispatchCodexOAuthForChatGptSubscriptionSuccess(input: {
+  recipient: string
+  subject?: string | null
+  textBody?: string | null
+  htmlBody?: string | null
+  reservation?: EmailIngestReservation | null
+}) {
+  if (
+    !isChatGptPlusSubscriptionSuccessEmail({
+      subject: input.subject,
+      textBody: input.textBody,
+      htmlBody: input.htmlBody,
+    })
+  ) {
+    return null
+  }
+
+  const targetEmail = await resolveCodexOAuthEmailForSubscriptionSuccess({
+    recipient: input.recipient,
+    reservation: input.reservation,
+  })
+  if (!targetEmail) {
+    return {
+      status: 'skipped' as const,
+      reason: 'target_email_not_found' as const,
+    }
+  }
+
+  try {
+    const existingTask = await getDb().query.flowTasks.findFirst({
+      where: and(
+        eq(flowTasks.flowType, 'codex-oauth'),
+        sql`${flowTasks.payload} #>> '{config,email}' = ${targetEmail}`,
+        gte(
+          flowTasks.createdAt,
+          new Date(Date.now() - CHATGPT_PLUS_SUBSCRIPTION_CODEX_OAUTH_DEDUP_MS),
+        ),
+        or(
+          eq(flowTasks.status, 'QUEUED'),
+          eq(flowTasks.status, 'LEASED'),
+          eq(flowTasks.status, 'RUNNING'),
+          eq(flowTasks.status, 'SUCCEEDED'),
+        ),
+      ),
+      orderBy: [desc(flowTasks.createdAt)],
+      columns: {
+        id: true,
+      },
+    })
+    if (existingTask) {
+      return {
+        status: 'skipped' as const,
+        reason: 'existing_codex_oauth_task' as const,
+        targetEmail,
+        taskId: existingTask.id,
+      }
+    }
+
+    const connection = selectCodexOAuthConnection(
+      (await listAdminCliConnectionState()).activeConnections,
+      targetEmail,
+    )
+    if (!connection) {
+      return {
+        status: 'skipped' as const,
+        reason: 'no_codex_oauth_connection' as const,
+        targetEmail,
+      }
+    }
+
+    const result = await dispatchCliFlowTasks({
+      connectionId: connection.id,
+      flowId: 'codex-oauth',
+      config: {
+        email: targetEmail,
+      },
+    })
+
+    return {
+      status: 'queued' as const,
+      targetEmail,
+      connectionId: result.connection.id,
+      queuedCount: result.tasks.length,
+      assignedCliCount: result.assignedCliCount,
+      taskIds: result.tasks.map((task) => task.id),
+    }
+  } catch (error) {
+    console.error(
+      'Unable to dispatch Codex OAuth after ChatGPT subscription email',
+      error,
+    )
+    return {
+      status: 'failed' as const,
+      targetEmail,
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Unable to dispatch Codex OAuth task',
+    }
+  }
 }
 
 async function resolveManagedIdentityIdForIngestedRecipient(params: {
@@ -1474,6 +1696,14 @@ export async function ingestCloudflareEmail(params: {
     subject,
     reservation,
   })
+  const subscriptionCodexOAuth =
+    await dispatchCodexOAuthForChatGptSubscriptionSuccess({
+      recipient: params.recipient,
+      subject,
+      textBody: resolvedBodies.textBody,
+      htmlBody: resolvedBodies.htmlBody,
+      reservation,
+    })
 
   if (codeRecord && reservation) {
     publishVerificationCodeEvent(
@@ -1516,6 +1746,7 @@ export async function ingestCloudflareEmail(params: {
     emailRecord,
     codeRecord,
     workspaceCleanup,
+    subscriptionCodexOAuth,
   }
 }
 

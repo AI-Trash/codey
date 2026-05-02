@@ -373,6 +373,7 @@ describe('flow task completion', () => {
           kind: 'flow_task',
           flowId: 'chatgpt-team-trial-gopay',
           config: {
+            chromeDefaultProfile: true,
             paymentRedirectUrl: gopayUrl,
           },
           metadata: {
