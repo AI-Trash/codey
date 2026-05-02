@@ -103,12 +103,12 @@ const androidEnvNames = {
   ANDROID_NO_RESET: undefined,
 }
 
-const smsForwarderWebhookEnvNames = {
-  SMS_FORWARDER_WEBHOOK_ENABLED: undefined,
-  SMS_FORWARDER_WEBHOOK_HOST: undefined,
-  SMS_FORWARDER_WEBHOOK_PORT: undefined,
-  SMS_FORWARDER_WEBHOOK_PATH: undefined,
-  SMS_FORWARDER_DEVICE_ID: undefined,
+const forwarderWebhookEnvNames = {
+  FORWARDER_WEBHOOK_ENABLED: undefined,
+  FORWARDER_WEBHOOK_HOST: undefined,
+  FORWARDER_WEBHOOK_PORT: undefined,
+  FORWARDER_WEBHOOK_PATH: undefined,
+  FORWARDER_DEVICE_ID: undefined,
 }
 
 const singBoxEnvNames = {
@@ -159,7 +159,7 @@ describe('resolveConfig Android Appium config', () => {
     const config = await withEnv(
       {
         ...androidEnvNames,
-        ...smsForwarderWebhookEnvNames,
+        ...forwarderWebhookEnvNames,
         ...singBoxEnvNames,
       },
       () => resolveConfig(),
@@ -171,11 +171,11 @@ describe('resolveConfig Android Appium config', () => {
       deviceName: 'Android',
       noReset: true,
     })
-    expect(config.smsForwarderWebhook).toEqual({
+    expect(config.forwarderWebhook).toEqual({
       enabled: true,
       host: '127.0.0.1',
       port: 3001,
-      path: '/webhooks/smsforwarder/whatsapp',
+      path: '/webhooks/forwarder/whatsapp',
       deviceId: undefined,
     })
     expect(config.singBox).toEqual({

@@ -4,7 +4,7 @@ import {
   buildWhatsAppNotificationIngestPayload,
   createWhatsAppNotificationDeduper,
   extractVerificationCodeFromNotificationText,
-  normalizeSmsForwarderWhatsAppNotificationPayload,
+  normalizeForwarderWhatsAppNotificationPayload,
   startWhatsAppNotificationWebhookServer,
 } from '../src/modules/android/whatsapp-notifications'
 
@@ -84,24 +84,26 @@ function postRaw(
   })
 }
 
-describe('SmsForwarder WhatsApp notification helpers', () => {
-  it('normalizes SmsForwarder notification payloads', () => {
+describe('Forwarder WhatsApp notification helpers', () => {
+  it('normalizes Forwarder notification payloads', () => {
     expect(
-      normalizeSmsForwarderWhatsAppNotificationPayload({
-        msg_app: 'WhatsApp',
-        msg_title: 'OpenAI',
-        msg_content: 'Your verification code is 123456.',
-        msg_time: '2026-04-30T17:50:00.000Z',
+      normalizeForwarderWhatsAppNotificationPayload({
+        source: 'codey-forwarder',
+        packageName: 'com.whatsapp',
+        title: 'OpenAI',
+        body: 'Your verification code is 123456.',
+        receivedAt: '2026-04-30T17:50:00.000Z',
       }),
     ).toEqual({
       packageName: 'com.whatsapp',
       title: 'OpenAI',
       body: 'Your verification code is 123456.',
       rawPayload: {
-        msg_app: 'WhatsApp',
-        msg_title: 'OpenAI',
-        msg_content: 'Your verification code is 123456.',
-        msg_time: '2026-04-30T17:50:00.000Z',
+        source: 'codey-forwarder',
+        packageName: 'com.whatsapp',
+        title: 'OpenAI',
+        body: 'Your verification code is 123456.',
+        receivedAt: '2026-04-30T17:50:00.000Z',
       },
       receivedAt: '2026-04-30T17:50:00.000Z',
     })
@@ -154,7 +156,7 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     expect(deduper.shouldProcess(event, 1200)).toBe(true)
   })
 
-  it('accepts SmsForwarder webhook posts and forwards Codey ingest payloads', async () => {
+  it('accepts Forwarder webhook posts and forwards Codey ingest payloads', async () => {
     const ingestNotification = vi.fn(async () => ({
       ok: true,
       notificationRecordId: 'notification-1',
@@ -174,9 +176,10 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     const { url } = await handle.ready
 
     const response = await postJson(url, {
-      msg_app: 'WhatsApp',
-      msg_title: 'OpenAI',
-      msg_content: 'Your verification code is 135790.',
+      source: 'codey-forwarder',
+      packageName: 'com.whatsapp',
+      title: 'OpenAI',
+      body: 'Your verification code is 135790.',
     })
 
     expect(response.statusCode).toBe(200)
@@ -197,7 +200,7 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     )
   })
 
-  it('accepts SmsForwarder JSON with raw control characters inside strings', async () => {
+  it('accepts Forwarder JSON with raw control characters inside strings', async () => {
     const ingestNotification = vi.fn(async () => ({
       ok: true,
       notificationRecordId: 'notification-1',
@@ -213,7 +216,7 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     openHandles.push(handle)
     const { url } = await handle.ready
     const rawBody =
-      '{"msg_app":"WhatsApp","msg_title":"GoPay","msg_content":"Your code is\n135790"}'
+      '{"source":"codey-forwarder","packageName":"com.whatsapp","title":"GoPay","body":"Your code is\n135790"}'
 
     const response = await postRaw(url, rawBody)
 
@@ -232,7 +235,7 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     )
   })
 
-  it('recovers SmsForwarder fields when malformed JSON parsing still fails', async () => {
+  it('recovers Forwarder fields when malformed JSON parsing still fails', async () => {
     const ingestNotification = vi.fn(async () => ({
       ok: true,
       notificationRecordId: 'notification-1',
@@ -248,10 +251,11 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     openHandles.push(handle)
     const { url } = await handle.ready
     const rawBody = `{
-  "msg_app": "com.whatsapp",
-  "msg_title": "GoPay\t",
-  "msg_content": "811997 is your verification code. For your security, do not share this code.",
-  "msg_time": "2026-05-02 12:54:47",
+  "source": "codey-forwarder",
+  "packageName": "com.whatsapp",
+  "title": "GoPay\t",
+  "body": "811997 is your verification code. For your security, do not share this code.",
+  "receivedAt": "2026-05-02 12:54:47",
 }`
 
     const response = await postRaw(url, rawBody)
@@ -280,7 +284,8 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     })
     openHandles.push(handle)
     const { url } = await handle.ready
-    const rawBody = '{"msg_app":"WhatsApp","msg_content":"Your code is 135790"'
+    const rawBody =
+      '{"source":"codey-forwarder","packageName":"com.whatsapp","body":"Your code is 135790"'
 
     const response = await postRaw(url, rawBody)
 
@@ -291,8 +296,8 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     })
     expect(statuses).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('SmsForwarder webhook request failed:'),
-        `SmsForwarder webhook raw body: ${rawBody}`,
+        expect.stringContaining('Forwarder webhook request failed:'),
+        `Forwarder webhook raw body: ${rawBody}`,
       ]),
     )
   })

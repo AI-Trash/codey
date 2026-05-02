@@ -12,7 +12,7 @@ import type {
 export const DEFAULT_WHATSAPP_PACKAGE_NAME = 'com.whatsapp'
 export const DEFAULT_WHATSAPP_WEBHOOK_HOST = '127.0.0.1'
 export const DEFAULT_WHATSAPP_WEBHOOK_PORT = 3001
-export const DEFAULT_WHATSAPP_WEBHOOK_PATH = '/webhooks/smsforwarder/whatsapp'
+export const DEFAULT_WHATSAPP_WEBHOOK_PATH = '/webhooks/forwarder/whatsapp'
 
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 
@@ -210,24 +210,28 @@ function readRawJsonStringProperty(
   return undefined
 }
 
-const SMS_FORWARDER_RAW_JSON_STRING_FIELDS = [
-  'msg_app',
-  'msg_title',
-  'msg_content',
-  'msg_time',
-  'msg_from',
+const FORWARDER_RAW_JSON_STRING_FIELDS = [
+  'source',
+  'deviceId',
   'packageName',
   'package',
   'package_name',
+  'notificationId',
+  'notification_id',
+  'receivedAt',
+  'received_at',
+  'timestamp',
+  'sender',
+  'senderPhone',
+  'chatName',
   'title',
   'body',
   'content',
   'text',
   'message',
-  'msg',
 ] as const
 
-function parseSmsForwarderRawJsonObject(
+function parseForwarderRawJsonObject(
   value: string,
 ): Record<string, unknown> | undefined {
   const trimmed = value.trim()
@@ -236,32 +240,32 @@ function parseSmsForwarderRawJsonObject(
   }
 
   const payload: Record<string, unknown> = {}
-  for (const field of SMS_FORWARDER_RAW_JSON_STRING_FIELDS) {
+  for (const field of FORWARDER_RAW_JSON_STRING_FIELDS) {
     const fieldValue = readRawJsonStringProperty(trimmed, field)
     if (fieldValue !== undefined) {
       payload[field] = fieldValue
     }
   }
 
-  const hasSmsForwarderField = [
-    'msg_app',
-    'msg_title',
-    'msg_content',
-    'msg_time',
-    'msg_from',
+  const hasForwarderField = [
+    'source',
+    'packageName',
+    'package',
+    'package_name',
+    'notificationId',
+    'notification_id',
+    'sender',
+    'chatName',
   ].some((field) => payload[field] !== undefined)
   const hasNotificationText = [
-    'msg_title',
-    'msg_content',
     'title',
     'body',
     'content',
     'text',
     'message',
-    'msg',
   ].some((field) => payload[field] !== undefined)
 
-  return hasSmsForwarderField && hasNotificationText ? payload : undefined
+  return hasForwarderField && hasNotificationText ? payload : undefined
 }
 
 function parseJsonObject(
@@ -424,7 +428,7 @@ export function extractVerificationCodeFromNotificationText(
   return undefined
 }
 
-export function normalizeSmsForwarderWhatsAppNotificationPayload(
+export function normalizeForwarderWhatsAppNotificationPayload(
   payload: Record<string, unknown>,
 ): WhatsAppNotificationEvent {
   const candidates = collectCandidateRecords(payload)
@@ -438,13 +442,11 @@ export function normalizeSmsForwarderWhatsAppNotificationPayload(
     'app',
     'appName',
     'app_name',
-    'msg_app',
   ])
   const sender = readStringFromCandidates(candidates, [
     'sender',
     'senderPhone',
     'from',
-    'msg_from',
     'phone',
     'address',
     'contact',
@@ -452,7 +454,6 @@ export function normalizeSmsForwarderWhatsAppNotificationPayload(
   const title = readStringFromCandidates(candidates, [
     'title',
     'notificationTitle',
-    'msg_title',
     'android.title',
     'conversationTitle',
     'subject',
@@ -462,8 +463,6 @@ export function normalizeSmsForwarderWhatsAppNotificationPayload(
     'content',
     'text',
     'message',
-    'msg',
-    'msg_content',
     'notificationContent',
     'notificationText',
     'android.text',
@@ -486,7 +485,6 @@ export function normalizeSmsForwarderWhatsAppNotificationPayload(
       'timestamp',
       'time',
       'date',
-      'msg_time',
     ]),
   )
 
@@ -498,7 +496,6 @@ export function normalizeSmsForwarderWhatsAppNotificationPayload(
       'notification_id',
       'key',
       'id',
-      'msg_id',
     ]),
     sender,
     chatName,
@@ -601,7 +598,7 @@ function parseWebhookPayload(
     try {
       parsed = parseJsonWithEscapedControlCharacters(trimmed)
     } catch (error) {
-      const fallbackPayload = parseSmsForwarderRawJsonObject(trimmed)
+      const fallbackPayload = parseForwarderRawJsonObject(trimmed)
       if (fallbackPayload) {
         return fallbackPayload
       }
@@ -710,7 +707,7 @@ export function startWhatsAppNotificationWebhookServer(
           readHeaderString(request.headers['content-type']),
         )
         const notification =
-          normalizeSmsForwarderWhatsAppNotificationPayload(rawPayload)
+          normalizeForwarderWhatsAppNotificationPayload(rawPayload)
 
         if (!deduper.shouldProcess(notification)) {
           writeJson(response, 200, {
@@ -742,13 +739,13 @@ export function startWhatsAppNotificationWebhookServer(
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        options.onStatus?.(`SmsForwarder webhook request failed: ${message}`)
+        options.onStatus?.(`Forwarder webhook request failed: ${message}`)
         const rawBody =
           error instanceof WhatsAppNotificationWebhookParseError
             ? error.rawBody
             : bodyText
         if (rawBody) {
-          options.onStatus?.(`SmsForwarder webhook raw body: ${rawBody}`)
+          options.onStatus?.(`Forwarder webhook raw body: ${rawBody}`)
         }
         writeJson(response, 400, {
           ok: false,
@@ -758,7 +755,7 @@ export function startWhatsAppNotificationWebhookServer(
       }
     })().catch((error) => {
       const message = error instanceof Error ? error.message : String(error)
-      options.onStatus?.(`SmsForwarder webhook request failed: ${message}`)
+      options.onStatus?.(`Forwarder webhook request failed: ${message}`)
       writeJson(response, 500, {
         ok: false,
         error: message,
@@ -786,7 +783,7 @@ export function startWhatsAppNotificationWebhookServer(
           path: webhookPath,
         }
         options.onStatus?.(
-          `SmsForwarder WhatsApp webhook listening at ${state.url}`,
+          `Forwarder WhatsApp webhook listening at ${state.url}`,
         )
         resolve(state)
       })
@@ -803,7 +800,7 @@ export function startWhatsAppNotificationWebhookServer(
 
   ready.catch((error) => {
     options.onStatus?.(
-      `SmsForwarder WhatsApp webhook could not start: ${
+      `Forwarder WhatsApp webhook could not start: ${
         error instanceof Error ? error.message : String(error)
       }`,
     )

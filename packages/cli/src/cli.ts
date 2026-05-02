@@ -1234,10 +1234,10 @@ function startCliWhatsAppNotificationWebhook(
   options: AuthOptions,
   config: ReturnType<typeof prepareRuntimeConfig>,
 ): WhatsAppNotificationWebhookServerHandle | undefined {
-  const webhookConfig = config.smsForwarderWebhook
+  const webhookConfig = config.forwarderWebhook
   const enabled =
     parseBooleanFlag(
-      options.smsForwarderWebhook,
+      options.forwarderWebhook,
       webhookConfig?.enabled ?? true,
     ) ?? true
 
@@ -1381,10 +1381,10 @@ function normalizeAuthCliOptions(input: Record<string, unknown>): AuthOptions {
     cliName: readOptionalString(input.cliName),
     scope: readOptionalString(input.scope),
     target: readOptionalString(input.target),
-    smsForwarderWebhook:
-      typeof input.smsForwarderWebhook === 'string' ||
-      typeof input.smsForwarderWebhook === 'boolean'
-        ? input.smsForwarderWebhook
+    forwarderWebhook:
+      typeof input.forwarderWebhook === 'string' ||
+      typeof input.forwarderWebhook === 'boolean'
+        ? input.forwarderWebhook
         : undefined,
   }
 }
@@ -1457,7 +1457,7 @@ function printRootHelp(): void {
       '  --profile <name>',
       '  --cliName <name>',
       '  --target <target>',
-      '  --smsForwarderWebhook <bool>',
+      '  --forwarderWebhook <bool>',
       '',
       'Examples:',
       '  codey --target octocat',

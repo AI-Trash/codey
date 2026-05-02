@@ -30,7 +30,7 @@ export interface AndroidCliConfig {
   noReset?: boolean
 }
 
-export interface SmsForwarderWebhookConfig {
+export interface ForwarderWebhookConfig {
   enabled?: boolean
   host?: string
   port?: number
@@ -174,7 +174,7 @@ export interface AppConfig {
   exchange?: ExchangeConfig
   verification?: VerificationConfig
   app?: AppAuthConfig
-  smsForwarderWebhook?: SmsForwarderWebhookConfig
+  forwarderWebhook?: ForwarderWebhookConfig
   singBox?: SingBoxProxyConfig
   codex?: CodexOAuthConfig
   sub2api?: Sub2ApiConfig
@@ -453,17 +453,16 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
   }
 }
 
-function buildSmsForwarderWebhookConfig(): SmsForwarderWebhookConfig {
+function buildForwarderWebhookConfig(): ForwarderWebhookConfig {
   return {
-    enabled: hasEnvValue(process.env.SMS_FORWARDER_WEBHOOK_ENABLED)
-      ? parseBoolean(process.env.SMS_FORWARDER_WEBHOOK_ENABLED, true)
+    enabled: hasEnvValue(process.env.FORWARDER_WEBHOOK_ENABLED)
+      ? parseBoolean(process.env.FORWARDER_WEBHOOK_ENABLED, true)
       : true,
-    host: process.env.SMS_FORWARDER_WEBHOOK_HOST || '127.0.0.1',
-    port: parseNumber(process.env.SMS_FORWARDER_WEBHOOK_PORT, 3001),
+    host: process.env.FORWARDER_WEBHOOK_HOST || '127.0.0.1',
+    port: parseNumber(process.env.FORWARDER_WEBHOOK_PORT, 3001),
     path:
-      process.env.SMS_FORWARDER_WEBHOOK_PATH ||
-      '/webhooks/smsforwarder/whatsapp',
-    deviceId: process.env.SMS_FORWARDER_DEVICE_ID,
+      process.env.FORWARDER_WEBHOOK_PATH || '/webhooks/forwarder/whatsapp',
+    deviceId: process.env.FORWARDER_DEVICE_ID,
   }
 }
 
@@ -530,7 +529,7 @@ function buildDefaultConfig(): AppConfig {
   const codeyAppConfig = buildCodeyAppConfig()
   const sub2ApiConfig = buildSub2ApiConfig()
   const chatgptTeamTrialConfig = buildChatGPTTeamTrialConfig()
-  const smsForwarderWebhookConfig = buildSmsForwarderWebhookConfig()
+  const forwarderWebhookConfig = buildForwarderWebhookConfig()
   const singBoxConfig = buildSingBoxProxyConfig()
   const verificationConfig =
     parseVerificationProviderConfigKind(process.env.VERIFICATION_PROVIDER) ||
@@ -610,7 +609,7 @@ function buildDefaultConfig(): AppConfig {
         : undefined,
     verification: verificationConfig,
     app: codeyAppConfig,
-    smsForwarderWebhook: smsForwarderWebhookConfig,
+    forwarderWebhook: forwarderWebhookConfig,
     singBox: singBoxConfig,
     codex: codexConfig,
     sub2api: sub2ApiConfig,

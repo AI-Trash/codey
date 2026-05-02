@@ -230,25 +230,31 @@ the matching `--android*` CLI flags. `codey android-healthcheck` is a minimal
 session lifecycle check that opens an Android session and reports the connected
 device details.
 
-When the CLI remote worker starts, Codey also starts a local SmsForwarder
-webhook endpoint for WhatsApp verification notifications. Point SmsForwarder at:
+When the CLI remote worker starts, Codey also starts a local Forwarder webhook
+endpoint for WhatsApp verification notifications. The Android app lives in
+`forwarder/` and defaults to the emulator URL:
 
 ```text
-http://127.0.0.1:3001/webhooks/smsforwarder/whatsapp
+http://10.0.2.2:3001/webhooks/forwarder/whatsapp
 ```
 
 The endpoint accepts JSON, form-encoded, or plain-text webhook bodies and
 forwards the original notification payload to Codey Web's
 `/api/ingest/whatsapp-notification` endpoint. Disable auto-start with
-`SMS_FORWARDER_WEBHOOK_ENABLED=false` or
-`pnpm codey --smsForwarderWebhook false`. Optional overrides:
+`FORWARDER_WEBHOOK_ENABLED=false` or `pnpm codey --forwarderWebhook false`.
+Optional overrides:
 
 ```env
-SMS_FORWARDER_WEBHOOK_HOST=127.0.0.1
-SMS_FORWARDER_WEBHOOK_PORT=3001
-SMS_FORWARDER_WEBHOOK_PATH=/webhooks/smsforwarder/whatsapp
-SMS_FORWARDER_DEVICE_ID=emulator-5554
+FORWARDER_WEBHOOK_HOST=127.0.0.1
+FORWARDER_WEBHOOK_PORT=3001
+FORWARDER_WEBHOOK_PATH=/webhooks/forwarder/whatsapp
+FORWARDER_DEVICE_ID=emulator-5554
 ```
+
+For a real Android phone, either set `FORWARDER_WEBHOOK_HOST=0.0.0.0` and use
+`http://<computer-lan-ip>:3001/webhooks/forwarder/whatsapp` in the app, or keep
+the loopback host and run `adb reverse tcp:3001 tcp:3001`, then use
+`http://127.0.0.1:3001/webhooks/forwarder/whatsapp` on the phone.
 
 ### CLI logs
 
@@ -376,16 +382,16 @@ The workflow syncs `CODEY_INGEST_URL` and `CODEY_WEBHOOK_SECRET` into the Worker
 
 ## WhatsApp notification ingest
 
-The CLI remote worker exposes a local SmsForwarder endpoint by default:
+The CLI remote worker exposes a local Forwarder endpoint by default:
 
 ```text
-POST http://127.0.0.1:3001/webhooks/smsforwarder/whatsapp
+POST http://127.0.0.1:3001/webhooks/forwarder/whatsapp
 ```
 
-SmsForwarder can send its raw notification webhook body to that endpoint. The
-CLI preserves the original payload in `rawPayload`, extracts common fields such
-as app/package, title, content, sender, timestamp, and OTP code, then forwards it
-to Codey Web:
+The Android app in `forwarder/` sends WhatsApp notification payloads to that
+endpoint. The CLI preserves the original payload in `rawPayload`, extracts
+common fields such as package, title, body, sender, timestamp, and OTP code, then
+forwards it to Codey Web:
 
 ```text
 POST /api/ingest/whatsapp-notification
@@ -412,6 +418,25 @@ Recommended payload:
 ```
 
 `reservationId` is preferred. `email`, `targetEmail`, or `reservationEmail` can also bind the notification to an existing email reservation. If no hint is provided, Codey only auto-attaches the code when exactly one unexpired generated verification reservation exists; otherwise it stores the WhatsApp notification without publishing a code to any waiting flow.
+
+### Android Forwarder setup
+
+Build or install the Android app from `forwarder/`. For an emulator, the app's
+default webhook URL already points at the host machine through `10.0.2.2`. For a
+physical phone, set the webhook URL to either the computer LAN address with
+`FORWARDER_WEBHOOK_HOST=0.0.0.0` on the CLI, or use `adb reverse tcp:3001
+tcp:3001` and keep the phone URL on `127.0.0.1`.
+
+After installing the app:
+
+1. Open Codey Forwarder and tap **Notification Access**.
+2. Enable notification access for Codey Forwarder.
+3. Return to the app and tap **Start Keep Alive**.
+4. Tap **Battery Settings** and allow unrestricted/background battery usage for
+   Codey Forwarder. On Xiaomi/OPPO/Vivo/Huawei-style ROMs, also enable
+   autostart/locked app/no background cleanup for Codey Forwarder.
+5. Tap **Send Test Payload** while `pnpm codey` is running; the CLI should log a
+   Forwarder WhatsApp webhook event with code `123456`.
 
 ## Build and validation
 

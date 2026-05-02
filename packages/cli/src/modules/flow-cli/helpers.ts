@@ -79,7 +79,7 @@ export interface AuthOptions extends CommonOptions {
   cliName?: string
   scope?: string
   target?: string
-  smsForwarderWebhook?: string | boolean
+  forwarderWebhook?: string | boolean
 }
 
 export interface ExchangeOptions extends CommonOptions {
