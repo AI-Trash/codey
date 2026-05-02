@@ -1039,6 +1039,23 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
       })
     }
 
+    await selectGoPayProxyTag(
+      CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS,
+      'singapore',
+      {
+        options,
+        machine,
+        patch: {
+          email,
+          coupon: selectedCoupon,
+          trialPlan: selectedPlan,
+          paymentMethod,
+          couponState: selectedCouponState,
+          url: page.url(),
+        },
+      },
+    )
+
     const checkout = await createChatGPTTrialCheckoutLink(
       page,
       selectedCoupon,
