@@ -1,11 +1,15 @@
 import {
+  assignContextFromInput,
   createPatchTransitionMap,
   createRetryTransition,
   createSelfPatchTransitionMap,
   defineStateMachineFragment,
+  isStateMachinePatchInput,
   type RetryableStateMachineContext,
   type StateMachineConfig,
   type StateMachineFragment,
+  type StateMachinePatchInput,
+  type StateMachineTransitionDefinition,
   type UrlTrackingStateMachineContext,
 } from '../state-machine'
 
@@ -18,6 +22,7 @@ export interface FlowLifecycleFragmentOptions<
   retryEvent: Event
   retryTarget: State
   defaultRetryMessage: string
+  allowTargetOverride?: boolean
 }
 
 export function createFlowLifecycleFragment<
@@ -27,18 +32,99 @@ export function createFlowLifecycleFragment<
 >(
   options: FlowLifecycleFragmentOptions<State, Event>,
 ): StateMachineFragment<State, Context, Event> {
+  const eventTransitions =
+    options.allowTargetOverride === false
+      ? createFixedPatchTransitionMap<State, Context, Event>(
+          options.eventTargets,
+        )
+      : createPatchTransitionMap<State, Context, Event>(options.eventTargets)
+  const contextTransitions =
+    options.allowTargetOverride === false
+      ? createFixedSelfPatchTransitionMap<State, Context, Event>([
+          ...options.mutableContextEvents,
+        ])
+      : createSelfPatchTransitionMap<State, Context, Event>([
+          ...options.mutableContextEvents,
+        ])
+
   return defineStateMachineFragment<State, Context, Event>({
     on: {
-      ...createPatchTransitionMap<State, Context, Event>(options.eventTargets),
+      ...eventTransitions,
       [options.retryEvent]: createRetryTransition<State, Context, Event>({
         target: options.retryTarget,
         defaultMessage: options.defaultRetryMessage,
       }),
-      ...createSelfPatchTransitionMap<State, Context, Event>([
-        ...options.mutableContextEvents,
-      ]),
+      ...contextTransitions,
     } as StateMachineConfig<State, Context, Event>['on'],
   })
+}
+
+function createFixedPatchTransition<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(target: State): StateMachineTransitionDefinition<State, Context, Event> {
+  return {
+    target,
+    actions: assignContextFromInput<
+      State,
+      Context,
+      Event,
+      StateMachinePatchInput<State, Context>
+    >(isStateMachinePatchInput, (_context, { input }) => input.patch ?? {}),
+  }
+}
+
+function createFixedPatchTransitionMap<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  targets: Partial<Record<Event, State>>,
+): Partial<
+  Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+> {
+  const transitions: Partial<
+    Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+  > = {}
+
+  for (const [event, target] of Object.entries(targets) as Array<
+    [Event, State]
+  >) {
+    transitions[event] = createFixedPatchTransition<State, Context, Event>(
+      target,
+    )
+  }
+
+  return transitions
+}
+
+function createFixedSelfPatchTransitionMap<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  events: Event[],
+): Partial<
+  Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+> {
+  const transitions: Partial<
+    Record<Event, StateMachineTransitionDefinition<State, Context, Event>>
+  > = {}
+
+  for (const event of events) {
+    transitions[event] = {
+      target: undefined,
+      actions: assignContextFromInput<
+        State,
+        Context,
+        Event,
+        StateMachinePatchInput<State, Context>
+      >(isStateMachinePatchInput, (_context, { input }) => input.patch ?? {}),
+    }
+  }
+
+  return transitions
 }
 
 export interface FlowReadyOutcomeInput<Context extends object> {

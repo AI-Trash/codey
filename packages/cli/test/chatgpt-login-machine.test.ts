@@ -11,7 +11,6 @@ describe('chatgpt login machine', () => {
     })
 
     await machine.send('chatgpt.email.started', {
-      target: 'email-step',
       patch: {
         email: 'person@example.com',
       },
@@ -64,7 +63,6 @@ describe('chatgpt login machine', () => {
     })
 
     await machine.send('chatgpt.session.restoring', {
-      target: 'restoring-session',
       patch: {
         email: 'person@example.com',
         lastMessage: 'Checking local state',
@@ -88,14 +86,12 @@ describe('chatgpt login machine', () => {
     })
 
     await machine.send('chatgpt.workspace.ready', {
-      target: 'workspace-selection',
       patch: {
         email: 'owner@example.com',
         lastMessage: 'OpenAI workspace selection ready',
       },
     })
     await machine.send('chatgpt.workspace.selected', {
-      target: 'workspace-selection',
       patch: {
         selectedWorkspaceId: 'workspace-selected',
         lastMessage: 'Selected OpenAI workspace workspace-selected',
@@ -120,7 +116,6 @@ describe('chatgpt login machine', () => {
     })
 
     await machine.send('chatgpt.email.started', {
-      target: 'email-step',
       patch: {
         email: 'person@example.com',
       },

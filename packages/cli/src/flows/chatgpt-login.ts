@@ -210,6 +210,7 @@ const chatgptLoginEventTargets = {
   'chatgpt.login.surface.ready': 'login-surface',
   'chatgpt.email.started': 'email-step',
   'chatgpt.password.started': 'password-step',
+  'chatgpt.password.submitted': 'password-step',
   'chatgpt.verification.polling': 'verification-polling',
   'chatgpt.verification.code-found': 'verification-code-entry',
   'chatgpt.verification.submitted': 'verification-code-entry',
@@ -363,6 +364,7 @@ function createChatGPTLoginLifecycleFragment<Result>() {
     retryEvent: 'chatgpt.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying ChatGPT login',
+    allowTargetOverride: false,
   })
 }
 
@@ -419,12 +421,10 @@ export function createChatGPTLoginMachine(): ChatGPTLoginFlowMachine<ChatGPTLogi
 
 async function sendLoginMachine(
   machine: ChatGPTLoginFlowMachine<ChatGPTLoginFlowResult>,
-  state: ChatGPTLoginFlowState,
   event: ChatGPTLoginFlowEvent,
   patch?: Partial<ChatGPTLoginFlowContext<ChatGPTLoginFlowResult>>,
 ): Promise<void> {
   await machine.send(event, {
-    target: state,
     patch,
   })
 }
@@ -756,31 +756,21 @@ async function completeChatGPTPostLoginSurface(
           priority: 60,
           guard: ({ input }) => input.candidates.includes('workspace'),
           run: async () => {
-            await sendLoginMachine(
-              machine,
-              'workspace-selection',
-              'chatgpt.workspace.ready',
-              {
-                url: page.url(),
-                lastMessage:
-                  'OpenAI workspace selection ready; selecting the first workspace',
-              },
-            )
+            await sendLoginMachine(machine, 'chatgpt.workspace.ready', {
+              url: page.url(),
+              lastMessage:
+                'OpenAI workspace selection ready; selecting the first workspace',
+            })
 
             try {
               const selection = await continueOpenAIWorkspaceSelection(page, 1)
-              await sendLoginMachine(
-                machine,
-                'workspace-selection',
-                'chatgpt.workspace.selected',
-                {
-                  url: page.url(),
-                  selectedWorkspaceId: selection.selectedWorkspaceId,
-                  lastMessage: selection.selectedWorkspaceId
-                    ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
-                    : `Selected OpenAI workspace #${selection.selectedWorkspaceIndex}`,
-                },
-              )
+              await sendLoginMachine(machine, 'chatgpt.workspace.selected', {
+                url: page.url(),
+                selectedWorkspaceId: selection.selectedWorkspaceId,
+                lastMessage: selection.selectedWorkspaceId
+                  ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
+                  : `Selected OpenAI workspace #${selection.selectedWorkspaceIndex}`,
+              })
               options.progressReporter?.({
                 message: selection.selectedWorkspaceId
                   ? `Selected OpenAI workspace ${selection.selectedWorkspaceId}`
@@ -892,36 +882,26 @@ export async function loginChatGPT(
     )
 
     if (shouldAttemptLocalStorageStateRestore(options)) {
-      await sendLoginMachine(
-        machine,
-        'restoring-session',
-        'chatgpt.session.restoring',
-        {
-          email: stored.identity.email,
-          storedIdentity: stored.summary,
-          url: CHATGPT_HOME_URL,
-          lastMessage:
-            'Checking whether local ChatGPT session state restores login',
-        },
-      )
+      await sendLoginMachine(machine, 'chatgpt.session.restoring', {
+        email: stored.identity.email,
+        storedIdentity: stored.summary,
+        url: CHATGPT_HOME_URL,
+        lastMessage:
+          'Checking whether local ChatGPT session state restores login',
+      })
       const sessionRestored = await waitForRestoredChatGPTSession(
         page,
         stored.identity.email,
       )
       if (sessionRestored) {
-        await sendLoginMachine(
-          machine,
-          'authenticated',
-          'chatgpt.authenticated',
-          {
-            email: stored.identity.email,
-            method: 'restored',
-            storedIdentity: stored.summary,
-            url: page.url(),
-            lastMessage:
-              'Authenticated ChatGPT session restored from local storage state',
-          },
-        )
+        await sendLoginMachine(machine, 'chatgpt.authenticated', {
+          email: stored.identity.email,
+          method: 'restored',
+          storedIdentity: stored.summary,
+          url: page.url(),
+          lastMessage:
+            'Authenticated ChatGPT session restored from local storage state',
+        })
 
         const title = await page.title()
         const storedSession = await persistLoginSessionArtifacts({
@@ -968,7 +948,7 @@ export async function loginChatGPT(
       })
     }
 
-    await sendLoginMachine(machine, 'opening-entry', 'chatgpt.entry.opened', {
+    await sendLoginMachine(machine, 'chatgpt.entry.opened', {
       email: stored.identity.email,
       url: CHATGPT_ENTRY_LOGIN_URL,
       lastMessage: 'Opening ChatGPT login entry',
@@ -999,31 +979,21 @@ export async function loginChatGPT(
     const surface = login.surface
 
     if (surface === 'authenticated') {
-      await sendLoginMachine(
-        machine,
-        'authenticated',
-        'chatgpt.authenticated',
-        {
-          email: stored.identity.email,
-          url: page.url(),
-          lastMessage: 'Already authenticated',
-        },
-      )
+      await sendLoginMachine(machine, 'chatgpt.authenticated', {
+        email: stored.identity.email,
+        url: page.url(),
+        lastMessage: 'Already authenticated',
+      })
     } else {
-      await sendLoginMachine(
-        machine,
-        'login-surface',
-        'chatgpt.login.surface.ready',
-        {
-          email: stored.identity.email,
-          url: page.url(),
-          lastMessage: `Login surface ready: ${surface}`,
-        },
-      )
+      await sendLoginMachine(machine, 'chatgpt.login.surface.ready', {
+        email: stored.identity.email,
+        url: page.url(),
+        lastMessage: `Login surface ready: ${surface}`,
+      })
     }
 
     if (surface !== 'authenticated') {
-      await sendLoginMachine(machine, 'email-step', 'chatgpt.email.started', {
+      await sendLoginMachine(machine, 'chatgpt.email.started', {
         email: stored.identity.email,
         url: page.url(),
         lastMessage: 'Submitting login email',
@@ -1037,27 +1007,21 @@ export async function loginChatGPT(
       })
     }
 
-    await sendLoginMachine(
-      machine,
-      'password-step',
-      'chatgpt.password.started',
-      {
-        email: stored.identity.email,
-        method: login.method,
-        storedIdentity: stored.summary,
-        url: page.url(),
-        lastMessage:
-          login.method === 'verification'
-            ? 'Starting verification fallback'
-            : 'Starting password fallback',
-      },
-    )
+    await sendLoginMachine(machine, 'chatgpt.password.started', {
+      email: stored.identity.email,
+      method: login.method,
+      storedIdentity: stored.summary,
+      url: page.url(),
+      lastMessage:
+        login.method === 'verification'
+          ? 'Starting verification fallback'
+          : 'Starting password fallback',
+    })
     await sendLoginMachine(
       machine,
       login.method === 'verification'
-        ? 'verification-code-entry'
-        : 'password-step',
-      'context.updated',
+        ? 'chatgpt.verification.submitted'
+        : 'chatgpt.password.submitted',
       {
         email: stored.identity.email,
         method: login.method,

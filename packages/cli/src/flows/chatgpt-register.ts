@@ -496,6 +496,7 @@ function createChatGPTRegistrationLifecycleFragment<Result>() {
     retryEvent: 'chatgpt.retry.requested',
     retryTarget: 'retrying',
     defaultRetryMessage: 'Retrying ChatGPT registration',
+    allowTargetOverride: false,
   })
 }
 
@@ -671,14 +672,12 @@ export function createChatGPTRegistrationMachine(): ChatGPTRegistrationFlowMachi
 
 async function sendRegistrationMachine(
   machine: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
-  state: ChatGPTRegistrationFlowState,
   event: ChatGPTRegistrationFlowEvent,
   patch?: Partial<
     ChatGPTRegistrationFlowContext<ChatGPTRegistrationFlowResult>
   >,
 ): Promise<void> {
   await machine.send(event, {
-    target: state,
     patch,
   })
 }
@@ -1105,15 +1104,10 @@ export async function registerChatGPT(
 
     await verificationProvider.primeInbox()
 
-    await sendRegistrationMachine(
-      machine,
-      'opening-entry',
-      'chatgpt.entry.opened',
-      {
-        url: CHATGPT_ENTRY_LOGIN_URL,
-        lastMessage: 'Opening ChatGPT auth entry',
-      },
-    )
+    await sendRegistrationMachine(machine, 'chatgpt.entry.opened', {
+      url: CHATGPT_ENTRY_LOGIN_URL,
+      lastMessage: 'Opening ChatGPT auth entry',
+    })
     await gotoLoginEntry(page)
     const entryResolution = await resolveRegistrationEntrySurface(page, {
       email,
@@ -1126,7 +1120,7 @@ export async function registerChatGPT(
       )
     }
 
-    await sendRegistrationMachine(machine, 'email-step', 'context.updated', {
+    await sendRegistrationMachine(machine, 'chatgpt.email.started', {
       email,
       url: page.url(),
       lastMessage: 'Typing registration email',
@@ -1185,7 +1179,6 @@ export async function registerChatGPT(
               })
               await sendRegistrationMachine(
                 machine,
-                'password-step',
                 'chatgpt.password.started',
                 {
                   url: page.url(),
@@ -1308,7 +1301,6 @@ export async function registerChatGPT(
 
     await sendRegistrationMachine(
       machine,
-      'verification-polling',
       postEmailResolution.verificationEvent,
       {
         url: page.url(),
@@ -1330,29 +1322,19 @@ export async function registerChatGPT(
       timeoutMs: verificationTimeoutMs,
       pollIntervalMs,
       onPollAttempt: async (attempt) => {
-        await sendRegistrationMachine(
-          machine,
-          'verification-polling',
-          'context.updated',
-          {
-            email,
-            lastAttempt: attempt,
-            lastMessage: 'Polling verification provider for verification code',
-          },
-        )
+        await sendRegistrationMachine(machine, 'chatgpt.verification.polling', {
+          email,
+          lastAttempt: attempt,
+          lastMessage: 'Polling verification provider for verification code',
+        })
       },
     })
 
-    await sendRegistrationMachine(
-      machine,
-      'verification-code-entry',
-      'chatgpt.verification.code-found',
-      {
-        verificationCode,
-        url: page.url(),
-        lastMessage: 'Submitting verification code',
-      },
-    )
+    await sendRegistrationMachine(machine, 'chatgpt.verification.code-found', {
+      verificationCode,
+      url: page.url(),
+      lastMessage: 'Submitting verification code',
+    })
     await waitForVerificationCodeInputReady(page, 10000)
     await typeVerificationCode(page, verificationCode)
     await clickVerificationContinue(page)
@@ -1364,19 +1346,14 @@ export async function registerChatGPT(
         timeoutMs: verificationTimeoutMs,
         currentCode: verificationCode,
         onCodeUpdate: async (event) => {
-          await sendRegistrationMachine(
-            machine,
-            'verification-code-entry',
-            'context.updated',
-            {
-              verificationCode: event.code,
-              url: page.url(),
-              lastMessage:
-                event.source === 'MANUAL'
-                  ? 'Received a manual verification code update and resubmitted it'
-                  : 'Received an updated verification code and resubmitted it',
-            },
-          )
+          await sendRegistrationMachine(machine, 'context.updated', {
+            verificationCode: event.code,
+            url: page.url(),
+            lastMessage:
+              event.source === 'MANUAL'
+                ? 'Received a manual verification code update and resubmitted it'
+                : 'Received an updated verification code and resubmitted it',
+          })
         },
       })
 
@@ -1387,46 +1364,31 @@ export async function registerChatGPT(
     await page.waitForLoadState('domcontentloaded').catch(() => undefined)
     await completeRegistrationAgeGate(page, machine, email)
 
-    await sendRegistrationMachine(
-      machine,
-      'post-signup-home',
-      'chatgpt.home.waiting',
-      {
-        url: page.url(),
-        lastMessage: 'Waiting for ChatGPT home and onboarding completion',
-      },
-    )
+    await sendRegistrationMachine(machine, 'chatgpt.home.waiting', {
+      url: page.url(),
+      lastMessage: 'Waiting for ChatGPT home and onboarding completion',
+    })
     const homeReady = await waitUntilChatGPTHomeReady(
       page,
       clickOnboardingAction,
       20,
     )
-    await sendRegistrationMachine(
-      machine,
-      'post-signup-home',
-      'context.updated',
-      {
-        url: page.url(),
-        lastMessage: homeReady
-          ? 'ChatGPT home ready'
-          : 'ChatGPT home did not become ready after signup',
-      },
-    )
+    await sendRegistrationMachine(machine, 'context.updated', {
+      url: page.url(),
+      lastMessage: homeReady
+        ? 'ChatGPT home ready'
+        : 'ChatGPT home did not become ready after signup',
+    })
     if (!homeReady) {
       throw new Error(
         'ChatGPT home did not become ready after signup onboarding.',
       )
     }
 
-    await sendRegistrationMachine(
-      machine,
-      'persisting-identity',
-      'chatgpt.identity.persisting',
-      {
-        url: page.url(),
-        lastMessage: 'Persisting ChatGPT identity and session',
-      },
-    )
+    await sendRegistrationMachine(machine, 'chatgpt.identity.persisting', {
+      url: page.url(),
+      lastMessage: 'Persisting ChatGPT identity and session',
+    })
 
     const storedIdentity = (
       await persistChatGPTIdentity({
@@ -1484,17 +1446,12 @@ export async function registerChatGPT(
 
     let trial: ChatGPTRegistrationTrialResult | undefined
     if (claimTrial) {
-      await sendRegistrationMachine(
-        machine,
-        'persisting-identity',
-        'context.updated',
-        {
-          claimTrial,
-          url: page.url(),
-          lastMessage:
-            'Continuing newly registered ChatGPT session into trial checkout',
-        },
-      )
+      await sendRegistrationMachine(machine, 'context.updated', {
+        claimTrial,
+        url: page.url(),
+        lastMessage:
+          'Continuing newly registered ChatGPT session into trial checkout',
+      })
 
       const trialMachine =
         createChatGPTTeamTrialMachine<ChatGPTRegistrationTrialResult>()
@@ -1567,19 +1524,14 @@ export async function registerChatGPT(
         detachTrialProgress()
       }
 
-      await sendRegistrationMachine(
-        machine,
-        'persisting-identity',
-        'context.updated',
-        {
-          claimTrial,
-          trial,
-          url: page.url(),
-          lastMessage: trial
-            ? 'ChatGPT trial payment link captured after registration'
-            : 'ChatGPT trial continuation finished without a captured link',
-        },
-      )
+      await sendRegistrationMachine(machine, 'context.updated', {
+        claimTrial,
+        trial,
+        url: page.url(),
+        lastMessage: trial
+          ? 'ChatGPT trial payment link captured after registration'
+          : 'ChatGPT trial continuation finished without a captured link',
+      })
     }
 
     const title = await page.title()

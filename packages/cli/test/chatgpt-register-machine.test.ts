@@ -53,7 +53,6 @@ describe('chatgpt registration machine', () => {
     })
 
     await machine.send('chatgpt.email.started', {
-      target: 'email-step',
       patch: {
         email: 'person@example.com',
       },
@@ -139,7 +138,6 @@ describe('chatgpt registration machine', () => {
     })
 
     await machine.send('chatgpt.email.started', {
-      target: 'email-step',
       patch: {
         email: 'person@example.com',
         lastMessage: 'Typing registration email',
@@ -175,7 +173,6 @@ describe('chatgpt registration machine', () => {
     })
 
     await machine.send('chatgpt.email.started', {
-      target: 'email-step',
       patch: {
         email: 'person@example.com',
       },
