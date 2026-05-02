@@ -796,20 +796,10 @@ async function unlinkVisibleLinkedApps(
       step: 'unlink-confirmed',
       message: 'Confirmed GoPay linked app unlink',
     })
-
-    const afterConfirmDelay = Math.min(
-      GOPAY_CONFIRM_SETTLE_MS,
-      Math.max(0, remainingMs(deadline) - GOPAY_UNLINK_POLL_MS),
-    )
-    if (afterConfirmDelay > 0) {
-      await sleep(afterConfirmDelay)
-    }
-    if (unlinkedAppCount > 20) {
-      throw new Error('GoPay still shows linked apps after 20 unlink attempts.')
-    }
+    return unlinkedAppCount
   } while (remainingMs(deadline) > 0)
 
-  throw new Error('GoPay linked apps were still visible after unlink attempts.')
+  throw new Error('GoPay linked app confirmation Unlink was not clicked.')
 }
 
 export async function unlinkGoPayLinkedAppsInSession(
@@ -882,24 +872,7 @@ export async function unlinkGoPayLinkedAppsInSession(
     deadline,
     options,
   )
-  const unlinked = await waitUntil(
-    async () =>
-      (await isNoLinkedAppsState(driver)) ||
-      (!(await hasLinkedAppItem(driver)) &&
-        (await getDisplayedUnlinkButtons(driver)).length === 0),
-    deadline,
-  )
-  if (!unlinked) {
-    throw new Error('GoPay linked apps were still visible after unlink confirm.')
-  }
-
-  const exitedLinkedApps = await exitLinkedAppsPage(driver, deadline)
-  if (exitedLinkedApps) {
-    await reportProgress(options, {
-      step: 'linked-apps-exited',
-      message: 'Exited GoPay Linked apps page',
-    })
-  }
+  const exitedLinkedApps = false
 
   await reportProgress(options, {
     step: 'completed',

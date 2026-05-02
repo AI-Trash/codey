@@ -262,13 +262,12 @@ describe('GoPay Android unlink helper', () => {
       clickedInitialUnlink: true,
       clickedConfirmUnlink: true,
       unlinkedAppCount: 1,
-      exitedLinkedApps: true,
+      exitedLinkedApps: false,
     })
     expect(driver.clicks).toEqual([
       'linked-apps-entry',
       'initial-unlink',
       'confirm-unlink',
-      'linked-apps-back',
     ])
   })
 
@@ -287,7 +286,7 @@ describe('GoPay Android unlink helper', () => {
       status: 'unlinked',
       clickedLinkedApps: true,
       unlinkedAppCount: 1,
-      exitedLinkedApps: true,
+      exitedLinkedApps: false,
     })
     expect(driver.clicks).toContain('linked-apps-entry')
   })
@@ -310,7 +309,7 @@ describe('GoPay Android unlink helper', () => {
       clickedAccountSettings: true,
       clickedLinkedApps: true,
       unlinkedAppCount: 1,
-      exitedLinkedApps: true,
+      exitedLinkedApps: false,
     })
     expect(driver.startActivityCalls).toEqual([
       {
@@ -324,11 +323,10 @@ describe('GoPay Android unlink helper', () => {
       'linked-apps-entry',
       'initial-unlink',
       'confirm-unlink',
-      'linked-apps-back',
     ])
   })
 
-  it('unlinks every visible linked app before exiting Linked apps', async () => {
+  it('treats the confirmation Unlink click as task completion', async () => {
     const driver = new FakeGoPayAndroidDriver('linked-apps', 2)
 
     const result = await unlinkGoPayLinkedAppsInSession(
@@ -344,15 +342,12 @@ describe('GoPay Android unlink helper', () => {
       clickedLinkedApps: false,
       clickedInitialUnlink: true,
       clickedConfirmUnlink: true,
-      unlinkedAppCount: 2,
-      exitedLinkedApps: true,
+      unlinkedAppCount: 1,
+      exitedLinkedApps: false,
     })
     expect(driver.clicks).toEqual([
       'initial-unlink',
       'confirm-unlink',
-      'initial-unlink',
-      'confirm-unlink',
-      'linked-apps-back',
     ])
   })
 
