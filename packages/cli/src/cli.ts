@@ -206,6 +206,12 @@ function resolveFlowCommandOptions(
     )
   }
 
+  if (subcommand === 'chatgpt-team-trial-gopay') {
+    return keepBrowserOpenForHarWhenUnspecified(
+      applyFlowOptionDefaults(options),
+    )
+  }
+
   if (subcommand === 'noop') {
     return applyFlowOptionDefaults(options, {
       har: true,
@@ -269,6 +275,8 @@ function buildFlowTaskCompletionResult(
   const trialResult =
     flowId === 'chatgpt-team-trial'
       ? result
+      : flowId === 'chatgpt-team-trial-gopay'
+        ? result
       : flowId === 'chatgpt-register'
         ? isRecord(result.trial)
           ? result.trial
@@ -295,7 +303,11 @@ function buildFlowTaskCompletionResult(
 
   return {
     pageName:
-      flowId === 'chatgpt-register' ? 'chatgpt-register' : 'chatgpt-team-trial',
+      flowId === 'chatgpt-register'
+        ? 'chatgpt-register'
+        : flowId === 'chatgpt-team-trial-gopay'
+          ? 'chatgpt-team-trial-gopay'
+          : 'chatgpt-team-trial',
     ...(typeof trialResult.paymentMethod === 'string'
       ? { paymentMethod: trialResult.paymentMethod }
       : {}),

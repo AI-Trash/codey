@@ -2,6 +2,7 @@ export type CliFlowCommandId =
   | 'chatgpt-register'
   | 'chatgpt-login'
   | 'chatgpt-team-trial'
+  | 'chatgpt-team-trial-gopay'
   | 'chatgpt-invite'
   | 'codex-oauth'
   | 'android-healthcheck'
@@ -26,6 +27,7 @@ export type CliFlowDisplayNameKey =
   | 'chatgptRegister'
   | 'chatgptLogin'
   | 'chatgptTeamTrial'
+  | 'chatgptTeamTrialGoPay'
   | 'chatgptInvite'
   | 'codexOauth'
   | 'androidHealthcheck'
@@ -35,6 +37,7 @@ export type CliFlowDescriptionKey =
   | 'chatgptRegister'
   | 'chatgptLogin'
   | 'chatgptTeamTrial'
+  | 'chatgptTeamTrialGoPay'
   | 'chatgptInvite'
   | 'codexOauth'
   | 'androidHealthcheck'
@@ -52,6 +55,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'claimTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
+  | 'paymentRedirectUrl'
   | 'identityId'
   | 'email'
   | 'billingName'
@@ -89,6 +93,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'claimTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
+  | 'paymentRedirectUrl'
   | 'identityId'
   | 'email'
   | 'billingName'
@@ -126,6 +131,7 @@ export type CliFlowConfigFieldKey =
   | 'claimTrial'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
+  | 'paymentRedirectUrl'
   | 'identityId'
   | 'email'
   | 'billingName'
@@ -341,7 +347,27 @@ export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
  * Configuration for signing in and completing the trial checkout handoff.
  */
 export interface ChatGPTTeamTrialFlowConfig
-  extends ChatGPTLoginFlowConfig, ChatGPTTeamTrialBillingFlowConfig {}
+  extends ChatGPTLoginFlowConfig, ChatGPTTeamTrialBillingFlowConfig {
+  /**
+   * Select the checkout payment branch.
+   */
+  claimTrial?: ChatGPTTrialClaimMethod
+}
+
+/**
+ * Configuration for continuing a captured GoPay/Midtrans trial redirect.
+ */
+export interface ChatGPTTeamTrialGoPayFlowConfig extends CommonFlowConfig {
+  /**
+   * Midtrans GoPay tokenization URL captured by the checkout handoff flow.
+   */
+  paymentRedirectUrl?: string
+
+  /**
+   * Poll interval for WhatsApp OTP updates, in milliseconds.
+   */
+  pollIntervalMs?: number
+}
 
 /**
  * Configuration for signing in and inviting ChatGPT workspace members.
@@ -428,6 +454,7 @@ export interface CliFlowConfigById {
   'chatgpt-register': ChatGPTRegisterFlowConfig
   'chatgpt-login': ChatGPTLoginFlowConfig
   'chatgpt-team-trial': ChatGPTTeamTrialFlowConfig
+  'chatgpt-team-trial-gopay': ChatGPTTeamTrialGoPayFlowConfig
   'chatgpt-invite': ChatGPTInviteFlowConfig
   'codex-oauth': CodexOAuthFlowConfig
   'android-healthcheck': AndroidHealthcheckFlowConfig
@@ -597,6 +624,13 @@ export const cliFlowConfigFieldDefinitions = [
     type: 'number',
     displayNameKey: 'pollIntervalMs',
     descriptionKey: 'pollIntervalMs',
+  },
+  {
+    key: 'paymentRedirectUrl',
+    cliFlag: '--paymentRedirectUrl',
+    type: 'string',
+    displayNameKey: 'paymentRedirectUrl',
+    descriptionKey: 'paymentRedirectUrl',
   },
   {
     key: 'identityId',
@@ -811,6 +845,7 @@ export const cliFlowDefinitions = [
       'identityId',
       'email',
       'restoreStorageState',
+      'claimTrial',
       'billingName',
       'billingCountry',
       'billingAddressLine1',
@@ -819,6 +854,13 @@ export const cliFlowDefinitions = [
       'billingState',
       'billingPostalCode',
     ],
+  },
+  {
+    id: 'chatgpt-team-trial-gopay',
+    runtime: 'browser',
+    displayNameKey: 'chatgptTeamTrialGoPay',
+    descriptionKey: 'chatgptTeamTrialGoPay',
+    configKeys: ['paymentRedirectUrl', 'pollIntervalMs'],
   },
   {
     id: 'chatgpt-invite',

@@ -593,12 +593,65 @@ describe('cli flow task dispatch', () => {
     expect(insertedTasks[0]?.payload).toEqual(
       expect.objectContaining({
         flowId: 'chatgpt-team-trial',
+        config: expect.objectContaining({
+          email: 'owner@example.com',
+        }),
         metadata: {
           workspace: {
             recordId: 'workspace-record-1',
             workspaceId: 'ws_alpha',
             label: 'Alpha',
             ownerIdentityId: 'identity-1',
+          },
+        },
+      }),
+    )
+  })
+
+  it('keeps the GoPay payment URL on continuation tasks', async () => {
+    const anchorConnection = createCliConnectionSummary({
+      id: 'connection-a',
+      workerId: 'worker-a',
+      cliName: 'CLI A',
+      registeredFlows: ['chatgpt-team-trial-gopay'],
+    })
+    const { insertedTasks } = createTransactionRecorder()
+
+    mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
+    mocks.listAdminCliConnectionStateForActor.mockResolvedValue({
+      snapshotAt: '2026-04-24T00:00:06.000Z',
+      activeConnections: [anchorConnection],
+    })
+
+    await dispatchCliFlowTasks({
+      connectionId: anchorConnection.id,
+      flowId: 'chatgpt-team-trial-gopay',
+      config: {
+        paymentRedirectUrl:
+          ' https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking ',
+        email: 'owner@example.com',
+      },
+      metadata: {
+        workspace: {
+          recordId: 'workspace-record-1',
+        },
+      },
+      actor: {
+        userId: 'user-1',
+      },
+    })
+
+    expect(insertedTasks).toHaveLength(1)
+    expect(insertedTasks[0]?.payload).toEqual(
+      expect.objectContaining({
+        flowId: 'chatgpt-team-trial-gopay',
+        config: {
+          paymentRedirectUrl:
+            'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking',
+        },
+        metadata: {
+          workspace: {
+            recordId: 'workspace-record-1',
           },
         },
       }),

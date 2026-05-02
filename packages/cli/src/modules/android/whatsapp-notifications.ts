@@ -147,6 +147,10 @@ function escapeJsonStringControlCharacters(value: string): string {
   return result
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function parseJsonWithEscapedControlCharacters(value: string): unknown {
   try {
     return JSON.parse(value)
@@ -159,6 +163,105 @@ function parseJsonWithEscapedControlCharacters(value: string): unknown {
     }
     throw error
   }
+}
+
+function readRawJsonStringProperty(
+  value: string,
+  propertyName: string,
+): string | undefined {
+  const pattern = new RegExp(`"${escapeRegExp(propertyName)}"\\s*:\\s*"`, 'g')
+  const match = pattern.exec(value)
+  if (!match) {
+    return undefined
+  }
+
+  let literal = ''
+  let escaped = false
+  const start = match.index + match[0].length
+
+  for (let index = start; index < value.length; index += 1) {
+    const char = value.charAt(index)
+    const code = char.charCodeAt(0)
+
+    if (escaped) {
+      escaped = false
+      literal += char
+      continue
+    }
+
+    if (char === '\\') {
+      escaped = true
+      literal += char
+      continue
+    }
+
+    if (char === '"') {
+      try {
+        const parsed = parseJsonWithEscapedControlCharacters(`"${literal}"`)
+        return typeof parsed === 'string' ? parsed : undefined
+      } catch {
+        return literal
+      }
+    }
+
+    literal += code < 0x20 ? escapeJsonStringControlCharacter(char) : char
+  }
+
+  return undefined
+}
+
+const SMS_FORWARDER_RAW_JSON_STRING_FIELDS = [
+  'msg_app',
+  'msg_title',
+  'msg_content',
+  'msg_time',
+  'msg_from',
+  'packageName',
+  'package',
+  'package_name',
+  'title',
+  'body',
+  'content',
+  'text',
+  'message',
+  'msg',
+] as const
+
+function parseSmsForwarderRawJsonObject(
+  value: string,
+): Record<string, unknown> | undefined {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+    return undefined
+  }
+
+  const payload: Record<string, unknown> = {}
+  for (const field of SMS_FORWARDER_RAW_JSON_STRING_FIELDS) {
+    const fieldValue = readRawJsonStringProperty(trimmed, field)
+    if (fieldValue !== undefined) {
+      payload[field] = fieldValue
+    }
+  }
+
+  const hasSmsForwarderField = [
+    'msg_app',
+    'msg_title',
+    'msg_content',
+    'msg_time',
+    'msg_from',
+  ].some((field) => payload[field] !== undefined)
+  const hasNotificationText = [
+    'msg_title',
+    'msg_content',
+    'title',
+    'body',
+    'content',
+    'text',
+    'message',
+    'msg',
+  ].some((field) => payload[field] !== undefined)
+
+  return hasSmsForwarderField && hasNotificationText ? payload : undefined
 }
 
 function parseJsonObject(
@@ -498,6 +601,11 @@ function parseWebhookPayload(
     try {
       parsed = parseJsonWithEscapedControlCharacters(trimmed)
     } catch (error) {
+      const fallbackPayload = parseSmsForwarderRawJsonObject(trimmed)
+      if (fallbackPayload) {
+        return fallbackPayload
+      }
+
       const message = error instanceof Error ? error.message : String(error)
       throw new WhatsAppNotificationWebhookParseError(message, bodyText)
     }

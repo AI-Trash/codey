@@ -18,6 +18,7 @@ export {
   completeChatGPTTrialAfterAuthenticatedSession,
   completeChatGPTTeamTrialAfterAuthenticatedSession,
   runChatGPTTeamTrial,
+  runChatGPTTeamTrialGoPay,
   chatgptTeamTrialFlow,
   createChatGPTTeamTrialMachine,
   startChatGPTTeamTrialGoPayUnlinkTask,

@@ -155,6 +155,36 @@ describe('chatgpt team trial machine', () => {
     expect(getChatGPTTeamTrialStateProxyConfig('home-ready')).toBeUndefined()
   })
 
+  it('treats captured GoPay links as the handoff completion point', async () => {
+    const machine = createChatGPTTeamTrialMachine()
+    const gopayUrl =
+      'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking'
+
+    machine.start({
+      email: 'person@example.com',
+      paymentMethod: 'gopay',
+    })
+
+    await machine.send('chatgpt.paypal_link.captured', {
+      patch: {
+        paymentMethod: 'gopay',
+        paymentRedirectUrl: gopayUrl,
+        paypalApprovalUrl: gopayUrl,
+        subscribeClicked: true,
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'paypal-link-captured',
+      context: {
+        paymentMethod: 'gopay',
+        paymentRedirectUrl: gopayUrl,
+        paypalApprovalUrl: gopayUrl,
+        subscribeClicked: true,
+      },
+    })
+  })
+
   it('tracks GoPay unlink task progress without moving the primary flow state', async () => {
     const machine = createChatGPTTeamTrialMachine()
 

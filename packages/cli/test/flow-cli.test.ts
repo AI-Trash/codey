@@ -317,6 +317,31 @@ describe('flow cli helpers', () => {
     expect(summary).toContain('payment url file: C:/tmp/paypal-link.txt')
   })
 
+  it('prints the captured GoPay continuation summary', () => {
+    const gopayUrl =
+      'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking'
+    const summary = formatFlowCompletionSummary(
+      'flow:chatgpt-team-trial-gopay',
+      {
+        pageName: 'chatgpt-team-trial-gopay',
+        url: 'https://app.midtrans.com/snap/v4/redirection/gopay-1#/payment-status',
+        title: 'Midtrans',
+        paymentMethod: 'gopay',
+        paymentRedirectUrl: gopayUrl,
+        gopayPayment: {
+          status: 'pay-now-clicked',
+          payNowClicked: true,
+        },
+      },
+    )
+
+    expect(summary).toContain('flow:chatgpt-team-trial-gopay completed')
+    expect(summary).toContain('payment method: gopay')
+    expect(summary).toContain(`payment url: ${gopayUrl}`)
+    expect(summary).toContain('gopay status: pay-now-clicked')
+    expect(summary).toContain('pay now: yes')
+  })
+
   it('renders Android healthcheck summaries', () => {
     const summary = formatFlowCompletionSummary('flow:android-healthcheck', {
       pageName: 'android-healthcheck',

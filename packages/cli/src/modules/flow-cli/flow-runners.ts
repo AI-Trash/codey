@@ -4,7 +4,10 @@ import { runAndroidHealthcheck } from '../../flows/android-healthcheck'
 import { inviteChatGPTWorkspaceMembers } from '../../flows/chatgpt-invite'
 import { loginChatGPT } from '../../flows/chatgpt-login'
 import { registerChatGPT } from '../../flows/chatgpt-register'
-import { runChatGPTTeamTrial } from '../../flows/chatgpt-team-trial'
+import {
+  runChatGPTTeamTrial,
+  runChatGPTTeamTrialGoPay,
+} from '../../flows/chatgpt-team-trial'
 import { runCodexOAuthFlow } from '../../flows/codex-oauth'
 import { openNoopFlow } from '../../flows/noop'
 import type { CliFlowCommandId, CliFlowRuntimeKind } from './flow-registry'
@@ -45,6 +48,9 @@ export const cliFlowRunners = {
   ),
   'chatgpt-team-trial': browserFlow((session, options) =>
     runChatGPTTeamTrial(session.page, options),
+  ),
+  'chatgpt-team-trial-gopay': browserFlow((session, options) =>
+    runChatGPTTeamTrialGoPay(session.page, options),
   ),
   'chatgpt-invite': browserFlow((session, options) =>
     inviteChatGPTWorkspaceMembers(session.page, options),

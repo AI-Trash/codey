@@ -2,6 +2,7 @@ import '@tanstack/react-start/server-only'
 
 import { and, asc, eq, gt, lt, or, sql } from 'drizzle-orm'
 
+import type { CliFlowTaskMetadata } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { sanitizeSummaryString } from '../../../packages/cli/src/utils/redaction'
 import { sendAstrBotPayPalNotification } from './astrbot'
 import { getDb } from './db/client'
@@ -60,6 +61,77 @@ function readPayPalApprovalUrl(
         ? result.paypalApprovalUrl
         : null,
   )
+}
+
+function readGoPayPaymentRedirectUrl(
+  result: Record<string, unknown> | null | undefined,
+): string | null {
+  const normalized = normalizeTeamTrialPaypalUrl(
+    typeof result?.paymentRedirectUrl === 'string'
+      ? result.paymentRedirectUrl
+      : typeof result?.paypalApprovalUrl === 'string'
+        ? result.paypalApprovalUrl
+        : null,
+  )
+  if (!normalized) {
+    return null
+  }
+
+  try {
+    const url = new URL(normalized)
+    return url.hostname.toLowerCase() === 'app.midtrans.com'
+      ? normalized
+      : null
+  } catch {
+    return null
+  }
+}
+
+function readTaskMetadata(
+  task: Pick<FlowTaskRow, 'payload'>,
+): CliFlowTaskMetadata | undefined {
+  const payload = task.payload
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return undefined
+  }
+
+  const metadata = (payload as Record<string, unknown>).metadata
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? (metadata as CliFlowTaskMetadata)
+    : undefined
+}
+
+async function queueGoPayContinuationFromFlowTask(input: {
+  task: FlowTaskRow
+  connection: CliConnectionRow
+  paymentRedirectUrl: string
+  capturedAt: Date
+}) {
+  const { dispatchCliFlowTasks } = await import('./cli-tasks')
+  const result = await dispatchCliFlowTasks({
+    connectionId: input.connection.id,
+    flowId: 'chatgpt-team-trial-gopay',
+    config: {
+      paymentRedirectUrl: input.paymentRedirectUrl,
+    },
+    metadata: readTaskMetadata(input.task),
+  })
+
+  await appendFlowTaskEvent({
+    taskId: input.task.id,
+    cliConnectionId: input.connection.id,
+    type: 'LOG',
+    status: input.task.status,
+    message: `Queued GoPay trial continuation task ${result.tasks[0]?.id || ''}`.trim(),
+    payload: {
+      gopayContinuation: {
+        queuedCount: result.tasks.length,
+        assignedCliCount: result.assignedCliCount,
+        flowId: 'chatgpt-team-trial-gopay',
+        capturedAt: input.capturedAt.toISOString(),
+      },
+    },
+  })
 }
 
 function normalizeRetryMaxAttempts(value?: number | null): number {
@@ -458,6 +530,33 @@ export async function completeFlowTask(input: {
             ? error.message
             : 'Unable to persist flow task completion result',
       })
+    }
+
+    const gopayPaymentRedirectUrl =
+      updated.flowType === 'chatgpt-team-trial'
+        ? readGoPayPaymentRedirectUrl(input.result)
+        : null
+    if (gopayPaymentRedirectUrl) {
+      try {
+        await queueGoPayContinuationFromFlowTask({
+          task: updated,
+          connection,
+          paymentRedirectUrl: gopayPaymentRedirectUrl,
+          capturedAt: now,
+        })
+      } catch (error) {
+        console.error('Unable to queue GoPay continuation task', error)
+        await appendFlowTaskEvent({
+          taskId: updated.id,
+          cliConnectionId: connection.id,
+          type: 'LOG',
+          status: updated.status,
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Unable to queue GoPay continuation task',
+        })
+      }
     }
 
     const paypalUrl = readPayPalApprovalUrl(input.result)

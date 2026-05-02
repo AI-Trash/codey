@@ -73,6 +73,7 @@ describe('flow registry', () => {
     })
 
     expect(flowIds).toContain('chatgpt-team-trial')
+    expect(flowIds).toContain('chatgpt-team-trial-gopay')
     expect(flowIds).not.toContain('chatgpt-purchase')
     expect(getCliFlowDefinition('chatgpt-team-trial')).toMatchObject({
       id: 'chatgpt-team-trial',
@@ -80,6 +81,7 @@ describe('flow registry', () => {
         'identityId',
         'email',
         'restoreStorageState',
+        'claimTrial',
         'billingName',
         'billingCountry',
         'billingAddressLine1',
@@ -90,6 +92,31 @@ describe('flow registry', () => {
       ],
     })
     expect(normalizeCliFlowTaskPayload(payload)).toEqual(payload)
+
+    expect(getCliFlowDefinition('chatgpt-team-trial-gopay')).toMatchObject({
+      id: 'chatgpt-team-trial-gopay',
+      configKeys: ['paymentRedirectUrl', 'pollIntervalMs'],
+    })
+    expect(
+      normalizeCliFlowTaskPayload({
+        kind: 'flow_task',
+        flowId: 'chatgpt-team-trial-gopay',
+        config: {
+          paymentRedirectUrl:
+            ' https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking ',
+          pollIntervalMs: '5000',
+          email: 'ignored@example.com',
+        },
+      }),
+    ).toEqual({
+      kind: 'flow_task',
+      flowId: 'chatgpt-team-trial-gopay',
+      config: {
+        paymentRedirectUrl:
+          'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking',
+        pollIntervalMs: 5000,
+      },
+    })
   })
 
   it('registers the renamed ChatGPT invite flow and normalizes legacy payloads', () => {

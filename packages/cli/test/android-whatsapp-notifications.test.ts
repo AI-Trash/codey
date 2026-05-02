@@ -232,6 +232,45 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
     )
   })
 
+  it('recovers SmsForwarder fields when malformed JSON parsing still fails', async () => {
+    const ingestNotification = vi.fn(async () => ({
+      ok: true,
+      notificationRecordId: 'notification-1',
+      codeRecordId: 'code-1',
+      match: {
+        matched: true,
+      },
+    }))
+    const handle = startWhatsAppNotificationWebhookServer({
+      port: 0,
+      ingestNotification,
+    })
+    openHandles.push(handle)
+    const { url } = await handle.ready
+    const rawBody = `{
+  "msg_app": "com.whatsapp",
+  "msg_title": "GoPay\t",
+  "msg_content": "811997 is your verification code. For your security, do not share this code.",
+  "msg_time": "2026-05-02 12:54:47",
+}`
+
+    const response = await postRaw(url, rawBody)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toMatchObject({
+      ok: true,
+      extractedCode: '811997',
+    })
+    expect(ingestNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packageName: 'com.whatsapp',
+        title: 'GoPay',
+        body: '811997 is your verification code. For your security, do not share this code.',
+        extractedCode: '811997',
+      }),
+    )
+  })
+
   it('logs the raw webhook body when unrecoverable JSON parsing fails', async () => {
     const statuses: string[] = []
     const handle = startWhatsAppNotificationWebhookServer({

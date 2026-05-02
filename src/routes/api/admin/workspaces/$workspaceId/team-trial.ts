@@ -125,6 +125,7 @@ export const Route = createFileRoute(
               actor,
               config: {
                 email: ownerEmail,
+                claimTrial: 'gopay',
               },
               metadata: {
                 workspace: {

@@ -38,6 +38,7 @@ export interface FlowOptions extends CommonOptions {
   waitMs?: number
   verificationTimeoutMs?: number
   pollIntervalMs?: number
+  paymentRedirectUrl?: string
   authorizeUrlOnly?: boolean
   password?: string
   claimTrial?: string | boolean
@@ -466,6 +467,21 @@ export function formatFlowCompletionSummary(
       'payment url file',
       record.paymentRedirectUrlPath || record.paypalApprovalUrlPath,
     )
+    appendSummaryLine(lines, 'page', record.url)
+    appendArtifactSummaryLines(lines, record)
+    return lines.join('\n')
+  }
+
+  if (pageName === 'chatgpt-team-trial-gopay') {
+    const gopayPayment = asRecord(record.gopayPayment)
+    appendSummaryLine(lines, 'payment method', record.paymentMethod)
+    appendExactSummaryLine(
+      lines,
+      'payment url',
+      record.paymentRedirectUrl || record.paypalApprovalUrl,
+    )
+    appendSummaryLine(lines, 'gopay status', gopayPayment?.status)
+    appendSummaryLine(lines, 'pay now', gopayPayment?.payNowClicked)
     appendSummaryLine(lines, 'page', record.url)
     appendArtifactSummaryLines(lines, record)
     return lines.join('\n')

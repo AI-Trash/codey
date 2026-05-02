@@ -14,7 +14,11 @@ export function getFlowDisplayName(flowType: string) {
     return m.admin_cli_flow_chatgpt_login_name()
   }
 
-  if (flowType === 'chatgpt-team-trial' || flowType === 'chatgpt-purchase') {
+  if (
+    flowType === 'chatgpt-team-trial' ||
+    flowType === 'chatgpt-team-trial-gopay' ||
+    flowType === 'chatgpt-purchase'
+  ) {
     return m.admin_cli_flow_chatgpt_team_trial_name()
   }
 

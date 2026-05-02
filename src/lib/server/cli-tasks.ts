@@ -614,6 +614,7 @@ export async function dispatchCliFlowTask(input: {
   flowId: string
   config?: Record<string, unknown> | null
   actor?: CliConnectionActorScope
+  metadata?: CliFlowTaskMetadata
 }) {
   const result = await dispatchCliFlowTasks({
     ...input,

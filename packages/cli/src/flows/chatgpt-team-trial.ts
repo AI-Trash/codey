@@ -25,6 +25,7 @@ import {
   continueGoPayPaymentFromRedirect,
   createChatGPTTrialCheckoutLink,
   createChatGPTBackendApiHeadersCapture,
+  extractGoPayPaymentRedirectLink,
   fillChatGPTCheckoutBillingAddress,
   getChatGPTTrialPromoPlan,
   gotoTrialPricingPromo,
@@ -38,6 +39,7 @@ import {
   type ChatGPTTrialPaymentMethod,
   type ChatGPTTrialPromoPlan,
   type GoPayAccountLinkingOptions,
+  type GoPayPaymentRedirectLink,
   type GoPayPaymentContinuationResult,
   waitForAuthenticatedSession,
   waitForChatGPTCheckoutReady,
@@ -293,12 +295,25 @@ export interface ChatGPTTeamTrialPostLoginOptions<Result = unknown> {
   storageStateFlowType?: string
   backendApiHeadersCapture?: ChatGPTBackendApiHeadersCapture
   paymentMethod?: ChatGPTTrialPaymentMethod
-  gopayUnlinkTask?: ChatGPTTeamTrialGoPayUnlinkTask
+  gopayUnlinkTask?: ChatGPTTeamTrialGoPayUnlinkTask | false
+  continueGoPayPayment?: boolean
 }
 
 export interface ChatGPTTeamTrialGoPayUnlinkTask {
   readonly status: GoPayUnlinkTaskStatus
   wait(): Promise<GoPayAndroidUnlinkResult>
+}
+
+export interface ChatGPTTeamTrialGoPayFlowResult {
+  pageName: 'chatgpt-team-trial-gopay'
+  url: string
+  title: string
+  paymentMethod: 'gopay'
+  paymentRedirectUrl: string
+  paypalApprovalUrl: string
+  gopayPayment: GoPayPaymentContinuationResult
+  gopayUnlink?: GoPayAndroidUnlinkResult
+  machine: ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialGoPayFlowResult>
 }
 
 const chatgptTeamTrialEventTargets = {
@@ -851,6 +866,20 @@ export function resolveChatGPTTeamTrialPaymentMethod(
   )
 }
 
+function resolveGoPayPaymentRedirectFromOptions(
+  options: FlowOptions = {},
+): GoPayPaymentRedirectLink {
+  const value = options.paymentRedirectUrl?.trim()
+  const redirect = value ? extractGoPayPaymentRedirectLink(value) : undefined
+  if (!redirect) {
+    throw new Error(
+      'GoPay trial continuation requires a valid Midtrans redirect URL. Pass --paymentRedirectUrl with the captured GoPay payment link.',
+    )
+  }
+
+  return redirect
+}
+
 function saveTrialPaymentRedirectUrl(
   url: string,
   paymentMethod: ChatGPTTrialPaymentMethod,
@@ -897,13 +926,16 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
   const paymentMethod =
     input.paymentMethod || resolveChatGPTTeamTrialPaymentMethod(options)
   const paymentMethodLabel = formatTrialPaymentMethod(paymentMethod)
+  const shouldContinueGoPayPayment = input.continueGoPayPayment === true
   const gopayUnlinkTask =
-    paymentMethod === 'gopay'
-      ? (input.gopayUnlinkTask ?? startChatGPTTeamTrialGoPayUnlinkTask(options))
+    paymentMethod === 'gopay' && shouldContinueGoPayPayment
+      ? input.gopayUnlinkTask === false
+        ? undefined
+        : (input.gopayUnlinkTask ?? startChatGPTTeamTrialGoPayUnlinkTask(options))
       : undefined
   let gopayUnlink: GoPayAndroidUnlinkResult | undefined
 
-  if (paymentMethod === 'gopay' && machine) {
+  if (paymentMethod === 'gopay' && shouldContinueGoPayPayment && machine) {
     await patchTeamTrialMachine(
       machine,
       gopayUnlinkTask
@@ -1259,7 +1291,15 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     })
   }
 
-  if (paymentRedirect.paymentMethod === 'gopay') {
+  if (
+    paymentRedirect.paymentMethod === 'gopay' &&
+    !shouldContinueGoPayPayment
+  ) {
+    options.progressReporter?.({
+      message:
+        'Captured GoPay payment redirect link; Codey web will continue GoPay authorization in a follow-up task.',
+    })
+  } else if (paymentRedirect.paymentMethod === 'gopay') {
     const gopayAccount = resolveChatGPTTeamTrialGoPayAccount()
 
     if (machine) {
@@ -1473,6 +1513,263 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
 export const completeChatGPTTrialAfterAuthenticatedSession =
   completeChatGPTTeamTrialAfterAuthenticatedSession
 
+async function continueChatGPTTeamTrialGoPayPayment<Result>(
+  page: Page,
+  input: {
+    redirect: GoPayPaymentRedirectLink
+    options?: FlowOptions
+    machine: ChatGPTTeamTrialFlowMachine<Result>
+  },
+): Promise<{
+  gopayPayment: GoPayPaymentContinuationResult
+  gopayUnlink?: GoPayAndroidUnlinkResult
+}> {
+  const options = input.options ?? {}
+  const machine = input.machine
+  const redirect = input.redirect
+  const paymentMethod = 'gopay' as const
+  const gopayUnlinkTask = startChatGPTTeamTrialGoPayUnlinkTask(options)
+  let gopayUnlink: GoPayAndroidUnlinkResult | undefined
+
+  await patchTeamTrialMachine(
+    machine,
+    gopayUnlinkTask
+      ? 'chatgpt.gopay_unlink.started'
+      : 'chatgpt.gopay_unlink.disabled',
+    {
+      paymentMethod,
+      paymentRedirectUrl: redirect.url,
+      paypalApprovalUrl: redirect.url,
+      gopayUnlinkStarted: Boolean(gopayUnlinkTask),
+      gopayUnlinkStatus: gopayUnlinkTask ? 'running' : 'disabled',
+      lastMessage: gopayUnlinkTask
+        ? 'GoPay unlink task is running in Appium'
+        : 'GoPay unlink task is disabled',
+    },
+  )
+
+  await sendTeamTrialMachine(machine, 'chatgpt.gopay.linking', {
+    paymentMethod,
+    url: redirect.url,
+    paymentRedirectUrl: redirect.url,
+    paypalApprovalUrl: redirect.url,
+    lastMessage: 'Opening GoPay tokenization link',
+  })
+
+  const gopayPayment = await continueGoPayPaymentFromRedirect(
+    page,
+    redirect,
+    {
+      ...resolveChatGPTTeamTrialGoPayAccount(),
+      waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
+      async beforeAuthorizationOpen({ activationLinkUrl }) {
+        if (!gopayUnlinkTask) {
+          return
+        }
+
+        if (gopayUnlinkTask.status === 'failed') {
+          await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.failed', {
+            paymentMethod,
+            url: page.url(),
+            paymentRedirectUrl: redirect.url,
+            paypalApprovalUrl: redirect.url,
+            gopayActivationLinkUrl: activationLinkUrl,
+            gopayUnlinkStatus: 'failed',
+            lastMessage:
+              'GoPay unlink task failed; continuing authorization without unlink',
+          })
+          return
+        }
+
+        await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.waiting', {
+          paymentMethod,
+          url: page.url(),
+          paymentRedirectUrl: redirect.url,
+          paypalApprovalUrl: redirect.url,
+          gopayActivationLinkUrl: activationLinkUrl,
+          gopayUnlinkStatus: 'waiting',
+          lastMessage:
+            'Waiting for GoPay unlink task before opening GoPay authorization',
+        })
+
+        try {
+          gopayUnlink = await gopayUnlinkTask.wait()
+        } catch (error) {
+          await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.failed', {
+            paymentMethod,
+            url: page.url(),
+            paymentRedirectUrl: redirect.url,
+            paypalApprovalUrl: redirect.url,
+            gopayActivationLinkUrl: activationLinkUrl,
+            gopayUnlinkStatus: 'failed',
+            gopayUnlinkError: sanitizeErrorForOutput(error).message,
+            lastMessage:
+              'GoPay unlink task failed; continuing authorization without unlink',
+          })
+          return
+        }
+
+        await patchTeamTrialMachine(machine, 'chatgpt.gopay_unlink.completed', {
+          paymentMethod,
+          url: page.url(),
+          paymentRedirectUrl: redirect.url,
+          paypalApprovalUrl: redirect.url,
+          gopayActivationLinkUrl: activationLinkUrl,
+          gopayUnlinkStatus: gopayUnlink.status,
+          gopayUnlinkCompleted: true,
+          gopayUnlinkAppiumSessionId: gopayUnlink.appiumSessionId,
+          lastMessage:
+            gopayUnlink.status === 'already-unlinked'
+              ? 'GoPay had no linked apps before OpenAI authorization'
+              : 'GoPay linked app was unlinked before OpenAI authorization',
+        })
+      },
+      onProgress(update) {
+        const messages = {
+          'redirect-opened': 'Opened GoPay tokenization link',
+          'phone-submitted': 'Submitted GoPay phone number',
+          'authorization-opened': 'Opened GoPay authorization page',
+          'authorization-consented': 'Clicked GoPay authorization consent',
+          'otp-requested': 'Waiting for GoPay WhatsApp OTP from Codey app',
+          'otp-submitted': 'Submitted GoPay WhatsApp OTP',
+          'pin-submitted': 'Submitted GoPay PIN',
+          'payment-page-ready': 'GoPay payment page is ready',
+          'pay-now-clicked': 'Clicked GoPay Pay now',
+        } as const
+        options.progressReporter?.({
+          message: messages[update.step],
+        })
+      },
+    },
+  )
+
+  const gopayTargetEvent =
+    gopayPayment.status === 'pay-now-clicked'
+      ? 'chatgpt.gopay.payment_submitted'
+      : 'chatgpt.gopay.payment_ready'
+
+  await sendTeamTrialMachine(machine, gopayTargetEvent, {
+    paymentMethod,
+    url: gopayPayment.finalUrl,
+    title: gopayPayment.title,
+    paymentRedirectUrl: redirect.url,
+    paypalApprovalUrl: redirect.url,
+    gopayActivationLinkUrl: gopayPayment.activationLinkUrl,
+    gopayStatus: gopayPayment.status,
+    gopayAuthorizationConsentClicked:
+      gopayPayment.authorizationConsentClicked,
+    gopayOtpSubmitted: gopayPayment.otpSubmitted,
+    gopayPinSubmitted: gopayPayment.pinSubmitted,
+    gopayPayNowClicked: gopayPayment.payNowClicked,
+    gopayFinalUrl: gopayPayment.finalUrl,
+    gopayUnlinkStatus: gopayUnlink?.status,
+    gopayUnlinkCompleted: gopayUnlink ? true : undefined,
+    gopayUnlinkAppiumSessionId: gopayUnlink?.appiumSessionId,
+    lastMessage:
+      gopayPayment.status === 'pay-now-clicked'
+        ? 'GoPay Pay now was clicked'
+        : `GoPay payment continuation stopped at ${gopayPayment.status}`,
+  })
+
+  if (gopayPayment.status !== 'pay-now-clicked') {
+    throw new Error(
+      `GoPay payment continuation stopped at ${gopayPayment.status}.`,
+    )
+  }
+
+  return {
+    gopayPayment,
+    ...(gopayUnlink ? { gopayUnlink } : {}),
+  }
+}
+
+export async function runChatGPTTeamTrialGoPay(
+  page: Page,
+  options: FlowOptions = {},
+): Promise<ChatGPTTeamTrialGoPayFlowResult> {
+  const machine = createChatGPTTeamTrialMachine<ChatGPTTeamTrialGoPayFlowResult>()
+  const detachProgress = attachStateMachineProgressReporter(
+    machine,
+    options.progressReporter,
+  )
+  const redirect = resolveGoPayPaymentRedirectFromOptions(options)
+
+  try {
+    machine.start(
+      {
+        paymentMethod: 'gopay',
+        paymentRedirectUrl: redirect.url,
+        paypalApprovalUrl: redirect.url,
+        url: redirect.url,
+        lastMessage: 'Starting GoPay trial payment continuation',
+      },
+      {
+        source: 'runChatGPTTeamTrialGoPay',
+      },
+    )
+
+    const { gopayPayment, gopayUnlink } =
+      await continueChatGPTTeamTrialGoPayPayment(page, {
+        redirect,
+        options,
+        machine,
+      })
+
+    const result = {
+      pageName: 'chatgpt-team-trial-gopay' as const,
+      url: gopayPayment.finalUrl,
+      title: gopayPayment.title,
+      paymentMethod: 'gopay' as const,
+      paymentRedirectUrl: redirect.url,
+      paypalApprovalUrl: redirect.url,
+      gopayPayment,
+      ...(gopayUnlink ? { gopayUnlink } : {}),
+      machine:
+        undefined as unknown as ChatGPTTeamTrialFlowSnapshot<ChatGPTTeamTrialGoPayFlowResult>,
+    }
+
+    const snapshot = machine.succeed('completed', {
+      event: 'chatgpt.completed',
+      patch: {
+        url: result.url,
+        title: result.title,
+        paymentMethod: result.paymentMethod,
+        paymentRedirectUrl: result.paymentRedirectUrl,
+        paypalApprovalUrl: result.paypalApprovalUrl,
+        gopayActivationLinkUrl: result.gopayPayment.activationLinkUrl,
+        gopayStatus: result.gopayPayment.status,
+        gopayAuthorizationConsentClicked:
+          result.gopayPayment.authorizationConsentClicked,
+        gopayOtpSubmitted: result.gopayPayment.otpSubmitted,
+        gopayPinSubmitted: result.gopayPayment.pinSubmitted,
+        gopayPayNowClicked: result.gopayPayment.payNowClicked,
+        gopayFinalUrl: result.gopayPayment.finalUrl,
+        gopayUnlinkStatus: result.gopayUnlink?.status,
+        gopayUnlinkCompleted: result.gopayUnlink ? true : undefined,
+        gopayUnlinkAppiumSessionId: result.gopayUnlink?.appiumSessionId,
+        result,
+        lastMessage: 'GoPay trial payment continuation completed',
+      },
+    })
+    result.machine = snapshot
+    return result
+  } catch (error) {
+    machine.fail(error, 'failed', {
+      event: 'chatgpt.failed',
+      patch: {
+        url: page.url(),
+        paymentMethod: 'gopay',
+        paymentRedirectUrl: redirect.url,
+        paypalApprovalUrl: redirect.url,
+        lastMessage: sanitizeErrorForOutput(error).message,
+      },
+    })
+    throw error
+  } finally {
+    detachProgress()
+  }
+}
+
 export async function runChatGPTTeamTrial(
   page: Page,
   options: FlowOptions = {},
@@ -1485,7 +1782,6 @@ export async function runChatGPTTeamTrial(
   const backendApiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
   const paymentMethod = resolveChatGPTTeamTrialPaymentMethod(options)
   let completedLogin: ChatGPTLoginFlowResult | undefined
-  let gopayUnlinkTask: ChatGPTTeamTrialGoPayUnlinkTask | undefined
 
   try {
     machine.start(
@@ -1498,10 +1794,6 @@ export async function runChatGPTTeamTrial(
         source: 'runChatGPTTeamTrial',
       },
     )
-    if (paymentMethod === 'gopay') {
-      gopayUnlinkTask = startChatGPTTeamTrialGoPayUnlinkTask(options)
-    }
-
     await sendTeamTrialMachine(machine, 'chatgpt.login.started', {
       url: page.url(),
       paymentMethod,
@@ -1528,7 +1820,6 @@ export async function runChatGPTTeamTrial(
         storageStateFlowType: 'chatgpt-team-trial',
         backendApiHeadersCapture,
         paymentMethod,
-        gopayUnlinkTask,
       })
     const result = {
       pageName: 'chatgpt-team-trial' as const,
@@ -1601,6 +1892,14 @@ export const chatgptTeamTrialFlow: SingleFileFlowDefinition<
 > = {
   command: 'flow:chatgpt-team-trial',
   run: runChatGPTTeamTrial,
+}
+
+export const chatgptTeamTrialGoPayFlow: SingleFileFlowDefinition<
+  FlowOptions,
+  ChatGPTTeamTrialGoPayFlowResult
+> = {
+  command: 'flow:chatgpt-team-trial-gopay',
+  run: runChatGPTTeamTrialGoPay,
 }
 
 if (

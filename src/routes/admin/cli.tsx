@@ -189,6 +189,9 @@ const DEFAULT_DRAFT_VALUES_BY_FLOW: Partial<
   'chatgpt-register': {
     claimTrial: DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD,
   },
+  'chatgpt-team-trial': {
+    claimTrial: DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD,
+  },
 }
 
 function AdminCliConnectionsPage() {
@@ -1608,6 +1611,7 @@ const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
   chatgptRegister: () => m.admin_cli_flow_chatgpt_register_name(),
   chatgptLogin: () => m.admin_cli_flow_chatgpt_login_name(),
   chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_name(),
+  chatgptTeamTrialGoPay: () => m.admin_cli_flow_chatgpt_team_trial_gopay_name(),
   chatgptInvite: () => m.admin_cli_flow_chatgpt_invite_name(),
   codexOauth: () => m.admin_cli_flow_codex_oauth_name(),
   androidHealthcheck: () => m.admin_cli_flow_android_healthcheck_name(),
@@ -1618,6 +1622,8 @@ const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
   chatgptRegister: () => m.admin_cli_flow_chatgpt_register_description(),
   chatgptLogin: () => m.admin_cli_flow_chatgpt_login_description(),
   chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_description(),
+  chatgptTeamTrialGoPay: () =>
+    m.admin_cli_flow_chatgpt_team_trial_gopay_description(),
   chatgptInvite: () => m.admin_cli_flow_chatgpt_invite_description(),
   codexOauth: () => m.admin_cli_flow_codex_oauth_description(),
   androidHealthcheck: () => m.admin_cli_flow_android_healthcheck_description(),
@@ -1637,6 +1643,7 @@ const optionDisplayNameMap: Record<
   restoreStorageState: () => m.admin_cli_option_restore_storage_state_name(),
   password: () => m.admin_cli_option_password_name(),
   claimTrial: () => m.admin_cli_option_claim_trial_name(),
+  paymentRedirectUrl: () => m.admin_cli_option_payment_redirect_url_name(),
   verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
   identityId: () => m.admin_cli_option_identity_id_name(),
@@ -1683,6 +1690,8 @@ const optionDescriptionMap: Record<
     m.admin_cli_option_restore_storage_state_description(),
   password: () => m.admin_cli_option_password_description(),
   claimTrial: () => m.admin_cli_option_claim_trial_description(),
+  paymentRedirectUrl: () =>
+    m.admin_cli_option_payment_redirect_url_description(),
   verificationTimeoutMs: () =>
     m.admin_cli_option_verification_timeout_description(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),
