@@ -5,6 +5,7 @@ import {
   GOPAY_APP_PACKAGE,
   GOPAY_BACK_IMAGE_XPATH,
   GOPAY_LINKED_APPS_ENTRY_XPATH,
+  GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
   GOPAY_LINKED_APPS_BACK_BUTTON_FUZZY_XPATH,
   GOPAY_LINKED_APPS_BACK_BUTTON_XPATH,
   GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
@@ -87,6 +88,7 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
     if (
       this.screen === 'settings' &&
       (selector === GOPAY_LINKED_APPS_ENTRY_XPATH ||
+        selector === GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH ||
         selector === GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH)
     ) {
       return [
@@ -182,7 +184,7 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
     if (this.screen === 'profile') {
       return '<android.view.View package="com.gojek.gopay" content-desc="Account & app settings Control your app preferences, data, linked apps and more." />'
     }
-    return '<android.view.View package="com.gojek.gopay" content-desc="Linked apps List of apps that you link to GoPay" />'
+    return '<android.widget.FrameLayout package="com.gojek.gopay" pane-title="Account &amp; app settings"><android.view.View content-desc="Linked apps&#10;List of apps that you link to GoPay" /></android.widget.FrameLayout>'
   }
 
   async back(): Promise<void> {
@@ -268,6 +270,26 @@ describe('GoPay Android unlink helper', () => {
       'confirm-unlink',
       'linked-apps-back',
     ])
+  })
+
+  it('does not mistake the Account & app settings Linked apps row for the page', async () => {
+    const driver = new FakeGoPayAndroidDriver('settings')
+
+    const result = await unlinkGoPayLinkedAppsInSession(
+      {
+        appiumSessionId: 'appium-settings-menu',
+        driver: driver as never,
+      },
+      { timeoutMs: 1000 },
+    )
+
+    expect(result).toMatchObject({
+      status: 'unlinked',
+      clickedLinkedApps: true,
+      unlinkedAppCount: 1,
+      exitedLinkedApps: true,
+    })
+    expect(driver.clicks).toContain('linked-apps-entry')
   })
 
   it('launches GoPay MainActivity and navigates through Profile settings', async () => {

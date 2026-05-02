@@ -14,6 +14,8 @@ export const GOPAY_ACCOUNT_APP_SETTINGS_FUZZY_XPATH =
   '//*[contains(@content-desc, "Account & app settings") and contains(@content-desc, "linked apps")]'
 export const GOPAY_LINKED_APPS_ENTRY_XPATH =
   '//android.view.View[@content-desc="Linked apps\nList of apps that you link to GoPay"]'
+export const GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH =
+  '//android.view.View[@content-desc="Linked apps&#10;List of apps that you link to GoPay"]'
 export const GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH =
   '//*[contains(@content-desc, "Linked apps") and contains(@content-desc, "List of apps")]'
 export const GOPAY_LINKED_APPS_TITLE_XPATH =
@@ -324,12 +326,37 @@ async function clickAnyDisplayedXPathUntil(
 async function isLinkedAppsPage(
   driver: GoPayAndroidUnlinkDriver,
 ): Promise<boolean> {
-  if (await hasDisplayedXPath(driver, GOPAY_LINKED_APPS_TITLE_XPATH)) {
-    return true
+  const source = await readPageSource(driver)
+  if (source) {
+    if (/pane-title="Linked apps"/i.test(source)) {
+      return true
+    }
+
+    if (/pane-title="/i.test(source)) {
+      return false
+    }
+
+    return (
+      /<android\.view\.View\b(?=[^>]*content-desc="Linked apps")(?=[^>]*heading="true")/i.test(
+        source,
+      ) &&
+      !/content-desc="Linked apps(?:&#10;|\n)List of apps that you link to GoPay"/i.test(
+        source,
+      )
+    )
   }
 
-  const source = await readPageSource(driver)
-  return /pane-title="Linked apps"/i.test(source)
+  if (
+    await hasAnyDisplayedXPath(driver, [
+      GOPAY_LINKED_APPS_ENTRY_XPATH,
+      GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
+      GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
+    ])
+  ) {
+    return false
+  }
+
+  return hasDisplayedXPath(driver, GOPAY_LINKED_APPS_TITLE_XPATH)
 }
 
 async function isGoPayForeground(
@@ -359,6 +386,7 @@ async function hasGoPayNavigationAnchor(
       GOPAY_ACCOUNT_APP_SETTINGS_XPATH,
       GOPAY_ACCOUNT_APP_SETTINGS_FUZZY_XPATH,
       GOPAY_LINKED_APPS_ENTRY_XPATH,
+      GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
       GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
     ]))
   )
@@ -594,6 +622,7 @@ async function openLinkedAppsPageIfNeeded(
       GOPAY_ACCOUNT_APP_SETTINGS_XPATH,
       GOPAY_ACCOUNT_APP_SETTINGS_FUZZY_XPATH,
       GOPAY_LINKED_APPS_ENTRY_XPATH,
+      GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
       GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
     ]))
   ) {
@@ -618,6 +647,7 @@ async function openLinkedAppsPageIfNeeded(
           GOPAY_ACCOUNT_APP_SETTINGS_XPATH,
           GOPAY_ACCOUNT_APP_SETTINGS_FUZZY_XPATH,
           GOPAY_LINKED_APPS_ENTRY_XPATH,
+          GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
           GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
         ])),
       deadline,
@@ -634,6 +664,7 @@ async function openLinkedAppsPageIfNeeded(
   if (
     !(await hasAnyDisplayedXPath(driver, [
       GOPAY_LINKED_APPS_ENTRY_XPATH,
+      GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
       GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
     ]))
   ) {
@@ -656,6 +687,7 @@ async function openLinkedAppsPageIfNeeded(
         (await isLinkedAppsPage(driver)) ||
         (await hasAnyDisplayedXPath(driver, [
           GOPAY_LINKED_APPS_ENTRY_XPATH,
+          GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
           GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
         ])),
       deadline,
@@ -671,7 +703,11 @@ async function openLinkedAppsPageIfNeeded(
 
   await clickAnyDisplayedXPathUntil(
     driver,
-    [GOPAY_LINKED_APPS_ENTRY_XPATH, GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH],
+    [
+      GOPAY_LINKED_APPS_ENTRY_XPATH,
+      GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
+      GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
+    ],
     {
       deadline,
       description: 'Linked apps entry',
