@@ -20,7 +20,7 @@ export {
   runChatGPTTeamTrial,
   chatgptTeamTrialFlow,
   createChatGPTTeamTrialMachine,
-  startChatGPTTeamTrialGoPayUnlinkCompanion,
+  startChatGPTTeamTrialGoPayUnlinkTask,
 } from './flows/chatgpt-team-trial'
 export { runCodexOAuthFlow, codexOAuthFlow } from './flows/codex-oauth'
 export { runAndroidHealthcheck } from './flows/android-healthcheck'

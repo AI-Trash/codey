@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createChatGPTTeamTrialMachine,
-  type ChatGPTTeamTrialGoPayUnlinkCompanion,
+  type ChatGPTTeamTrialGoPayUnlinkTask,
 } from '../src/flows/chatgpt-team-trial'
 
 describe('chatgpt team trial machine', () => {
@@ -135,7 +135,7 @@ describe('chatgpt team trial machine', () => {
     })
   })
 
-  it('tracks GoPay unlink companion progress without moving the primary flow state', async () => {
+  it('tracks GoPay unlink task progress without moving the primary flow state', async () => {
     const machine = createChatGPTTeamTrialMachine()
 
     machine.start({
@@ -149,9 +149,19 @@ describe('chatgpt team trial machine', () => {
     await machine.send('chatgpt.gopay_unlink.started', {
       patch: {
         gopayUnlinkStatus: 'running',
-        lastMessage: 'GoPay unlink companion is running in Appium',
+        lastMessage: 'GoPay unlink task is running in Appium',
       },
     })
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'checkout-ready',
+      regions: {
+        gopayUnlink: 'running',
+      },
+      context: {
+        gopayUnlinkStatus: 'running',
+      },
+    })
+
     await machine.send('chatgpt.gopay_unlink.completed', {
       patch: {
         gopayUnlinkStatus: 'already-unlinked',
@@ -163,6 +173,9 @@ describe('chatgpt team trial machine', () => {
 
     expect(machine.getSnapshot()).toMatchObject({
       state: 'checkout-ready',
+      regions: {
+        gopayUnlink: 'completed',
+      },
       context: {
         gopayUnlinkStatus: 'already-unlinked',
         gopayUnlinkCompleted: true,
@@ -172,9 +185,9 @@ describe('chatgpt team trial machine', () => {
     })
   })
 
-  it('records failed GoPay unlink companions without entering the waiting state', async () => {
+  it('records failed GoPay unlink tasks without entering the waiting state', async () => {
     const machine = createChatGPTTeamTrialMachine()
-    const failedCompanion: ChatGPTTeamTrialGoPayUnlinkCompanion = {
+    const failedTask: ChatGPTTeamTrialGoPayUnlinkTask = {
       status: 'failed',
       async wait() {
         throw new Error('Appium connection refused')
@@ -192,13 +205,13 @@ describe('chatgpt team trial machine', () => {
 
     const events: string[] = []
     await (async function beforeAuthorizationOpen() {
-      if (failedCompanion.status === 'failed') {
+      if (failedTask.status === 'failed') {
         events.push('chatgpt.gopay_unlink.failed')
         await machine.send('chatgpt.gopay_unlink.failed', {
           patch: {
             gopayUnlinkStatus: 'failed',
             lastMessage:
-              'GoPay unlink companion failed; continuing authorization without unlink',
+              'GoPay unlink task failed; continuing authorization without unlink',
           },
         })
         return
@@ -210,16 +223,19 @@ describe('chatgpt team trial machine', () => {
           gopayUnlinkStatus: 'waiting',
         },
       })
-      await failedCompanion.wait()
+      await failedTask.wait()
     })()
 
     expect(events).toEqual(['chatgpt.gopay_unlink.failed'])
     expect(machine.getSnapshot()).toMatchObject({
       state: 'checkout-ready',
+      regions: {
+        gopayUnlink: 'failed',
+      },
       context: {
         gopayUnlinkStatus: 'failed',
         lastMessage:
-          'GoPay unlink companion failed; continuing authorization without unlink',
+          'GoPay unlink task failed; continuing authorization without unlink',
       },
     })
   })

@@ -90,8 +90,8 @@ import {
   completeChatGPTTrialAfterAuthenticatedSession,
   createChatGPTTeamTrialMachine,
   selectGoPayProxyTag,
-  startChatGPTTeamTrialGoPayUnlinkCompanion,
-  type ChatGPTTeamTrialGoPayUnlinkCompanion,
+  startChatGPTTeamTrialGoPayUnlinkTask,
+  type ChatGPTTeamTrialGoPayUnlinkTask,
   type ChatGPTTeamTrialFlowSnapshot,
   type ChatGPTTrialPostLoginResult,
 } from './chatgpt-team-trial'
@@ -1065,7 +1065,7 @@ export async function registerChatGPT(
   const sessionCapture = createChatGPTSessionCapture(page)
   const backendApiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
   let storedIdentityForStatusReport: StoredChatGPTIdentitySummary | undefined
-  let gopayUnlinkCompanion: ChatGPTTeamTrialGoPayUnlinkCompanion | undefined
+  let gopayUnlinkTask: ChatGPTTeamTrialGoPayUnlinkTask | undefined
 
   try {
     machine.start(
@@ -1098,7 +1098,7 @@ export async function registerChatGPT(
           },
         },
       )
-      gopayUnlinkCompanion = startChatGPTTeamTrialGoPayUnlinkCompanion(options)
+      gopayUnlinkTask = startChatGPTTeamTrialGoPayUnlinkTask(options)
     }
 
     await verificationProvider.primeInbox()
@@ -1491,7 +1491,7 @@ export async function registerChatGPT(
             storageStateFlowType: 'chatgpt-register',
             backendApiHeadersCapture,
             paymentMethod: claimTrial,
-            gopayUnlinkCompanion,
+            gopayUnlinkTask,
           })
 
         trial = {

@@ -22,10 +22,16 @@ export interface StateMachineHistoryEntry<
   at: string
   from: State
   to: State
+  region?: string
+  regionFrom?: string
+  regionTo?: string
+  regions?: StateMachineRegionStates
   event: Event
   status: MachineStatus
   meta?: Record<string, unknown>
 }
+
+export type StateMachineRegionStates = Record<string, string>
 
 export interface StateMachineSnapshot<
   State extends string,
@@ -35,6 +41,7 @@ export interface StateMachineSnapshot<
   id: string
   status: MachineStatus
   state: State
+  regions?: StateMachineRegionStates
   context: Context
   currentAction?: string
   error?: StateMachineError
@@ -76,6 +83,25 @@ export interface StateMachineConfig<
       | StateMachineTransitionDefinition<State, Context, Event>[]
     >
   >
+  regions?: Record<string, StateMachineParallelRegionConfig<Context, Event>>
+}
+
+export interface StateMachineParallelRegionConfig<
+  Context extends object,
+  Event extends string = string,
+  RegionState extends string = string,
+> {
+  initialState: RegionState
+  states?: Partial<
+    Record<RegionState, StateMachineStateConfig<RegionState, Context, Event>>
+  >
+  on?: Partial<
+    Record<
+      Event,
+      | StateMachineTransitionDefinition<RegionState, Context, Event>
+      | StateMachineTransitionDefinition<RegionState, Context, Event>[]
+    >
+  >
 }
 
 export interface StateMachineTransitionOptions<
@@ -87,6 +113,10 @@ export interface StateMachineTransitionOptions<
   patch?: StateMachineContextPatch<Context>
   replaceContext?: Context
   meta?: Record<string, unknown>
+  region?: string
+  regionFrom?: string
+  regionTo?: string
+  regions?: StateMachineRegionStates
   action?: string
   startedAt?: string
   finishedAt?: string
@@ -118,6 +148,9 @@ export interface StateMachineTransitionGuardArgs<
   input: Input
   from: State
   to: State
+  region?: string
+  regionFrom?: string
+  regionTo?: string
   snapshot: StateMachineSnapshot<State, Context, Event>
   transition: StateMachineResolvedTransition<State, Context, Event>
 }
@@ -143,6 +176,9 @@ export interface StateMachineActionArgs<
   input: Input
   from: State
   to: State
+  region?: string
+  regionFrom?: string
+  regionTo?: string
   phase: StateMachineLifecyclePhase
   snapshot: StateMachineSnapshot<State, Context, Event>
   transition: StateMachineResolvedTransition<State, Context, Event>
@@ -214,13 +250,18 @@ export interface StateMachineResolvedTransition<
 > {
   event: Event
   target: State
-  source: 'state' | 'global'
+  source: 'state' | 'global' | 'region'
   priority: number
   order: number
+  region?: string
+  regionFrom?: string
+  regionTo?: string
   action?: string
   meta?: Record<string, unknown>
   reenter?: boolean
-  definition: StateMachineTransitionDefinition<State, Context, Event>
+  definition:
+    | StateMachineTransitionDefinition<State, Context, Event>
+    | StateMachineTransitionDefinition<string, Context, Event>
 }
 
 export interface StateMachineStateConfig<
@@ -675,6 +716,18 @@ export function createStateMachine<
 ): StateMachineController<State, Context, Event> {
   const historyLimit = Math.max(1, config.historyLimit ?? 100)
   const initialContext = { ...config.initialContext }
+  const regionEntries = Object.entries(config.regions ?? {})
+  const hasRegions = regionEntries.length > 0
+
+  const createInitialRegions = (): StateMachineRegionStates | undefined =>
+    hasRegions
+      ? Object.fromEntries(
+          regionEntries.map(([region, regionConfig]) => [
+            region,
+            regionConfig.initialState,
+          ]),
+        )
+      : undefined
 
   const createInitialSnapshot = (): StateMachineSnapshot<
     State,
@@ -684,6 +737,7 @@ export function createStateMachine<
     id: config.id,
     status: 'idle',
     state: config.initialState,
+    regions: createInitialRegions(),
     context: { ...initialContext } as Context,
     updatedAt: now(),
     history: [],
@@ -696,10 +750,15 @@ export function createStateMachine<
   function createResolvedTransition(
     event: Event,
     target: State,
-    source: 'state' | 'global',
+    source: 'state' | 'global' | 'region',
     priority: number,
     order: number,
-    definition: StateMachineInternalTransitionDefinition<State, Context, Event>,
+    definition:
+      | StateMachineInternalTransitionDefinition<State, Context, Event>
+      | StateMachineInternalTransitionDefinition<string, Context, Event>,
+    region?: string,
+    regionFrom?: string,
+    regionTo?: string,
   ): StateMachineResolvedTransition<State, Context, Event> {
     return {
       event,
@@ -707,6 +766,9 @@ export function createStateMachine<
       source,
       priority,
       order,
+      region,
+      regionFrom,
+      regionTo,
       action: definition.action,
       meta: definition.meta,
       reenter: definition.reenter,
@@ -761,6 +823,55 @@ export function createStateMachine<
     })
   }
 
+  function getRegionTransitionCandidates(
+    region: string,
+    state: string,
+    event: Event,
+  ): Array<{
+    definition: StateMachineInternalTransitionDefinition<string, Context, Event>
+    event: Event
+    region: string
+    order: number
+    priority: number
+  }> {
+    const regionConfig = config.regions?.[region]
+    const stateConfig = regionConfig?.states?.[state]
+    const scopedTransitions = normalizeTransitionDefinitions(
+      stateConfig?.on?.[event],
+    ).map((definition, index) => ({
+      definition: definition as StateMachineInternalTransitionDefinition<
+        string,
+        Context,
+        Event
+      >,
+      event,
+      region,
+      order: index,
+      priority: definition.priority ?? 0,
+    }))
+    const globalBaseOrder = scopedTransitions.length
+    const regionTransitions = normalizeTransitionDefinitions(
+      regionConfig?.on?.[event],
+    ).map((definition, index) => ({
+      definition: definition as StateMachineInternalTransitionDefinition<
+        string,
+        Context,
+        Event
+      >,
+      event,
+      region,
+      order: globalBaseOrder + index,
+      priority: definition.priority ?? 0,
+    }))
+
+    return [...scopedTransitions, ...regionTransitions].sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return right.priority - left.priority
+      }
+      return left.order - right.order
+    })
+  }
+
   function commit(
     nextState: State,
     options: StateMachineTransitionOptions<Context, Event> = {},
@@ -783,6 +894,10 @@ export function createStateMachine<
       at: timestamp,
       from: previous.state,
       to: nextState,
+      region: options.region,
+      regionFrom: options.regionFrom,
+      regionTo: options.regionTo,
+      regions: options.regions,
       event: (options.event ?? 'transition') as Event,
       status: nextStatus,
       meta: options.meta,
@@ -792,6 +907,7 @@ export function createStateMachine<
       ...previous,
       status: nextStatus,
       state: nextState,
+      regions: options.regions ?? previous.regions,
       context: nextContext,
       currentAction: nextAction,
       error: options.clearError === false ? previous.error : undefined,
@@ -834,6 +950,51 @@ export function createStateMachine<
         priority,
         order,
         definition,
+      ),
+    })
+
+    return await provisional
+  }
+
+  async function resolveRegionTransitionTarget<Input = unknown>(
+    definition: StateMachineInternalTransitionDefinition<
+      string,
+      Context,
+      Event
+    >,
+    event: Event,
+    input: Input,
+    currentState: State,
+    region: string,
+    currentRegionState: string,
+    priority: number,
+    order: number,
+    snapshot: StateMachineSnapshot<State, Context, Event>,
+  ): Promise<string> {
+    if (typeof definition.target !== 'function') {
+      return definition.target ?? currentRegionState
+    }
+
+    const provisional = definition.target({
+      context: snapshot.context,
+      event,
+      input,
+      from: currentRegionState,
+      to: currentRegionState,
+      region,
+      regionFrom: currentRegionState,
+      regionTo: currentRegionState,
+      snapshot,
+      transition: createResolvedTransition(
+        event,
+        currentState,
+        'region',
+        priority,
+        order,
+        definition,
+        region,
+        currentRegionState,
+        currentRegionState,
       ),
     })
 
@@ -896,6 +1057,77 @@ export function createStateMachine<
     return undefined
   }
 
+  async function resolveRegionTransition<Input = unknown>(
+    event: Event,
+    input?: Input,
+  ): Promise<
+    StateMachineResolvedTransition<State, Context, Event> | undefined
+  > {
+    const snapshot = store.getState()
+    const currentState = snapshot.state
+    const currentRegions = snapshot.regions ?? createInitialRegions() ?? {}
+
+    for (const [region, currentRegionState] of Object.entries(currentRegions)) {
+      const candidates = getRegionTransitionCandidates(
+        region,
+        currentRegionState,
+        event,
+      )
+
+      for (const candidate of candidates) {
+        const provisionalTarget = await resolveRegionTransitionTarget(
+          candidate.definition,
+          event,
+          input,
+          currentState,
+          region,
+          currentRegionState,
+          candidate.priority,
+          candidate.order,
+          snapshot,
+        )
+
+        const resolved = createResolvedTransition(
+          event,
+          currentState,
+          'region',
+          candidate.priority,
+          candidate.order,
+          candidate.definition,
+          region,
+          currentRegionState,
+          provisionalTarget,
+        )
+
+        let passed = true
+        for (const guard of normalizeArray(candidate.definition.guard)) {
+          const matched = await guard({
+            context: snapshot.context,
+            event,
+            input,
+            from: currentRegionState,
+            to: provisionalTarget,
+            region,
+            regionFrom: currentRegionState,
+            regionTo: provisionalTarget,
+            snapshot,
+            transition: resolved,
+          })
+          if (!matched) {
+            passed = false
+            break
+          }
+        }
+
+        if (passed) {
+          return resolved
+        }
+      }
+    }
+
+    return undefined
+  }
+
   function collectKnownStates(): Set<State> {
     const knownStates = new Set<State>([config.initialState])
 
@@ -936,20 +1168,119 @@ export function createStateMachine<
 
   const knownStates = collectKnownStates()
 
-  function createRuntimeSnapshot(state: State, context: Context) {
+  function collectKnownRegionStates(): Record<string, Set<string>> {
+    const knownRegionStates: Record<string, Set<string>> = {}
+
+    const collectFromDefinitions = (
+      knownStates: Set<string>,
+      definitions?:
+        | StateMachineTransitionDefinition<string, Context, Event>
+        | StateMachineTransitionDefinition<string, Context, Event>[],
+    ) => {
+      for (const definition of normalizeTransitionDefinitions(
+        definitions,
+      ) as Array<
+        StateMachineInternalTransitionDefinition<string, Context, Event>
+      >) {
+        if (typeof definition.target === 'string') {
+          knownStates.add(definition.target)
+        }
+        if (definition[STATE_MACHINE_DEFAULT_TARGET]) {
+          knownStates.add(definition[STATE_MACHINE_DEFAULT_TARGET] as string)
+        }
+      }
+    }
+
+    for (const [region, regionConfig] of regionEntries) {
+      const regionStates = new Set<string>([regionConfig.initialState])
+
+      for (const state of Object.keys(regionConfig.states ?? {})) {
+        regionStates.add(state)
+        const stateConfig = regionConfig.states?.[state]
+        if (!stateConfig?.on) continue
+        for (const event of Object.keys(stateConfig.on) as Event[]) {
+          collectFromDefinitions(regionStates, stateConfig.on[event])
+        }
+      }
+
+      for (const event of Object.keys(regionConfig.on ?? {}) as Event[]) {
+        collectFromDefinitions(regionStates, regionConfig.on?.[event])
+      }
+
+      knownRegionStates[region] = regionStates
+    }
+
+    return knownRegionStates
+  }
+
+  const knownRegionStates = collectKnownRegionStates()
+
+  function createRuntimeValue(
+    state: State,
+    regions: StateMachineRegionStates | undefined,
+  ): State | Record<string, string> {
+    if (!hasRegions || !regions) {
+      return state
+    }
+
+    return {
+      flow: state,
+      ...regions,
+    }
+  }
+
+  function createRuntimeSnapshot(
+    state: State,
+    context: Context,
+    regions: StateMachineRegionStates | undefined = createInitialRegions(),
+  ) {
     return {
       status: 'active' as const,
-      value: state,
+      value: createRuntimeValue(state, regions),
       historyValue: {},
       context,
       children: {},
     }
   }
 
+  function extractRuntimeRegions(value: unknown): StateMachineRegionStates {
+    if (!hasRegions) {
+      return {}
+    }
+
+    const fallback = createInitialRegions() ?? {}
+    if (!value || typeof value !== 'object') {
+      return fallback
+    }
+
+    const record = value as Record<string, unknown>
+    return Object.fromEntries(
+      regionEntries.map(([region]) => [
+        region,
+        typeof record[region] === 'string'
+          ? (record[region] as string)
+          : fallback[region],
+      ]),
+    )
+  }
+
+  function extractRuntimeFlowState(value: unknown, fallback: State): State {
+    if (!hasRegions) {
+      return typeof value === 'string' ? (value as State) : fallback
+    }
+
+    if (!value || typeof value !== 'object') {
+      return fallback
+    }
+
+    const flowState = (value as Record<string, unknown>).flow
+    return typeof flowState === 'string' ? (flowState as State) : fallback
+  }
+
   function getRuntimeInputTarget(
     runtimeEvent: StateMachineRuntimeEvent<Context, Event>,
-  ): State | undefined {
-    if (!isStateMachinePatchInput<State, Context>(runtimeEvent.input)) {
+  ): string | undefined {
+    if (!isStateMachinePatchInput<string, Context>(runtimeEvent.input)) {
       return undefined
     }
 
@@ -957,7 +1288,9 @@ export function createStateMachine<
   }
 
   function compileXStateAction<Input = unknown>(
-    action: StateMachineAction<State, Context, Event, Input>,
+    action:
+      | StateMachineAction<State, Context, Event, Input>
+      | StateMachineAction<string, Context, Event, Input>,
     resolved: StateMachineResolvedTransition<State, Context, Event>,
     phase: StateMachineLifecyclePhase,
   ) {
@@ -973,8 +1306,11 @@ export function createStateMachine<
           context,
           event: runtimeEvent.type,
           input: runtimeEvent.input as Input,
-          from: store.getState().state,
-          to: resolved.target,
+          from: (resolved.regionFrom ?? store.getState().state) as never,
+          to: (resolved.regionTo ?? resolved.target) as never,
+          region: resolved.region,
+          regionFrom: resolved.regionFrom,
+          regionTo: resolved.regionTo,
           phase,
           snapshot: store.getState(),
           transition: resolved,
@@ -990,7 +1326,7 @@ export function createStateMachine<
       | StateMachineTransitionGuard<State, Context, Event>
       | StateMachineTransitionGuard<State, Context, Event>[],
     resolved: StateMachineResolvedTransition<State, Context, Event>,
-    inputTarget?: State,
+    inputTarget?: string,
   ) {
     return ({
       context,
@@ -1011,8 +1347,11 @@ export function createStateMachine<
           context,
           event: runtimeEvent.type,
           input: runtimeEvent.input,
-          from: store.getState().state,
-          to: resolved.target,
+          from: (resolved.regionFrom ?? store.getState().state) as never,
+          to: (resolved.regionTo ?? resolved.target) as never,
+          region: resolved.region,
+          regionFrom: resolved.regionFrom,
+          regionTo: resolved.regionTo,
           snapshot: store.getState(),
           transition: resolved,
         })
@@ -1130,12 +1469,180 @@ export function createStateMachine<
   const configuredStates = Object.values(config.states ?? {}) as Array<
     StateMachineStateConfig<State, Context, Event> | undefined
   >
+  const configuredRegionStates = regionEntries.flatMap(([, regionConfig]) =>
+    Object.values(regionConfig.states ?? {}),
+  ) as Array<StateMachineStateConfig<string, Context, Event> | undefined>
   const eventNames = new Set<Event>([
     ...(Object.keys(config.on ?? {}) as Event[]),
     ...configuredStates.flatMap(
       (stateConfig) => Object.keys(stateConfig?.on ?? {}) as Event[],
     ),
+    ...regionEntries.flatMap(
+      ([, regionConfig]) => Object.keys(regionConfig.on ?? {}) as Event[],
+    ),
+    ...configuredRegionStates.flatMap(
+      (stateConfig) => Object.keys(stateConfig?.on ?? {}) as Event[],
+    ),
   ])
+
+  function compileRegionTransitionConfigs(
+    region: string,
+    currentRegionState: string,
+    candidate: ReturnType<typeof getRegionTransitionCandidates>[number],
+  ): Record<string, unknown>[] {
+    const definition = candidate.definition
+    const defaultTarget =
+      definition[STATE_MACHINE_DYNAMIC_TARGET] === 'self-patch'
+        ? currentRegionState
+        : (definition[STATE_MACHINE_DEFAULT_TARGET] ?? currentRegionState)
+
+    const compileConfig = (target: string, inputTarget?: string) => {
+      const resolved = createResolvedTransition(
+        candidate.event,
+        config.initialState,
+        'region',
+        candidate.priority,
+        candidate.order,
+        definition,
+        region,
+        currentRegionState,
+        target,
+      )
+      const reenter = resolved.reenter === true || target !== currentRegionState
+      const regionConfig = config.regions?.[region]
+      const currentStateConfig = regionConfig?.states?.[currentRegionState]
+      const nextStateConfig = regionConfig?.states?.[target]
+      const actions: unknown[] = [createPrepatchedContextAction()]
+
+      if (reenter) {
+        actions.push(
+          ...normalizeArray(currentStateConfig?.exitActions).map((action) =>
+            compileXStateAction(action, resolved, 'exit'),
+          ),
+        )
+      }
+
+      actions.push(
+        ...normalizeArray(definition.actions).map((action) =>
+          compileXStateAction(action, resolved, 'transition'),
+        ),
+      )
+
+      if (reenter) {
+        actions.push(
+          ...normalizeArray(nextStateConfig?.entryActions).map((action) =>
+            compileXStateAction(action, resolved, 'entry'),
+          ),
+        )
+      }
+
+      const xstateGuard =
+        definition.guard || inputTarget !== undefined
+          ? compileXStateGuard(
+              definition.guard as
+                | StateMachineTransitionGuard<State, Context, Event>
+                | StateMachineTransitionGuard<State, Context, Event>[],
+              resolved,
+              inputTarget,
+            )
+          : undefined
+
+      return {
+        target,
+        reenter: definition.reenter === true,
+        guard: xstateGuard,
+        actions,
+        meta: definition.meta,
+      }
+    }
+
+    if (!definition[STATE_MACHINE_DYNAMIC_TARGET]) {
+      if (typeof definition.target === 'function') {
+        throw new Error(
+          `Machine "${config.id}" uses an unsupported dynamic target for region "${region}" event "${candidate.event}".`,
+        )
+      }
+
+      return [compileConfig(definition.target ?? currentRegionState)]
+    }
+
+    const expandedTargets = [...(knownRegionStates[region] ?? [])].filter(
+      (target) => target !== defaultTarget,
+    )
+
+    return [
+      ...expandedTargets.map((target) => compileConfig(target, target)),
+      compileConfig(defaultTarget),
+    ]
+  }
+
+  const flowStatechartStates = Object.fromEntries(
+    [...knownStates].map((state) => {
+      const on = Object.fromEntries(
+        [...eventNames]
+          .map((event) => {
+            const candidates = getTransitionCandidates(state, event)
+            if (candidates.length === 0) {
+              return undefined
+            }
+
+            return [
+              event,
+              candidates.flatMap((candidate) =>
+                compileTransitionConfigs(state, candidate),
+              ),
+            ]
+          })
+          .filter((entry): entry is [Event, Record<string, unknown>[]] =>
+            Boolean(entry),
+          ),
+      )
+
+      return [state, Object.keys(on).length > 0 ? { on } : {}]
+    }),
+  )
+
+  const regionStatechartStates = Object.fromEntries(
+    regionEntries.map(([region, regionConfig]) => [
+      region,
+      {
+        initial: regionConfig.initialState,
+        states: Object.fromEntries(
+          [...(knownRegionStates[region] ?? [])].map((regionState) => {
+            const on = Object.fromEntries(
+              [...eventNames]
+                .map((event) => {
+                  const candidates = getRegionTransitionCandidates(
+                    region,
+                    regionState,
+                    event,
+                  )
+                  if (candidates.length === 0) {
+                    return undefined
+                  }
+
+                  return [
+                    event,
+                    candidates.flatMap((candidate) =>
+                      compileRegionTransitionConfigs(
+                        region,
+                        regionState,
+                        candidate,
+                      ),
+                    ),
+                  ]
+                })
+                .filter((entry): entry is [Event, Record<string, unknown>[]] =>
+                  Boolean(entry),
+                ),
+            )
+
+            return [regionState, Object.keys(on).length > 0 ? { on } : {}]
+          }),
+        ),
+      },
+    ]),
+  )
 
   const statechartConfig = {
     id: config.id,
@@ -1146,32 +1653,21 @@ export function createStateMachine<
     },
     context: ({ input }: { input: Context }) =>
       ({ ...initialContext, ...input }) as Context,
-    initial: config.initialState,
-    states: Object.fromEntries(
-      [...knownStates].map((state) => {
-        const on = Object.fromEntries(
-          [...eventNames]
-            .map((event) => {
-              const candidates = getTransitionCandidates(state, event)
-              if (candidates.length === 0) {
-                return undefined
-              }
-
-              return [
-                event,
-                candidates.flatMap((candidate) =>
-                  compileTransitionConfigs(state, candidate),
-                ),
-              ]
-            })
-            .filter((entry): entry is [Event, Record<string, unknown>[]] =>
-              Boolean(entry),
-            ),
-        )
-
-        return [state, Object.keys(on).length > 0 ? { on } : {}]
-      }),
-    ),
+    ...(hasRegions
+      ? {
+          type: 'parallel' as const,
+          states: {
+            flow: {
+              initial: config.initialState,
+              states: flowStatechartStates,
+            },
+            ...regionStatechartStates,
+          },
+        }
+      : {
+          initial: config.initialState,
+          states: flowStatechartStates,
+        }),
   }
 
   const statechart = createXStateMachine(statechartConfig as never)
@@ -1185,7 +1681,11 @@ export function createStateMachine<
     : undefined
   runtime?.start()
 
-  function replaceRuntime(state: State, context: Context): void {
+  function replaceRuntime(
+    state: State,
+    context: Context,
+    regions: StateMachineRegionStates | undefined = createInitialRegions(),
+  ): void {
     runtime?.stop()
     if (!knownStates.has(state)) {
       runtime = undefined
@@ -1193,7 +1693,7 @@ export function createStateMachine<
     }
 
     runtime = createActor(statechart, {
-      snapshot: createRuntimeSnapshot(state, context) as never,
+      snapshot: createRuntimeSnapshot(state, context, regions) as never,
     } as never)
     runtime.start()
   }
@@ -1224,7 +1724,11 @@ export function createStateMachine<
             context: { ...snapshot.context, ...context } as Context,
           }
         : snapshot
-      replaceRuntime(nextSnapshot.state, nextSnapshot.context)
+      replaceRuntime(
+        nextSnapshot.state,
+        nextSnapshot.context,
+        nextSnapshot.regions,
+      )
       store.setState(nextSnapshot)
       return nextSnapshot
     },
@@ -1235,6 +1739,7 @@ export function createStateMachine<
         id: config.id,
         status: 'running',
         state: config.initialState,
+        regions: createInitialRegions(),
         context: nextContext,
         updatedAt: timestamp,
         startedAt: timestamp,
@@ -1251,26 +1756,37 @@ export function createStateMachine<
         ],
         lastEvent: 'machine.started' as Event,
       }
-      replaceRuntime(config.initialState, nextContext)
+      replaceRuntime(config.initialState, nextContext, snapshot.regions)
       store.setState(snapshot)
       return snapshot
     },
     async can(event, input) {
-      return Boolean(await resolveTransition(event, input))
+      return Boolean(
+        (await resolveTransition(event, input)) ||
+        (await resolveRegionTransition(event, input)),
+      )
     },
     async selectTransition(event, input) {
-      return resolveTransition(event, input)
+      return (
+        (await resolveTransition(event, input)) ??
+        (await resolveRegionTransition(event, input))
+      )
     },
     async send(event, input, options = {}) {
       const snapshot = store.getState()
-      const selected = await resolveTransition(event, input)
+      const selected =
+        (await resolveTransition(event, input)) ??
+        (await resolveRegionTransition(event, input))
       if (!selected) {
         return snapshot
       }
 
       const nextStateConfig = config.states?.[selected.target]
       const reenter =
-        selected.reenter === true || selected.target !== snapshot.state
+        selected.source === 'region'
+          ? selected.reenter === true ||
+            selected.regionTo !== selected.regionFrom
+          : selected.reenter === true || selected.target !== snapshot.state
       const nextStatus =
         options.status ??
         (snapshot.status === 'idle' ? 'running' : snapshot.status)
@@ -1294,17 +1810,33 @@ export function createStateMachine<
         options,
       })
       const runtimeSnapshot = actor.getSnapshot()
+      const runtimeRegions = extractRuntimeRegions(runtimeSnapshot.value)
+      const runtimeFlowState = extractRuntimeFlowState(
+        runtimeSnapshot.value,
+        selected.target,
+      )
+      const nextRegions =
+        selected.source === 'region'
+          ? {
+              ...(snapshot.regions ?? createInitialRegions()),
+              ...runtimeRegions,
+            }
+          : runtimeRegions
 
-      const committedSnapshot = commit(selected.target, {
+      const committedSnapshot = commit(runtimeFlowState, {
         ...options,
         event,
         status: nextStatus,
         action: options.action ?? selected.action,
         replaceContext: runtimeSnapshot.context as Context,
+        region: selected.region,
+        regionFrom: selected.regionFrom,
+        regionTo: selected.regionTo,
+        regions: hasRegions ? nextRegions : undefined,
         meta: mergedMeta,
       })
 
-      if (reenter && nextStateConfig?.raise) {
+      if (reenter && selected.source !== 'region' && nextStateConfig?.raise) {
         throw resolveRaisedError(nextStateConfig.raise, {
           context: committedSnapshot.context,
           event,
@@ -1324,7 +1856,7 @@ export function createStateMachine<
         finishedAt: now(),
         clearError: true,
       })
-      replaceRuntime(snapshot.state, snapshot.context)
+      replaceRuntime(snapshot.state, snapshot.context, snapshot.regions)
       return snapshot
     },
     fail(error, nextState, options) {
@@ -1338,7 +1870,11 @@ export function createStateMachine<
         ...snapshot,
         error: serializeError(error),
       }
-      replaceRuntime(failedSnapshot.state, failedSnapshot.context)
+      replaceRuntime(
+        failedSnapshot.state,
+        failedSnapshot.context,
+        failedSnapshot.regions,
+      )
       store.setState(failedSnapshot)
       return failedSnapshot
     },
@@ -1354,6 +1890,7 @@ export interface StateMachineFragment<
 > {
   on?: StateMachineConfig<State, Context, Event>['on']
   states?: StateMachineConfig<State, Context, Event>['states']
+  regions?: StateMachineConfig<State, Context, Event>['regions']
 }
 
 export function declareStateMachineStates<
@@ -1469,6 +2006,48 @@ function mergeStates<
   return merged
 }
 
+function mergeRegionConfigs<Context extends object, Event extends string>(
+  left?: StateMachineParallelRegionConfig<Context, Event>,
+  right?: StateMachineParallelRegionConfig<Context, Event>,
+): StateMachineParallelRegionConfig<Context, Event> | undefined {
+  if (!left) return right ? { ...right } : undefined
+  if (!right) return { ...left }
+
+  return {
+    ...left,
+    ...right,
+    on: mergeTransitionMaps(left.on, right.on),
+    states: mergeStates(left.states, right.states),
+  }
+}
+
+function mergeRegions<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(
+  left?: StateMachineConfig<State, Context, Event>['regions'],
+  right?: StateMachineConfig<State, Context, Event>['regions'],
+): StateMachineConfig<State, Context, Event>['regions'] {
+  if (!left) return right ? { ...right } : undefined
+  if (!right) return { ...left }
+
+  const merged: NonNullable<
+    StateMachineConfig<State, Context, Event>['regions']
+  > = {
+    ...left,
+  }
+
+  for (const [region, definition] of Object.entries(right)) {
+    const mergedRegion = mergeRegionConfigs(merged[region], definition)
+    if (mergedRegion) {
+      merged[region] = mergedRegion
+    }
+  }
+
+  return merged
+}
+
 export function composeStateMachineConfig<
   State extends string,
   Context extends object,
@@ -1481,6 +2060,7 @@ export function composeStateMachineConfig<
     ...baseConfig,
     on: baseConfig.on ? { ...baseConfig.on } : undefined,
     states: baseConfig.states ? { ...baseConfig.states } : undefined,
+    regions: baseConfig.regions ? { ...baseConfig.regions } : undefined,
   }
 
   for (const fragment of fragments) {
@@ -1488,6 +2068,7 @@ export function composeStateMachineConfig<
       ...nextConfig,
       on: mergeTransitionMaps(nextConfig.on, fragment.on),
       states: mergeStates(nextConfig.states, fragment.states),
+      regions: mergeRegions(nextConfig.regions, fragment.regions),
     }
   }
 

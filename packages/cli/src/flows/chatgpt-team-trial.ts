@@ -2,11 +2,17 @@ import type { Page } from 'patchright'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import {
+  assignContextFromInput,
   composeStateMachineConfig,
   createStateMachine,
   declareStateMachineStates,
+  defineStateMachineFragment,
+  isStateMachinePatchInput,
   type StateMachineController,
+  type StateMachineFragment,
+  type StateMachinePatchInput,
   type StateMachineSnapshot,
+  type StateMachineTransitionDefinition,
 } from '../state-machine'
 import { createFlowLifecycleFragment } from './machine-fragments'
 import {
@@ -119,6 +125,14 @@ export type ChatGPTTeamTrialGoPayUnlinkStatus =
   | 'already-unlinked'
   | 'unlinked'
   | 'failed'
+
+export type ChatGPTTeamTrialGoPayUnlinkRegionState =
+  | 'idle'
+  | 'running'
+  | 'waiting'
+  | 'completed'
+  | 'failed'
+  | 'disabled'
 
 export type ChatGPTTeamTrialFlowEvent =
   | 'machine.started'
@@ -276,11 +290,11 @@ export interface ChatGPTTeamTrialPostLoginOptions<Result = unknown> {
   storageStateFlowType?: string
   backendApiHeadersCapture?: ChatGPTBackendApiHeadersCapture
   paymentMethod?: ChatGPTTrialPaymentMethod
-  gopayUnlinkCompanion?: ChatGPTTeamTrialGoPayUnlinkCompanion
+  gopayUnlinkTask?: ChatGPTTeamTrialGoPayUnlinkTask
 }
 
-export interface ChatGPTTeamTrialGoPayUnlinkCompanion {
-  readonly status: GoPayUnlinkCompanionStatus
+export interface ChatGPTTeamTrialGoPayUnlinkTask {
+  readonly status: GoPayUnlinkTaskStatus
   wait(): Promise<GoPayAndroidUnlinkResult>
 }
 
@@ -315,15 +329,20 @@ const chatgptTeamTrialMutableContextEvents = [
   'context.updated',
   'action.started',
   'action.finished',
-  'chatgpt.gopay_unlink.started',
-  'chatgpt.gopay_unlink.waiting',
-  'chatgpt.gopay_unlink.completed',
-  'chatgpt.gopay_unlink.failed',
-  'chatgpt.gopay_unlink.disabled',
   'chatgpt.proxy.selecting',
   'chatgpt.proxy.selected',
   'chatgpt.proxy.unavailable',
 ] as const satisfies ChatGPTTeamTrialFlowEvent[]
+
+const chatgptTeamTrialGoPayUnlinkEventTargets = {
+  'chatgpt.gopay_unlink.started': 'running',
+  'chatgpt.gopay_unlink.waiting': 'waiting',
+  'chatgpt.gopay_unlink.completed': 'completed',
+  'chatgpt.gopay_unlink.failed': 'failed',
+  'chatgpt.gopay_unlink.disabled': 'disabled',
+} as const satisfies Partial<
+  Record<ChatGPTTeamTrialFlowEvent, ChatGPTTeamTrialGoPayUnlinkRegionState>
+>
 
 const chatgptTeamTrialStates = [
   'idle',
@@ -364,6 +383,71 @@ function createChatGPTTeamTrialLifecycleFragment<Result>() {
   })
 }
 
+function createChatGPTTeamTrialGoPayUnlinkRegionFragment<
+  Result,
+>(): StateMachineFragment<
+  ChatGPTTeamTrialFlowState,
+  ChatGPTTeamTrialFlowContext<Result>,
+  ChatGPTTeamTrialFlowEvent
+> {
+  return defineStateMachineFragment<
+    ChatGPTTeamTrialFlowState,
+    ChatGPTTeamTrialFlowContext<Result>,
+    ChatGPTTeamTrialFlowEvent
+  >({
+    regions: {
+      gopayUnlink: {
+        initialState: 'idle',
+        on: createGoPayUnlinkRegionTransitionMap<Result>(
+          chatgptTeamTrialGoPayUnlinkEventTargets,
+        ),
+      },
+    },
+  })
+}
+
+function createGoPayUnlinkRegionTransitionMap<Result>(
+  targets: Partial<
+    Record<ChatGPTTeamTrialFlowEvent, ChatGPTTeamTrialGoPayUnlinkRegionState>
+  >,
+): Partial<
+  Record<
+    ChatGPTTeamTrialFlowEvent,
+    StateMachineTransitionDefinition<
+      string,
+      ChatGPTTeamTrialFlowContext<Result>,
+      ChatGPTTeamTrialFlowEvent
+    >
+  >
+> {
+  const transitions: Partial<
+    Record<
+      ChatGPTTeamTrialFlowEvent,
+      StateMachineTransitionDefinition<
+        string,
+        ChatGPTTeamTrialFlowContext<Result>,
+        ChatGPTTeamTrialFlowEvent
+      >
+    >
+  > = {}
+
+  for (const [event, target] of Object.entries(targets) as Array<
+    [ChatGPTTeamTrialFlowEvent, ChatGPTTeamTrialGoPayUnlinkRegionState]
+  >) {
+    transitions[event] = {
+      target,
+      actions: assignContextFromInput<
+        string,
+        ChatGPTTeamTrialFlowContext<Result>,
+        ChatGPTTeamTrialFlowEvent,
+        StateMachinePatchInput<string, ChatGPTTeamTrialFlowContext<Result>>
+      >(isStateMachinePatchInput, (_context, { input }) => input.patch ?? {}),
+    }
+  }
+
+  return transitions
+}
+
 export function createChatGPTTeamTrialMachine<
   Result = ChatGPTTeamTrialFlowResult,
 >(): ChatGPTTeamTrialFlowMachine<Result> {
@@ -388,6 +472,7 @@ export function createChatGPTTeamTrialMachine<
         >(chatgptTeamTrialStates),
       },
       createChatGPTTeamTrialLifecycleFragment<Result>(),
+      createChatGPTTeamTrialGoPayUnlinkRegionFragment<Result>(),
     ),
   )
 }
@@ -504,7 +589,7 @@ export function resolveChatGPTTeamTrialGoPayUnlinkOptions(): ChatGPTTeamTrialGoP
   }
 }
 
-type GoPayUnlinkCompanionOutcome =
+type GoPayUnlinkTaskOutcome =
   | {
       ok: true
       result: GoPayAndroidUnlinkResult
@@ -514,25 +599,25 @@ type GoPayUnlinkCompanionOutcome =
       error: unknown
     }
 
-type GoPayUnlinkCompanionStatus = 'pending' | 'resolved' | 'failed'
+type GoPayUnlinkTaskStatus = 'pending' | 'resolved' | 'failed'
 
-export function startChatGPTTeamTrialGoPayUnlinkCompanion(
+export function startChatGPTTeamTrialGoPayUnlinkTask(
   options: FlowOptions = {},
-): ChatGPTTeamTrialGoPayUnlinkCompanion | undefined {
+): ChatGPTTeamTrialGoPayUnlinkTask | undefined {
   const unlinkOptions = resolveChatGPTTeamTrialGoPayUnlinkOptions()
   if (!unlinkOptions.enabled) {
     options.progressReporter?.({
-      message: 'GoPay unlink companion is disabled',
+      message: 'GoPay unlink task is disabled',
     })
     return undefined
   }
 
   options.progressReporter?.({
-    message: 'Starting GoPay unlink companion in Appium',
+    message: 'Starting GoPay unlink task in Appium',
   })
 
-  let status: GoPayUnlinkCompanionStatus = 'pending'
-  const outcome: Promise<GoPayUnlinkCompanionOutcome> = unlinkGoPayLinkedApps({
+  let status: GoPayUnlinkTaskStatus = 'pending'
+  const outcome: Promise<GoPayUnlinkTaskOutcome> = unlinkGoPayLinkedApps({
     timeoutMs: unlinkOptions.timeoutMs,
     onProgress(update) {
       options.progressReporter?.({
@@ -698,26 +783,25 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
   const paymentMethod =
     input.paymentMethod || resolveChatGPTTeamTrialPaymentMethod(options)
   const paymentMethodLabel = formatTrialPaymentMethod(paymentMethod)
-  const gopayUnlinkCompanion =
+  const gopayUnlinkTask =
     paymentMethod === 'gopay'
-      ? (input.gopayUnlinkCompanion ??
-        startChatGPTTeamTrialGoPayUnlinkCompanion(options))
+      ? (input.gopayUnlinkTask ?? startChatGPTTeamTrialGoPayUnlinkTask(options))
       : undefined
   let gopayUnlink: GoPayAndroidUnlinkResult | undefined
 
   if (paymentMethod === 'gopay' && machine) {
     await patchTeamTrialMachine(
       machine,
-      gopayUnlinkCompanion
+      gopayUnlinkTask
         ? 'chatgpt.gopay_unlink.started'
         : 'chatgpt.gopay_unlink.disabled',
       {
         paymentMethod,
-        gopayUnlinkStarted: Boolean(gopayUnlinkCompanion),
-        gopayUnlinkStatus: gopayUnlinkCompanion ? 'running' : 'disabled',
-        lastMessage: gopayUnlinkCompanion
-          ? 'GoPay unlink companion is running in Appium'
-          : 'GoPay unlink companion is disabled',
+        gopayUnlinkStarted: Boolean(gopayUnlinkTask),
+        gopayUnlinkStatus: gopayUnlinkTask ? 'running' : 'disabled',
+        lastMessage: gopayUnlinkTask
+          ? 'GoPay unlink task is running in Appium'
+          : 'GoPay unlink task is disabled',
       },
     )
   }
@@ -1091,11 +1175,11 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
         ...gopayAccount,
         waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
         async beforeAuthorizationOpen({ activationLinkUrl }) {
-          if (!gopayUnlinkCompanion) {
+          if (!gopayUnlinkTask) {
             return
           }
 
-          if (gopayUnlinkCompanion.status === 'failed') {
+          if (gopayUnlinkTask.status === 'failed') {
             if (machine) {
               await patchTeamTrialMachine(
                 machine,
@@ -1112,7 +1196,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                   gopayActivationLinkUrl: activationLinkUrl,
                   gopayUnlinkStatus: 'failed',
                   lastMessage:
-                    'GoPay unlink companion failed; continuing authorization without unlink',
+                    'GoPay unlink task failed; continuing authorization without unlink',
                 },
               )
             }
@@ -1135,13 +1219,13 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                 gopayActivationLinkUrl: activationLinkUrl,
                 gopayUnlinkStatus: 'waiting',
                 lastMessage:
-                  'Waiting for GoPay unlink companion before opening GoPay authorization',
+                  'Waiting for GoPay unlink task before opening GoPay authorization',
               },
             )
           }
 
           try {
-            gopayUnlink = await gopayUnlinkCompanion.wait()
+            gopayUnlink = await gopayUnlinkTask.wait()
           } catch (error) {
             const message = sanitizeErrorForOutput(error).message
             if (machine) {
@@ -1161,7 +1245,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                   gopayUnlinkStatus: 'failed',
                   gopayUnlinkError: message,
                   lastMessage:
-                    'GoPay unlink companion failed; continuing authorization without unlink',
+                    'GoPay unlink task failed; continuing authorization without unlink',
                 },
               )
             }
@@ -1293,7 +1377,7 @@ export async function runChatGPTTeamTrial(
   const backendApiHeadersCapture = createChatGPTBackendApiHeadersCapture(page)
   const paymentMethod = resolveChatGPTTeamTrialPaymentMethod(options)
   let completedLogin: ChatGPTLoginFlowResult | undefined
-  let gopayUnlinkCompanion: ChatGPTTeamTrialGoPayUnlinkCompanion | undefined
+  let gopayUnlinkTask: ChatGPTTeamTrialGoPayUnlinkTask | undefined
 
   try {
     machine.start(
@@ -1307,7 +1391,7 @@ export async function runChatGPTTeamTrial(
       },
     )
     if (paymentMethod === 'gopay') {
-      gopayUnlinkCompanion = startChatGPTTeamTrialGoPayUnlinkCompanion(options)
+      gopayUnlinkTask = startChatGPTTeamTrialGoPayUnlinkTask(options)
     }
 
     await sendTeamTrialMachine(machine, 'chatgpt.login.started', {
@@ -1336,7 +1420,7 @@ export async function runChatGPTTeamTrial(
         storageStateFlowType: 'chatgpt-team-trial',
         backendApiHeadersCapture,
         paymentMethod,
-        gopayUnlinkCompanion,
+        gopayUnlinkTask,
       })
     const result = {
       pageName: 'chatgpt-team-trial' as const,

@@ -370,6 +370,93 @@ describe('state machine', () => {
     })
   })
 
+  it('tracks parallel regions without replacing the primary state', async () => {
+    type MainState = 'idle' | 'checkout-ready'
+    type Event =
+      | 'checkout.ready'
+      | 'unlink.started'
+      | 'unlink.waiting'
+      | 'unlink.completed'
+    type Context = {
+      log: string[]
+      unlinkStatus?: string
+    }
+
+    const machine = createStateMachine<MainState, Context, Event>({
+      id: 'parallel-region.machine',
+      initialState: 'idle',
+      initialContext: {
+        log: [],
+      },
+      on: {
+        'checkout.ready': {
+          target: 'checkout-ready',
+          actions: assignContext((context) => ({
+            log: [...context.log, 'checkout-ready'],
+          })),
+        },
+      },
+      regions: {
+        unlink: {
+          initialState: 'idle',
+          on: {
+            'unlink.started': {
+              target: 'running',
+              actions: assignContext((context) => ({
+                unlinkStatus: 'running',
+                log: [...context.log, 'unlink-started'],
+              })),
+            },
+            'unlink.waiting': {
+              target: 'waiting',
+              actions: assignContext((context) => ({
+                unlinkStatus: 'waiting',
+                log: [...context.log, 'unlink-waiting'],
+              })),
+            },
+            'unlink.completed': {
+              target: 'completed',
+              actions: assignContext((context) => ({
+                unlinkStatus: 'completed',
+                log: [...context.log, 'unlink-completed'],
+              })),
+            },
+          },
+        },
+      },
+    })
+
+    machine.start()
+    await machine.send('checkout.ready')
+    await machine.send('unlink.started')
+    await machine.send('unlink.waiting')
+    await machine.send('unlink.completed')
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'checkout-ready',
+      regions: {
+        unlink: 'completed',
+      },
+      context: {
+        unlinkStatus: 'completed',
+        log: [
+          'checkout-ready',
+          'unlink-started',
+          'unlink-waiting',
+          'unlink-completed',
+        ],
+      },
+    })
+    expect(machine.getSnapshot().history.at(-1)).toMatchObject({
+      from: 'checkout-ready',
+      to: 'checkout-ready',
+      region: 'unlink',
+      regionFrom: 'waiting',
+      regionTo: 'completed',
+      event: 'unlink.completed',
+    })
+  })
+
   it('ignores target overrides in flow lifecycle fragments by default', async () => {
     type FlowLifecycleTestState = 'idle' | 'ready' | 'failed'
     type FlowLifecycleTestContext = {
