@@ -1,4 +1,6 @@
+import { AsyncLocalStorage } from 'async_hooks'
 import { spawn, type ChildProcess } from 'child_process'
+import crypto from 'crypto'
 import fs from 'fs'
 import net from 'net'
 import path from 'path'
@@ -49,6 +51,7 @@ interface SingBoxConfig {
 }
 
 export interface CodeySingBoxProxyRuntime {
+  runtimeId: string
   mixedProxy: {
     server: string
     host: string
@@ -61,7 +64,21 @@ export interface CodeySingBoxProxyRuntime {
   stop(): Promise<void>
 }
 
+export interface CodeySingBoxStateProxyConfig {
+  label?: string
+  tags: readonly string[]
+}
+
+export interface CodeySingBoxProxySelectionResult {
+  selected: boolean
+  selectedTag?: string
+  changed: boolean
+  unavailableMessage?: string
+}
+
 let activeRuntime: CodeySingBoxProxyRuntime | undefined
+const flowRuntimeStorage = new AsyncLocalStorage<CodeySingBoxProxyRuntime>()
+const reservedMixedPorts = new Map<string, Set<number>>()
 
 function normalizeTag(value: string | null | undefined): string | undefined {
   const normalized = value?.trim().toLowerCase()
@@ -95,7 +112,29 @@ function getSingBoxConfigDir(config: CliRuntimeConfig): string {
   )
 }
 
-function getSingBoxConfigPath(config: CliRuntimeConfig): string {
+function sanitizeRuntimeId(value: string): string {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_.-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'default'
+  )
+}
+
+function getSingBoxConfigPath(
+  config: CliRuntimeConfig,
+  runtimeId?: string,
+): string {
+  if (runtimeId) {
+    return path.join(
+      getSingBoxConfigDir(config),
+      'runtimes',
+      sanitizeRuntimeId(runtimeId),
+      'config.json',
+    )
+  }
+
   return path.join(getSingBoxConfigDir(config), 'config.json')
 }
 
@@ -117,6 +156,21 @@ function resolveMixedEndpoint(config: CliRuntimeConfig): {
   }
 }
 
+function createMixedEndpoint(
+  host: string,
+  port: number,
+): {
+  host: string
+  port: number
+  server: string
+} {
+  return {
+    host,
+    port,
+    server: `http://${host}:${port}`,
+  }
+}
+
 function shouldStartSingBox(config: CliRuntimeConfig): boolean {
   return (
     (config.singBox?.enabled ?? true) && (config.singBox?.autoStart ?? true)
@@ -127,15 +181,25 @@ function hasUsableProxyNodes(nodes: CodeyProxyNode[]): boolean {
   return nodes.some((node) => node.protocol === 'hysteria2')
 }
 
+function findMatchingProxyNode(
+  nodes: CodeyProxyNode[],
+  tag: string,
+): CodeyProxyNode | undefined {
+  const normalizedTag = normalizeTag(tag)
+  if (!normalizedTag) {
+    return undefined
+  }
+
+  return nodes.find((node) => normalizeTag(node.tag) === normalizedTag)
+}
+
 function pickDefaultNode(
   nodes: CodeyProxyNode[],
   preferredTag?: string,
 ): CodeyProxyNode {
   const normalizedPreferredTag = normalizeTag(preferredTag)
   if (normalizedPreferredTag) {
-    const preferred = nodes.find(
-      (node) => normalizeTag(node.tag) === normalizedPreferredTag,
-    )
+    const preferred = findMatchingProxyNode(nodes, normalizedPreferredTag)
     if (preferred) {
       return preferred
     }
@@ -273,6 +337,57 @@ async function waitForPort(host: string, port: number): Promise<void> {
   }
 
   throw new Error(`sing-box mixed inbound did not open at ${host}:${port}`)
+}
+
+function getReservedPortSet(host: string): Set<number> {
+  let ports = reservedMixedPorts.get(host)
+  if (!ports) {
+    ports = new Set<number>()
+    reservedMixedPorts.set(host, ports)
+  }
+
+  return ports
+}
+
+function releaseMixedPort(host: string, port: number): void {
+  const ports = reservedMixedPorts.get(host)
+  ports?.delete(port)
+  if (ports?.size === 0) {
+    reservedMixedPorts.delete(host)
+  }
+}
+
+async function reserveMixedEndpoint(config: CliRuntimeConfig): Promise<{
+  host: string
+  port: number
+  server: string
+}> {
+  const preferred = resolveMixedEndpoint(config)
+  const reserved = getReservedPortSet(preferred.host)
+
+  if (
+    !reserved.has(preferred.port) &&
+    !(await canConnect(preferred.host, preferred.port, 100))
+  ) {
+    reserved.add(preferred.port)
+    return preferred
+  }
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const port = 20_000 + crypto.randomInt(30_000)
+    if (reserved.has(port)) {
+      continue
+    }
+
+    if (await canConnect(preferred.host, port, 100)) {
+      continue
+    }
+
+    reserved.add(port)
+    return createMixedEndpoint(preferred.host, port)
+  }
+
+  throw new Error('Unable to reserve an available sing-box mixed proxy port')
 }
 
 function getExecutableFileName(): string {
@@ -645,6 +760,8 @@ async function terminateProcess(
 }
 
 class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
+  runtimeId: string
+
   mixedProxy: {
     server: string
     host: string
@@ -658,16 +775,24 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
   private child?: ChildProcess
   private stderr = ''
   private stdout = ''
+  private stopped = false
 
   constructor(input: {
+    runtimeId?: string
     config: CliRuntimeConfig
     nodes: CodeyProxyNode[]
     selectedTag: string | null
+    mixedProxy?: {
+      server: string
+      host: string
+      port: number
+    }
   }) {
+    this.runtimeId = sanitizeRuntimeId(input.runtimeId || 'default')
     this.config = input.config
     this.nodes = input.nodes.map(normalizeNodeTag)
     this.selectedTag = input.selectedTag
-    this.mixedProxy = resolveMixedEndpoint(input.config)
+    this.mixedProxy = input.mixedProxy || resolveMixedEndpoint(input.config)
   }
 
   async start(): Promise<void> {
@@ -680,16 +805,17 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
       throw new Error('Proxy tag is required')
     }
 
-    const matchingNode = this.nodes.find((node) => node.tag === normalizedTag)
+    const matchingNode = findMatchingProxyNode(this.nodes, tag)
     if (!matchingNode) {
       throw new Error(`No enabled proxy node has tag ${tag}`)
     }
 
-    if (this.selectedTag === normalizedTag) {
+    if (normalizeTag(this.selectedTag) === normalizeTag(matchingNode.tag)) {
+      this.selectedTag = normalizeTag(matchingNode.tag) || matchingNode.tag
       return
     }
 
-    await this.restart(normalizedTag)
+    await this.restart(matchingNode.tag)
   }
 
   async refresh(nodes: CodeyProxyNode[]): Promise<void> {
@@ -703,8 +829,14 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
   }
 
   async stop(): Promise<void> {
+    if (this.stopped) {
+      return
+    }
+
+    this.stopped = true
     await terminateProcess(this.child)
     this.child = undefined
+    releaseMixedPort(this.mixedProxy.host, this.mixedProxy.port)
   }
 
   private async restart(selectedTag?: string): Promise<void> {
@@ -721,7 +853,7 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
     })
     this.selectedTag = selectedNode.tag
 
-    const configPath = getSingBoxConfigPath(this.config)
+    const configPath = getSingBoxConfigPath(this.config, this.runtimeId)
     ensureDir(path.dirname(configPath))
     writeFileAtomic(configPath, `${JSON.stringify(config, null, 2)}\n`)
 
@@ -768,6 +900,7 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
     await waitForPort(this.mixedProxy.host, this.mixedProxy.port)
 
     logCliEvent('info', 'singbox.started', {
+      runtimeId: this.runtimeId,
       proxy: this.mixedProxy.server,
       selectedTag: this.selectedTag,
       nodeCount: this.nodes.length,
@@ -779,6 +912,7 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
 export async function startCodeySingBoxProxy(input: {
   config: CliRuntimeConfig
   nodes: CodeyProxyNode[]
+  runtimeId?: string
 }): Promise<CodeySingBoxProxyRuntime | undefined> {
   if (!shouldStartSingBox(input.config)) {
     return undefined
@@ -792,6 +926,7 @@ export async function startCodeySingBoxProxy(input: {
   }
 
   const runtime = new LocalSingBoxProxyRuntime({
+    runtimeId: input.runtimeId,
     config: input.config,
     nodes,
     selectedTag: normalizeTag(input.config.singBox?.defaultTag) || null,
@@ -799,6 +934,70 @@ export async function startCodeySingBoxProxy(input: {
   await runtime.start()
   activeRuntime = runtime
   return runtime
+}
+
+export async function startCodeySingBoxFlowProxy(input: {
+  config: CliRuntimeConfig
+  nodes: CodeyProxyNode[]
+  flowId?: string
+  taskId?: string
+  selectedTag?: string | null
+}): Promise<CodeySingBoxProxyRuntime | undefined> {
+  if (!shouldStartSingBox(input.config)) {
+    return undefined
+  }
+
+  const nodes = input.nodes
+    .map(normalizeNodeTag)
+    .filter((node) => node.protocol === 'hysteria2')
+  if (!hasUsableProxyNodes(nodes)) {
+    return undefined
+  }
+
+  const runtimeId = sanitizeRuntimeId(
+    [
+      input.flowId || 'flow',
+      input.taskId || crypto.randomUUID(),
+      process.pid,
+      crypto.randomUUID().slice(0, 8),
+    ]
+      .filter(Boolean)
+      .join('-'),
+  )
+  const runtime = new LocalSingBoxProxyRuntime({
+    runtimeId,
+    config: input.config,
+    nodes,
+    selectedTag:
+      normalizeTag(input.selectedTag) ||
+      normalizeTag(input.config.singBox?.defaultTag) ||
+      null,
+    mixedProxy: await reserveMixedEndpoint(input.config),
+  })
+  try {
+    await runtime.start()
+  } catch (error) {
+    await runtime.stop()
+    throw error
+  }
+  return runtime
+}
+
+export function runWithCodeySingBoxProxyRuntime<T>(
+  runtime: CodeySingBoxProxyRuntime | undefined,
+  task: () => T,
+): T {
+  if (!runtime) {
+    return task()
+  }
+
+  return flowRuntimeStorage.run(runtime, task)
+}
+
+export function getCurrentCodeySingBoxProxy():
+  | CodeySingBoxProxyRuntime
+  | undefined {
+  return flowRuntimeStorage.getStore() || activeRuntime
 }
 
 export function getActiveCodeySingBoxProxy():
@@ -810,12 +1009,63 @@ export function getActiveCodeySingBoxProxy():
 export async function selectCodeySingBoxProxyTag(
   tag: string,
 ): Promise<boolean> {
-  if (!activeRuntime) {
+  const runtime = getCurrentCodeySingBoxProxy()
+  if (!runtime) {
     return false
   }
 
-  await activeRuntime.selectTag(tag)
+  await runtime.selectTag(tag)
   return true
+}
+
+export async function selectCodeySingBoxProxyConfig(
+  proxyConfig: CodeySingBoxStateProxyConfig | undefined,
+): Promise<CodeySingBoxProxySelectionResult> {
+  if (!proxyConfig) {
+    return {
+      selected: false,
+      changed: false,
+    }
+  }
+
+  const runtime = getCurrentCodeySingBoxProxy()
+  if (!runtime) {
+    const label = proxyConfig.label || proxyConfig.tags[0] || 'configured'
+    return {
+      selected: false,
+      changed: false,
+      unavailableMessage: `Codey proxy tag ${label} is not available`,
+    }
+  }
+
+  const before = runtime.selectedTag
+  let selectedTag: string | undefined
+  let lastErrorMessage: string | undefined
+  for (const tag of proxyConfig.tags) {
+    try {
+      await runtime.selectTag(tag)
+      selectedTag = runtime.selectedTag || normalizeTag(tag) || tag
+      break
+    } catch (error) {
+      lastErrorMessage = sanitizeErrorForOutput(error).message
+    }
+  }
+
+  const selected = selectedTag !== undefined
+  const label =
+    proxyConfig.label || selectedTag || proxyConfig.tags[0] || 'configured'
+  return {
+    selected,
+    selectedTag,
+    changed: selected
+      ? normalizeTag(before) !== normalizeTag(runtime.selectedTag)
+      : false,
+    unavailableMessage: selected
+      ? undefined
+      : lastErrorMessage
+        ? `Codey proxy tag ${label} is not available: ${lastErrorMessage}`
+        : `Codey proxy tag ${label} is not available`,
+  }
 }
 
 export async function stopActiveCodeySingBoxProxy(): Promise<void> {

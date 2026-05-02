@@ -457,6 +457,54 @@ describe('state machine', () => {
     })
   })
 
+  it('preserves state metadata when composing fragments', () => {
+    type State = 'idle'
+    type Event = 'refresh'
+    type Context = {
+      value: number
+    }
+
+    const config = composeStateMachineConfig<State, Context, Event>(
+      {
+        id: 'state-meta.machine',
+        initialState: 'idle',
+        initialContext: {
+          value: 0,
+        },
+        states: {
+          idle: {
+            meta: {
+              proxy: {
+                label: 'japan',
+              },
+            },
+          },
+        },
+      },
+      defineStateMachineFragment<State, Context, Event>({
+        states: {
+          idle: {
+            meta: {
+              owner: 'fragment',
+            },
+            on: {
+              refresh: {
+                target: 'idle',
+              },
+            },
+          },
+        },
+      }),
+    )
+
+    expect(config.states?.idle?.meta).toMatchObject({
+      proxy: {
+        label: 'japan',
+      },
+      owner: 'fragment',
+    })
+  })
+
   it('ignores target overrides in flow lifecycle fragments by default', async () => {
     type FlowLifecycleTestState = 'idle' | 'ready' | 'failed'
     type FlowLifecycleTestContext = {

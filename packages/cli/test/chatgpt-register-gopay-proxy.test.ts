@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const callOrder: string[] = []
 const createVerificationProvider = vi.fn()
 const gotoLoginEntry = vi.fn()
-const selectCodeySingBoxProxyTag = vi.fn()
+const selectCodeySingBoxProxyConfig = vi.fn()
 
 vi.mock('../src/config', () => ({
   getRuntimeConfig: () => ({
@@ -43,7 +43,7 @@ vi.mock('../src/modules/gopay/android-unlink', () => ({
 }))
 
 vi.mock('../src/modules/proxy/sing-box', () => ({
-  selectCodeySingBoxProxyTag,
+  selectCodeySingBoxProxyConfig,
 }))
 
 vi.mock('../src/modules/chatgpt/account-deactivation', () => ({
@@ -84,9 +84,13 @@ describe('registerChatGPT GoPay proxy selection', () => {
       }),
       waitForVerificationCode: vi.fn(async () => '123456'),
     })
-    selectCodeySingBoxProxyTag.mockImplementation(async (tag: string) => {
-      callOrder.push(`proxy:${tag}`)
-      return tag === 'japan'
+    selectCodeySingBoxProxyConfig.mockImplementation(async (config) => {
+      callOrder.push(`proxy:${config.label}`)
+      return {
+        selected: config.label === 'japan',
+        selectedTag: config.label,
+        changed: true,
+      }
     })
     gotoLoginEntry.mockImplementation(async () => {
       callOrder.push('gotoLoginEntry')
@@ -103,7 +107,10 @@ describe('registerChatGPT GoPay proxy selection', () => {
       }),
     ).rejects.toThrow('stop after entry navigation')
 
-    expect(selectCodeySingBoxProxyTag).toHaveBeenCalledWith('japan')
+    expect(selectCodeySingBoxProxyConfig).toHaveBeenCalledWith({
+      label: 'japan',
+      tags: ['japan', '日本', 'jp'],
+    })
     expect(callOrder).toEqual(['proxy:japan', 'primeInbox', 'gotoLoginEntry'])
   })
 })

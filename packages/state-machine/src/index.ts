@@ -269,6 +269,7 @@ export interface StateMachineStateConfig<
   Context extends object,
   Event extends string = string,
 > {
+  meta?: Record<string, unknown>
   on?: Partial<
     Record<
       Event,
@@ -1954,6 +1955,19 @@ function mergeTransitionMaps<
   return merged
 }
 
+function mergeMetaRecords(
+  left?: Record<string, unknown>,
+  right?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!left) return right ? { ...right } : undefined
+  if (!right) return { ...left }
+
+  return {
+    ...left,
+    ...right,
+  }
+}
+
 function mergeStateConfigs<
   State extends string,
   Context extends object,
@@ -1968,6 +1982,7 @@ function mergeStateConfigs<
   return {
     ...left,
     ...right,
+    meta: mergeMetaRecords(left.meta, right.meta),
     on: mergeTransitionMaps(left.on, right.on),
     entryActions: mergeDefinitionCollections(
       left.entryActions,

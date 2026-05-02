@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url'
 import { loadWorkspaceEnv } from './utils/env'
 loadWorkspaceEnv()
 
-import { setRuntimeConfig } from './config'
+import { runWithRuntimeConfig, setRuntimeConfig } from './config'
 import { ExchangeClient } from './modules/exchange'
 import {
   resolveCliNotificationsAuthState,
@@ -18,7 +18,10 @@ import {
   claimCliFlowTask,
   CliFlowTaskLeaseReporter,
 } from './modules/app-auth/flow-tasks'
-import { fetchCodeyProxyNodes } from './modules/app-auth/proxy-nodes'
+import {
+  fetchCodeyProxyNodes,
+  type CodeyProxyNode,
+} from './modules/app-auth/proxy-nodes'
 import { deriveCliTargetFromAuthState } from './modules/app-auth/target'
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
 import { DEFAULT_CODEY_APP_BASE_URL } from './modules/app-auth/http'
@@ -100,10 +103,9 @@ import {
   FlowTaskSchedulerCancelledError,
 } from './modules/flow-cli/task-scheduler'
 import {
-  buildSingBoxProxyBrowserOverride,
   formatSingBoxProxyStartupError,
-  startCodeySingBoxProxy,
-  stopActiveCodeySingBoxProxy,
+  runWithCodeySingBoxProxyRuntime,
+  startCodeySingBoxFlowProxy,
   summarizeProxyNodes,
   type CodeySingBoxProxyRuntime,
 } from './modules/proxy/sing-box'
@@ -118,6 +120,8 @@ async function runFlowCommand(
   runtime: {
     abortSignal?: AbortSignal
     onBeforeExit?: () => Promise<void> | void
+    onAfterSessionClose?: () => Promise<void> | void
+    singBoxProxy?: CodeySingBoxProxyRuntime
   } = {},
 ): Promise<unknown> {
   let runtimeOptions: FlowOptions = {
@@ -165,6 +169,8 @@ async function runFlowCommand(
         closeOnComplete: !shouldKeepFlowOpen(runtimeOptions),
         abortSignal: runtime.abortSignal,
         onBeforeExit: runtime.onBeforeExit,
+        onAfterSessionClose: runtime.onAfterSessionClose,
+        singBoxProxy: runtime.singBoxProxy,
         pageContent: {
           enabled: shouldRecordPageContent(runtimeOptions),
           artifactName: subcommand,
@@ -311,71 +317,77 @@ async function executeFlowSubcommand(
   runtime: {
     abortSignal?: AbortSignal
     onBeforeExit?: () => Promise<void> | void
+    onAfterSessionClose?: () => Promise<void> | void
+    singBoxProxy?: CodeySingBoxProxyRuntime
   } = {},
 ): Promise<FlowCommandExecution> {
   const resolvedOptions = resolveFlowCommandOptions(subcommand, options)
   const command = `flow:${subcommand}`
   const startedAt = new Date().toISOString()
-  prepareRuntimeConfig(command, resolvedOptions)
-  return withObservabilityContext(
-    {
-      flowId: subcommand,
-    },
-    () =>
-      traceCliOperation(
-        'flow.execute',
+  const config = prepareRuntimeConfig(command, resolvedOptions)
+  return runWithCodeySingBoxProxyRuntime(runtime.singBoxProxy, () =>
+    runWithRuntimeConfig(config, () =>
+      withObservabilityContext(
         {
           flowId: subcommand,
-          command,
         },
-        async () => {
-          setObservabilityRuntimeState({
-            flowId: subcommand,
-            status: 'running',
-            message: 'Flow started',
-            startedAt,
-          })
-
-          try {
-            const result = await runFlowCommand(
-              subcommand,
-              resolvedOptions,
-              runtime,
-            )
-            const completedAt = new Date().toISOString()
-            setObservabilityRuntimeState({
-              flowId: subcommand,
-              status: 'passed',
-              message: 'Flow completed',
-              startedAt,
-              completedAt,
-            })
-
-            return buildFlowCommandExecutionResult({
+        () =>
+          traceCliOperation(
+            'flow.execute',
+            {
               flowId: subcommand,
               command,
-              status: 'passed',
-              startedAt,
-              completedAt,
-              config: redactForOutput(resolvedOptions),
-              result: redactForOutput(result),
-              completionResult: buildFlowTaskCompletionResult(
-                subcommand,
-                result,
-              ),
-            })
-          } catch (error) {
-            setObservabilityRuntimeState({
-              flowId: subcommand,
-              status: 'failed',
-              message: sanitizeErrorForOutput(error).message,
-              startedAt,
-              completedAt: new Date().toISOString(),
-            })
-            throw error
-          }
-        },
+            },
+            async () => {
+              setObservabilityRuntimeState({
+                flowId: subcommand,
+                status: 'running',
+                message: 'Flow started',
+                startedAt,
+              })
+
+              try {
+                const result = await runFlowCommand(
+                  subcommand,
+                  resolvedOptions,
+                  runtime,
+                )
+                const completedAt = new Date().toISOString()
+                setObservabilityRuntimeState({
+                  flowId: subcommand,
+                  status: 'passed',
+                  message: 'Flow completed',
+                  startedAt,
+                  completedAt,
+                })
+
+                return buildFlowCommandExecutionResult({
+                  flowId: subcommand,
+                  command,
+                  status: 'passed',
+                  startedAt,
+                  completedAt,
+                  config: redactForOutput(resolvedOptions),
+                  result: redactForOutput(result),
+                  completionResult: buildFlowTaskCompletionResult(
+                    subcommand,
+                    result,
+                  ),
+                })
+              } catch (error) {
+                setObservabilityRuntimeState({
+                  flowId: subcommand,
+                  status: 'failed',
+                  message: sanitizeErrorForOutput(error).message,
+                  startedAt,
+                  completedAt: new Date().toISOString(),
+                })
+                throw error
+              }
+            },
+          ),
       ),
+    ),
   )
 }
 
@@ -576,27 +588,20 @@ async function runRemoteWorker(
   })
 
   let whatsAppWebhook: WhatsAppNotificationWebhookServerHandle | undefined
-  let singBoxProxy: CodeySingBoxProxyRuntime | undefined
+  let proxyNodes: CodeyProxyNode[] = []
+  let proxyNodesLoaded = false
 
   try {
     while (true) {
       setRuntimeConfig(config)
       const authState = await resolveCliNotificationsAuthState()
-      if (!singBoxProxy) {
+      if (!proxyNodesLoaded) {
         try {
-          const proxyNodes = await fetchCodeyProxyNodes({ authState })
-          singBoxProxy = await startCodeySingBoxProxy({
-            config,
-            nodes: proxyNodes,
-          })
-          if (singBoxProxy) {
-            config = {
-              ...config,
-              ...buildSingBoxProxyBrowserOverride(singBoxProxy),
-            }
-            setRuntimeConfig(config)
+          proxyNodes = await fetchCodeyProxyNodes({ authState })
+          proxyNodesLoaded = true
+          if (proxyNodes.some((node) => node.protocol === 'hysteria2')) {
             writeCliStderrLine(
-              `[cli:singbox] Loaded ${proxyNodes.length} proxy node(s); mixed proxy ${singBoxProxy.mixedProxy.server}; selected tag ${singBoxProxy.selectedTag || 'default'}.`,
+              `[cli:singbox] Loaded ${proxyNodes.length} proxy node(s); flow tasks will use isolated mixed proxy instances.`,
             )
           } else if (proxyNodes.length) {
             writeCliStderrLine(
@@ -605,12 +610,15 @@ async function runRemoteWorker(
           }
           logCliEvent('info', 'singbox.proxy_nodes.loaded', {
             nodes: summarizeProxyNodes(proxyNodes),
-            started: Boolean(singBoxProxy),
+            started: false,
+            mode: 'flow-scoped',
           })
         } catch (error) {
           writeCliStderrLine(
             `[cli:singbox] ${formatSingBoxProxyStartupError(error)}`,
           )
+          proxyNodes = []
+          proxyNodesLoaded = true
         }
       }
       whatsAppWebhook ??= startCliWhatsAppNotificationWebhook(
@@ -814,8 +822,20 @@ async function runRemoteWorker(
 
                 const consoleProgressReporter =
                   createConsoleFlowProgressReporter(`flow:${task.flowId}`)
+                let flowSingBoxProxy: CodeySingBoxProxyRuntime | undefined
 
                 try {
+                  flowSingBoxProxy = await startCodeySingBoxFlowProxy({
+                    config,
+                    nodes: proxyNodes,
+                    flowId: task.flowId,
+                    taskId: task.notificationId,
+                  })
+                  if (flowSingBoxProxy) {
+                    writeCliStderrLine(
+                      `[cli:singbox] Task ${task.notificationId} using ${flowSingBoxProxy.mixedProxy.server}; selected tag ${flowSingBoxProxy.selectedTag || 'default'}.`,
+                    )
+                  }
                   const execution = await executeFlowSubcommand(
                     task.flowId,
                     {
@@ -843,7 +863,13 @@ async function runRemoteWorker(
                     },
                     {
                       abortSignal: flowAbortController.signal,
-                      onBeforeExit: stopActiveCodeySingBoxProxy,
+                      onBeforeExit: async () => {
+                        await flowSingBoxProxy?.stop()
+                      },
+                      onAfterSessionClose: async () => {
+                        await flowSingBoxProxy?.stop()
+                      },
+                      singBoxProxy: flowSingBoxProxy,
                     },
                   )
                   assertFlowTaskExecutionSucceeded(task.flowId, execution)
@@ -944,6 +970,7 @@ async function runRemoteWorker(
                     taskLeaseReporters.delete(task.notificationId)
                   }
                 } finally {
+                  await flowSingBoxProxy?.stop()
                   activeFlowAbortControllers.delete(task.notificationId)
                   serverCanceledTaskIds.delete(task.notificationId)
                   await runtimeReporter.flush()
@@ -1182,7 +1209,6 @@ async function runRemoteWorker(
     }
   } finally {
     await whatsAppWebhook?.stop()
-    await stopActiveCodeySingBoxProxy()
   }
 }
 

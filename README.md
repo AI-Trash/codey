@@ -96,10 +96,13 @@ fallback.
 Managed proxy nodes are available in the admin console at `/admin/proxy-nodes`.
 When the remote worker starts, it fetches enabled nodes from Codey Web and, if
 needed, downloads the matching sing-box release into `.codey/sing-box/bin/`.
-It then starts a local mixed inbound for browser traffic without enabling the
-system proxy. Set `CODEY_SINGBOX_EXECUTABLE` only when you want to force a
-specific local binary. The current managed path is optimized for hysteria2 nodes
-whose shared settings are identical except for IP/server. Optional tuning:
+Each browser flow gets its own local mixed inbound for browser traffic without
+enabling the system proxy, so parallel flows can switch upstream tags without
+affecting one another. `CODEY_SINGBOX_MIXED_PORT` is the preferred first port;
+additional concurrent flows reserve another local port automatically. Set
+`CODEY_SINGBOX_EXECUTABLE` only when you want to force a specific local binary.
+The current managed path is optimized for hysteria2 nodes whose shared settings
+are identical except for IP/server. Optional tuning:
 
 ```env
 CODEY_SINGBOX_ENABLED=true
@@ -208,9 +211,11 @@ Pass `--chromeDefaultProfile true` when you want a flow to start from your local
 
 For GoPay trial checkout continuation, set `CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER` before running `--claimTrial gopay`. `CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE` is optional when the Midtrans page already shows the right country code. GoPay trial flows start an Appium companion that opens GoPay Linked apps and clicks `Unlink` -> `Unlink` before the browser opens the GoPay authorization link; set `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK=false` to skip it, or `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS` to tune the wait. After submitting the phone number, the flow clicks the GoPay authorization/confirmation page when it appears. If the authorization page asks for a WhatsApp OTP, the flow polls Codey app WhatsApp notification ingest and fills the latest 6-digit code received after the GoPay authorization page opens. If `CHATGPT_TEAM_TRIAL_GOPAY_PIN` is omitted, the flow opens the GoPay authorization page and waits for manual PIN completion until `CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS` (default 180000 ms).
 
-For managed sing-box proxy runs, the GoPay checkout flow selects the `japan`
-proxy tag before creating the ChatGPT checkout link, then switches to the
-`singapore` tag after the GoPay redirect link is captured. The built-in default
+For managed sing-box proxy runs, GoPay checkout states declare their required
+proxy tag. The flow selects `japan` before creating the ChatGPT checkout link,
+then switches to `singapore` before opening and submitting the checkout. States
+without a proxy declaration keep the flow's current proxy, and repeated states
+with the same tag do not restart sing-box. The built-in default
 billing address is now `32 Penjuru Place, Singapore, Jurong East 608560,
 Singapore`, and can still be overridden with the billing flags or
 `CHATGPT_TEAM_TRIAL_BILLING_*` environment variables.

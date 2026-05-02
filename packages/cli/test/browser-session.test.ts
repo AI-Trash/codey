@@ -21,6 +21,10 @@ vi.mock('../src/config', () => ({
   getRuntimeConfig: getRuntimeConfigMock,
 }))
 
+vi.mock('../src/modules/proxy/sing-box', () => ({
+  getCurrentCodeySingBoxProxy: () => undefined,
+}))
+
 import { newSession } from '../src/core/browser'
 
 function createOpenPage() {

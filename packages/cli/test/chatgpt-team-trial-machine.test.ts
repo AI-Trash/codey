@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  chatgptTeamTrialStates,
   createChatGPTTeamTrialMachine,
+  getChatGPTTeamTrialStateProxyConfig,
   type ChatGPTTeamTrialGoPayUnlinkTask,
 } from '../src/flows/chatgpt-team-trial'
 
@@ -133,6 +135,24 @@ describe('chatgpt team trial machine', () => {
         gopayPayNowClicked: true,
       },
     })
+  })
+
+  it('declares GoPay proxy requirements on state definitions', () => {
+    expect(
+      chatgptTeamTrialStates['creating-checkout'].meta?.proxy,
+    ).toMatchObject({
+      label: 'japan',
+      tags: ['japan', '日本', 'jp'],
+    })
+    expect(chatgptTeamTrialStates['checkout-ready'].meta?.proxy).toMatchObject({
+      label: 'singapore',
+      tags: ['singapore', '新加坡', 'sg'],
+    })
+    expect(chatgptTeamTrialStates['gopay-linking'].meta?.proxy).toMatchObject({
+      label: 'singapore',
+      tags: ['singapore', '新加坡', 'sg'],
+    })
+    expect(getChatGPTTeamTrialStateProxyConfig('home-ready')).toBeUndefined()
   })
 
   it('tracks GoPay unlink task progress without moving the primary flow state', async () => {

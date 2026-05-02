@@ -6,6 +6,7 @@ import {
   buildSingBoxConfigForTest,
   installSingBoxExecutableForTest,
   resolveSingBoxExecutableForTest,
+  selectCodeySingBoxProxyConfig,
 } from '../src/modules/proxy/sing-box'
 import type { CliRuntimeConfig } from '../src/config'
 
@@ -114,6 +115,53 @@ describe('managed sing-box auto install', () => {
       password: 'shared-password',
     })
     expect(outbound).not.toHaveProperty('username')
+  })
+
+  it('selects state proxy configs through the current flow runtime', async () => {
+    const runtime = {
+      runtimeId: 'flow-1',
+      mixedProxy: {
+        server: 'http://127.0.0.1:22080',
+        host: '127.0.0.1',
+        port: 22080,
+      },
+      nodes: [],
+      selectedTag: 'japan',
+      selectTag: vi.fn(async (tag: string) => {
+        runtime.selectedTag = tag
+      }),
+      refresh: vi.fn(),
+      stop: vi.fn(),
+    }
+
+    const { runWithCodeySingBoxProxyRuntime } =
+      await import('../src/modules/proxy/sing-box')
+
+    const unchanged = await runWithCodeySingBoxProxyRuntime(runtime, () =>
+      selectCodeySingBoxProxyConfig({
+        label: 'japan',
+        tags: ['japan'],
+      }),
+    )
+    const changed = await runWithCodeySingBoxProxyRuntime(runtime, () =>
+      selectCodeySingBoxProxyConfig({
+        label: 'singapore',
+        tags: ['singapore'],
+      }),
+    )
+
+    expect(runtime.selectTag).toHaveBeenNthCalledWith(1, 'japan')
+    expect(runtime.selectTag).toHaveBeenNthCalledWith(2, 'singapore')
+    expect(unchanged).toMatchObject({
+      selected: true,
+      selectedTag: 'japan',
+      changed: false,
+    })
+    expect(changed).toMatchObject({
+      selected: true,
+      selectedTag: 'singapore',
+      changed: true,
+    })
   })
 })
 

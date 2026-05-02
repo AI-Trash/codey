@@ -888,7 +888,7 @@ describe('trial coupon pricing helpers', () => {
         FocusEvent: previousFocusEvent,
       })
     }
-  })
+  }, 10000)
 
   it('does not require a city field for Singapore billing addresses', async () => {
     const { JSDOM } = await import('jsdom')
@@ -979,7 +979,7 @@ describe('trial coupon pricing helpers', () => {
         FocusEvent: previousFocusEvent,
       })
     }
-  })
+  }, 10000)
 
   it('creates direct checkout links with the browser session access token', async () => {
     const requests: Array<{

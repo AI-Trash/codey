@@ -17,6 +17,7 @@ import {
 } from '../utils/observability'
 import { cloneChromeUserDataDirToTemp } from '../utils/chrome-user-data-dir'
 import type { Session } from '../types'
+import { getCurrentCodeySingBoxProxy } from '../modules/proxy/sing-box'
 
 type BrowserContextOptions = NonNullable<Parameters<Browser['newContext']>[0]>
 
@@ -89,6 +90,7 @@ export async function newSession(
   } = {},
 ): Promise<Session> {
   const config = getRuntimeConfig()
+  const singBoxProxy = getCurrentCodeySingBoxProxy()
   const sessionId = crypto.randomUUID()
   const sessionContext = getCurrentObservabilityContext()
 
@@ -105,7 +107,8 @@ export async function newSession(
           artifactName: options.artifactName,
           persistentContext: Boolean(config.browser.userDataDir),
           headless: config.browser.headless,
-          proxyConfigured: Boolean(config.browser.proxy),
+          proxyConfigured: Boolean(singBoxProxy || config.browser.proxy),
+          proxyRuntimeId: singBoxProxy?.runtimeId,
         },
         async () => {
           const harPath = config.browser.recordHar
@@ -118,7 +121,12 @@ export async function newSession(
           const contextOptions = buildContextOptions(
             harPath,
             options.context,
-            config.browser.proxy,
+            singBoxProxy
+              ? {
+                  server: singBoxProxy.mixedProxy.server,
+                  bypass: 'localhost,127.0.0.1,::1',
+                }
+              : config.browser.proxy,
           )
           let browser: Browser | null = null
           let context: BrowserContext

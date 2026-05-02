@@ -3,6 +3,10 @@ import { newSession } from '../../core/browser'
 import type { Session } from '../../types'
 import { printFlowArtifactPath } from './helpers'
 import { saveStablePageContent } from './page-content'
+import {
+  runWithCodeySingBoxProxyRuntime,
+  type CodeySingBoxProxyRuntime,
+} from '../proxy/sing-box'
 
 const FINAL_PAGE_CLOSE_GRACE_MS = 250
 
@@ -21,6 +25,9 @@ export interface RunWithSessionRuntime {
   closeOnComplete?: boolean
   abortSignal?: AbortSignal
   onBeforeExit?: () => Promise<void> | void
+  onAfterSessionClose?: () => Promise<void> | void
+  onSessionReady?: () => void
+  singBoxProxy?: CodeySingBoxProxyRuntime
   pageContent?: {
     enabled?: boolean
     artifactName?: string
@@ -177,6 +184,7 @@ function keepSessionAlive(
     detachListeners()
     process.stdin.pause()
     await session.close()
+    await runtime.onAfterSessionClose?.()
   }
 
   const exitAfterCleanup = (code: number) => {
@@ -223,7 +231,11 @@ export async function runWithSession<TResult>(
   runner: (session: Awaited<ReturnType<typeof newSession>>) => Promise<TResult>,
   runtime: RunWithSessionRuntime = {},
 ): Promise<TResult> {
-  const session = await newSession(options)
+  const session = await runWithCodeySingBoxProxyRuntime(
+    runtime.singBoxProxy,
+    () => newSession(options),
+  )
+  runtime.onSessionReady?.()
   printFlowArtifactPath(
     'browser HAR',
     session.harPath,
@@ -234,7 +246,9 @@ export async function runWithSession<TResult>(
     const keepAlive = keepSessionAlive(session, runtime)
     try {
       const result = await runAbortable(
-        runSessionTask(session, runner, runtime),
+        runWithCodeySingBoxProxyRuntime(runtime.singBoxProxy, () =>
+          runSessionTask(session, runner, runtime),
+        ),
         runtime.abortSignal,
         keepAlive.closeNow,
       )
@@ -248,11 +262,14 @@ export async function runWithSession<TResult>(
 
   try {
     return await runAbortable(
-      runSessionTask(session, runner, runtime),
+      runWithCodeySingBoxProxyRuntime(runtime.singBoxProxy, () =>
+        runSessionTask(session, runner, runtime),
+      ),
       runtime.abortSignal,
       () => session.close(),
     )
   } finally {
     await session.close()
+    await runtime.onAfterSessionClose?.()
   }
 }

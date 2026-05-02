@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'async_hooks'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -620,6 +621,7 @@ function buildDefaultConfig(): AppConfig {
 export const defaultConfig: AppConfig = buildDefaultConfig()
 
 let runtimeConfig: CliRuntimeConfig = buildDefaultConfig()
+const runtimeConfigStorage = new AsyncLocalStorage<CliRuntimeConfig>()
 
 export function loadConfigFile(
   configFile?: string,
@@ -658,5 +660,12 @@ export function setRuntimeConfig(config: CliRuntimeConfig): void {
 }
 
 export function getRuntimeConfig(): CliRuntimeConfig {
-  return runtimeConfig
+  return runtimeConfigStorage.getStore() || runtimeConfig
+}
+
+export function runWithRuntimeConfig<T>(
+  config: CliRuntimeConfig,
+  task: () => T,
+): T {
+  return runtimeConfigStorage.run(config, task)
 }

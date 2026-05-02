@@ -29,6 +29,11 @@ vi.mock('../src/modules/flow-cli/page-content', () => ({
   saveStablePageContent: saveStablePageContentMock,
 }))
 
+vi.mock('../src/modules/proxy/sing-box', () => ({
+  runWithCodeySingBoxProxyRuntime: (_runtime: unknown, task: () => unknown) =>
+    task(),
+}))
+
 import { runWithSession } from '../src/modules/flow-cli/run-with-session'
 
 class FakeBrowser extends EventEmitter {}
