@@ -80,12 +80,12 @@ export type ChatGPTRegistrationEntrySurface =
 
 export type ChatGPTAgeGateFieldMode = 'age' | 'birthday'
 
-const CHATGPT_NEW_USER_ONBOARDING_ANNOUNCEMENT_KEYS = [
+const CHATGPT_NEW_USER_ONBOARDING_ANNOUNCEMENT_KEYS: readonly string[] = [
   'oai/apps/hasSeenOnboardingFlow',
   'oai/apps/hasSeenOnboarding',
   'oai/apps/hasSeenStaticOnboarding',
   'oai/apps/hasSeenPromptOnboarding',
-] as const
+]
 const SELECTOR_STATE_POLL_INTERVAL_MS = 100
 const CHATGPT_BACKEND_ORIGIN = new URL(CHATGPT_HOME_URL).origin
 const CHATGPT_BACKEND_ME_PATH = '/backend-api/me'

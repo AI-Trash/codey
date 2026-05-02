@@ -10,7 +10,7 @@ import {
   prepareRuntimeConfig,
   reportError,
   shouldRecordPageContent,
-  type CommonOptions,
+  type FlowOptions,
   shouldKeepFlowOpen,
 } from './helpers'
 import { parseFlowCliArgsForCommand } from './parse-argv'
@@ -28,8 +28,7 @@ import {
 import { resolveWorkspaceRoot } from '../../utils/workspace-root'
 
 export interface SingleFileFlowDefinition<
-  TOptions extends CommonOptions & { record?: string | boolean } =
-    CommonOptions & { record?: string | boolean },
+  TOptions extends FlowOptions = FlowOptions,
   TResult extends object = object,
 > {
   command: string
@@ -38,8 +37,7 @@ export interface SingleFileFlowDefinition<
 }
 
 export async function runSingleFileFlow<
-  TOptions extends CommonOptions & { record?: string | boolean } =
-    CommonOptions & { record?: string | boolean },
+  TOptions extends FlowOptions = FlowOptions,
   TResult extends object = object,
 >(
   definition: SingleFileFlowDefinition<TOptions, TResult>,
@@ -138,8 +136,7 @@ export async function runSingleFileFlow<
 }
 
 export function runSingleFileFlowFromCli<
-  TOptions extends CommonOptions & { record?: string | boolean } =
-    CommonOptions & { record?: string | boolean },
+  TOptions extends FlowOptions = FlowOptions,
   TResult extends object = object,
 >(
   definition: SingleFileFlowDefinition<TOptions, TResult>,
@@ -153,8 +150,7 @@ export function runSingleFileFlowFromCli<
 }
 
 export function runSingleFileFlowFromCommandLine<
-  TOptions extends CommonOptions & { record?: string | boolean } =
-    CommonOptions & { record?: string | boolean },
+  TOptions extends FlowOptions = FlowOptions,
   TResult extends object = object,
 >(
   flowId: CliFlowCommandId,

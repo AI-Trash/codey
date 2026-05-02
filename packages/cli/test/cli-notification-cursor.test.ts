@@ -1,10 +1,34 @@
 import { describe, expect, it } from 'vitest'
 
-import {
+interface CliNotificationCursor {
+  createdAt: Date
+  id?: string | null
+}
+
+interface CliNotificationCursorHelpers {
+  compareCliNotificationCursor(
+    left: CliNotificationCursor,
+    right: CliNotificationCursor,
+  ): number
+  isCliNotificationAfterCursor(
+    notification: CliNotificationCursor,
+    cursor: CliNotificationCursor,
+  ): boolean
+  toCliNotificationCursor(
+    notification: CliNotificationCursor,
+  ): CliNotificationCursor
+}
+
+const cursorHelpers = (await import(
+  new URL('../../../src/lib/server/cli-notification-cursor.ts', import.meta.url)
+    .href
+)) as CliNotificationCursorHelpers
+
+const {
   compareCliNotificationCursor,
   isCliNotificationAfterCursor,
   toCliNotificationCursor,
-} from '../../../src/lib/server/cli-notification-cursor'
+} = cursorHelpers
 
 describe('cli notification cursor helpers', () => {
   it('orders same-timestamp notifications by id', () => {

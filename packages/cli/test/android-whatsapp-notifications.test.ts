@@ -202,6 +202,9 @@ describe('SmsForwarder WhatsApp notification helpers', () => {
       ok: true,
       notificationRecordId: 'notification-1',
       codeRecordId: 'code-1',
+      match: {
+        matched: true,
+      },
     }))
     const handle = startWhatsAppNotificationWebhookServer({
       port: 0,

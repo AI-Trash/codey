@@ -13,6 +13,15 @@ import {
 } from './redaction'
 import { isRecoverableBrowserAutomationError } from './browser-errors'
 
+type PinoModule = typeof import('pino')
+type PinoCallable = PinoModule & {
+  default?: PinoModule
+}
+type PinoPrettyModule = typeof import('pino-pretty')
+type PinoPrettyCallable = PinoPrettyModule & {
+  default?: PinoPrettyModule
+}
+
 type CliObservabilityPrimitive = string | number | boolean | null
 type CliObservabilityContextValue = CliObservabilityPrimitive | undefined
 
@@ -76,22 +85,13 @@ const shouldInstallFatalProcessListeners = !(
   process.env.VITEST || process.env.VITEST_WORKER_ID
 )
 
-let pinoModule:
-  | ((typeof import('pino'))['default'] & {
-      stdTimeFunctions: (typeof import('pino'))['stdTimeFunctions']
-      destination: (typeof import('pino'))['destination']
-    })
-  | undefined
-let pinoPrettyModule: (typeof import('pino-pretty'))['default'] | undefined
+let pinoModule: PinoModule | undefined
+let pinoPrettyModule: PinoPrettyModule | undefined
 
 function getPino(): NonNullable<typeof pinoModule> {
   if (!pinoModule) {
-    const loaded = require('pino') as
-      | typeof import('pino')
-      | (typeof import('pino'))['default']
-    pinoModule = (
-      'default' in loaded ? loaded.default : loaded
-    ) as typeof pinoModule
+    const loaded = require('pino') as PinoCallable
+    pinoModule = loaded.default ?? loaded
   }
 
   return pinoModule as NonNullable<typeof pinoModule>
@@ -99,12 +99,8 @@ function getPino(): NonNullable<typeof pinoModule> {
 
 function getPinoPretty(): NonNullable<typeof pinoPrettyModule> {
   if (!pinoPrettyModule) {
-    const loaded = require('pino-pretty') as
-      | typeof import('pino-pretty')
-      | (typeof import('pino-pretty'))['default']
-    pinoPrettyModule = (
-      'default' in loaded ? loaded.default : loaded
-    ) as typeof pinoPrettyModule
+    const loaded = require('pino-pretty') as PinoPrettyCallable
+    pinoPrettyModule = loaded.default ?? loaded
   }
 
   return pinoPrettyModule as NonNullable<typeof pinoPrettyModule>
@@ -730,7 +726,7 @@ function closeLoggerStreams(): void {
   }
 
   try {
-    observabilityState.structuredDestination.flushSync()
+    observabilityState.structuredDestination.flushSync?.()
   } catch {}
 
   try {

@@ -1082,10 +1082,10 @@ describe('runCodexOAuthFlow', () => {
         }
       }),
       title: vi.fn(async () => 'Authorization received'),
-    } as never
+    }
 
     const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
-    const result = await runCodexOAuthFlow(page, {})
+    const result = await runCodexOAuthFlow(page as never, {})
 
     expect(result).toMatchObject({
       pageName: 'codex-oauth',

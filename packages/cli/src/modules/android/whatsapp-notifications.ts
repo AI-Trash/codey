@@ -290,7 +290,10 @@ function normalizePath(value: string | undefined): string {
 }
 
 function normalizePort(value: number | undefined): number {
-  return Number.isInteger(value) && value >= 0 && value <= 65535
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 65535
     ? value
     : DEFAULT_WHATSAPP_WEBHOOK_PORT
 }

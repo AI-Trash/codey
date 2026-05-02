@@ -433,12 +433,12 @@ class FakeGoPayOtpInputLocator extends FakeCheckoutLocator {
 }
 
 class FakeGoPayTextLocator extends FakeCheckoutLocator {
-  constructor(private readonly text: string) {
-    super(true)
+  constructor(text: string) {
+    super(true, undefined, text)
   }
 
   async innerText(): Promise<string> {
-    return this.text
+    return this.textContent()
   }
 }
 

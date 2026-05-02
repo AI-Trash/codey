@@ -65,10 +65,12 @@ interface SessionBucket {
 }
 
 export interface ChatGPTAuthSessionPayload {
+  [key: string]: unknown
   auth_mode: 'chatgpt'
   OPENAI_API_KEY: null
   client_id: string
   tokens: {
+    [key: string]: unknown
     id_token: string | null
     access_token: string | null
     refresh_token: string | null
@@ -1122,40 +1124,46 @@ export function createChatGPTSessionCapture(page: Page): ChatGPTSessionCapture {
             last_refresh: capturedAt,
           }
 
+          const sessionId = pickFirst([
+            ...bucket.sessionIds,
+            extractSessionId(accessClaims),
+            extractSessionId(idClaims),
+          ])
+          const subject = pickFirst([
+            ...bucket.subjects,
+            extractSubject(idClaims),
+            extractSubject(accessClaims),
+          ])
+          const email = pickFirst([
+            ...bucket.emails,
+            extractEmail(idClaims),
+            extractEmail(accessClaims),
+          ])
+          const authProvider = pickFirst([
+            ...bucket.authProviders,
+            extractAuthProvider(idClaims),
+            extractAuthProvider(accessClaims),
+          ])
+          const expiresAt =
+            readJwtIsoTimestamp(accessClaims, 'exp') ||
+            readJwtIsoTimestamp(idClaims, 'exp')
+
           return {
             clientId: bucket.clientId,
             auth,
             capturedAt,
-            sessionId: pickFirst([
-              ...bucket.sessionIds,
-              extractSessionId(accessClaims),
-              extractSessionId(idClaims),
-            ]),
-            accountId,
-            subject: pickFirst([
-              ...bucket.subjects,
-              extractSubject(idClaims),
-              extractSubject(accessClaims),
-            ]),
-            email: pickFirst([
-              ...bucket.emails,
-              extractEmail(idClaims),
-              extractEmail(accessClaims),
-            ]),
-            authProvider: pickFirst([
-              ...bucket.authProviders,
-              extractAuthProvider(idClaims),
-              extractAuthProvider(accessClaims),
-            ]),
-            expiresAt:
-              readJwtIsoTimestamp(accessClaims, 'exp') ||
-              readJwtIsoTimestamp(idClaims, 'exp'),
+            ...(sessionId ? { sessionId } : {}),
+            ...(accountId ? { accountId } : {}),
+            ...(subject ? { subject } : {}),
+            ...(email ? { email } : {}),
+            ...(authProvider ? { authProvider } : {}),
+            ...(expiresAt ? { expiresAt } : {}),
             hasRefreshToken: Boolean(refreshToken),
             hasIdToken: Boolean(idToken),
           } satisfies ChatGPTSessionSnapshot
         })
-        .filter((snapshot): snapshot is ChatGPTSessionSnapshot =>
-          Boolean(snapshot),
+        .filter(
+          (snapshot): snapshot is ChatGPTSessionSnapshot => snapshot !== null,
         )
 
       return snapshots.sort((left, right) => {

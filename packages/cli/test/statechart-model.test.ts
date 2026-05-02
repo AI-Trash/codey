@@ -12,22 +12,47 @@ import {
   type StateMachineController,
 } from '../src/state-machine'
 
-type RuntimeMachine = StateMachineController<
-  string,
-  Record<string, unknown>,
-  string
->
-
-async function expectGraphPathsToMatchRuntime(options: {
-  createSut: () => RuntimeMachine
-  startContext?: Record<string, unknown>
-  paths: Array<{
-    state: { value: string; context: Record<string, unknown> }
-    steps: Array<{
-      event: { type: string; input?: unknown }
-      state: { value: string; context: Record<string, unknown> }
-    }>
+interface GraphPath {
+  state: {
+    value: unknown
+    context: unknown
+  }
+  steps: Array<{
+    event: {
+      type: string
+      input?: unknown
+    }
+    state: {
+      value: unknown
+      context: unknown
+    }
   }>
+}
+
+function assertStringState(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Expected a simple string state, received ${String(value)}`)
+  }
+
+  return value
+}
+
+function assertObjectContext(value: unknown): object {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Expected state context to be an object')
+  }
+
+  return value
+}
+
+async function expectGraphPathsToMatchRuntime<
+  State extends string,
+  Context extends object,
+  Event extends string,
+>(options: {
+  createSut: () => StateMachineController<State, Context, Event>
+  startContext?: Partial<Context>
+  paths: GraphPath[]
 }) {
   expect(options.paths.length).toBeGreaterThan(0)
 
@@ -38,14 +63,17 @@ async function expectGraphPathsToMatchRuntime(options: {
     for (const step of path.steps) {
       let raisedError: unknown
       try {
-        await sut.send(step.event.type, step.event.input)
+        await sut.send(step.event.type as Event, step.event.input)
       } catch (error) {
         raisedError = error
       }
       const snapshot = sut.getSnapshot()
-      expect(snapshot.state).toBe(step.state.value)
-      expect(snapshot.context).toMatchObject(step.state.context)
-      if (raisedError && snapshot.state !== step.state.value) {
+      const expectedState = assertStringState(step.state.value)
+      expect(snapshot.state).toBe(expectedState)
+      expect(snapshot.context).toMatchObject(
+        assertObjectContext(step.state.context),
+      )
+      if (raisedError && snapshot.state !== expectedState) {
         throw raisedError
       }
     }

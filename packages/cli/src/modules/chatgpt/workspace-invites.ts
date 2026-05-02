@@ -282,7 +282,7 @@ export function selectInviteCapableAccount(
   const currentEntry = currentAccountId
     ? entriesByReference.get(normalizeAccountLookupKey(currentAccountId))
     : undefined
-  if (currentAccountId && isInviteCapableAccount(currentEntry)) {
+  if (currentEntry && isInviteCapableAccount(currentEntry)) {
     return currentEntry.accountId
   }
 
