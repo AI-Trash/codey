@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   createId: vi.fn(),
   getDb: vi.fn(),
+  sendAstrBotPayPalNotification: vi.fn(),
   syncIdentityMaintenanceRunFromFlowTask: vi.fn(),
 }))
 
 vi.mock('@tanstack/react-start/server-only', () => ({}))
 
 vi.mock('./astrbot', () => ({
-  sendAstrBotPayPalNotification: vi.fn(),
+  sendAstrBotPayPalNotification: mocks.sendAstrBotPayPalNotification,
 }))
 
 vi.mock('./db/client', () => ({
@@ -39,7 +40,12 @@ vi.mock('./workspaces', () => ({
 }))
 
 import { completeFlowTask } from './flow-tasks'
-import type { CliConnectionRow, FlowTaskRow } from './db/schema'
+import {
+  flowTaskEvents,
+  flowTasks,
+  type CliConnectionRow,
+  type FlowTaskRow,
+} from './db/schema'
 
 const now = new Date('2026-05-03T00:00:00.000Z')
 
@@ -110,26 +116,53 @@ function createDbMock(input: {
 }) {
   const updatePatches: Array<Record<string, unknown>> = []
   const insertedEvents: Array<Record<string, unknown>> = []
+  const insertedFlowTasks: Array<Record<string, unknown>> = []
   const connection = input.connection ?? createConnection()
   const currentTask = input.currentTask ?? createTask()
-  const updatedTask = currentTask
-    ? {
-        ...currentTask,
-        status: 'QUEUED' as const,
-        cliConnectionId: null,
-      }
-    : null
   const set = vi.fn((patch: Record<string, unknown>) => {
     updatePatches.push(patch)
+    const updatedTask = currentTask
+      ? {
+          ...currentTask,
+          ...patch,
+        }
+      : null
     return {
       where: vi.fn(() => ({
         returning: vi.fn(async () => (updatedTask ? [updatedTask] : [])),
       })),
     }
   })
-  const insertValues = vi.fn((value: Record<string, unknown>) => {
-    insertedEvents.push(value)
-  })
+  const insert = vi.fn((table: unknown) => ({
+    values: vi.fn((value: Record<string, unknown>) => {
+      if (table === flowTasks) {
+        insertedFlowTasks.push(value)
+        return {
+          returning: vi.fn(async () => [
+            {
+              ...value,
+              createdAt: now,
+              updatedAt: now,
+              attemptCount: 0,
+              cliConnectionId: null,
+              leaseClaimedAt: null,
+              leaseExpiresAt: null,
+              startedAt: null,
+              completedAt: null,
+              lastError: null,
+            },
+          ]),
+        }
+      }
+
+      if (table === flowTaskEvents) {
+        insertedEvents.push(value)
+        return undefined
+      }
+
+      return undefined
+    }),
+  }))
 
   mocks.getDb.mockReturnValue({
     query: {
@@ -143,13 +176,12 @@ function createDbMock(input: {
     update: vi.fn(() => ({
       set,
     })),
-    insert: vi.fn(() => ({
-      values: insertValues,
-    })),
+    insert,
   })
 
   return {
     insertedEvents,
+    insertedFlowTasks,
     updatePatches,
   }
 }
@@ -277,4 +309,100 @@ describe('flow task completion', () => {
       message: 'Login failed',
     })
   })
+
+  it.each([
+    ['chatgpt-register', 'chatgpt-register'],
+    ['chatgpt-team-trial', 'chatgpt-team-trial'],
+  ])(
+    'queues a GoPay continuation task after %s captures a Midtrans link',
+    async (flowType, flowId) => {
+      const gopayUrl =
+        'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking'
+      mocks.createId
+        .mockReturnValueOnce('event-succeeded')
+        .mockReturnValueOnce('gopay-task-1')
+        .mockReturnValueOnce('event-gopay-queued')
+        .mockReturnValueOnce('event-gopay-log')
+
+      const task = createTask({
+        flowType,
+        payload: {
+          kind: 'flow_task',
+          flowId,
+          config: {
+            claimTrial: 'gopay',
+          },
+          metadata: {
+            workspace: {
+              recordId: 'workspace-record-1',
+            },
+          },
+        },
+      })
+      const { insertedEvents, insertedFlowTasks } = createDbMock({
+        connection: createConnection({
+          registeredFlows: [flowType, 'chatgpt-team-trial-gopay'],
+        }),
+        currentTask: task,
+      })
+
+      await expect(
+        completeFlowTask({
+          connectionId: 'connection-1',
+          taskId: 'task-1',
+          status: 'SUCCEEDED',
+          result: {
+            pageName: flowId,
+            paymentMethod: 'gopay',
+            paymentRedirectUrl: gopayUrl,
+            paypalApprovalUrl: gopayUrl,
+          },
+        }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          status: 'SUCCEEDED',
+        }),
+      )
+
+      expect(insertedFlowTasks).toHaveLength(1)
+      expect(insertedFlowTasks[0]).toMatchObject({
+        id: 'gopay-task-1',
+        workerId: 'worker-1',
+        flowType: 'chatgpt-team-trial-gopay',
+        payload: {
+          kind: 'flow_task',
+          flowId: 'chatgpt-team-trial-gopay',
+          config: {
+            paymentRedirectUrl: gopayUrl,
+          },
+          metadata: {
+            workspace: {
+              recordId: 'workspace-record-1',
+            },
+          },
+        },
+      })
+      expect(insertedEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            taskId: 'gopay-task-1',
+            type: 'QUEUED',
+            status: 'QUEUED',
+          }),
+          expect.objectContaining({
+            taskId: 'task-1',
+            type: 'LOG',
+            payload: {
+              gopayContinuation: expect.objectContaining({
+                flowId: 'chatgpt-team-trial-gopay',
+                taskId: 'gopay-task-1',
+                queuedCount: 1,
+              }),
+            },
+          }),
+        ]),
+      )
+      expect(mocks.sendAstrBotPayPalNotification).not.toHaveBeenCalled()
+    },
+  )
 })

@@ -2,7 +2,10 @@ import '@tanstack/react-start/server-only'
 
 import { and, asc, eq, gt, lt, or, sql } from 'drizzle-orm'
 
-import type { CliFlowTaskMetadata } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
+import {
+  createCliFlowTaskPayload,
+  type CliFlowTaskMetadata,
+} from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { sanitizeSummaryString } from '../../../packages/cli/src/utils/redaction'
 import { sendAstrBotPayPalNotification } from './astrbot'
 import { getDb } from './db/client'
@@ -57,7 +60,7 @@ function normalizeTaskText(value: string | null | undefined): string | null {
   return normalized ? sanitizeSummaryString(normalized) : null
 }
 
-function readPayPalApprovalUrl(
+function readNormalizedPaymentRedirectUrl(
   result: Record<string, unknown> | null | undefined,
 ): string | null {
   return normalizeTeamTrialPaypalUrl(
@@ -69,26 +72,49 @@ function readPayPalApprovalUrl(
   )
 }
 
-function readGoPayPaymentRedirectUrl(
+function hostnameMatches(
+  value: string,
+  matches: (hostname: string) => boolean,
+): boolean {
+  try {
+    return matches(new URL(value).hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+function readPayPalApprovalUrl(
   result: Record<string, unknown> | null | undefined,
 ): string | null {
-  const normalized = normalizeTeamTrialPaypalUrl(
-    typeof result?.paymentRedirectUrl === 'string'
-      ? result.paymentRedirectUrl
-      : typeof result?.paypalApprovalUrl === 'string'
-        ? result.paypalApprovalUrl
-        : null,
-  )
-  if (!normalized) {
+  const normalized = readNormalizedPaymentRedirectUrl(result)
+  if (
+    !normalized ||
+    !hostnameMatches(
+      normalized,
+      (hostname) => hostname === 'paypal.com' || hostname.endsWith('.paypal.com'),
+    )
+  ) {
     return null
   }
 
-  try {
-    const url = new URL(normalized)
-    return url.hostname.toLowerCase() === 'app.midtrans.com' ? normalized : null
-  } catch {
+  return normalized
+}
+
+function readGoPayPaymentRedirectUrl(
+  result: Record<string, unknown> | null | undefined,
+): string | null {
+  const normalized = readNormalizedPaymentRedirectUrl(result)
+  if (
+    !normalized ||
+    !hostnameMatches(
+      normalized,
+      (hostname) => hostname === 'app.midtrans.com',
+    )
+  ) {
     return null
   }
+
+  return normalized
 }
 
 function readTaskMetadata(
@@ -111,14 +137,41 @@ async function queueGoPayContinuationFromFlowTask(input: {
   paymentRedirectUrl: string
   capturedAt: Date
 }) {
-  const { dispatchCliFlowTasks } = await import('./cli-tasks')
-  const result = await dispatchCliFlowTasks({
-    connectionId: input.connection.id,
-    flowId: 'chatgpt-team-trial-gopay',
-    config: {
-      paymentRedirectUrl: input.paymentRedirectUrl,
-    },
-    metadata: readTaskMetadata(input.task),
+  const flowId = 'chatgpt-team-trial-gopay'
+  const cliName = input.connection.cliName?.trim() || 'CLI'
+  const body = `Continue GoPay trial authorization on ${cliName} with captured Midtrans payment link.`
+  const [task] = await getDb()
+    .insert(flowTasks)
+    .values({
+      id: createId(),
+      workerId: getCliConnectionTaskWorkerId(input.connection),
+      title: `Dispatch ${flowId}`,
+      body,
+      flowType: flowId,
+      target: input.connection.target,
+      payload: createCliFlowTaskPayload(
+        flowId,
+        {
+          paymentRedirectUrl: input.paymentRedirectUrl,
+        },
+        undefined,
+        undefined,
+        readTaskMetadata(input.task),
+      ),
+      status: 'QUEUED' as const,
+      lastMessage: body,
+    })
+    .returning()
+
+  if (!task) {
+    throw new Error('Unable to queue GoPay continuation task.')
+  }
+
+  await appendFlowTaskEvent({
+    taskId: task.id,
+    type: 'QUEUED',
+    status: 'QUEUED',
+    message: body,
   })
 
   await appendFlowTaskEvent({
@@ -127,16 +180,21 @@ async function queueGoPayContinuationFromFlowTask(input: {
     type: 'LOG',
     status: input.task.status,
     message:
-      `Queued GoPay trial continuation task ${result.tasks[0]?.id || ''}`.trim(),
+      `Queued GoPay trial continuation task ${task.id || ''}`.trim(),
     payload: {
       gopayContinuation: {
-        queuedCount: result.tasks.length,
-        assignedCliCount: result.assignedCliCount,
-        flowId: 'chatgpt-team-trial-gopay',
+        queuedCount: 1,
+        assignedCliCount: 1,
+        flowId,
+        taskId: task.id,
         capturedAt: input.capturedAt.toISOString(),
       },
     },
   })
+}
+
+function canQueueGoPayContinuationFromFlowType(flowType: string): boolean {
+  return flowType === 'chatgpt-team-trial' || flowType === 'chatgpt-register'
 }
 
 function normalizeRetryMaxAttempts(value?: number | null): number {
@@ -675,7 +733,7 @@ export async function completeFlowTask(input: {
     }
 
     const gopayPaymentRedirectUrl =
-      updated.flowType === 'chatgpt-team-trial'
+      canQueueGoPayContinuationFromFlowType(updated.flowType)
         ? readGoPayPaymentRedirectUrl(input.result)
         : null
     if (gopayPaymentRedirectUrl) {
