@@ -126,6 +126,7 @@ const SINGAPORE_BILLING_ADDRESS_DISTRICTS = [
   'Woodlands',
   'Yishun',
 ] as const
+const GOPAY_WHATSAPP_CODE_CLOCK_SKEW_TOLERANCE_MS = 15000
 
 function createSingaporePostalCode(): string {
   const sector = faker.number.int({ min: 1, max: 82 })
@@ -732,6 +733,7 @@ function createChatGPTTeamTrialGoPayOtpCodeProvider(
       startedAt,
       timeoutMs,
       pollIntervalMs,
+      clockSkewToleranceMs: GOPAY_WHATSAPP_CODE_CLOCK_SKEW_TOLERANCE_MS,
       onPollAttempt(attempt) {
         options.progressReporter?.({
           message: 'Polling Codey app for GoPay WhatsApp OTP',

@@ -100,12 +100,29 @@ export interface AppWhatsAppNotificationIngestResponse {
   ok: boolean
   notificationRecordId: string
   codeRecordId?: string
-  match: {
-    matched: boolean
-    reservationId?: string
-    email?: string
-    reason?: string
-  }
+  match:
+    | {
+        status: 'matched'
+        strategy?: string
+        reservationId?: string
+        email?: string
+        reason?: string
+        matched?: boolean
+      }
+    | {
+        status: 'unmatched'
+        reason?: string
+        reservationId?: string
+        email?: string
+        matched?: boolean
+      }
+    | {
+        matched: boolean
+        reservationId?: string
+        email?: string
+        reason?: string
+        status?: string
+      }
 }
 
 export interface WaitForWhatsAppVerificationCodeOptions {
@@ -114,6 +131,7 @@ export interface WaitForWhatsAppVerificationCodeOptions {
   pollIntervalMs: number
   email?: string
   reservationId?: string
+  clockSkewToleranceMs?: number
   onPollAttempt?: (attempt: number) => void | Promise<void>
 }
 
@@ -535,7 +553,14 @@ export class AppVerificationProviderClient {
       ),
     )
     codeUrl.searchParams.set('source', 'whatsapp')
-    codeUrl.searchParams.set('startedAt', options.startedAt)
+    const startedAtMs = Date.parse(options.startedAt)
+    const adjustedStartedAt =
+      Number.isFinite(startedAtMs) && options.clockSkewToleranceMs
+        ? new Date(
+            startedAtMs - Math.max(0, options.clockSkewToleranceMs),
+          ).toISOString()
+        : options.startedAt
+    codeUrl.searchParams.set('startedAt', adjustedStartedAt)
     if (options.email?.trim()) {
       codeUrl.searchParams.set('email', options.email.trim())
     }

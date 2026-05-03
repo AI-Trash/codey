@@ -113,6 +113,9 @@ const GOPAY_LINKING_RESPONSE_PATTERN =
 const GOPAY_AUTHORIZATION_HOST_PATTERN = /(^|\.)gopayapi\.com$/i
 const GOPAY_AUTHORIZATION_CONSENT_SETTLE_MS = 500
 const GOPAY_PIN_LENGTH = 6
+const GOPAY_AUTHORIZATION_OTP_TEXT_PATTERN =
+  /otp|one[-\s]*time|whats\s*app|whatsapp|verification\s*code|kode/i
+const GOPAY_AUTHORIZATION_PIN_TEXT_PATTERN = /\bpin\b/i
 const PAYMENT_METHOD_LABEL_PATTERNS = {
   paypal: /paypal/i,
   gopay: /go\s*pay|gopay/i,
@@ -1598,7 +1601,7 @@ export async function clickGoPayAuthorizationConsentIfPresent(
   return false
 }
 
-function getGoPayAuthorizationOtpInput(page: Page): Locator {
+function getGoPayAuthorizationSingleOtpInput(page: Page): Locator {
   return page
     .locator(
       [
@@ -1610,37 +1613,87 @@ function getGoPayAuthorizationOtpInput(page: Page): Locator {
     .first()
 }
 
+function getGoPayAuthorizationDigitInputs(page: Page): Locator {
+  return page.locator(
+    '[data-testid^="pin-input-"], input[inputmode="numeric"][maxlength="1"]',
+  )
+}
+
+async function getGoPayAuthorizationBodyText(page: Page): Promise<string> {
+  return page
+    .locator('body')
+    .innerText({ timeout: 1000 })
+    .catch(() => '')
+}
+
+async function isGoPayAuthorizationDigitInputReady(
+  page: Page,
+): Promise<boolean> {
+  const inputs = getGoPayAuthorizationDigitInputs(page)
+  const count = await inputs.count().catch(() => 0)
+  if (count < GOPAY_PIN_LENGTH) {
+    return false
+  }
+
+  return inputs
+    .first()
+    .isVisible({ timeout: 1000 })
+    .catch(() => false)
+}
+
 async function isGoPayAuthorizationOtpReady(page: Page): Promise<boolean> {
   if (!isGoPayAuthorizationUrl(page.url())) {
     return false
   }
 
-  const input = getGoPayAuthorizationOtpInput(page)
-  const inputVisible = await input
-    .isVisible({ timeout: 1000 })
-    .catch(() => false)
-  if (!inputVisible) {
+  const bodyText = await getGoPayAuthorizationBodyText(page)
+  if (!GOPAY_AUTHORIZATION_OTP_TEXT_PATTERN.test(bodyText)) {
     return false
   }
 
-  const bodyText = await page
-    .locator('body')
-    .innerText({ timeout: 1000 })
-    .catch(() => '')
-  return /otp|whats\s*app|whatsapp|kode/i.test(bodyText)
+  const input = getGoPayAuthorizationSingleOtpInput(page)
+  const singleInputVisible = await input
+    .isVisible({ timeout: 1000 })
+    .catch(() => false)
+  return singleInputVisible || (await isGoPayAuthorizationDigitInputReady(page))
+}
+
+async function dispatchInputChange(locator: Locator): Promise<void> {
+  await locator.evaluate((element) => {
+    element.dispatchEvent(new Event('input', { bubbles: true }))
+    element.dispatchEvent(new Event('change', { bubbles: true }))
+  })
 }
 
 async function fillGoPayAuthorizationOtp(
   page: Page,
   code: string,
 ): Promise<void> {
-  const input = getGoPayAuthorizationOtpInput(page)
-  await input.waitFor({ state: 'visible', timeout: 10000 })
-  await input.fill(code)
-  await input.evaluate((element) => {
-    element.dispatchEvent(new Event('input', { bubbles: true }))
-    element.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  const input = getGoPayAuthorizationSingleOtpInput(page)
+  const singleInputVisible = await input
+    .isVisible({ timeout: 1000 })
+    .catch(() => false)
+  if (singleInputVisible) {
+    await input.waitFor({ state: 'visible', timeout: 10000 })
+    await input.fill(code)
+    await dispatchInputChange(input)
+    await page.keyboard.press('Enter').catch(() => undefined)
+    await sleep(500)
+    return
+  }
+
+  const inputs = getGoPayAuthorizationDigitInputs(page)
+  const count = await inputs.count().catch(() => 0)
+  if (count < GOPAY_PIN_LENGTH) {
+    throw new Error('GoPay WhatsApp OTP input was not visible.')
+  }
+
+  for (let index = 0; index < GOPAY_PIN_LENGTH; index += 1) {
+    const digitInput = inputs.nth(index)
+    await digitInput.fill(code[index])
+    await dispatchInputChange(digitInput).catch(() => undefined)
+    await sleep(50)
+  }
   await page.keyboard.press('Enter').catch(() => undefined)
   await sleep(500)
 }
@@ -1669,11 +1722,20 @@ async function isGoPayAuthorizationPinReady(page: Page): Promise<boolean> {
     return false
   }
 
+  const bodyText = await getGoPayAuthorizationBodyText(page)
+  if (GOPAY_AUTHORIZATION_OTP_TEXT_PATTERN.test(bodyText)) {
+    return false
+  }
+
   const inputs = page.locator(
     '[data-testid^="pin-input-"], input[inputmode="numeric"][maxlength="1"]',
   )
   const count = await inputs.count().catch(() => 0)
   if (count >= GOPAY_PIN_LENGTH) {
+    return true
+  }
+
+  if (GOPAY_AUTHORIZATION_PIN_TEXT_PATTERN.test(bodyText)) {
     return true
   }
 

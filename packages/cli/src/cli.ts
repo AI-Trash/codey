@@ -86,6 +86,7 @@ import {
 } from './utils/cli-output'
 import {
   AppVerificationProviderClient,
+  type AppWhatsAppNotificationIngestResponse,
   resolveVerificationAppConfig,
 } from './modules/verification'
 import {
@@ -1290,6 +1291,32 @@ function readTrimmed(value: string | undefined): string | undefined {
   return trimmed || undefined
 }
 
+function isMatchedWhatsAppIngestResult(
+  result: AppWhatsAppNotificationIngestResponse | undefined,
+): boolean {
+  if (!result) {
+    return false
+  }
+
+  return result.match.status === 'matched' || result.match.matched === true
+}
+
+function formatWhatsAppIngestMatchSuffix(
+  result: AppWhatsAppNotificationIngestResponse | undefined,
+): string {
+  if (!result) {
+    return ''
+  }
+
+  if (isMatchedWhatsAppIngestResult(result)) {
+    return result.match.reservationId
+      ? ` reservation=${result.match.reservationId}`
+      : ' matched'
+  }
+
+  return ` unmatched=${result.match.reason || result.match.status || 'unknown'}`
+}
+
 function startCliWhatsAppNotificationWebhook(
   command: string,
   options: AuthOptions,
@@ -1332,13 +1359,7 @@ function startCliWhatsAppNotificationWebhook(
       writeCliStderrLine(
         `[${command}:whatsapp-webhook] ${event.packageName} notification${
           payload.extractedCode ? ` code=${payload.extractedCode}` : ''
-        }${
-          ingestResult?.match.matched
-            ? ` reservation=${ingestResult.match.reservationId}`
-            : ingestResult
-              ? ` unmatched=${ingestResult.match.reason || 'unknown'}`
-              : ''
-        }`,
+        }${formatWhatsAppIngestMatchSuffix(ingestResult)}`,
       )
     },
   })

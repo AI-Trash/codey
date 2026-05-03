@@ -537,6 +537,32 @@ export function createWhatsAppNotificationDeduper(ttlMs = 10 * 60 * 1000): {
 } {
   const seen = new Map<string, number>()
 
+  function normalizeFingerprintPart(value: string | undefined): string {
+    return value?.replace(/\s+/g, ' ').trim() || ''
+  }
+
+  function buildFingerprint(event: WhatsAppNotificationEvent): string {
+    const contentParts = [
+      event.packageName,
+      event.sender,
+      event.chatName,
+      event.title,
+      event.body,
+    ]
+      .map(normalizeFingerprintPart)
+      .filter(Boolean)
+
+    if (event.title || event.body) {
+      return `content:${contentParts.join('|')}`
+    }
+
+    if (event.notificationId) {
+      return `id:${event.packageName}|${event.notificationId}`
+    }
+
+    return `fallback:${event.packageName}|${event.receivedAt}`
+  }
+
   return {
     shouldProcess(event, now = Date.now()) {
       for (const [key, expiresAt] of seen.entries()) {
@@ -545,14 +571,7 @@ export function createWhatsAppNotificationDeduper(ttlMs = 10 * 60 * 1000): {
         }
       }
 
-      const key = [
-        event.packageName,
-        event.notificationId,
-        event.title,
-        event.body,
-      ]
-        .filter(Boolean)
-        .join('|')
+      const key = buildFingerprint(event)
 
       if (seen.has(key)) {
         return false

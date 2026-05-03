@@ -443,6 +443,49 @@ class FakeGoPayOtpInputLocator extends FakeCheckoutLocator {
   }
 }
 
+class FakeGoPayOtpDigitInputsLocator extends FakeCheckoutLocator {
+  readonly values: string[]
+
+  constructor(
+    private readonly index?: number,
+    values?: string[],
+  ) {
+    super(true)
+    this.values = values || Array.from({ length: 6 }, () => '')
+  }
+
+  first(): FakeCheckoutLocator {
+    return this.nth(0)
+  }
+
+  nth(index: number): FakeCheckoutLocator {
+    return new FakeGoPayOtpDigitInputsLocator(index, this.values)
+  }
+
+  async count(): Promise<number> {
+    return this.index === undefined ? this.values.length : 1
+  }
+
+  async fill(value: string): Promise<void> {
+    if (this.index !== undefined) {
+      this.values[this.index] = value
+    }
+  }
+
+  async evaluate<T>(
+    callback: (element: HTMLElement & { disabled?: boolean }) => T,
+  ): Promise<T> {
+    const element = {
+      disabled: false,
+      dispatchEvent: vi.fn(),
+      getAttribute(): string | null {
+        return null
+      },
+    } as unknown as HTMLElement & { disabled?: boolean }
+    return callback(element)
+  }
+}
+
 class FakeGoPayTextLocator extends FakeCheckoutLocator {
   constructor(text: string) {
     super(true, undefined, text)
@@ -455,12 +498,22 @@ class FakeGoPayTextLocator extends FakeCheckoutLocator {
 
 class FakeGoPayOtpPage {
   private readonly hiddenLocator = new FakeCheckoutLocator(false)
-  readonly otpInput = new FakeGoPayOtpInputLocator()
+  readonly otpInput: FakeGoPayOtpInputLocator
+  readonly digitInputs: FakeGoPayOtpDigitInputsLocator
   readonly keyboard = {
     press: vi.fn<() => Promise<void>>(async () => {}),
   }
 
-  constructor(private readonly pageUrl: string) {}
+  constructor(
+    private readonly pageUrl: string,
+    private readonly options: {
+      bodyText?: string
+      splitInputs?: boolean
+    } = {},
+  ) {
+    this.otpInput = new FakeGoPayOtpInputLocator(!options.splitInputs)
+    this.digitInputs = new FakeGoPayOtpDigitInputsLocator()
+  }
 
   url(): string {
     return this.pageUrl
@@ -474,13 +527,34 @@ class FakeGoPayOtpPage {
     ) {
       return this.otpInput
     }
+    if (
+      normalizedSelector.includes('[data-testid^="pin-input-"]') ||
+      normalizedSelector.includes('maxlength="1"')
+    ) {
+      return this.options.splitInputs ? this.digitInputs : this.hiddenLocator
+    }
     if (normalizedSelector === 'body') {
       return new FakeGoPayTextLocator(
-        'Masukkin OTP yang dikirim ke WhatsApp\nOTP dikirim ke +86xxxxxxx3609',
+        this.options.bodyText ||
+          'Masukkin OTP yang dikirim ke WhatsApp\nOTP dikirim ke +86xxxxxxx3609',
       )
     }
 
     return this.hiddenLocator
+  }
+
+  getByText(text?: string | RegExp): FakeCheckoutLocator {
+    const bodyText =
+      this.options.bodyText ||
+      'Masukkin OTP yang dikirim ke WhatsApp\nOTP dikirim ke +86xxxxxxx3609'
+    const matches =
+      text === undefined
+        ? false
+        : typeof text === 'string'
+          ? bodyText.includes(text)
+          : text.test(bodyText)
+
+    return matches ? new FakeCheckoutLocator(true) : this.hiddenLocator
   }
 }
 
@@ -1406,6 +1480,37 @@ describe('gopay payment redirect extraction', () => {
     ).resolves.toBe(true)
     expect(page.otpInput.value).toBe('654321')
     expect(page.keyboard.press).toHaveBeenCalledWith('Enter')
+  })
+
+  it('fills split GoPay OTP fields when the page labels them as WhatsApp OTP', async () => {
+    const page = new FakeGoPayOtpPage(
+      'https://merchants-gws-app.gopayapi.com/app/authorize?reference=abc',
+      {
+        splitInputs: true,
+        bodyText: 'Masukkin OTP yang dikirim ke WhatsApp',
+      },
+    )
+
+    await expect(
+      submitGoPayAuthorizationOtpIfPresent(page as never, '532128'),
+    ).resolves.toBe(true)
+    expect(page.digitInputs.values.join('')).toBe('532128')
+    expect(page.keyboard.press).toHaveBeenCalledWith('Enter')
+  })
+
+  it('does not fill split PIN fields as GoPay OTP', async () => {
+    const page = new FakeGoPayOtpPage(
+      'https://merchants-gws-app.gopayapi.com/app/authorize?reference=abc',
+      {
+        splitInputs: true,
+        bodyText: 'Masukkan 6 digit PIN kamu',
+      },
+    )
+
+    await expect(
+      submitGoPayAuthorizationOtpIfPresent(page as never, '532128'),
+    ).resolves.toBe(false)
+    expect(page.digitInputs.values.join('')).toBe('')
   })
 
   it('does not fill GoPay OTP fields outside GoPay authorization', async () => {

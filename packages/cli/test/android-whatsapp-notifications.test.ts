@@ -156,6 +156,25 @@ describe('Forwarder WhatsApp notification helpers', () => {
     expect(deduper.shouldProcess(event, 1200)).toBe(true)
   })
 
+  it('dedupes repeated notification content even when Forwarder changes ids', () => {
+    const deduper = createWhatsAppNotificationDeduper(1000)
+    const firstEvent = {
+      packageName: 'com.whatsapp',
+      notificationId: 'wa-1',
+      title: 'GoPay',
+      body: 'Your verification code is 532128.',
+      receivedAt: '2026-05-04T12:00:00.000Z',
+    }
+    const repeatedEvent = {
+      ...firstEvent,
+      notificationId: 'wa-2',
+      receivedAt: '2026-05-04T12:00:01.000Z',
+    }
+
+    expect(deduper.shouldProcess(firstEvent, 100)).toBe(true)
+    expect(deduper.shouldProcess(repeatedEvent, 200)).toBe(false)
+  })
+
   it('accepts Forwarder webhook posts and forwards Codey ingest payloads', async () => {
     const ingestNotification = vi.fn(async () => ({
       ok: true,
