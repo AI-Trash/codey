@@ -96,12 +96,16 @@ export interface GoPayAndroidUnlinkDriver {
   ) => Promise<void> | void
   activateApp?: (appId: string) => Promise<void> | void
   terminateApp?: (appId: string) => Promise<void> | void
-  execute?: (command: string, args?: Record<string, unknown>) => Promise<unknown>
+  execute?: (
+    command: string,
+    args?: Record<string, unknown>,
+  ) => Promise<unknown>
   back?: () => Promise<void> | void
   pressKeyCode?: (keyCode: number) => Promise<void> | void
 }
 
 interface GoPayLinkedAppsNavigationResult {
+  startedOnLinkedAppsPage: boolean
   launchedGoPay: boolean
   clickedProfile: boolean
   clickedAccountSettings: boolean
@@ -371,8 +375,10 @@ async function isGoPayForeground(
   }
 
   const source = await readPageSource(driver)
-  return new RegExp(`package="${GOPAY_APP_PACKAGE.replaceAll('.', '\\.')}"`, 'i')
-    .test(source)
+  return new RegExp(
+    `package="${GOPAY_APP_PACKAGE.replaceAll('.', '\\.')}"`,
+    'i',
+  ).test(source)
 }
 
 async function hasGoPayNavigationAnchor(
@@ -409,11 +415,7 @@ async function launchGoPayMainActivityIfNeeded(
 
   const launchAttempts = [
     () =>
-      callOptionalStartActivity(
-        driver,
-        GOPAY_APP_PACKAGE,
-        GOPAY_MAIN_ACTIVITY,
-      ),
+      callOptionalStartActivity(driver, GOPAY_APP_PACKAGE, GOPAY_MAIN_ACTIVITY),
     () =>
       callOptionalExecuteCommand(driver, 'mobile: startActivity', {
         appPackage: GOPAY_APP_PACKAGE,
@@ -597,6 +599,7 @@ async function openLinkedAppsPageIfNeeded(
   options: GoPayAndroidUnlinkOptions,
 ): Promise<GoPayLinkedAppsNavigationResult> {
   const navigation: GoPayLinkedAppsNavigationResult = {
+    startedOnLinkedAppsPage: false,
     launchedGoPay: false,
     clickedProfile: false,
     clickedAccountSettings: false,
@@ -604,6 +607,7 @@ async function openLinkedAppsPageIfNeeded(
   }
 
   if (await isLinkedAppsPage(driver)) {
+    navigation.startedOnLinkedAppsPage = true
     return navigation
   }
 
@@ -675,7 +679,10 @@ async function openLinkedAppsPageIfNeeded(
   ) {
     await clickAnyDisplayedXPathUntil(
       driver,
-      [GOPAY_ACCOUNT_APP_SETTINGS_XPATH, GOPAY_ACCOUNT_APP_SETTINGS_FUZZY_XPATH],
+      [
+        GOPAY_ACCOUNT_APP_SETTINGS_XPATH,
+        GOPAY_ACCOUNT_APP_SETTINGS_FUZZY_XPATH,
+      ],
       {
         deadline,
         description: 'Account & app settings',
@@ -741,12 +748,51 @@ async function exitLinkedAppsPage(
     GOPAY_LINKED_APPS_BACK_BUTTON_FUZZY_XPATH,
     GOPAY_BACK_IMAGE_XPATH,
   ])
-  if (await waitUntil(async () => !(await isLinkedAppsPage(driver)), deadline)) {
+  if (
+    await waitUntil(async () => !(await isLinkedAppsPage(driver)), deadline)
+  ) {
     return true
   }
 
   await pressBack(driver)
   return waitUntil(async () => !(await isLinkedAppsPage(driver)), deadline)
+}
+
+async function reopenLinkedAppsPageFromParent(
+  driver: GoPayAndroidUnlinkDriver,
+  deadline: number,
+  options: GoPayAndroidUnlinkOptions,
+): Promise<void> {
+  const exited = await exitLinkedAppsPage(driver, deadline)
+  if (!exited) {
+    throw new Error('GoPay Linked apps page could not be exited for refresh.')
+  }
+  await reportProgress(options, {
+    step: 'linked-apps-exited',
+    message: 'Exited GoPay Linked apps page before refreshing empty state',
+  })
+
+  await clickAnyDisplayedXPathUntil(
+    driver,
+    [
+      GOPAY_LINKED_APPS_ENTRY_XPATH,
+      GOPAY_LINKED_APPS_ENTRY_XML_ENTITY_XPATH,
+      GOPAY_LINKED_APPS_FUZZY_ENTRY_XPATH,
+    ],
+    {
+      deadline,
+      description: 'Linked apps entry',
+    },
+  )
+
+  const reopened = await waitUntil(() => isLinkedAppsPage(driver), deadline)
+  if (!reopened) {
+    throw new Error('GoPay Linked apps page did not reopen for refresh.')
+  }
+  await reportProgress(options, {
+    step: 'linked-apps-opened',
+    message: 'Reopened GoPay Linked apps page to confirm empty state',
+  })
 }
 
 async function unlinkVisibleLinkedApps(
@@ -839,13 +885,35 @@ export async function unlinkGoPayLinkedAppsInSession(
   if (!contentLoaded) {
     throw createLinkedAppsContentTimeoutError()
   }
-  const hasNoLinkedApps = await isNoLinkedAppsState(driver)
-  const initialUnlinkButtons = hasNoLinkedApps
+  let hasNoLinkedApps = await isNoLinkedAppsState(driver)
+  let initialUnlinkButtons = hasNoLinkedApps
     ? []
     : await getDisplayedUnlinkButtons(driver)
-  const hasInitialLinkedApp = hasNoLinkedApps
+  let hasInitialLinkedApp = hasNoLinkedApps
     ? false
     : await hasLinkedAppItem(driver)
+  let clickedLinkedAppsAfterRefresh = false
+
+  if (hasNoLinkedApps && navigation.startedOnLinkedAppsPage) {
+    await reopenLinkedAppsPageFromParent(driver, deadline, options)
+    clickedLinkedAppsAfterRefresh = true
+
+    const refreshedContentLoaded = await waitForLinkedAppsContent(
+      driver,
+      deadline,
+    )
+    if (!refreshedContentLoaded) {
+      throw createLinkedAppsContentTimeoutError()
+    }
+
+    hasNoLinkedApps = await isNoLinkedAppsState(driver)
+    initialUnlinkButtons = hasNoLinkedApps
+      ? []
+      : await getDisplayedUnlinkButtons(driver)
+    hasInitialLinkedApp = hasNoLinkedApps
+      ? false
+      : await hasLinkedAppItem(driver)
+  }
 
   if (hasNoLinkedApps) {
     const exitedLinkedApps = await exitLinkedAppsPage(driver, deadline)
@@ -867,7 +935,8 @@ export async function unlinkGoPayLinkedAppsInSession(
       launchedGoPay: navigation.launchedGoPay,
       clickedProfile: navigation.clickedProfile,
       clickedAccountSettings: navigation.clickedAccountSettings,
-      clickedLinkedApps: navigation.clickedLinkedApps,
+      clickedLinkedApps:
+        navigation.clickedLinkedApps || clickedLinkedAppsAfterRefresh,
       clickedInitialUnlink: false,
       clickedConfirmUnlink: false,
       unlinkedAppCount: 0,
@@ -899,7 +968,8 @@ export async function unlinkGoPayLinkedAppsInSession(
     launchedGoPay: navigation.launchedGoPay,
     clickedProfile: navigation.clickedProfile,
     clickedAccountSettings: navigation.clickedAccountSettings,
-    clickedLinkedApps: navigation.clickedLinkedApps,
+    clickedLinkedApps:
+      navigation.clickedLinkedApps || clickedLinkedAppsAfterRefresh,
     clickedInitialUnlink: true,
     clickedConfirmUnlink: true,
     unlinkedAppCount,

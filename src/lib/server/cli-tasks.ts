@@ -19,6 +19,7 @@ import {
 } from './cli-connections'
 import { getDb } from './db/client'
 import { flowTaskEvents, flowTasks } from './db/schema'
+import { getFlowTaskDefaultConfig } from './flow-defaults'
 import { getCliConnectionTaskWorkerId } from './flow-tasks'
 import { cancelIdentityMaintenanceForNormalDispatch } from './identity-maintenance'
 import { createId } from './security'
@@ -385,6 +386,7 @@ function validateBatchedCliFlowConfigs<
 
 function resolveRequestedTaskConfigs<TFlowId extends CliFlowCommandId>(input: {
   flowId: TFlowId
+  defaultConfig?: ReturnType<typeof normalizeCliFlowConfig<TFlowId>>
   config?: Record<string, unknown> | null
   configs?: Array<Record<string, unknown>> | null
   count?: number | null
@@ -395,7 +397,12 @@ function resolveRequestedTaskConfigs<TFlowId extends CliFlowCommandId>(input: {
     : []
 
   if (!requestedConfigs.length) {
-    return [normalizeCliFlowConfig(input.flowId, input.config)]
+    return [
+      {
+        ...input.defaultConfig,
+        ...normalizeCliFlowConfig(input.flowId, input.config),
+      },
+    ]
   }
 
   if (input.maxTaskCount && requestedConfigs.length > input.maxTaskCount) {
@@ -406,9 +413,10 @@ function resolveRequestedTaskConfigs<TFlowId extends CliFlowCommandId>(input: {
     throw new Error('Task count must match the provided config count.')
   }
 
-  const normalizedConfigs = requestedConfigs.map((config) =>
-    normalizeCliFlowConfig(input.flowId, config),
-  )
+  const normalizedConfigs = requestedConfigs.map((config) => ({
+    ...input.defaultConfig,
+    ...normalizeCliFlowConfig(input.flowId, config),
+  }))
   validateBatchedCliFlowConfigs({
     flowId: input.flowId,
     configs: normalizedConfigs,
@@ -492,8 +500,10 @@ export async function dispatchCliFlowTasks(input: {
 }) {
   const { connection, eligibleConnections, flowDefinition } =
     await resolveDispatchableCliFlow(input)
+  const defaultConfig = await getFlowTaskDefaultConfig(flowDefinition.id)
   const taskConfigs = resolveRequestedTaskConfigs({
     flowId: flowDefinition.id,
+    defaultConfig,
     config: input.config,
     configs: input.configs,
     count: input.count,
@@ -560,6 +570,9 @@ export async function dispatchCliFlowTasks(input: {
         {
           ...(batchId ? { batchId } : {}),
           ...(count > 1 ? { sequence, total: count } : {}),
+          ...(input.parallelism && input.parallelism > 1
+            ? { parallelism: input.parallelism }
+            : {}),
         },
         externalServices,
         input.metadata,

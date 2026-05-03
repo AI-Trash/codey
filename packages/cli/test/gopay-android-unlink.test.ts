@@ -61,7 +61,7 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
 
   constructor(
     private screen: FakeGoPayScreen,
-    private linkedAppCount = screen === 'linked-apps' ? 1 : 0,
+    private linkedAppCount = screen === 'empty' ? 0 : 1,
   ) {}
 
   async $$(selector: string): Promise<FakeAndroidElement[]> {
@@ -97,10 +97,7 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
     ) {
       return [
         new FakeAndroidElement(this, 'linked-apps-entry', () => {
-          this.screen = 'linked-apps'
-          if (this.linkedAppCount === 0) {
-            this.linkedAppCount = 1
-          }
+          this.screen = this.linkedAppCount > 0 ? 'linked-apps' : 'empty'
         }),
       ]
     }
@@ -271,7 +268,7 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
 }
 
 describe('GoPay Android unlink helper', () => {
-  it('treats the empty Linked apps page as confirmed', async () => {
+  it('refreshes a direct empty Linked apps page before treating it as confirmed', async () => {
     const driver = new FakeGoPayAndroidDriver('empty')
 
     const result = await unlinkGoPayLinkedAppsInSession(
@@ -287,13 +284,44 @@ describe('GoPay Android unlink helper', () => {
       appiumSessionId: 'appium-1',
       currentPackage: 'com.gojek.gopay',
       currentActivity: '.MainActivity',
-      clickedLinkedApps: false,
+      clickedLinkedApps: true,
       clickedInitialUnlink: false,
       clickedConfirmUnlink: false,
       unlinkedAppCount: 0,
       exitedLinkedApps: true,
     })
-    expect(driver.clicks).toEqual(['linked-apps-back'])
+    expect(driver.clicks).toEqual([
+      'linked-apps-back',
+      'linked-apps-entry',
+      'linked-apps-back',
+    ])
+  })
+
+  it('does not trust a direct empty Linked apps page when refresh reveals a linked app', async () => {
+    const driver = new FakeGoPayAndroidDriver('empty', 1)
+
+    const result = await unlinkGoPayLinkedAppsInSession(
+      {
+        appiumSessionId: 'appium-stale-empty',
+        driver: driver as never,
+      },
+      { timeoutMs: 1000 },
+    )
+
+    expect(result).toMatchObject({
+      status: 'unlinked',
+      clickedLinkedApps: true,
+      clickedInitialUnlink: true,
+      clickedConfirmUnlink: true,
+      unlinkedAppCount: 1,
+      exitedLinkedApps: false,
+    })
+    expect(driver.clicks).toEqual([
+      'linked-apps-back',
+      'linked-apps-entry',
+      'initial-unlink',
+      'confirm-unlink',
+    ])
   })
 
   it('opens Linked apps and clicks both distinct Unlink buttons', async () => {
@@ -472,7 +500,7 @@ describe('GoPay Android unlink helper', () => {
   })
 
   it('dismisses Android system overlays before checking linked apps', async () => {
-    const driver = new FakeGoPayAndroidDriver('notification')
+    const driver = new FakeGoPayAndroidDriver('notification', 0)
 
     const result = await unlinkGoPayLinkedAppsInSession(
       {
@@ -484,9 +512,14 @@ describe('GoPay Android unlink helper', () => {
 
     expect(result).toMatchObject({
       status: 'already-unlinked',
-      clickedLinkedApps: false,
+      clickedLinkedApps: true,
       exitedLinkedApps: true,
     })
-    expect(driver.clicks).toEqual(['back', 'linked-apps-back'])
+    expect(driver.clicks).toEqual([
+      'back',
+      'linked-apps-back',
+      'linked-apps-entry',
+      'linked-apps-back',
+    ])
   })
 })

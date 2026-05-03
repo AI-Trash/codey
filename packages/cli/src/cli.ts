@@ -844,6 +844,7 @@ async function runRemoteWorker(
         const scheduled = taskScheduler.enqueue({
           taskId: task.notificationId,
           batchId: task.batch?.batchId,
+          parallelism: task.batch?.parallelism,
           kind: task.metadata?.identityMaintenance
             ? 'identity-maintenance'
             : 'default',
@@ -1024,13 +1025,17 @@ async function runRemoteWorker(
                       2,
                     ),
                   )
-                  if (task.leaseReporter && !serverCanceled) {
+                  if (task.leaseReporter) {
                     try {
                       await task.leaseReporter.complete({
                         status: serverCanceled ? 'CANCELED' : 'FAILED',
                         error: serverCanceled ? undefined : sanitized.message,
                         message: failureMessage,
-                        ...(retryDecision ? { retry: retryDecision } : {}),
+                        ...(serverCanceled
+                          ? {}
+                          : retryDecision
+                            ? { retry: retryDecision }
+                            : {}),
                       })
                     } catch (leaseError) {
                       logTaskLeaseError(
@@ -1040,8 +1045,6 @@ async function runRemoteWorker(
                     } finally {
                       taskLeaseReporters.delete(task.notificationId)
                     }
-                  } else if (serverCanceled) {
-                    taskLeaseReporters.delete(task.notificationId)
                   }
                 } finally {
                   await flowSingBoxProxy?.stop()
@@ -1073,18 +1076,27 @@ async function runRemoteWorker(
           serverCanceledTaskIds.add(taskId)
         }
 
-        taskScheduler.clearPendingTaskIds(
-          normalizedTaskIds,
-          'Identity maintenance canceled because normal flow work needs browser capacity.',
-        )
+        const cancelMessage =
+          'Identity maintenance canceled because normal flow work needs browser capacity.'
+        taskScheduler.clearPendingTaskIds(normalizedTaskIds, cancelMessage)
         for (const taskId of normalizedTaskIds) {
+          const leaseReporter = taskLeaseReporters.get(taskId)
+          if (!activeFlowAbortControllers.has(taskId)) {
+            void leaseReporter
+              ?.complete({
+                status: 'CANCELED',
+                message: cancelMessage,
+              })
+              .catch((error) => {
+                logTaskLeaseError(taskId, sanitizeErrorForOutput(error))
+              })
+              .finally(() => {
+                taskLeaseReporters.delete(taskId)
+              })
+          }
           const controller = activeFlowAbortControllers.get(taskId)
           if (controller && !controller.signal.aborted) {
-            controller.abort(
-              new FlowInterruptedError(
-                'Identity maintenance canceled because normal flow work needs browser capacity.',
-              ),
-            )
+            controller.abort(new FlowInterruptedError(cancelMessage))
           }
         }
 
@@ -1119,6 +1131,44 @@ async function runRemoteWorker(
               authState,
               onError: (error) => {
                 logTaskLeaseError(claimedTask.id, error)
+              },
+              onStopRequested: (reason) => {
+                const stopMessage =
+                  reason || 'Task stopped by an administrator.'
+                serverCanceledTaskIds.add(claimedTask.id)
+                const controller = activeFlowAbortControllers.get(
+                  claimedTask.id,
+                )
+                if (controller && !controller.signal.aborted) {
+                  controller.abort(new FlowInterruptedError(stopMessage))
+                  return
+                }
+
+                const cleared = taskScheduler.clearPendingTaskIds(
+                  [claimedTask.id],
+                  stopMessage,
+                )
+                if (cleared > 0) {
+                  const pendingLeaseReporter = taskLeaseReporters.get(
+                    claimedTask.id,
+                  )
+                  void pendingLeaseReporter
+                    ?.complete({
+                      status: 'CANCELED',
+                      message: stopMessage,
+                    })
+                    .catch((error) => {
+                      logTaskLeaseError(
+                        claimedTask.id,
+                        sanitizeErrorForOutput(error),
+                      )
+                    })
+                    .finally(() => {
+                      taskLeaseReporters.delete(claimedTask.id)
+                    })
+                }
+
+                syncRuntimeReporterState()
               },
             })
             leaseReporter.start()

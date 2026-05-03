@@ -12,6 +12,7 @@ import {
   LogOutIcon,
   MailIcon,
   NetworkIcon,
+  SlidersHorizontalIcon,
   ShieldCheckIcon,
   SunMoonIcon,
   UsersIcon,
@@ -117,6 +118,12 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
       matches: (pathname: string) =>
         pathname === '/admin/flows' || pathname.startsWith('/admin/flows/'),
     })
+    navigation.push({
+      label: m.admin_nav_flow_defaults(),
+      to: '/admin/flow-defaults',
+      icon: SlidersHorizontalIcon,
+      matches: (pathname: string) => pathname === '/admin/flow-defaults',
+    })
   }
 
   if (hasAdminPermission(currentUser, 'MAIL_INBOX')) {
@@ -212,6 +219,7 @@ export function AdminShell(props: {
     pathname === '/admin/users' ||
     pathname === '/admin/cli' ||
     pathname === '/admin/flows' ||
+    pathname === '/admin/flow-defaults' ||
     pathname.startsWith('/admin/flows/') ||
     pathname === '/admin/apps'
 
@@ -654,6 +662,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/flows') {
     return m.admin_nav_flows()
+  }
+
+  if (pathname === '/admin/flow-defaults') {
+    return m.admin_nav_flow_defaults()
   }
 
   if (pathname.startsWith('/admin/flows/')) {

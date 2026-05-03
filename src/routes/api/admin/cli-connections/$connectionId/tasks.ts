@@ -65,6 +65,21 @@ function readRequestedTaskCount(body: Record<string, unknown> | null) {
   return parsed
 }
 
+function readOptionalPositiveInteger(value: unknown): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseInt(value, 10)
+        : Number.NaN
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
 export const Route = createFileRoute(
   '/api/admin/cli-connections/$connectionId/tasks',
 )({
@@ -104,6 +119,7 @@ export const Route = createFileRoute(
             connectionId: params.connectionId,
             flowId,
             count: repeatCount,
+            parallelism: readOptionalPositiveInteger(body?.parallelism),
             maxTaskCount: MAX_CLI_FLOW_TASK_BATCH_SIZE,
             actor: {
               userId: admin.user.id,

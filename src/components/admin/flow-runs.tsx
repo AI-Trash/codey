@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { ActivityIcon } from 'lucide-react'
 
 import type {
@@ -25,6 +27,7 @@ import { m } from '#/paraglide/messages'
 
 export function FlowDetailPanel(props: {
   task: AdminFlowTaskDetail | AdminFlowTaskSummary
+  actions?: ReactNode
 }) {
   const isDetail = 'events' in props.task
   const payload = getPayloadPreview(props.task)
@@ -48,6 +51,7 @@ export function FlowDetailPanel(props: {
                 <Badge variant="outline">{m.admin_flow_live_badge()}</Badge>
               ) : null}
               <StatusBadge value={props.task.status} className="w-fit" />
+              {props.actions}
             </div>
           </div>
 
@@ -150,6 +154,19 @@ export function FlowDetailPanel(props: {
               value={
                 formatAdminDate(props.task.leaseClaimedAt) || m.oauth_none()
               }
+            />
+            <FlowMetaItem
+              label={m.admin_flow_meta_stop_requested()}
+              value={
+                props.task.cancelRequestedAt
+                  ? formatAdminDate(props.task.cancelRequestedAt) ||
+                    props.task.cancelRequestedAt
+                  : m.oauth_none()
+              }
+            />
+            <FlowMetaItem
+              label={m.admin_flow_meta_stop_reason()}
+              value={props.task.cancelReason || m.oauth_none()}
             />
             <FlowMetaItem
               label={m.admin_flow_meta_started()}

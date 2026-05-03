@@ -37,6 +37,12 @@ interface FlowTaskStatusPayload {
   retry?: FlowTaskRetryRequest | null
 }
 
+export interface FlowTaskStatusResponse {
+  ok: boolean
+  stopRequested?: boolean
+  stopReason?: string | null
+}
+
 async function postJson<T>(input: {
   authState: CliNotificationsAuthState
   path: string
@@ -90,8 +96,8 @@ export async function updateCliFlowTaskStatus(input: {
   message?: string | null
   result?: Record<string, unknown> | null
   retry?: FlowTaskRetryRequest | null
-}): Promise<void> {
-  await postJson<{ ok: boolean }>({
+}): Promise<FlowTaskStatusResponse> {
+  return postJson<FlowTaskStatusResponse>({
     authState: input.authState,
     path: `/api/cli/connections/${encodeURIComponent(input.connectionId)}/tasks/${encodeURIComponent(input.taskId)}/status`,
     body: {
@@ -109,6 +115,7 @@ export class CliFlowTaskLeaseReporter {
   private readonly taskId: string
   private readonly authState: CliNotificationsAuthState
   private readonly onError?: (error: Error) => void
+  private readonly onStopRequested?: (reason?: string | null) => void
   private heartbeat?: ReturnType<typeof setInterval>
   private currentStatus: FlowTaskLeaseStatus = 'LEASED'
   private currentMessage?: string | null
@@ -120,11 +127,13 @@ export class CliFlowTaskLeaseReporter {
     taskId: string
     authState: CliNotificationsAuthState
     onError?: (error: Error) => void
+    onStopRequested?: (reason?: string | null) => void
   }) {
     this.connectionId = input.connectionId
     this.taskId = input.taskId
     this.authState = input.authState
     this.onError = input.onError
+    this.onStopRequested = input.onStopRequested
   }
 
   start(): void {
@@ -224,7 +233,7 @@ export class CliFlowTaskLeaseReporter {
       .catch(() => undefined)
       .then(async () => {
         try {
-          await updateCliFlowTaskStatus({
+          const result = await updateCliFlowTaskStatus({
             connectionId: this.connectionId,
             taskId: this.taskId,
             authState: this.authState,
@@ -234,6 +243,9 @@ export class CliFlowTaskLeaseReporter {
             ...(payload.result !== undefined ? { result: payload.result } : {}),
             ...(payload.retry !== undefined ? { retry: payload.retry } : {}),
           })
+          if (result.stopRequested && !this.completed) {
+            this.onStopRequested?.(result.stopReason)
+          }
         } catch (error) {
           const sanitized = sanitizeErrorForOutput(error)
           this.onError?.(sanitized)

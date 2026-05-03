@@ -185,34 +185,45 @@ export const Route = createFileRoute(
         }
 
         try {
-          const task =
-            status === 'LEASED' || status === 'RUNNING'
-              ? await refreshFlowTaskLease({
-                  connectionId: params.connectionId,
-                  taskId: params.taskId,
-                  status,
-                  message,
-                })
-              : retry
-                ? await retryFlowTask({
-                    connectionId: params.connectionId,
-                    taskId: params.taskId,
-                    error,
-                    message,
-                    retryReason: retry.reason,
-                    retryMessage: retry.message,
-                    maxAttempts: retry.maxAttempts,
-                  })
-                : await completeFlowTask({
-                    connectionId: params.connectionId,
-                    taskId: params.taskId,
-                    status,
-                    error,
-                    message,
-                    ...(result !== undefined ? { result } : {}),
-                  })
+          if (status === 'LEASED' || status === 'RUNNING') {
+            const updateResult = await refreshFlowTaskLease({
+              connectionId: params.connectionId,
+              taskId: params.taskId,
+              status,
+              message,
+            })
 
-          if (!task) {
+            if (!updateResult) {
+              return text('Flow task lease is no longer active.', 409)
+            }
+
+            return json({
+              ok: true,
+              stopRequested: updateResult.stopRequested,
+              stopReason: updateResult.stopReason,
+            })
+          }
+
+          const updateResult = retry
+            ? await retryFlowTask({
+                connectionId: params.connectionId,
+                taskId: params.taskId,
+                error,
+                message,
+                retryReason: retry.reason,
+                retryMessage: retry.message,
+                maxAttempts: retry.maxAttempts,
+              })
+            : await completeFlowTask({
+                connectionId: params.connectionId,
+                taskId: params.taskId,
+                status,
+                error,
+                message,
+                ...(result !== undefined ? { result } : {}),
+              })
+
+          if (!updateResult) {
             return text('Flow task lease is no longer active.', 409)
           }
 

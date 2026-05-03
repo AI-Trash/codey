@@ -17,11 +17,17 @@ async function withEnv<T>(
   values: Record<string, string | undefined>,
   callback: () => Promise<T> | T,
 ): Promise<T> {
+  const nextValues = { ...values }
+  for (const key of workspaceEnvOverrideKeys) {
+    if (nextValues[key] === undefined) {
+      nextValues[key] = ''
+    }
+  }
   const previous = Object.fromEntries(
-    Object.keys(values).map((key) => [key, process.env[key]]),
+    Object.keys(nextValues).map((key) => [key, process.env[key]]),
   )
 
-  for (const [key, value] of Object.entries(values)) {
+  for (const [key, value] of Object.entries(nextValues)) {
     if (value == null) {
       delete process.env[key]
     } else {
@@ -121,6 +127,8 @@ const singBoxEnvNames = {
   CODEY_SINGBOX_AUTO_START: undefined,
   CODEY_SINGBOX_CONFIG_DIR: undefined,
 }
+
+const workspaceEnvOverrideKeys = ['CODEY_PROXY_URL', 'FORWARDER_WEBHOOK_HOST']
 
 describe('resolveConfig codex defaults', () => {
   it('uses built-in Codex OAuth defaults when env overrides are absent', async () => {

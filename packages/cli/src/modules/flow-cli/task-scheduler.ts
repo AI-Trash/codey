@@ -35,11 +35,21 @@ interface FlowTaskSchedulerEntry<
 interface FlowTaskSchedulerBatch<TResult> {
   id: string
   queue: FlowTaskSchedulerEntry<TResult>[]
+  activeCount: number
+  parallelism: number
 }
 
 function normalizeBrowserLimit(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     return DEFAULT_CLI_BROWSER_LIMIT
+  }
+
+  return value
+}
+
+function normalizeBatchParallelism(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    return Number.POSITIVE_INFINITY
   }
 
   return value
@@ -81,9 +91,15 @@ export class FlowTaskScheduler<TResult> {
       ({
         id: batchId,
         queue: [],
+        activeCount: 0,
+        parallelism: normalizeBatchParallelism(task.parallelism),
       } satisfies FlowTaskSchedulerBatch<TResult>)
 
     this.batches.set(batchId, batch)
+    batch.parallelism = Math.min(
+      batch.parallelism,
+      normalizeBatchParallelism(task.parallelism),
+    )
 
     return new Promise<TResult>((resolve, reject) => {
       batch.queue.push({
@@ -143,7 +159,7 @@ export class FlowTaskScheduler<TResult> {
         entry.reject(error)
       }
 
-      if (!batch.queue.length) {
+      if (!batch.queue.length && batch.activeCount <= 0) {
         this.batches.delete(batchId)
       }
     }
@@ -219,6 +235,10 @@ export class FlowTaskScheduler<TResult> {
         continue
       }
 
+      if (batch.activeCount >= batch.parallelism) {
+        continue
+      }
+
       const [entry] = batch.queue
       if (!entry) {
         continue
@@ -245,6 +265,7 @@ export class FlowTaskScheduler<TResult> {
       }
 
       this.activeCount += 1
+      candidate.batch.activeCount += 1
       this.activeEntries.set(nextEntry.taskId, nextEntry)
       void this.runEntry(candidate.batch, nextEntry)
     }
@@ -262,9 +283,10 @@ export class FlowTaskScheduler<TResult> {
       entry.reject(error)
     } finally {
       this.activeCount = Math.max(this.activeCount - 1, 0)
+      batch.activeCount = Math.max(batch.activeCount - 1, 0)
       this.activeEntries.delete(entry.taskId)
 
-      if (!batch.queue.length) {
+      if (!batch.queue.length && batch.activeCount <= 0) {
         this.batches.delete(batch.id)
       }
 

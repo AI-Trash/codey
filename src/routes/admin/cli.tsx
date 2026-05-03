@@ -7,11 +7,6 @@ import {
   type CliFlowCommandId,
   type CliFlowConfigById,
   type CliFlowConfigFieldDefinition,
-  type CliFlowConfigFieldDescriptionKey,
-  type CliFlowConfigFieldDisplayNameKey,
-  type CliFlowDefinition,
-  type CliFlowDescriptionKey,
-  type CliFlowDisplayNameKey,
   cliFlowDefinitions,
   listCliFlowConfigFieldDefinitions,
 } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
@@ -78,6 +73,17 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { Textarea } from '#/components/ui/textarea'
+import {
+  getOptionDescription,
+  getOptionDisplayName,
+  resolveFlowDescription,
+  resolveFlowDisplayName,
+} from '#/lib/admin-flow-labels'
+import {
+  buildFlowConfigFromDraft,
+  createDraftValuesFromFlowConfig,
+  type DraftOptionState,
+} from '#/lib/flow-config-ui'
 import {
   Tooltip,
   TooltipContent,
@@ -181,7 +187,11 @@ type DispatchResultSummary = {
   assignedCliCount: number
 }
 
-type DraftOptionState = Record<string, string>
+type FlowDefaultConfigSummary = {
+  flowType: CliFlowCommandId
+  config: Record<string, unknown>
+  updatedAt: string | null
+}
 
 const DEFAULT_DRAFT_VALUES_BY_FLOW: Partial<
   Record<CliFlowCommandId, DraftOptionState>
@@ -192,6 +202,28 @@ const DEFAULT_DRAFT_VALUES_BY_FLOW: Partial<
   'chatgpt-team-trial': {
     claimTrial: DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD,
   },
+}
+
+async function loadFlowDefaultConfigs(): Promise<
+  Partial<Record<CliFlowCommandId, Record<string, unknown>>>
+> {
+  const response = await fetch('/api/admin/flow-defaults', {
+    headers: {
+      Accept: 'application/json',
+    },
+  })
+
+  if (!response.ok) {
+    return {}
+  }
+
+  const snapshot = (await response.json()) as {
+    defaults?: FlowDefaultConfigSummary[]
+  }
+
+  return Object.fromEntries(
+    (snapshot.defaults || []).map((entry) => [entry.flowType, entry.config]),
+  ) as Partial<Record<CliFlowCommandId, Record<string, unknown>>>
 }
 
 function AdminCliConnectionsPage() {
@@ -207,6 +239,9 @@ function AdminCliConnectionsPage() {
     useState<CliConnectionSummary | null>(null)
   const [selectedSettingsConnection, setSelectedSettingsConnection] =
     useState<CliConnectionSummary | null>(null)
+  const [flowDefaultConfigs, setFlowDefaultConfigs] = useState<
+    Partial<Record<CliFlowCommandId, Record<string, unknown>>>
+  >({})
 
   async function refreshConnections() {
     setIsRefreshing(true)
@@ -271,6 +306,14 @@ function AdminCliConnectionsPage() {
     }
   }, [])
 
+  useEffect(() => {
+    void loadFlowDefaultConfigs().then((defaults) => {
+      startTransition(() => {
+        setFlowDefaultConfigs(defaults)
+      })
+    })
+  }, [])
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <AdminPageHeader
@@ -324,6 +367,7 @@ function AdminCliConnectionsPage() {
 
       <CliTaskDialog
         connection={selectedConnection}
+        defaultConfigs={flowDefaultConfigs}
         open={Boolean(selectedConnection)}
         onOpenChange={(open) => {
           if (!open) {
@@ -693,6 +737,7 @@ function CliSettingsDialog(props: {
 
 function CliTaskDialog(props: {
   connection: CliConnectionSummary | null
+  defaultConfigs: Partial<Record<CliFlowCommandId, Record<string, unknown>>>
   open: boolean
   onOpenChange: (open: boolean) => void
   onDispatched: (
@@ -720,9 +765,11 @@ function CliTaskDialog(props: {
     const nextFlowId = nextAvailableFlows[0] || ''
     setSelectedFlowId(nextFlowId)
     setDispatchCount('1')
-    setDraftValues(getDefaultDraftValuesForFlow(nextFlowId))
+    setDraftValues(
+      getDefaultDraftValuesForFlow(nextFlowId, props.defaultConfigs),
+    )
     setSubmitting(false)
-  }, [props.connection?.id, props.open])
+  }, [props.connection?.id, props.open, props.defaultConfigs])
 
   useEffect(() => {
     setSelectedFlowId((current) => {
@@ -731,11 +778,13 @@ function CliTaskDialog(props: {
           ? current
           : availableFlows[0] || ''
       if (nextFlowId !== current) {
-        setDraftValues(getDefaultDraftValuesForFlow(nextFlowId))
+        setDraftValues(
+          getDefaultDraftValuesForFlow(nextFlowId, props.defaultConfigs),
+        )
       }
       return nextFlowId
     })
-  }, [availableFlowKey, availableFlows])
+  }, [availableFlowKey, availableFlows, props.defaultConfigs])
 
   const batchState = useMemo(
     () => resolveDispatchBatchState(selectedFlowId, draftValues, dispatchCount),
@@ -779,6 +828,7 @@ function CliTaskDialog(props: {
             ...createCliFlowTaskRequest(selectedFlowId, submission.config),
             ...(submission.configs ? { configs: submission.configs } : {}),
             repeatCount: submission.repeatCount,
+            ...(batchState.count > 1 ? { parallelism: batchState.count } : {}),
           }),
         },
       )
@@ -847,7 +897,12 @@ function CliTaskDialog(props: {
                       const nextFlowId = value as CliFlowCommandId
                       setSelectedFlowId(nextFlowId)
                       setDispatchCount('1')
-                      setDraftValues(getDefaultDraftValuesForFlow(nextFlowId))
+                      setDraftValues(
+                        getDefaultDraftValuesForFlow(
+                          nextFlowId,
+                          props.defaultConfigs,
+                        ),
+                      )
                     }}
                     disabled={!availableFlows.length || submitting}
                   >
@@ -1475,8 +1530,22 @@ function readDispatchCount(flowId: CliFlowCommandId, rawValue: string): number {
 
 function getDefaultDraftValuesForFlow(
   flowId: CliFlowCommandId | '',
+  defaultConfigs: Partial<
+    Record<CliFlowCommandId, Record<string, unknown>>
+  > = {},
 ): DraftOptionState {
-  return flowId ? { ...DEFAULT_DRAFT_VALUES_BY_FLOW[flowId] } : {}
+  if (!flowId) {
+    return {}
+  }
+
+  return {
+    ...DEFAULT_DRAFT_VALUES_BY_FLOW[flowId],
+    ...createDraftValuesFromFlowConfig(
+      flowId,
+      defaultConfigs[flowId],
+      listCliFlowConfigFieldDefinitions(flowId),
+    ),
+  }
 }
 
 function buildDispatchSubmission<TFlowId extends CliFlowCommandId>(
@@ -1546,187 +1615,32 @@ function buildDispatchConfig<TFlowId extends CliFlowCommandId>(
   flowId: TFlowId,
   draftValues: DraftOptionState,
 ): CliFlowConfigById[TFlowId] {
-  const config: Record<string, unknown> = {}
+  const config = buildFlowConfigFromDraft(
+    flowId,
+    listCliFlowConfigFieldDefinitions(flowId),
+    draftValues,
+    {
+      getFieldLabel: getOptionDisplayName,
+      getInvalidNumberMessage: (field) =>
+        m.admin_cli_dispatch_number_error({ field }),
+    },
+    {
+      transformRawValue: ({ definition, rawValue }) => {
+        if (!isEmailBatchDispatchOption(flowId, definition)) {
+          return rawValue
+        }
 
-  for (const definition of listCliFlowConfigFieldDefinitions(flowId)) {
-    const rawValue = draftValues[definition.key]
-    if (!rawValue?.trim()) {
-      continue
-    }
+        const emails = extractDispatchEmailAddresses(rawValue)
+        if (!emails.length) {
+          throw new Error(m.admin_cli_dispatch_email_batch_invalid())
+        }
 
-    if (definition.type === 'boolean') {
-      if (rawValue === 'true' || rawValue === 'false') {
-        config[definition.key] = rawValue === 'true'
-      }
-      continue
-    }
-
-    if (definition.type === 'number') {
-      const parsed = Number(rawValue)
-      if (!Number.isFinite(parsed)) {
-        throw new Error(
-          m.admin_cli_dispatch_number_error({
-            field: getOptionDisplayName(definition),
-          }),
-        )
-      }
-      config[definition.key] = parsed
-      continue
-    }
-
-    if (definition.type === 'select') {
-      if (definition.options?.some((option) => option.value === rawValue)) {
-        config[definition.key] = rawValue
-      }
-      continue
-    }
-
-    if (definition.type === 'stringList') {
-      const parsed = rawValue
-        .split(/[\n,]/)
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-      if (parsed.length) {
-        config[definition.key] = parsed
-      }
-      continue
-    }
-
-    if (isEmailBatchDispatchOption(flowId, definition)) {
-      const emails = extractDispatchEmailAddresses(rawValue)
-      if (!emails.length) {
-        throw new Error(m.admin_cli_dispatch_email_batch_invalid())
-      }
-      config[definition.key] = emails[0]
-      continue
-    }
-
-    config[definition.key] = rawValue.trim()
-  }
+        return emails[0]
+      },
+    },
+  ) as Record<string, unknown>
 
   return config as CliFlowConfigById[TFlowId]
-}
-
-const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
-  chatgptRegister: () => m.admin_cli_flow_chatgpt_register_name(),
-  chatgptLogin: () => m.admin_cli_flow_chatgpt_login_name(),
-  chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_name(),
-  chatgptTeamTrialGoPay: () => m.admin_cli_flow_chatgpt_team_trial_gopay_name(),
-  chatgptInvite: () => m.admin_cli_flow_chatgpt_invite_name(),
-  codexOauth: () => m.admin_cli_flow_codex_oauth_name(),
-  androidHealthcheck: () => m.admin_cli_flow_android_healthcheck_name(),
-  noop: () => m.admin_cli_flow_noop_name(),
-}
-
-const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
-  chatgptRegister: () => m.admin_cli_flow_chatgpt_register_description(),
-  chatgptLogin: () => m.admin_cli_flow_chatgpt_login_description(),
-  chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_description(),
-  chatgptTeamTrialGoPay: () =>
-    m.admin_cli_flow_chatgpt_team_trial_gopay_description(),
-  chatgptInvite: () => m.admin_cli_flow_chatgpt_invite_description(),
-  codexOauth: () => m.admin_cli_flow_codex_oauth_description(),
-  androidHealthcheck: () => m.admin_cli_flow_android_healthcheck_description(),
-  noop: () => m.admin_cli_flow_noop_description(),
-}
-
-const optionDisplayNameMap: Record<
-  CliFlowConfigFieldDisplayNameKey,
-  () => string
-> = {
-  chromeDefaultProfile: () => m.admin_cli_option_chrome_default_profile_name(),
-  proxyTag: () => m.admin_cli_option_proxy_tag_name(),
-  headless: () => m.admin_cli_option_headless_name(),
-  slowMo: () => m.admin_cli_option_slow_mo_name(),
-  har: () => m.admin_cli_option_har_name(),
-  recordPageContent: () => m.admin_cli_option_record_page_content_name(),
-  record: () => m.admin_cli_option_record_name(),
-  restoreStorageState: () => m.admin_cli_option_restore_storage_state_name(),
-  password: () => m.admin_cli_option_password_name(),
-  claimTrial: () => m.admin_cli_option_claim_trial_name(),
-  paymentRedirectUrl: () => m.admin_cli_option_payment_redirect_url_name(),
-  verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
-  pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
-  identityId: () => m.admin_cli_option_identity_id_name(),
-  email: () => m.admin_cli_option_email_name(),
-  billingName: () => m.admin_cli_option_billing_name_name(),
-  billingCountry: () => m.admin_cli_option_billing_country_name(),
-  billingAddressLine1: () => m.admin_cli_option_billing_address_line1_name(),
-  billingAddressLine2: () => m.admin_cli_option_billing_address_line2_name(),
-  billingCity: () => m.admin_cli_option_billing_city_name(),
-  billingState: () => m.admin_cli_option_billing_state_name(),
-  billingPostalCode: () => m.admin_cli_option_billing_postal_code_name(),
-  inviteEmail: () => m.admin_cli_option_invite_email_name(),
-  inviteFile: () => m.admin_cli_option_invite_file_name(),
-  pruneUnmanagedWorkspaceMembers: () =>
-    m.admin_cli_option_prune_unmanaged_workspace_members_name(),
-  workspaceId: () => m.admin_cli_option_workspace_id_name(),
-  workspaceIndex: () => m.admin_cli_option_workspace_index_name(),
-  redirectPort: () => m.admin_cli_option_redirect_port_name(),
-  authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_name(),
-  appiumServerUrl: () => m.admin_cli_option_appium_server_url_name(),
-  androidUdid: () => m.admin_cli_option_android_udid_name(),
-  androidDeviceName: () => m.admin_cli_option_android_device_name_name(),
-  androidPlatformVersion: () =>
-    m.admin_cli_option_android_platform_version_name(),
-  androidAutomationName: () =>
-    m.admin_cli_option_android_automation_name_name(),
-  androidAppPackage: () => m.admin_cli_option_android_app_package_name(),
-  androidAppActivity: () => m.admin_cli_option_android_app_activity_name(),
-  androidNoReset: () => m.admin_cli_option_android_no_reset_name(),
-}
-
-const optionDescriptionMap: Record<
-  CliFlowConfigFieldDescriptionKey,
-  () => string
-> = {
-  chromeDefaultProfile: () =>
-    m.admin_cli_option_chrome_default_profile_description(),
-  proxyTag: () => m.admin_cli_option_proxy_tag_description(),
-  headless: () => m.admin_cli_option_headless_description(),
-  slowMo: () => m.admin_cli_option_slow_mo_description(),
-  har: () => m.admin_cli_option_har_description(),
-  recordPageContent: () => m.admin_cli_option_record_page_content_description(),
-  record: () => m.admin_cli_option_record_description(),
-  restoreStorageState: () =>
-    m.admin_cli_option_restore_storage_state_description(),
-  password: () => m.admin_cli_option_password_description(),
-  claimTrial: () => m.admin_cli_option_claim_trial_description(),
-  paymentRedirectUrl: () =>
-    m.admin_cli_option_payment_redirect_url_description(),
-  verificationTimeoutMs: () =>
-    m.admin_cli_option_verification_timeout_description(),
-  pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),
-  identityId: () => m.admin_cli_option_identity_id_description(),
-  email: () => m.admin_cli_option_email_description(),
-  billingName: () => m.admin_cli_option_billing_name_description(),
-  billingCountry: () => m.admin_cli_option_billing_country_description(),
-  billingAddressLine1: () =>
-    m.admin_cli_option_billing_address_line1_description(),
-  billingAddressLine2: () =>
-    m.admin_cli_option_billing_address_line2_description(),
-  billingCity: () => m.admin_cli_option_billing_city_description(),
-  billingState: () => m.admin_cli_option_billing_state_description(),
-  billingPostalCode: () => m.admin_cli_option_billing_postal_code_description(),
-  inviteEmail: () => m.admin_cli_option_invite_email_description(),
-  inviteFile: () => m.admin_cli_option_invite_file_description(),
-  pruneUnmanagedWorkspaceMembers: () =>
-    m.admin_cli_option_prune_unmanaged_workspace_members_description(),
-  workspaceId: () => m.admin_cli_option_workspace_id_description(),
-  workspaceIndex: () => m.admin_cli_option_workspace_index_description(),
-  redirectPort: () => m.admin_cli_option_redirect_port_description(),
-  authorizeUrlOnly: () => m.admin_cli_option_authorize_url_only_description(),
-  appiumServerUrl: () => m.admin_cli_option_appium_server_url_description(),
-  androidUdid: () => m.admin_cli_option_android_udid_description(),
-  androidDeviceName: () => m.admin_cli_option_android_device_name_description(),
-  androidPlatformVersion: () =>
-    m.admin_cli_option_android_platform_version_description(),
-  androidAutomationName: () =>
-    m.admin_cli_option_android_automation_name_description(),
-  androidAppPackage: () => m.admin_cli_option_android_app_package_description(),
-  androidAppActivity: () =>
-    m.admin_cli_option_android_app_activity_description(),
-  androidNoReset: () => m.admin_cli_option_android_no_reset_description(),
 }
 
 function getFlowDisplayName(flowId: CliFlowCommandId): string {
@@ -1752,27 +1666,11 @@ function getFlowDescription(flowId: CliFlowCommandId): string {
     : m.admin_cli_dispatch_flow_description()
 }
 
-function resolveFlowDisplayName(flowDefinition: CliFlowDefinition): string {
-  return flowDisplayNameMap[flowDefinition.displayNameKey]()
-}
-
-function resolveFlowDescription(flowDefinition: CliFlowDefinition): string {
-  return flowDefinition.descriptionKey
-    ? flowDescriptionMap[flowDefinition.descriptionKey]()
-    : m.admin_cli_dispatch_flow_description()
-}
-
-function getOptionDisplayName(option: CliFlowConfigFieldDefinition): string {
-  return optionDisplayNameMap[option.displayNameKey]()
-}
-
 function formatOptionDescription(
   option: CliFlowConfigFieldDefinition,
   flowId?: CliFlowCommandId,
 ): string {
-  const detail = option.descriptionKey
-    ? optionDescriptionMap[option.descriptionKey]()
-    : ''
+  const detail = getOptionDescription(option)
   const parts = [
     detail,
     flowId && isEmailBatchDispatchOption(flowId, option)

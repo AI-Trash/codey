@@ -6,7 +6,9 @@ import {
   ActivityIcon,
   BotIcon,
   CalendarIcon,
+  RotateCcwIcon,
   ShieldIcon,
+  SquareIcon,
   Trash2Icon,
 } from 'lucide-react'
 
@@ -71,6 +73,7 @@ import { getLocale } from '#/paraglide/runtime'
 const FLOW_PAGE_POLL_INTERVAL_MS = 5_000
 
 type ClearFlowRunsMode = 'completed' | 'all'
+type FlowTaskAction = 'stop' | 'retry'
 
 type ClearFlowRunsResponse = {
   deletedCount: number
@@ -139,6 +142,7 @@ function AdminFlowsPage() {
   )
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
+  const [actingTaskId, setActingTaskId] = useState<string | null>(null)
   const [clearMode, setClearMode] = useState<ClearFlowRunsMode | null>(null)
 
   useEffect(() => {
@@ -294,6 +298,58 @@ function AdminFlowsPage() {
       })
     } finally {
       setIsClearing(false)
+    }
+  }
+
+  async function runTaskAction(taskId: string, action: FlowTaskAction) {
+    setActingTaskId(taskId)
+    try {
+      const response = await fetch(
+        `/api/admin/flows?taskId=${encodeURIComponent(taskId)}&action=${action}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            reason:
+              action === 'stop'
+                ? m.admin_flow_stop_default_reason()
+                : m.admin_flow_retry_default_reason(),
+          }),
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      const nextSnapshot = (await response.json()) as AdminFlowRunSnapshot
+      startTransition(() => {
+        setSnapshot(nextSnapshot)
+      })
+      showAppToast({
+        kind: 'success',
+        title: m.status_success(),
+        description:
+          action === 'stop'
+            ? m.admin_flow_stop_success()
+            : m.admin_flow_retry_success(),
+      })
+    } catch (error) {
+      showAppToast({
+        kind: 'error',
+        title: m.status_failed(),
+        description: getToastErrorDescription(
+          error,
+          action === 'stop'
+            ? m.admin_flow_stop_error()
+            : m.admin_flow_retry_error(),
+        ),
+      })
+    } finally {
+      setActingTaskId(null)
     }
   }
 
@@ -557,19 +613,32 @@ function AdminFlowsPage() {
                       <TableCell className="align-top">
                         <div className="flex flex-wrap items-center gap-2">
                           <StatusBadge value={task.status} className="w-fit" />
+                          {task.cancelRequestedAt &&
+                          isActiveFlowTaskStatus(task.status) ? (
+                            <Badge variant="outline">
+                              {m.admin_flow_stop_requested_badge()}
+                            </Badge>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="align-top">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setDetailsOpen(task.id)
-                          }}
-                        >
-                          {m.mail_inbox_table_details()}
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setDetailsOpen(task.id)
+                            }}
+                          >
+                            {m.mail_inbox_table_details()}
+                          </Button>
+                          <FlowTaskActionButtons
+                            task={task}
+                            actingTaskId={actingTaskId}
+                            onAction={runTaskAction}
+                          />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -653,16 +722,27 @@ function AdminFlowsPage() {
                     : m.admin_flow_not_found_description()}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  void refreshSnapshot(activeTaskId)
-                }}
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? m.status_refreshing() : m.admin_flow_refresh()}
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    void refreshSnapshot(activeTaskId)
+                  }}
+                  disabled={isRefreshing}
+                >
+                  {isRefreshing
+                    ? m.status_refreshing()
+                    : m.admin_flow_refresh()}
+                </Button>
+                {activeTask ? (
+                  <FlowTaskActionButtons
+                    task={activeTask}
+                    actingTaskId={actingTaskId}
+                    onAction={runTaskAction}
+                  />
+                ) : null}
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <p>
@@ -706,6 +786,61 @@ function AdminFlowsPage() {
 
 function isClearableFlowTaskStatus(status: string) {
   return status === 'SUCCEEDED' || status === 'FAILED' || status === 'CANCELED'
+}
+
+function isActiveFlowTaskStatus(status: string) {
+  return status === 'QUEUED' || status === 'LEASED' || status === 'RUNNING'
+}
+
+function canStopFlowTask(task: Pick<AdminFlowTaskSummary, 'status'>) {
+  return isActiveFlowTaskStatus(task.status)
+}
+
+function canRetryFlowTask(task: Pick<AdminFlowTaskSummary, 'status'>) {
+  return task.status === 'FAILED' || task.status === 'CANCELED'
+}
+
+function FlowTaskActionButtons(props: {
+  task: AdminFlowTaskSummary
+  actingTaskId: string | null
+  onAction: (taskId: string, action: FlowTaskAction) => Promise<void>
+}) {
+  const busy = props.actingTaskId === props.task.id
+  const stopDisabled = busy || !canStopFlowTask(props.task)
+  const retryDisabled = busy || !canRetryFlowTask(props.task)
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={stopDisabled}
+        onClick={() => {
+          void props.onAction(props.task.id, 'stop')
+        }}
+      >
+        <SquareIcon />
+        {busy && canStopFlowTask(props.task)
+          ? m.admin_flow_stop_pending()
+          : m.admin_flow_stop_button()}
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={retryDisabled}
+        onClick={() => {
+          void props.onAction(props.task.id, 'retry')
+        }}
+      >
+        <RotateCcwIcon />
+        {busy && canRetryFlowTask(props.task)
+          ? m.admin_flow_retry_pending()
+          : m.admin_flow_retry_button()}
+      </Button>
+    </>
+  )
 }
 
 function buildAdminFlowSnapshotApiHref(taskId?: string) {

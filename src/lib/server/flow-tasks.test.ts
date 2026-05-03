@@ -40,7 +40,11 @@ vi.mock('./workspaces', () => ({
   recordWorkspaceTeamTrialPaypalUrlFromFlowTask: vi.fn(),
 }))
 
-import { completeFlowTask } from './flow-tasks'
+import {
+  completeFlowTask,
+  requestFlowTaskStop,
+  requeueFlowTask,
+} from './flow-tasks'
 import {
   flowTaskEvents,
   flowTasks,
@@ -101,6 +105,8 @@ function createTask(overrides: Partial<FlowTaskRow> = {}): FlowTaskRow {
     attemptCount: 3,
     leaseClaimedAt: now,
     leaseExpiresAt: now,
+    cancelRequestedAt: null,
+    cancelReason: null,
     startedAt: now,
     completedAt: null,
     lastMessage: 'Running',
@@ -148,6 +154,8 @@ function createDbMock(input: {
               cliConnectionId: null,
               leaseClaimedAt: null,
               leaseExpiresAt: null,
+              cancelRequestedAt: null,
+              cancelReason: null,
               startedAt: null,
               completedAt: null,
               lastError: null,
@@ -412,4 +420,138 @@ describe('flow task completion', () => {
       })
     },
   )
+})
+
+describe('flow task admin controls', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.createId.mockReturnValue('event-1')
+  })
+
+  it('finalizes queued tasks when an admin stops them before a CLI starts work', async () => {
+    const task = createTask({
+      status: 'QUEUED',
+      leaseClaimedAt: null,
+      leaseExpiresAt: null,
+      startedAt: null,
+    })
+    const { insertedEvents, updatePatches } = createDbMock({
+      currentTask: task,
+    })
+
+    await expect(
+      requestFlowTaskStop({
+        taskId: task.id,
+        reason: 'No longer needed.',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'CANCELED',
+        cancelReason: 'No longer needed.',
+      }),
+    )
+
+    expect(updatePatches[0]).toMatchObject({
+      status: 'CANCELED',
+      cancelReason: 'No longer needed.',
+      lastMessage: 'No longer needed.',
+      lastError: null,
+    })
+    expect(insertedEvents[0]).toMatchObject({
+      taskId: task.id,
+      type: 'CANCELED',
+      status: 'CANCELED',
+      message: 'No longer needed.',
+    })
+    expect(mocks.syncIdentityMaintenanceRunFromFlowTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'CANCELED',
+        message: 'No longer needed.',
+      }),
+    )
+  })
+
+  it('marks active tasks with a stop request so the CLI can cancel its lease', async () => {
+    const task = createTask({
+      status: 'RUNNING',
+    })
+    const { insertedEvents, updatePatches } = createDbMock({
+      currentTask: task,
+    })
+
+    await expect(
+      requestFlowTaskStop({
+        taskId: task.id,
+        reason: 'Stop current browser work.',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'RUNNING',
+        cancelReason: 'Stop current browser work.',
+      }),
+    )
+
+    expect(updatePatches[0]).toMatchObject({
+      cancelReason: 'Stop current browser work.',
+      lastMessage: 'Stop current browser work.',
+    })
+    expect(insertedEvents[0]).toMatchObject({
+      taskId: task.id,
+      type: 'LOG',
+      status: 'RUNNING',
+      message: 'Stop current browser work.',
+      payload: {
+        cancelRequested: true,
+      },
+    })
+  })
+
+  it('re-queues failed or canceled tasks for a manual retry', async () => {
+    const task = createTask({
+      status: 'FAILED',
+      completedAt: now,
+      lastError: 'Browser failed',
+    })
+    const { insertedEvents, updatePatches } = createDbMock({
+      currentTask: task,
+    })
+
+    await expect(
+      requeueFlowTask({
+        taskId: task.id,
+        reason: 'Try again.',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: 'QUEUED',
+        lastMessage: 'Try again.',
+      }),
+    )
+
+    expect(updatePatches[0]).toMatchObject({
+      status: 'QUEUED',
+      cliConnectionId: null,
+      leaseClaimedAt: null,
+      leaseExpiresAt: null,
+      cancelRequestedAt: null,
+      cancelReason: null,
+      startedAt: null,
+      completedAt: null,
+      lastMessage: 'Try again.',
+      lastError: null,
+    })
+    expect(insertedEvents[0]).toMatchObject({
+      taskId: task.id,
+      type: 'QUEUED',
+      status: 'QUEUED',
+      message: 'Try again.',
+      payload: {
+        manualRetry: {
+          reason: 'Try again.',
+          previousStatus: 'FAILED',
+          previousAttempt: 3,
+        },
+      },
+    })
+  })
 })

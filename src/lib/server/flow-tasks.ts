@@ -49,6 +49,12 @@ type FlowTaskRetryMaxAttempts =
   | number
   | typeof UNLIMITED_FLOW_TASK_RETRY_MAX_ATTEMPTS
 
+export interface FlowTaskLeaseUpdateResult {
+  task: FlowTaskRow
+  stopRequested: boolean
+  stopReason: string | null
+}
+
 function normalizeWorkerId(value: string | null | undefined): string | null {
   if (typeof value !== 'string') {
     return null
@@ -252,6 +258,10 @@ function formatDefaultRetryMessage(input: {
   return `Retrying flow task after ${input.retryReason} (${attemptLabel})`
 }
 
+function getDefaultCancelReason(): string {
+  return 'Task stopped by an administrator.'
+}
+
 async function appendFlowTaskEvent(input: {
   taskId: string
   cliConnectionId?: string | null
@@ -408,6 +418,8 @@ export async function claimNextFlowTaskForConnection(input: {
         cliConnectionId: connection.id,
         leaseClaimedAt: now,
         leaseExpiresAt,
+        cancelRequestedAt: null,
+        cancelReason: null,
         attemptCount: sql`${flowTasks.attemptCount} + 1`,
         startedAt: null,
         completedAt: null,
@@ -455,7 +467,7 @@ export async function refreshFlowTaskLease(input: {
   status: ActiveFlowTaskStatus
   message?: string | null
   leaseMs?: number
-}): Promise<FlowTaskRow | null> {
+}): Promise<FlowTaskLeaseUpdateResult | null> {
   const connection = await getCliConnectionRow(input.connectionId)
   if (!connection) {
     throw new Error('CLI connection not found.')
@@ -542,7 +554,11 @@ export async function refreshFlowTaskLease(input: {
     message: normalizedMessage,
   })
 
-  return updated
+  return {
+    task: updated,
+    stopRequested: Boolean(updated.cancelRequestedAt),
+    stopReason: updated.cancelReason || null,
+  }
 }
 
 async function getActiveFlowTaskForWorker(input: {
@@ -595,6 +611,8 @@ async function requeueActiveFlowTask(input: {
       cliConnectionId: null,
       leaseClaimedAt: null,
       leaseExpiresAt: null,
+      cancelRequestedAt: null,
+      cancelReason: null,
       startedAt: null,
       completedAt: null,
       lastMessage: retryMessage,
@@ -658,13 +676,12 @@ export async function completeFlowTask(input: {
   const workerId = getCliConnectionTaskWorkerId(connection)
   const normalizedError = normalizeTaskText(input.error)
   const normalizedMessage = normalizeTaskText(input.message)
+  const current = await getActiveFlowTaskForWorker({
+    taskId: input.taskId,
+    workerId,
+  })
 
   if (input.status === 'FAILED') {
-    const current = await getActiveFlowTaskForWorker({
-      taskId: input.taskId,
-      workerId,
-    })
-
     if (current && shouldAutoRetryFailedFlowTask(current)) {
       return requeueActiveFlowTask({
         connection,
@@ -682,6 +699,10 @@ export async function completeFlowTask(input: {
       status: input.status,
       cliConnectionId: connection.id,
       leaseExpiresAt: null,
+      cancelRequestedAt:
+        input.status === 'CANCELED' ? current?.cancelRequestedAt || null : null,
+      cancelReason:
+        input.status === 'CANCELED' ? current?.cancelReason || null : null,
       completedAt: now,
       lastMessage: normalizedMessage || normalizedError,
       lastError:
@@ -891,4 +912,166 @@ export async function retryFlowTask(input: {
     retryMessage: input.retryMessage,
     maxAttempts,
   })
+}
+
+export async function requestFlowTaskStop(input: {
+  taskId: string
+  reason?: string | null
+}): Promise<FlowTaskRow | null> {
+  const taskId = normalizeWorkerId(input.taskId)
+  if (!taskId) {
+    return null
+  }
+
+  const now = new Date()
+  const reason = normalizeTaskText(input.reason) || getDefaultCancelReason()
+  const current = await getDb().query.flowTasks.findFirst({
+    where: eq(flowTasks.id, taskId),
+  })
+
+  if (!current) {
+    return null
+  }
+
+  if (current.status === 'QUEUED') {
+    const [updated] = await getDb()
+      .update(flowTasks)
+      .set({
+        status: 'CANCELED',
+        leaseExpiresAt: null,
+        cancelRequestedAt: now,
+        cancelReason: reason,
+        completedAt: now,
+        lastMessage: reason,
+        lastError: null,
+        updatedAt: now,
+      })
+      .where(and(eq(flowTasks.id, taskId), eq(flowTasks.status, 'QUEUED')))
+      .returning()
+
+    if (!updated) {
+      return null
+    }
+
+    await appendFlowTaskEvent({
+      taskId: updated.id,
+      cliConnectionId: updated.cliConnectionId,
+      type: 'CANCELED',
+      status: 'CANCELED',
+      message: reason,
+    })
+    await syncIdentityMaintenanceRunFromFlowTask({
+      task: updated,
+      status: 'CANCELED',
+      message: reason,
+    })
+    return updated
+  }
+
+  if (current.status !== 'LEASED' && current.status !== 'RUNNING') {
+    return current
+  }
+
+  const [updated] = await getDb()
+    .update(flowTasks)
+    .set({
+      cancelRequestedAt: now,
+      cancelReason: reason,
+      lastMessage: reason,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(flowTasks.id, taskId),
+        or(eq(flowTasks.status, 'LEASED'), eq(flowTasks.status, 'RUNNING')),
+      ),
+    )
+    .returning()
+
+  if (!updated) {
+    return null
+  }
+
+  await appendFlowTaskEvent({
+    taskId: updated.id,
+    cliConnectionId: updated.cliConnectionId,
+    type: 'LOG',
+    status: updated.status,
+    message: reason,
+    payload: {
+      cancelRequested: true,
+    },
+  })
+  await syncIdentityMaintenanceRunFromFlowTask({
+    task: updated,
+    status: updated.status,
+    message: reason,
+  })
+
+  return updated
+}
+
+export async function requeueFlowTask(input: {
+  taskId: string
+  reason?: string | null
+}): Promise<FlowTaskRow | null> {
+  const taskId = normalizeWorkerId(input.taskId)
+  if (!taskId) {
+    return null
+  }
+
+  const now = new Date()
+  const reason =
+    normalizeTaskText(input.reason) || 'Task re-queued by an administrator.'
+  const current = await getDb().query.flowTasks.findFirst({
+    where: eq(flowTasks.id, taskId),
+  })
+
+  if (!current) {
+    return null
+  }
+
+  const [updated] = await getDb()
+    .update(flowTasks)
+    .set({
+      status: 'QUEUED',
+      cliConnectionId: null,
+      leaseClaimedAt: null,
+      leaseExpiresAt: null,
+      cancelRequestedAt: null,
+      cancelReason: null,
+      startedAt: null,
+      completedAt: null,
+      lastMessage: reason,
+      lastError: null,
+      updatedAt: now,
+    })
+    .where(eq(flowTasks.id, taskId))
+    .returning()
+
+  if (!updated) {
+    return null
+  }
+
+  await appendFlowTaskEvent({
+    taskId: updated.id,
+    cliConnectionId: current.cliConnectionId,
+    type: 'QUEUED',
+    status: 'QUEUED',
+    message: reason,
+    payload: {
+      manualRetry: {
+        reason,
+        previousStatus: current.status,
+        previousAttempt: current.attemptCount,
+      },
+    },
+  })
+  await syncIdentityMaintenanceRunFromFlowTask({
+    task: updated,
+    status: 'QUEUED',
+    message: reason,
+  })
+
+  return updated
 }

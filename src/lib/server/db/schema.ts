@@ -403,6 +403,11 @@ export const flowTasks = pgTable(
       withTimezone: true,
       mode: 'date',
     }),
+    cancelRequestedAt: timestamp('cancel_requested_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    cancelReason: text('cancel_reason'),
     startedAt: timestamp('started_at', {
       withTimezone: true,
       mode: 'date',
@@ -517,6 +522,26 @@ export const flowAppRequests = pgTable(
     ),
   ],
 )
+
+export const flowTaskDefaultConfigs = pgTable('flow_task_default_configs', {
+  flowType: text('flow_type').primaryKey(),
+  config: jsonb('config').$type<Record<string, unknown>>().notNull(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+    mode: 'date',
+  })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp('updated_at', {
+    withTimezone: true,
+    mode: 'date',
+  })
+    .defaultNow()
+    .notNull(),
+})
 
 export const managedIdentities = pgTable(
   'managed_identities',
@@ -1383,6 +1408,8 @@ export type AdminNotificationRow = typeof adminNotifications.$inferSelect
 export type FlowTaskRow = typeof flowTasks.$inferSelect
 export type FlowTaskEventRow = typeof flowTaskEvents.$inferSelect
 export type FlowAppRequestRow = typeof flowAppRequests.$inferSelect
+export type FlowTaskDefaultConfigRow =
+  typeof flowTaskDefaultConfigs.$inferSelect
 export type ManagedIdentityRow = typeof managedIdentities.$inferSelect
 export type ManagedIdentitySessionRow =
   typeof managedIdentitySessions.$inferSelect

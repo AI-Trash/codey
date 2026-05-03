@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   createId: vi.fn(),
   cancelIdentityMaintenanceForNormalDispatch: vi.fn(),
+  getFlowTaskDefaultConfig: vi.fn(),
   getAdminCliConnectionSummaryById: vi.fn(),
   getDb: vi.fn(),
   isCliConnectionOwnedByActor: vi.fn(),
@@ -31,6 +32,10 @@ vi.mock('./cli-connections', () => ({
 vi.mock('./identity-maintenance', () => ({
   cancelIdentityMaintenanceForNormalDispatch:
     mocks.cancelIdentityMaintenanceForNormalDispatch,
+}))
+
+vi.mock('./flow-defaults', () => ({
+  getFlowTaskDefaultConfig: mocks.getFlowTaskDefaultConfig,
 }))
 
 import { dispatchCliFlowTasks } from './cli-tasks'
@@ -141,6 +146,7 @@ describe('cli flow task dispatch', () => {
     let nextId = 0
     mocks.createId.mockImplementation(() => `generated-${++nextId}`)
     mocks.cancelIdentityMaintenanceForNormalDispatch.mockResolvedValue([])
+    mocks.getFlowTaskDefaultConfig.mockResolvedValue({})
     mocks.isCliConnectionOwnedByActor.mockReturnValue(true)
     mocks.isSharedCliConnection.mockReturnValue(false)
   })
@@ -287,7 +293,7 @@ describe('cli flow task dispatch', () => {
             }
           ).batch?.parallelism,
       ),
-    ).toEqual([undefined, undefined, undefined, undefined, undefined])
+    ).toEqual([3, 3, 3, 3, 3])
     expect(insertedEvents).toHaveLength(5)
   })
 
@@ -340,7 +346,7 @@ describe('cli flow task dispatch', () => {
             }
           ).batch?.parallelism,
       ),
-    ).toEqual([undefined, undefined, undefined, undefined])
+    ).toEqual([3, 3, 3, 3])
   })
 
   it('infers the dispatch scope for internal batch work without an explicit actor', async () => {
@@ -553,6 +559,49 @@ describe('cli flow task dispatch', () => {
       'worker-b',
       'worker-c',
     ])
+  })
+
+  it('merges saved default options into dispatch configs while preserving explicit overrides', async () => {
+    const anchorConnection = createCliConnectionSummary({
+      id: 'connection-a',
+      workerId: 'worker-a',
+      cliName: 'CLI A',
+      registeredFlows: ['chatgpt-login'],
+    })
+    const { insertedTasks } = createTransactionRecorder()
+
+    mocks.getFlowTaskDefaultConfig.mockResolvedValue({
+      chromeDefaultProfile: true,
+      email: 'default@example.com',
+      restoreStorageState: true,
+    })
+    mocks.getAdminCliConnectionSummaryById.mockResolvedValue(anchorConnection)
+    mocks.listAdminCliConnectionStateForActor.mockResolvedValue({
+      snapshotAt: '2026-04-24T00:00:06.000Z',
+      activeConnections: [anchorConnection],
+    })
+
+    await dispatchCliFlowTasks({
+      connectionId: anchorConnection.id,
+      flowId: 'chatgpt-login',
+      config: {
+        email: 'explicit@example.com',
+      },
+      actor: {
+        userId: 'user-1',
+      },
+    })
+
+    expect(insertedTasks[0]?.payload).toEqual(
+      expect.objectContaining({
+        flowId: 'chatgpt-login',
+        config: {
+          chromeDefaultProfile: true,
+          email: 'explicit@example.com',
+          restoreStorageState: true,
+        },
+      }),
+    )
   })
 
   it('attaches workspace metadata to dispatched Team trial tasks', async () => {

@@ -88,7 +88,6 @@ describe('flow task scheduler', () => {
       scheduler.enqueue({
         taskId: `task-${index + 1}`,
         batchId: 'batch-1',
-        parallelism: 1,
         run: task.run,
       }),
     )
@@ -103,6 +102,107 @@ describe('flow task scheduler', () => {
     deferred[1]?.finish()
     deferred[2]?.finish()
     await Promise.all(tasks)
+  })
+
+  it('caps concurrently active work from the same batch', async () => {
+    const scheduler = new FlowTaskScheduler<string>({ browserLimit: 3 })
+    const started: string[] = []
+    const deferred = ['one', 'two', 'three'].map((label) =>
+      createDeferredTask(label),
+    )
+    for (const task of deferred) {
+      void task.started.then((label) => {
+        started.push(label)
+      })
+    }
+
+    const tasks = deferred.map((task, index) =>
+      scheduler.enqueue({
+        taskId: `task-${index + 1}`,
+        batchId: 'batch-1',
+        parallelism: 1,
+        run: task.run,
+      }),
+    )
+
+    await deferred[0].started
+    await Promise.resolve()
+    expect(started).toEqual(['one'])
+
+    deferred[0]?.finish()
+    await deferred[1].started
+    expect(started).toEqual(['one', 'two'])
+
+    deferred[1]?.finish()
+    await deferred[2].started
+    expect(started).toEqual(['one', 'two', 'three'])
+
+    deferred[2]?.finish()
+    await Promise.all(tasks)
+  })
+
+  it('keeps batch parallelism accounting when more work is enqueued while siblings are active', async () => {
+    const scheduler = new FlowTaskScheduler<string>({ browserLimit: 4 })
+    const started: string[] = []
+    const deferred = ['one', 'two'].map((label) => createDeferredTask(label))
+    for (const task of deferred) {
+      void task.started.then((label) => {
+        started.push(label)
+      })
+    }
+
+    const first = scheduler.enqueue({
+      taskId: 'task-1',
+      batchId: 'batch-1',
+      parallelism: 2,
+      run: deferred[0].run,
+    })
+    const second = scheduler.enqueue({
+      taskId: 'task-2',
+      batchId: 'batch-1',
+      parallelism: 2,
+      run: deferred[1].run,
+    })
+
+    await Promise.all([deferred[0].started, deferred[1].started])
+    expect(started).toEqual(['one', 'two'])
+
+    deferred[0]?.finish()
+    await first
+
+    const thirdDeferred = createDeferredTask('three')
+    const fourthDeferred = createDeferredTask('four')
+    void thirdDeferred.started.then((label) => {
+      started.push(label)
+    })
+    void fourthDeferred.started.then((label) => {
+      started.push(label)
+    })
+
+    const third = scheduler.enqueue({
+      taskId: 'task-3',
+      batchId: 'batch-1',
+      parallelism: 2,
+      run: thirdDeferred.run,
+    })
+    const fourth = scheduler.enqueue({
+      taskId: 'task-4',
+      batchId: 'batch-1',
+      parallelism: 2,
+      run: fourthDeferred.run,
+    })
+
+    await thirdDeferred.started
+    await Promise.resolve()
+    expect(started).toEqual(['one', 'two', 'three'])
+
+    deferred[1]?.finish()
+    await fourthDeferred.started
+    expect(started).toEqual(['one', 'two', 'three', 'four'])
+
+    thirdDeferred.finish()
+    fourthDeferred.finish()
+    await Promise.all([second, third, fourth])
   })
 
   it('drains more queued work after the browser limit increases', async () => {

@@ -44,6 +44,8 @@ export type AdminFlowTaskSummary = {
   updatedAt: string
   leaseClaimedAt: string | null
   leaseExpiresAt: string | null
+  cancelRequestedAt: string | null
+  cancelReason: string | null
   startedAt: string | null
   completedAt: string | null
   batch: CliFlowTaskBatchMetadata | null
@@ -205,6 +207,8 @@ function mapTaskSummary(
     updatedAt: task.updatedAt.toISOString(),
     leaseClaimedAt: task.leaseClaimedAt?.toISOString() || null,
     leaseExpiresAt: task.leaseExpiresAt?.toISOString() || null,
+    cancelRequestedAt: task.cancelRequestedAt?.toISOString() || null,
+    cancelReason: task.cancelReason || null,
     startedAt: task.startedAt?.toISOString() || null,
     completedAt: task.completedAt?.toISOString() || null,
     batch: payload.batch,
