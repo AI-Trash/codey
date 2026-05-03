@@ -7,7 +7,12 @@ import { proxyNodes, type ProxyNodeRow } from './db/schema'
 import { decryptSecret, encryptSecret } from './encrypted-secrets'
 import { createId } from './security'
 
-export type ProxyNodeProtocol = 'hysteria2' | 'socks' | 'http'
+export type ProxyNodeProtocol =
+  | 'hysteria2'
+  | 'trojan'
+  | 'vless'
+  | 'socks'
+  | 'http'
 
 export interface ManagedProxyNodeSummary {
   id: string
@@ -19,6 +24,7 @@ export interface ManagedProxyNodeSummary {
   username: string | null
   hasPassword: boolean
   passwordPreview: string | null
+  vlessFlow: string | null
   tlsServerName: string | null
   tlsInsecure: boolean
   description: string | null
@@ -37,6 +43,8 @@ export interface CliProxyNodeConfig {
   serverPort: number
   username?: string
   password?: string
+  uuid?: string
+  vlessFlow?: string
   tls?: {
     enabled: true
     serverName?: string
@@ -52,6 +60,7 @@ export interface CreateProxyNodeInput {
   serverPort: number
   username?: string | null
   password?: string | null
+  vlessFlow?: string | null
   tlsServerName?: string | null
   tlsInsecure?: boolean
   description?: string | null
@@ -85,11 +94,17 @@ function normalizeTag(value: string): string {
 }
 
 function normalizeProtocol(value: unknown): ProxyNodeProtocol {
-  if (value === 'hysteria2' || value === 'socks' || value === 'http') {
+  if (
+    value === 'hysteria2' ||
+    value === 'trojan' ||
+    value === 'vless' ||
+    value === 'socks' ||
+    value === 'http'
+  ) {
     return value
   }
 
-  throw new Error('protocol must be hysteria2, socks, or http')
+  throw new Error('protocol must be hysteria2, trojan, vless, socks, or http')
 }
 
 function normalizeServerPort(value: number): number {
@@ -98,6 +113,53 @@ function normalizeServerPort(value: number): number {
   }
 
   return value
+}
+
+function normalizeVlessFlow(value: string | null | undefined): string | null {
+  const normalized = normalizeOptionalText(value)
+  if (!normalized) {
+    return null
+  }
+
+  if (normalized !== 'xtls-rprx-vision') {
+    throw new Error('vlessFlow must be xtls-rprx-vision or empty')
+  }
+
+  return normalized
+}
+
+function validateVlessUuid(value: string | null): void {
+  if (!value) {
+    throw new Error('uuid is required for vless proxy nodes')
+  }
+
+  if (!isValidUuid(value)) {
+    throw new Error('uuid must be a valid UUID')
+  }
+}
+
+function validateProtocolCredentials(input: {
+  protocol: ProxyNodeProtocol
+  username: string | null
+  passwordCiphertext: string | null | undefined
+}): void {
+  if (input.protocol === 'vless') {
+    validateVlessUuid(input.username)
+  }
+
+  if (input.protocol === 'trojan' && !input.passwordCiphertext) {
+    throw new Error('password is required for trojan proxy nodes')
+  }
+}
+
+function shouldKeepUsername(protocol: ProxyNodeProtocol): boolean {
+  return protocol !== 'hysteria2' && protocol !== 'trojan'
+}
+
+function isValidUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  )
 }
 
 function createPasswordPreview(password: string): string {
@@ -146,6 +208,7 @@ function toSummary(row: ProxyNodeRow): ManagedProxyNodeSummary {
     username: row.username,
     hasPassword: Boolean(row.passwordCiphertext),
     passwordPreview: row.passwordPreview,
+    vlessFlow: row.vlessFlow,
     tlsServerName: row.tlsServerName,
     tlsInsecure: row.tlsInsecure,
     description: row.description,
@@ -160,6 +223,10 @@ function toCliConfig(row: ProxyNodeRow): CliProxyNodeConfig {
   const password = row.passwordCiphertext
     ? decryptSecret(row.passwordCiphertext, 'decrypt proxy node password')
     : undefined
+  const tlsEnabled =
+    row.protocol === 'hysteria2' ||
+    row.protocol === 'trojan' ||
+    row.protocol === 'vless'
 
   return {
     id: row.id,
@@ -168,9 +235,16 @@ function toCliConfig(row: ProxyNodeRow): CliProxyNodeConfig {
     protocol: row.protocol,
     server: row.server,
     serverPort: row.serverPort,
-    ...(row.username ? { username: row.username } : {}),
-    ...(password ? { password } : {}),
-    ...(row.protocol === 'hysteria2'
+    ...(row.protocol === 'vless' && row.username
+      ? { uuid: row.username }
+      : row.username
+        ? { username: row.username }
+        : {}),
+    ...(row.protocol !== 'vless' && password ? { password } : {}),
+    ...(row.protocol === 'vless' && row.vlessFlow
+      ? { vlessFlow: row.vlessFlow }
+      : {}),
+    ...(tlsEnabled
       ? {
           tls: {
             enabled: true as const,
@@ -229,8 +303,16 @@ export async function createProxyNode(
   const protocol = normalizeProtocol(input.protocol || 'hysteria2')
   const server = normalizeRequiredText(input.server, 'server')
   const serverPort = normalizeServerPort(input.serverPort)
+  const username = normalizeOptionalText(input.username)
   const passwordUpdate = buildPasswordUpdate(input.password)
+  const vlessFlow = normalizeVlessFlow(input.vlessFlow)
   const now = new Date()
+
+  validateProtocolCredentials({
+    protocol,
+    username,
+    passwordCiphertext: passwordUpdate?.passwordCiphertext,
+  })
 
   const duplicate = await getDb().query.proxyNodes.findFirst({
     where: eq(proxyNodes.name, name),
@@ -248,9 +330,14 @@ export async function createProxyNode(
       protocol,
       server,
       serverPort,
-      username: normalizeOptionalText(input.username),
-      passwordCiphertext: passwordUpdate?.passwordCiphertext ?? null,
-      passwordPreview: passwordUpdate?.passwordPreview ?? null,
+      username: shouldKeepUsername(protocol) ? username : null,
+      passwordCiphertext:
+        protocol === 'vless'
+          ? null
+          : (passwordUpdate?.passwordCiphertext ?? null),
+      passwordPreview:
+        protocol === 'vless' ? null : (passwordUpdate?.passwordPreview ?? null),
+      vlessFlow: protocol === 'vless' ? vlessFlow : null,
       tlsServerName: normalizeOptionalText(input.tlsServerName),
       tlsInsecure: input.tlsInsecure ?? false,
       description: normalizeOptionalText(input.description),
@@ -274,6 +361,10 @@ export async function updateProxyNode(
 ): Promise<ManagedProxyNodeSummary> {
   const existing = await getProxyNodeRowById(id)
   const passwordUpdate = buildPasswordUpdate(input.password)
+  const nextProtocol =
+    input.protocol !== undefined
+      ? normalizeProtocol(input.protocol)
+      : existing.protocol
   const nextName =
     input.name !== undefined
       ? normalizeRequiredText(input.name, 'name')
@@ -288,15 +379,32 @@ export async function updateProxyNode(
     }
   }
 
+  const nextUsername =
+    input.username !== undefined
+      ? normalizeOptionalText(input.username)
+      : existing.username
+  const nextVlessFlow =
+    input.vlessFlow !== undefined
+      ? normalizeVlessFlow(input.vlessFlow)
+      : existing.vlessFlow
+  const nextPasswordCiphertext =
+    nextProtocol === 'vless'
+      ? null
+      : (passwordUpdate?.passwordCiphertext ??
+        (passwordUpdate ? null : existing.passwordCiphertext))
+
+  validateProtocolCredentials({
+    protocol: nextProtocol,
+    username: nextUsername,
+    passwordCiphertext: nextPasswordCiphertext,
+  })
+
   const [row] = await getDb()
     .update(proxyNodes)
     .set({
       name: nextName,
       tag: input.tag !== undefined ? normalizeTag(input.tag) : existing.tag,
-      protocol:
-        input.protocol !== undefined
-          ? normalizeProtocol(input.protocol)
-          : existing.protocol,
+      protocol: nextProtocol,
       server:
         input.server !== undefined
           ? normalizeRequiredText(input.server, 'server')
@@ -305,11 +413,14 @@ export async function updateProxyNode(
         input.serverPort !== undefined
           ? normalizeServerPort(input.serverPort)
           : existing.serverPort,
-      username:
-        input.username !== undefined
-          ? normalizeOptionalText(input.username)
-          : existing.username,
-      ...passwordUpdate,
+      username: shouldKeepUsername(nextProtocol) ? nextUsername : null,
+      ...(nextProtocol === 'vless'
+        ? {
+            passwordCiphertext: null,
+            passwordPreview: null,
+          }
+        : (passwordUpdate ?? {})),
+      vlessFlow: nextProtocol === 'vless' ? nextVlessFlow : null,
       tlsServerName:
         input.tlsServerName !== undefined
           ? normalizeOptionalText(input.tlsServerName)

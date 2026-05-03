@@ -101,8 +101,8 @@ enabling the system proxy, so parallel flows can switch upstream tags without
 affecting one another. `CODEY_SINGBOX_MIXED_PORT` is the preferred first port;
 additional concurrent flows reserve another local port automatically. Set
 `CODEY_SINGBOX_EXECUTABLE` only when you want to force a specific local binary.
-The current managed path is optimized for hysteria2 nodes whose shared settings
-are identical except for IP/server. Optional tuning:
+The managed sing-box path supports hysteria2, trojan, and vless nodes. Optional
+tuning:
 
 ```env
 CODEY_SINGBOX_ENABLED=true

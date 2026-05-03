@@ -1,7 +1,12 @@
 import type { CliNotificationsAuthState } from './device-login'
 import { ensureJson, resolveAppUrl } from './http'
 
-export type CodeyProxyNodeProtocol = 'hysteria2' | 'socks' | 'http'
+export type CodeyProxyNodeProtocol =
+  | 'hysteria2'
+  | 'trojan'
+  | 'vless'
+  | 'socks'
+  | 'http'
 
 export interface CodeyProxyNode {
   id: string
@@ -12,6 +17,8 @@ export interface CodeyProxyNode {
   serverPort: number
   username?: string
   password?: string
+  uuid?: string
+  vlessFlow?: string
   tls?: {
     enabled: true
     serverName?: string

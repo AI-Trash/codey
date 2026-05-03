@@ -117,6 +117,77 @@ describe('managed sing-box auto install', () => {
     expect(outbound).not.toHaveProperty('username')
   })
 
+  it('emits trojan outbound fields', () => {
+    const { config } = buildSingBoxConfigForTest({
+      host: '127.0.0.1',
+      port: 2080,
+      nodes: [
+        {
+          id: 'node-1',
+          name: 'Trojan 1',
+          tag: 'japan',
+          protocol: 'trojan',
+          server: '203.0.113.2',
+          serverPort: 443,
+          password: 'trojan-password',
+          tls: {
+            enabled: true,
+            serverName: 'trojan.example.test',
+            insecure: true,
+          },
+        },
+      ],
+    })
+
+    const outbound = config.outbounds.find((entry) => entry.type === 'trojan')
+
+    expect(outbound).toMatchObject({
+      type: 'trojan',
+      password: 'trojan-password',
+      tls: {
+        enabled: true,
+        server_name: 'trojan.example.test',
+        insecure: true,
+      },
+    })
+  })
+
+  it('emits vless outbound fields', () => {
+    const { config } = buildSingBoxConfigForTest({
+      host: '127.0.0.1',
+      port: 2080,
+      nodes: [
+        {
+          id: 'node-1',
+          name: 'VLESS 1',
+          tag: 'singapore',
+          protocol: 'vless',
+          server: '203.0.113.3',
+          serverPort: 443,
+          uuid: '11111111-1111-4111-8111-111111111111',
+          vlessFlow: 'xtls-rprx-vision',
+          tls: {
+            enabled: true,
+            serverName: 'vless.example.test',
+          },
+        },
+      ],
+    })
+
+    const outbound = config.outbounds.find((entry) => entry.type === 'vless')
+
+    expect(outbound).toMatchObject({
+      type: 'vless',
+      uuid: '11111111-1111-4111-8111-111111111111',
+      flow: 'xtls-rprx-vision',
+      tls: {
+        enabled: true,
+        server_name: 'vless.example.test',
+      },
+    })
+    expect(outbound).not.toHaveProperty('password')
+  })
+
   it('selects state proxy configs through the current flow runtime', async () => {
     const runtime = {
       runtimeId: 'flow-1',

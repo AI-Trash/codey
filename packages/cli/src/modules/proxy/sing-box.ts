@@ -27,7 +27,10 @@ interface SingBoxOutbound {
   tag: string
   server?: string
   server_port?: number
+  username?: string
   password?: string
+  uuid?: string
+  flow?: string
   tls?: {
     enabled: boolean
     server_name?: string
@@ -178,7 +181,15 @@ function shouldStartSingBox(config: CliRuntimeConfig): boolean {
 }
 
 function hasUsableProxyNodes(nodes: CodeyProxyNode[]): boolean {
-  return nodes.some((node) => node.protocol === 'hysteria2')
+  return nodes.some((node) => isManagedSingBoxProtocol(node.protocol))
+}
+
+function isManagedSingBoxProtocol(
+  protocol: CodeyProxyNode['protocol'],
+): boolean {
+  return (
+    protocol === 'hysteria2' || protocol === 'trojan' || protocol === 'vless'
+  )
 }
 
 function findMatchingProxyNode(
@@ -212,21 +223,45 @@ function toSingBoxOutbound(
   node: CodeyProxyNode,
   outboundTag: string,
 ): SingBoxOutbound {
-  if (node.protocol !== 'hysteria2') {
+  if (!isManagedSingBoxProtocol(node.protocol)) {
     throw new Error(`sing-box managed proxy does not support ${node.protocol}`)
   }
 
-  return {
-    type: 'hysteria2',
+  const baseOutbound: SingBoxOutbound = {
+    type: node.protocol,
     tag: outboundTag,
     server: node.server,
     server_port: node.serverPort,
-    ...(node.password ? { password: node.password } : {}),
     tls: {
       enabled: true,
       ...(node.tls?.serverName ? { server_name: node.tls.serverName } : {}),
       ...(node.tls?.insecure ? { insecure: true } : {}),
     },
+  }
+
+  if (node.protocol === 'vless') {
+    if (!node.uuid) {
+      throw new Error(
+        `vless proxy node ${node.name || node.id} is missing uuid`,
+      )
+    }
+
+    return {
+      ...baseOutbound,
+      uuid: node.uuid,
+      ...(node.vlessFlow ? { flow: node.vlessFlow } : {}),
+    }
+  }
+
+  if (node.protocol === 'trojan' && !node.password) {
+    throw new Error(
+      `trojan proxy node ${node.name || node.id} is missing password`,
+    )
+  }
+
+  return {
+    ...baseOutbound,
+    ...(node.password ? { password: node.password } : {}),
   }
 }
 
@@ -822,7 +857,9 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
     this.nodes = nodes.map(normalizeNodeTag)
     if (!hasUsableProxyNodes(this.nodes)) {
       await this.stop()
-      throw new Error('No enabled hysteria2 proxy nodes are available')
+      throw new Error(
+        'No enabled hysteria2, trojan, or vless proxy nodes are available',
+      )
     }
 
     await this.restart(this.selectedTag || undefined)
@@ -920,7 +957,7 @@ export async function startCodeySingBoxProxy(input: {
 
   const nodes = input.nodes
     .map(normalizeNodeTag)
-    .filter((node) => node.protocol === 'hysteria2')
+    .filter((node) => isManagedSingBoxProtocol(node.protocol))
   if (!hasUsableProxyNodes(nodes)) {
     return undefined
   }
@@ -949,7 +986,7 @@ export async function startCodeySingBoxFlowProxy(input: {
 
   const nodes = input.nodes
     .map(normalizeNodeTag)
-    .filter((node) => node.protocol === 'hysteria2')
+    .filter((node) => isManagedSingBoxProtocol(node.protocol))
   if (!hasUsableProxyNodes(nodes)) {
     return undefined
   }

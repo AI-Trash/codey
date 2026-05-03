@@ -277,13 +277,13 @@ function buildFlowTaskCompletionResult(
       ? result
       : flowId === 'chatgpt-team-trial-gopay'
         ? result
-      : flowId === 'chatgpt-register'
-        ? isRecord(result.trial)
-          ? result.trial
-          : isRecord(result.teamTrial)
-            ? result.teamTrial
-            : null
-        : null
+        : flowId === 'chatgpt-register'
+          ? isRecord(result.trial)
+            ? result.trial
+            : isRecord(result.teamTrial)
+              ? result.teamTrial
+              : null
+          : null
   if (!trialResult) {
     return undefined
   }
@@ -611,13 +611,20 @@ async function runRemoteWorker(
         try {
           proxyNodes = await fetchCodeyProxyNodes({ authState })
           proxyNodesLoaded = true
-          if (proxyNodes.some((node) => node.protocol === 'hysteria2')) {
+          if (
+            proxyNodes.some(
+              (node) =>
+                node.protocol === 'hysteria2' ||
+                node.protocol === 'trojan' ||
+                node.protocol === 'vless',
+            )
+          ) {
             writeCliStderrLine(
               `[cli:singbox] Loaded ${proxyNodes.length} proxy node(s); flow tasks will use isolated mixed proxy instances.`,
             )
           } else if (proxyNodes.length) {
             writeCliStderrLine(
-              `[cli:singbox] No usable hysteria2 proxy node found in ${proxyNodes.length} configured node(s).`,
+              `[cli:singbox] No usable hysteria2, trojan, or vless proxy node found in ${proxyNodes.length} configured node(s).`,
             )
           }
           logCliEvent('info', 'singbox.proxy_nodes.loaded', {

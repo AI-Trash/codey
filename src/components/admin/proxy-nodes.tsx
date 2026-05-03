@@ -26,7 +26,12 @@ import { EmptyState, formatAdminDate } from '#/components/admin/layout'
 import { getToastErrorDescription, showAppToast } from '#/lib/toast'
 import { m } from '#/paraglide/messages'
 
-export type ProxyNodeProtocol = 'hysteria2' | 'socks' | 'http'
+export type ProxyNodeProtocol =
+  | 'hysteria2'
+  | 'trojan'
+  | 'vless'
+  | 'socks'
+  | 'http'
 
 export type ManagedProxyNode = {
   id: string
@@ -38,6 +43,7 @@ export type ManagedProxyNode = {
   username: string | null
   hasPassword: boolean
   passwordPreview: string | null
+  vlessFlow: string | null
   tlsServerName: string | null
   tlsInsecure: boolean
   description: string | null
@@ -55,6 +61,7 @@ type ProxyNodeFormValues = {
   serverPort: string
   username: string
   password: string
+  vlessFlow: string
   tlsServerName: string
   tlsInsecure: boolean
   description: string
@@ -185,7 +192,12 @@ export function CreateProxyNodeDialog({
         </DialogHeader>
 
         <form className="grid gap-4" onSubmit={handleCreate}>
-          <ProxyNodeForm form={form} onChange={setForm} disabled={creating} />
+          <ProxyNodeForm
+            form={form}
+            onChange={setForm}
+            disabled={creating}
+            requirePassword
+          />
 
           <DialogFooter showCloseButton>
             <Button type="submit" disabled={creating}>
@@ -322,7 +334,12 @@ function ProxyNodeCard({
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <ProxyNodeForm form={form} onChange={setForm} disabled={saving} />
+        <ProxyNodeForm
+          form={form}
+          onChange={setForm}
+          disabled={saving}
+          requirePassword={!node.hasPassword}
+        />
 
         <div className="flex flex-wrap gap-2">
           <Button
@@ -369,9 +386,17 @@ function ProxyNodeForm(props: {
   form: ProxyNodeFormValues
   onChange: (next: ProxyNodeFormValues) => void
   disabled?: boolean
+  requirePassword?: boolean
 }) {
   const { form, onChange } = props
-  const isHysteria2 = form.protocol === 'hysteria2'
+  const supportsUsername =
+    form.protocol !== 'hysteria2' && form.protocol !== 'trojan'
+  const supportsPassword = form.protocol !== 'vless'
+  const supportsTls =
+    form.protocol === 'hysteria2' ||
+    form.protocol === 'trojan' ||
+    form.protocol === 'vless'
+  const isVless = form.protocol === 'vless'
 
   function patch(values: Partial<ProxyNodeFormValues>) {
     onChange({
@@ -413,6 +438,8 @@ function ProxyNodeForm(props: {
             className="w-full"
           >
             <NativeSelectOption value="hysteria2">hysteria2</NativeSelectOption>
+            <NativeSelectOption value="trojan">trojan</NativeSelectOption>
+            <NativeSelectOption value="vless">vless</NativeSelectOption>
             <NativeSelectOption value="socks">socks</NativeSelectOption>
             <NativeSelectOption value="http">http</NativeSelectOption>
           </NativeSelect>
@@ -442,30 +469,70 @@ function ProxyNodeForm(props: {
         </Field>
       </div>
 
-      <div className={isHysteria2 ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-2'}>
-        {!isHysteria2 ? (
-          <Field label={m.proxy_nodes_field_username()}>
+      <div
+        className={
+          supportsUsername && supportsPassword
+            ? 'grid gap-4 lg:grid-cols-2'
+            : 'grid gap-4'
+        }
+      >
+        {supportsUsername ? (
+          <Field
+            label={
+              isVless
+                ? m.proxy_nodes_field_uuid()
+                : m.proxy_nodes_field_username()
+            }
+          >
             <Input
               value={form.username}
               onChange={(event) => patch({ username: event.target.value })}
-              placeholder={m.proxy_nodes_field_username_placeholder()}
+              placeholder={
+                isVless
+                  ? m.proxy_nodes_field_uuid_placeholder()
+                  : m.proxy_nodes_field_username_placeholder()
+              }
+              required={isVless}
               disabled={props.disabled}
             />
           </Field>
         ) : null}
 
-        <Field label={m.proxy_nodes_field_password()}>
-          <Input
-            value={form.password}
-            onChange={(event) => patch({ password: event.target.value })}
-            placeholder={m.proxy_nodes_field_password_placeholder()}
-            type="password"
-            disabled={props.disabled}
-          />
-        </Field>
+        {supportsPassword ? (
+          <Field label={m.proxy_nodes_field_password()}>
+            <Input
+              value={form.password}
+              onChange={(event) => patch({ password: event.target.value })}
+              placeholder={m.proxy_nodes_field_password_placeholder()}
+              type="password"
+              required={Boolean(
+                props.requirePassword && form.protocol === 'trojan',
+              )}
+              disabled={props.disabled}
+            />
+          </Field>
+        ) : null}
       </div>
 
-      {isHysteria2 ? (
+      {isVless ? (
+        <Field label={m.proxy_nodes_field_vless_flow()}>
+          <NativeSelect
+            value={form.vlessFlow}
+            onChange={(event) => patch({ vlessFlow: event.target.value })}
+            disabled={props.disabled}
+            className="w-full"
+          >
+            <NativeSelectOption value="">
+              {m.proxy_nodes_field_vless_flow_none()}
+            </NativeSelectOption>
+            <NativeSelectOption value="xtls-rprx-vision">
+              xtls-rprx-vision
+            </NativeSelectOption>
+          </NativeSelect>
+        </Field>
+      ) : null}
+
+      {supportsTls ? (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
           <Field label={m.proxy_nodes_field_tls_server_name()}>
             <Input
@@ -550,6 +617,7 @@ function toFormValues(node: ManagedProxyNode): ProxyNodeFormValues {
     serverPort: String(node.serverPort),
     username: node.username || '',
     password: '',
+    vlessFlow: node.vlessFlow || '',
     tlsServerName: node.tlsServerName || '',
     tlsInsecure: node.tlsInsecure,
     description: node.description || '',
@@ -566,6 +634,7 @@ function createNewProxyNodeFormValues(): ProxyNodeFormValues {
     serverPort: '443',
     username: '',
     password: '',
+    vlessFlow: '',
     tlsServerName: '',
     tlsInsecure: false,
     description: '',
@@ -584,10 +653,13 @@ function toProxyNodePayload(
     server: form.server,
     serverPort: Number(form.serverPort),
     username:
-      form.protocol === 'hysteria2' ? null : form.username.trim() || null,
+      form.protocol === 'hysteria2' || form.protocol === 'trojan'
+        ? null
+        : form.username.trim() || null,
     ...(includeEmptyPassword || form.password.trim()
       ? { password: form.password.trim() || null }
       : {}),
+    vlessFlow: form.protocol === 'vless' ? form.vlessFlow.trim() || null : null,
     tlsServerName: form.tlsServerName.trim() || null,
     tlsInsecure: form.tlsInsecure,
     description: form.description.trim() || null,

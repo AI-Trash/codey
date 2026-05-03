@@ -17,6 +17,7 @@ interface CreateProxyNodeBody {
   serverPort?: number | string
   username?: string | null
   password?: string | null
+  vlessFlow?: string | null
   tlsServerName?: string | null
   tlsInsecure?: boolean
   description?: string | null
@@ -79,6 +80,10 @@ export const Route = createFileRoute('/api/admin/proxy-nodes')({
             password:
               typeof body.password === 'string' || body.password === null
                 ? body.password
+                : undefined,
+            vlessFlow:
+              typeof body.vlessFlow === 'string' || body.vlessFlow === null
+                ? body.vlessFlow
                 : undefined,
             tlsServerName:
               typeof body.tlsServerName === 'string' ||

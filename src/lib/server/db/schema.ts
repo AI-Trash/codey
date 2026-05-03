@@ -877,7 +877,7 @@ export const proxyNodes = pgTable(
     name: text('name').notNull(),
     tag: text('tag').notNull(),
     protocol: text('protocol')
-      .$type<'hysteria2' | 'socks' | 'http'>()
+      .$type<'hysteria2' | 'trojan' | 'vless' | 'socks' | 'http'>()
       .default('hysteria2')
       .notNull(),
     server: text('server').notNull(),
@@ -885,6 +885,7 @@ export const proxyNodes = pgTable(
     username: text('username'),
     passwordCiphertext: text('password_ciphertext'),
     passwordPreview: text('password_preview'),
+    vlessFlow: text('vless_flow'),
     tlsServerName: text('tls_server_name'),
     tlsInsecure: boolean('tls_insecure').default(false).notNull(),
     description: text('description'),
