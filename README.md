@@ -94,12 +94,14 @@ proxy env var is present. Set `CODEY_USE_SYSTEM_PROXY=false` to disable that
 fallback.
 
 Managed proxy nodes are available in the admin console at `/admin/proxy-nodes`.
-When the remote worker starts, it fetches enabled nodes from Codey Web and, if
-needed, downloads the matching sing-box release into `.codey/sing-box/bin/`.
-Each browser flow gets its own local mixed inbound for browser traffic without
-enabling the system proxy, so parallel flows can switch upstream tags without
-affecting one another. `CODEY_SINGBOX_MIXED_PORT` is the preferred first port;
-additional concurrent flows reserve another local port automatically. Set
+Browser flows use the local system or explicit proxy by default. A flow can set
+`--proxyTag <tag>` (or the matching Codey Web dispatch field) to override that
+default with one managed node. In that case Codey fetches enabled nodes from
+Codey Web and, if needed, downloads the matching sing-box release into
+`.codey/sing-box/bin/`. The flow gets its own local mixed inbound for browser
+traffic without changing the system proxy, so parallel flows can choose
+different tags independently. `CODEY_SINGBOX_MIXED_PORT` is the preferred first
+port; additional concurrent flows reserve another local port automatically. Set
 `CODEY_SINGBOX_EXECUTABLE` only when you want to force a specific local binary.
 The managed sing-box path supports hysteria2, trojan, and vless nodes. Optional
 tuning:
@@ -111,7 +113,6 @@ CODEY_SINGBOX_VERSION=1.13.11
 CODEY_SINGBOX_EXECUTABLE=
 CODEY_SINGBOX_MIXED_HOST=127.0.0.1
 CODEY_SINGBOX_MIXED_PORT=2080
-CODEY_SINGBOX_DEFAULT_TAG=japan
 ```
 
 Verification mail domains are now managed in the admin console at `/admin/domains` and stored in Postgres. App-backed CLI registrations now randomly pick one enabled domain for each reserved mailbox instead of binding a domain to the OAuth client. `VERIFICATION_EMAIL_PREFIX` is optional and, when set, is prepended before the generated memorable mailbox name.
@@ -211,14 +212,12 @@ Pass `--chromeDefaultProfile true` when you want a flow to start from your local
 
 GoPay trial checkout is split into two Codey tasks. `chatgpt-register --claimTrial gopay` and `chatgpt-team-trial --claimTrial gopay` stop as soon as they capture the Midtrans GoPay payment link, report that link back to Codey Web, and finish like the PayPal handoff. Codey Web then queues `chatgpt-team-trial-gopay` with the captured `--paymentRedirectUrl` to continue the GoPay authorization/payment step. For the continuation task, set `CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER`; `CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE` is optional when the Midtrans page already shows the right country code. GoPay continuation flows start an Appium companion that opens GoPay Linked apps and clicks `Unlink` -> `Unlink` before the browser opens the GoPay authorization link; set `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK=false` to skip it, or `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS` to tune the wait. After submitting the phone number, the flow clicks the GoPay authorization/confirmation page when it appears. If the authorization page asks for a WhatsApp OTP, the flow polls Codey app WhatsApp notification ingest and fills the latest 6-digit code received after the GoPay authorization page opens. If `CHATGPT_TEAM_TRIAL_GOPAY_PIN` is omitted, the flow opens the GoPay authorization page and waits for manual PIN completion until `CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS` (default 180000 ms).
 
-For managed sing-box proxy runs, GoPay checkout states declare their required
-proxy tag. The flow selects `japan` before creating the ChatGPT checkout link,
-then switches to `singapore` before opening and submitting the checkout. States
-without a proxy declaration keep the flow's current proxy, and repeated states
-with the same tag do not restart sing-box. The built-in default
-billing address is now a Faker-generated random Singapore address, and can
-still be overridden with the billing flags or
-`CHATGPT_TEAM_TRIAL_BILLING_*` environment variables.
+GoPay trial checkout uses the same proxy selection model as other browser
+flows: by default it uses the local system or explicit proxy, and `--proxyTag`
+can select one Codey-managed proxy node for the whole flow. The built-in default
+billing address is now a Faker-generated random Singapore address, and can still
+be overridden with the billing flags or `CHATGPT_TEAM_TRIAL_BILLING_*`
+environment variables.
 
 Pass `--recordPageContent true` on any flow to save the final settled `page.content()` HTML under `artifacts/` as a `*-page-content.html` file. This is intended for developing new page branches after upstream UI changes.
 

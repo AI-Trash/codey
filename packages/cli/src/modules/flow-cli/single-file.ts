@@ -26,6 +26,13 @@ import {
   writeCliStderrLine,
 } from '../../utils/cli-output'
 import { resolveWorkspaceRoot } from '../../utils/workspace-root'
+import { resolveCliNotificationsAuthState } from '../app-auth/device-login'
+import { fetchCodeyProxyNodes } from '../app-auth/proxy-nodes'
+import {
+  normalizeCodeySingBoxProxyTag,
+  startCodeySingBoxFlowProxy,
+  type CodeySingBoxProxyRuntime,
+} from '../proxy/sing-box'
 
 export interface SingleFileFlowDefinition<
   TOptions extends FlowOptions = FlowOptions,
@@ -54,7 +61,7 @@ export async function runSingleFileFlow<
       resolvedOptions.progressReporter ||
       createConsoleFlowProgressReporter(definition.command),
   } as TOptions
-  prepareRuntimeConfig(definition.command, resolvedOptions)
+  const config = prepareRuntimeConfig(definition.command, resolvedOptions)
   return withObservabilityContext(
     {
       command: definition.command,
@@ -90,28 +97,52 @@ export async function runSingleFileFlow<
             message: 'Flow started',
             startedAt,
           })
-          await runWithSession(
-            {
-              artifactName: definition.command,
-              context: {},
-              storageStatePath:
-                preparedStorageState?.storageState?.storageStatePath,
-            },
-            async (session) => {
-              browserHarPath = session.harPath
-              result = await definition.run(session.page, flowOptions)
-            },
-            {
-              closeOnComplete: !shouldKeepFlowOpen(flowOptions),
-              pageContent: {
-                enabled: shouldRecordPageContent(flowOptions),
+          let flowSingBoxProxy: CodeySingBoxProxyRuntime | undefined
+          try {
+            const selectedTag = normalizeCodeySingBoxProxyTag(
+              flowOptions.proxyTag,
+            )
+            if (flowId && selectedTag) {
+              const authState = await resolveCliNotificationsAuthState()
+              flowSingBoxProxy = await startCodeySingBoxFlowProxy({
+                config,
+                nodes: await fetchCodeyProxyNodes({ authState }),
+                flowId,
+                selectedTag,
+              })
+              if (!flowSingBoxProxy) {
+                throw new Error(
+                  `Codey proxy tag ${selectedTag} is not available`,
+                )
+              }
+            }
+
+            await runWithSession(
+              {
                 artifactName: definition.command,
-                onPath(path) {
-                  pageContentPath = path
+                context: {},
+                storageStatePath:
+                  preparedStorageState?.storageState?.storageStatePath,
+              },
+              async (session) => {
+                browserHarPath = session.harPath
+                result = await definition.run(session.page, flowOptions)
+              },
+              {
+                closeOnComplete: !shouldKeepFlowOpen(flowOptions),
+                singBoxProxy: flowSingBoxProxy,
+                pageContent: {
+                  enabled: shouldRecordPageContent(flowOptions),
+                  artifactName: definition.command,
+                  onPath(path) {
+                    pageContentPath = path
+                  },
                 },
               },
-            },
-          )
+            )
+          } finally {
+            await flowSingBoxProxy?.stop()
+          }
           result = attachFlowArtifactPaths(result, {
             harPath: browserHarPath,
             pageContentPath,

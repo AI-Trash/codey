@@ -130,6 +130,7 @@ export function normalizeCommonCliArgs(
     config: normalizeString(input.config),
     profile: normalizeString(input.profile),
     chromeDefaultProfile: normalizeBoolean(input.chromeDefaultProfile),
+    proxyTag: normalizeString(input.proxyTag),
     headless: normalizeBoolean(input.headless),
     slowMo: normalizeNumber(input.slowMo),
     har: normalizeBoolean(input.har),

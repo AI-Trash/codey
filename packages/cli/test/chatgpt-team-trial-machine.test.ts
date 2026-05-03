@@ -137,21 +137,12 @@ describe('chatgpt team trial machine', () => {
     })
   })
 
-  it('declares GoPay proxy requirements on state definitions', () => {
+  it('does not declare hardcoded GoPay proxy requirements on state definitions', () => {
     expect(
       chatgptTeamTrialStates['creating-checkout'].meta?.proxy,
-    ).toMatchObject({
-      label: 'japan',
-      tags: ['japan', '日本', 'jp'],
-    })
-    expect(chatgptTeamTrialStates['checkout-ready'].meta?.proxy).toMatchObject({
-      label: 'singapore',
-      tags: ['singapore', '新加坡', 'sg'],
-    })
-    expect(chatgptTeamTrialStates['gopay-linking'].meta?.proxy).toMatchObject({
-      label: 'singapore',
-      tags: ['singapore', '新加坡', 'sg'],
-    })
+    ).toBeUndefined()
+    expect(chatgptTeamTrialStates['checkout-ready'].meta?.proxy).toBeUndefined()
+    expect(chatgptTeamTrialStates['gopay-linking'].meta?.proxy).toBeUndefined()
     expect(getChatGPTTeamTrialStateProxyConfig('home-ready')).toBeUndefined()
   })
 

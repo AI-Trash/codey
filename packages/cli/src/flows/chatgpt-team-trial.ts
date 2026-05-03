@@ -150,17 +150,6 @@ export function createChatGPTTeamTrialSingaporeBillingAddress(): ChatGPTTeamTria
   }
 }
 
-export const CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS = [
-  'japan',
-  '日本',
-  'jp',
-]
-export const CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS = [
-  'singapore',
-  '新加坡',
-  'sg',
-]
-
 export type ChatGPTTeamTrialFlowKind = 'chatgpt-team-trial'
 
 export type ChatGPTTeamTrialFlowState =
@@ -440,11 +429,6 @@ function defineChatGPTTeamTrialStates<
   return states
 }
 
-const chatgptTeamTrialPaymentProxyConfig = {
-  label: 'singapore',
-  tags: CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS,
-} as const satisfies CodeySingBoxStateProxyConfig
-
 export const chatgptTeamTrialStates = defineChatGPTTeamTrialStates({
   idle: {},
   'logging-in': {},
@@ -453,41 +437,18 @@ export const chatgptTeamTrialStates = defineChatGPTTeamTrialStates({
   'pricing-ready': {},
   'claiming-trial': {},
   'trial-claimed': {},
-  'creating-checkout': {
-    meta: {
-      proxy: {
-        label: 'japan',
-        tags: CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS,
-      },
-    },
-  },
-  'checkout-ready': { meta: { proxy: chatgptTeamTrialPaymentProxyConfig } },
-  'selecting-paypal-payment-method': {
-    meta: { proxy: chatgptTeamTrialPaymentProxyConfig },
-  },
-  'paypal-payment-method-selected': {
-    meta: { proxy: chatgptTeamTrialPaymentProxyConfig },
-  },
-  'filling-billing-address': {
-    meta: { proxy: chatgptTeamTrialPaymentProxyConfig },
-  },
-  'billing-address-filled': {
-    meta: { proxy: chatgptTeamTrialPaymentProxyConfig },
-  },
-  subscribing: {
-    meta: { proxy: chatgptTeamTrialPaymentProxyConfig },
-  },
-  'paypal-link-captured': {
-    meta: { proxy: chatgptTeamTrialPaymentProxyConfig },
-  },
-  'gopay-linking': { meta: { proxy: chatgptTeamTrialPaymentProxyConfig } },
-  'gopay-authorizing': { meta: { proxy: chatgptTeamTrialPaymentProxyConfig } },
-  'gopay-payment-ready': {
-    meta: { proxy: chatgptTeamTrialPaymentProxyConfig },
-  },
-  'gopay-payment-submitted': {
-    meta: { proxy: chatgptTeamTrialPaymentProxyConfig },
-  },
+  'creating-checkout': {},
+  'checkout-ready': {},
+  'selecting-paypal-payment-method': {},
+  'paypal-payment-method-selected': {},
+  'filling-billing-address': {},
+  'billing-address-filled': {},
+  subscribing: {},
+  'paypal-link-captured': {},
+  'gopay-linking': {},
+  'gopay-authorizing': {},
+  'gopay-payment-ready': {},
+  'gopay-payment-submitted': {},
   retrying: {},
   completed: {},
   failed: {},
@@ -870,58 +831,6 @@ function formatTrialPaymentMethod(
   return paymentMethod === 'gopay' ? 'GoPay' : 'PayPal'
 }
 
-export async function selectGoPayProxyTag<Result>(
-  tags: readonly string[],
-  label: string,
-  input: {
-    options: FlowOptions
-    machine?: ChatGPTTeamTrialFlowMachine<Result>
-    patch?: Partial<ChatGPTTeamTrialFlowContext<Result>>
-  },
-): Promise<boolean> {
-  const proxyConfig = {
-    label,
-    tags,
-  } satisfies CodeySingBoxStateProxyConfig
-  input.options.progressReporter?.({
-    message: `Selecting Codey proxy tag ${label}`,
-  })
-  if (input.machine) {
-    await patchTeamTrialMachine(input.machine, 'chatgpt.proxy.selecting', {
-      ...input.patch,
-      proxyTag: label,
-      lastMessage: `Selecting Codey proxy tag ${label}`,
-    })
-  }
-
-  const result = await selectCodeySingBoxProxyConfig(proxyConfig)
-  const proxyTag = result.selectedTag || label
-  const unavailableMessage =
-    result.unavailableMessage || `Codey proxy tag ${label} is not available`
-  const selectedMessage = result.changed
-    ? `Codey proxy tag ${proxyTag} selected`
-    : `Codey proxy tag ${proxyTag} already selected`
-
-  if (input.machine) {
-    await patchTeamTrialMachine(
-      input.machine,
-      result.selected ? 'chatgpt.proxy.selected' : 'chatgpt.proxy.unavailable',
-      {
-        ...input.patch,
-        proxyTag,
-        proxySelectionStatus: result.selected ? 'selected' : 'unavailable',
-        lastMessage: result.selected ? selectedMessage : unavailableMessage,
-      },
-    )
-  }
-
-  input.options.progressReporter?.({
-    message: result.selected ? selectedMessage : unavailableMessage,
-  })
-
-  return result.selected
-}
-
 export function resolveChatGPTTeamTrialPaymentMethod(
   options: FlowOptions = {},
 ): ChatGPTTrialPaymentMethod {
@@ -1179,23 +1088,6 @@ async function openDirectGoPayTrialCheckout<Result>(
       lastMessage: `Creating ChatGPT ${context.plan} trial checkout link directly`,
     })
   }
-
-  await selectGoPayProxyTag(
-    CHATGPT_TEAM_TRIAL_GOPAY_PAYMENT_PROXY_TAGS,
-    'singapore',
-    {
-      options: context.options,
-      machine: context.machine,
-      patch: {
-        email: context.email,
-        coupon: context.coupon,
-        trialPlan: context.plan,
-        paymentMethod: context.paymentMethod,
-        couponState: context.couponState,
-        url: page.url(),
-      },
-    },
-  )
 
   const checkout = await createChatGPTTrialCheckoutLink(page, context.coupon, {
     paymentMethod: context.paymentMethod,

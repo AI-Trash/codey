@@ -91,11 +91,14 @@ describe('flow cli helpers', () => {
       parseFlowCliArgsForCommand('chatgpt-register', [
         '--claimTrial',
         'true',
+        '--proxyTag',
+        'singapore',
         '--billingCountry',
         'NL',
       ]),
     ).toMatchObject({
       claimTrial: 'gopay',
+      proxyTag: 'singapore',
       billingCountry: 'NL',
     })
   })

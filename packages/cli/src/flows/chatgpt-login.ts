@@ -30,7 +30,6 @@ import type {
 import {
   CHATGPT_ENTRY_LOGIN_URL,
   CHATGPT_HOME_URL,
-  type ChatGPTPostLoginCompletionSurface,
   type ChatGPTPostEmailLoginStep,
   logStep,
   waitForAuthenticatedSession,

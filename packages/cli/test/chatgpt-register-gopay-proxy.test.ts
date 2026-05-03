@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const callOrder: string[] = []
 const createVerificationProvider = vi.fn()
 const gotoLoginEntry = vi.fn()
-const selectCodeySingBoxProxyConfig = vi.fn()
 
 vi.mock('../src/config', () => ({
   getRuntimeConfig: () => ({
@@ -42,10 +40,6 @@ vi.mock('../src/modules/gopay/android-unlink', () => ({
   unlinkGoPayLinkedApps: vi.fn(),
 }))
 
-vi.mock('../src/modules/proxy/sing-box', () => ({
-  selectCodeySingBoxProxyConfig,
-}))
-
 vi.mock('../src/modules/chatgpt/account-deactivation', () => ({
   reportChatGPTAccountDeactivationToCodeyApp: vi.fn(),
 }))
@@ -70,7 +64,6 @@ function createPage() {
 describe('registerChatGPT GoPay proxy selection', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    callOrder.length = 0
 
     createVerificationProvider.mockReturnValue({
       kind: 'app',
@@ -79,26 +72,15 @@ describe('registerChatGPT GoPay proxy selection', () => {
         prefix: 'person',
         mailbox: 'example.com',
       })),
-      primeInbox: vi.fn(async () => {
-        callOrder.push('primeInbox')
-      }),
+      primeInbox: vi.fn(async () => undefined),
       waitForVerificationCode: vi.fn(async () => '123456'),
     })
-    selectCodeySingBoxProxyConfig.mockImplementation(async (config) => {
-      callOrder.push(`proxy:${config.label}`)
-      return {
-        selected: config.label === 'japan',
-        selectedTag: config.label,
-        changed: true,
-      }
-    })
     gotoLoginEntry.mockImplementation(async () => {
-      callOrder.push('gotoLoginEntry')
       throw new Error('stop after entry navigation')
     })
   })
 
-  it('selects the Japan proxy before opening the registration entry for GoPay trials', async () => {
+  it('uses the default runtime proxy before opening the registration entry for GoPay trials', async () => {
     const { registerChatGPT } = await import('../src/flows/chatgpt-register')
 
     await expect(
@@ -107,10 +89,6 @@ describe('registerChatGPT GoPay proxy selection', () => {
       }),
     ).rejects.toThrow('stop after entry navigation')
 
-    expect(selectCodeySingBoxProxyConfig).toHaveBeenCalledWith({
-      label: 'japan',
-      tags: ['japan', '日本', 'jp'],
-    })
-    expect(callOrder).toEqual(['proxy:japan', 'primeInbox', 'gotoLoginEntry'])
+    expect(gotoLoginEntry).toHaveBeenCalled()
   })
 })

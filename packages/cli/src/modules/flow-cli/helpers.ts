@@ -24,6 +24,7 @@ export interface CommonOptions {
   config?: string
   profile?: string
   chromeDefaultProfile?: string | boolean
+  proxyTag?: string
   headless?: string | boolean
   slowMo?: string | number | boolean
   har?: string | boolean

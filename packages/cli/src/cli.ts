@@ -12,6 +12,7 @@ import {
   exchangeDeviceChallenge,
   startDeviceLogin,
   streamCliNotifications,
+  type CliNotificationsAuthState,
 } from './modules/app-auth/device-login'
 import { CliConnectionRuntimeReporter } from './modules/app-auth/cli-connection'
 import {
@@ -104,6 +105,7 @@ import {
 } from './modules/flow-cli/task-scheduler'
 import {
   formatSingBoxProxyStartupError,
+  normalizeCodeySingBoxProxyTag,
   runWithCodeySingBoxProxyRuntime,
   startCodeySingBoxFlowProxy,
   summarizeProxyNodes,
@@ -235,6 +237,39 @@ function formatRuntimeProgressMessage(
   return formatFlowProgressMessage(update)
 }
 
+async function startFlowProxyOverride(input: {
+  config: ReturnType<typeof prepareRuntimeConfig>
+  flowId: CliFlowCommandId
+  options: Pick<FlowOptions, 'proxyTag'>
+  taskId?: string
+  nodes?: CodeyProxyNode[]
+  authState?: CliNotificationsAuthState
+}): Promise<CodeySingBoxProxyRuntime | undefined> {
+  const selectedTag = normalizeCodeySingBoxProxyTag(input.options.proxyTag)
+  if (!selectedTag) {
+    return undefined
+  }
+
+  const nodes =
+    input.nodes ||
+    (await fetchCodeyProxyNodes({
+      authState: input.authState || (await resolveCliNotificationsAuthState()),
+    }))
+  const runtime = await startCodeySingBoxFlowProxy({
+    config: input.config,
+    nodes,
+    flowId: input.flowId,
+    taskId: input.taskId,
+    selectedTag,
+  })
+
+  if (!runtime) {
+    throw new Error(`Codey proxy tag ${selectedTag} is not available`)
+  }
+
+  return runtime
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
@@ -337,70 +372,87 @@ async function executeFlowSubcommand(
   const command = `flow:${subcommand}`
   const startedAt = new Date().toISOString()
   const config = prepareRuntimeConfig(command, resolvedOptions)
-  return runWithCodeySingBoxProxyRuntime(runtime.singBoxProxy, () =>
-    runWithRuntimeConfig(config, () =>
-      withObservabilityContext(
-        {
+  let ownedSingBoxProxy: CodeySingBoxProxyRuntime | undefined
+  try {
+    ownedSingBoxProxy = runtime.singBoxProxy
+      ? undefined
+      : await startFlowProxyOverride({
+          config,
           flowId: subcommand,
-        },
-        () =>
-          traceCliOperation(
-            'flow.execute',
-            {
-              flowId: subcommand,
-              command,
-            },
-            async () => {
-              setObservabilityRuntimeState({
+          options: resolvedOptions,
+        })
+    const flowRuntime = {
+      ...runtime,
+      singBoxProxy: runtime.singBoxProxy || ownedSingBoxProxy,
+    }
+
+    return await runWithCodeySingBoxProxyRuntime(flowRuntime.singBoxProxy, () =>
+      runWithRuntimeConfig(config, () =>
+        withObservabilityContext(
+          {
+            flowId: subcommand,
+          },
+          () =>
+            traceCliOperation(
+              'flow.execute',
+              {
                 flowId: subcommand,
-                status: 'running',
-                message: 'Flow started',
-                startedAt,
-              })
-
-              try {
-                const result = await runFlowCommand(
-                  subcommand,
-                  resolvedOptions,
-                  runtime,
-                )
-                const completedAt = new Date().toISOString()
+                command,
+              },
+              async () => {
                 setObservabilityRuntimeState({
                   flowId: subcommand,
-                  status: 'passed',
-                  message: 'Flow completed',
+                  status: 'running',
+                  message: 'Flow started',
                   startedAt,
-                  completedAt,
                 })
 
-                return buildFlowCommandExecutionResult({
-                  flowId: subcommand,
-                  command,
-                  status: 'passed',
-                  startedAt,
-                  completedAt,
-                  config: redactForOutput(resolvedOptions),
-                  result: redactForOutput(result),
-                  completionResult: buildFlowTaskCompletionResult(
+                try {
+                  const result = await runFlowCommand(
                     subcommand,
-                    result,
-                  ),
-                })
-              } catch (error) {
-                setObservabilityRuntimeState({
-                  flowId: subcommand,
-                  status: 'failed',
-                  message: sanitizeErrorForOutput(error).message,
-                  startedAt,
-                  completedAt: new Date().toISOString(),
-                })
-                throw error
-              }
-            },
-          ),
+                    resolvedOptions,
+                    flowRuntime,
+                  )
+                  const completedAt = new Date().toISOString()
+                  setObservabilityRuntimeState({
+                    flowId: subcommand,
+                    status: 'passed',
+                    message: 'Flow completed',
+                    startedAt,
+                    completedAt,
+                  })
+
+                  return buildFlowCommandExecutionResult({
+                    flowId: subcommand,
+                    command,
+                    status: 'passed',
+                    startedAt,
+                    completedAt,
+                    config: redactForOutput(resolvedOptions),
+                    result: redactForOutput(result),
+                    completionResult: buildFlowTaskCompletionResult(
+                      subcommand,
+                      result,
+                    ),
+                  })
+                } catch (error) {
+                  setObservabilityRuntimeState({
+                    flowId: subcommand,
+                    status: 'failed',
+                    message: sanitizeErrorForOutput(error).message,
+                    startedAt,
+                    completedAt: new Date().toISOString(),
+                  })
+                  throw error
+                }
+              },
+            ),
+        ),
       ),
-    ),
-  )
+    )
+  } finally {
+    await ownedSingBoxProxy?.stop()
+  }
 }
 
 async function executeFlowSubcommandWithReporting(
@@ -620,7 +672,7 @@ async function runRemoteWorker(
             )
           ) {
             writeCliStderrLine(
-              `[cli:singbox] Loaded ${proxyNodes.length} proxy node(s); flow tasks will use isolated mixed proxy instances.`,
+              `[cli:singbox] Loaded ${proxyNodes.length} proxy node(s); flow tasks can opt into isolated mixed proxy instances with --proxyTag.`,
             )
           } else if (proxyNodes.length) {
             writeCliStderrLine(
@@ -844,15 +896,17 @@ async function runRemoteWorker(
                 let flowSingBoxProxy: CodeySingBoxProxyRuntime | undefined
 
                 try {
-                  flowSingBoxProxy = await startCodeySingBoxFlowProxy({
+                  flowSingBoxProxy = await startFlowProxyOverride({
                     config,
-                    nodes: proxyNodes,
                     flowId: task.flowId,
+                    options: task.config,
+                    nodes: proxyNodes,
+                    authState,
                     taskId: task.notificationId,
                   })
                   if (flowSingBoxProxy) {
                     writeCliStderrLine(
-                      `[cli:singbox] Task ${task.notificationId} using ${flowSingBoxProxy.mixedProxy.server}; selected tag ${flowSingBoxProxy.selectedTag || 'default'}.`,
+                      `[cli:singbox] Task ${task.notificationId} using ${flowSingBoxProxy.mixedProxy.server}; selected tag ${flowSingBoxProxy.selectedTag}.`,
                     )
                   }
                   const execution = await executeFlowSubcommand(

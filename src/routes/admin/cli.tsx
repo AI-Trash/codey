@@ -1635,6 +1635,7 @@ const optionDisplayNameMap: Record<
   () => string
 > = {
   chromeDefaultProfile: () => m.admin_cli_option_chrome_default_profile_name(),
+  proxyTag: () => m.admin_cli_option_proxy_tag_name(),
   headless: () => m.admin_cli_option_headless_name(),
   slowMo: () => m.admin_cli_option_slow_mo_name(),
   har: () => m.admin_cli_option_har_name(),
@@ -1681,6 +1682,7 @@ const optionDescriptionMap: Record<
 > = {
   chromeDefaultProfile: () =>
     m.admin_cli_option_chrome_default_profile_description(),
+  proxyTag: () => m.admin_cli_option_proxy_tag_description(),
   headless: () => m.admin_cli_option_headless_description(),
   slowMo: () => m.admin_cli_option_slow_mo_description(),
   har: () => m.admin_cli_option_har_description(),

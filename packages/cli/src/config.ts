@@ -46,7 +46,6 @@ export interface SingBoxProxyConfig {
   mixedHost?: string
   mixedPort?: number
   autoStart?: boolean
-  defaultTag?: string
   configDir?: string
 }
 
@@ -460,8 +459,7 @@ function buildForwarderWebhookConfig(): ForwarderWebhookConfig {
       : true,
     host: process.env.FORWARDER_WEBHOOK_HOST || '127.0.0.1',
     port: parseNumber(process.env.FORWARDER_WEBHOOK_PORT, 3001),
-    path:
-      process.env.FORWARDER_WEBHOOK_PATH || '/webhooks/forwarder/whatsapp',
+    path: process.env.FORWARDER_WEBHOOK_PATH || '/webhooks/forwarder/whatsapp',
     deviceId: process.env.FORWARDER_DEVICE_ID,
   }
 }
@@ -481,7 +479,6 @@ function buildSingBoxProxyConfig(): SingBoxProxyConfig {
     autoStart: hasEnvValue(process.env.CODEY_SINGBOX_AUTO_START)
       ? parseBoolean(process.env.CODEY_SINGBOX_AUTO_START, true)
       : true,
-    defaultTag: process.env.CODEY_SINGBOX_DEFAULT_TAG,
     configDir: process.env.CODEY_SINGBOX_CONFIG_DIR,
   }
 }

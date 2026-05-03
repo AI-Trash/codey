@@ -33,6 +33,7 @@ describe('flow registry', () => {
         flowId: 'chatgpt-register',
         config: {
           claimTrial: 'true',
+          proxyTag: ' Singapore ',
           billingCountry: ' NL ',
           billingPostalCode: ' 1187 ST ',
         },
@@ -42,6 +43,7 @@ describe('flow registry', () => {
       flowId: 'chatgpt-register',
       config: {
         claimTrial: 'gopay',
+        proxyTag: 'Singapore',
         billingCountry: 'NL',
         billingPostalCode: '1187 ST',
       },
@@ -68,6 +70,7 @@ describe('flow registry', () => {
     const flowIds = listCliFlowCommandIds()
     const payload = createCliFlowTaskPayload('chatgpt-team-trial', {
       email: 'person@example.com',
+      proxyTag: 'japan',
       recordPageContent: true,
       restoreStorageState: true,
     })
@@ -105,6 +108,7 @@ describe('flow registry', () => {
           paymentRedirectUrl:
             ' https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking ',
           pollIntervalMs: '5000',
+          proxyTag: ' singapore ',
           email: 'ignored@example.com',
         },
       }),
@@ -115,6 +119,7 @@ describe('flow registry', () => {
         paymentRedirectUrl:
           'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking',
         pollIntervalMs: 5000,
+        proxyTag: 'singapore',
       },
     })
   })
@@ -299,6 +304,7 @@ describe('flow registry', () => {
     ).map((field) => field.key)
     expect(fieldKeys).toContain('appiumServerUrl')
     expect(fieldKeys).toContain('androidUdid')
+    expect(fieldKeys).not.toContain('proxyTag')
     expect(fieldKeys).not.toContain('chromeDefaultProfile')
     expect(fieldKeys).not.toContain('har')
 

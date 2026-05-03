@@ -52,7 +52,6 @@ import {
   type ChatGPTCodexOAuthSurface,
   type ChatGPTPostEmailLoginStep,
   waitForCodexOAuthSurfaceCandidates,
-  waitForPasswordInputReady,
   waitForPostEmailLoginCandidates,
   waitForVerificationCodeInputReady,
 } from '../modules/chatgpt/shared'

@@ -234,6 +234,36 @@ describe('managed sing-box auto install', () => {
       changed: true,
     })
   })
+
+  it('fails flow proxy startup when the requested tag is not available', async () => {
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codey-sing-box-'))
+    const { startCodeySingBoxFlowProxy } =
+      await import('../src/modules/proxy/sing-box')
+
+    await expect(
+      startCodeySingBoxFlowProxy({
+        config: createRuntimeConfig(rootDir, {
+          enabled: true,
+          executable: 'sing-box',
+          autoInstall: false,
+          mixedHost: '127.0.0.1',
+          mixedPort: 2080,
+        }),
+        nodes: [
+          {
+            id: 'node-1',
+            name: 'Japan 1',
+            tag: 'japan',
+            protocol: 'hysteria2',
+            server: '203.0.113.1',
+            serverPort: 443,
+            password: 'shared-password',
+          },
+        ],
+        selectedTag: 'singapore',
+      }),
+    ).rejects.toThrow('No enabled proxy node has tag singapore')
+  })
 })
 
 function createRuntimeConfig(

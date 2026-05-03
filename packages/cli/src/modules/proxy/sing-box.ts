@@ -180,6 +180,12 @@ function shouldStartSingBox(config: CliRuntimeConfig): boolean {
   )
 }
 
+export function normalizeCodeySingBoxProxyTag(
+  value: string | null | undefined,
+): string | undefined {
+  return normalizeTag(value)
+}
+
 function hasUsableProxyNodes(nodes: CodeyProxyNode[]): boolean {
   return nodes.some((node) => isManagedSingBoxProtocol(node.protocol))
 }
@@ -214,6 +220,8 @@ function pickDefaultNode(
     if (preferred) {
       return preferred
     }
+
+    throw new Error(`No enabled proxy node has tag ${preferredTag}`)
   }
 
   return nodes[0] as CodeyProxyNode
@@ -950,6 +958,7 @@ export async function startCodeySingBoxProxy(input: {
   config: CliRuntimeConfig
   nodes: CodeyProxyNode[]
   runtimeId?: string
+  selectedTag?: string | null
 }): Promise<CodeySingBoxProxyRuntime | undefined> {
   if (!shouldStartSingBox(input.config)) {
     return undefined
@@ -966,7 +975,7 @@ export async function startCodeySingBoxProxy(input: {
     runtimeId: input.runtimeId,
     config: input.config,
     nodes,
-    selectedTag: normalizeTag(input.config.singBox?.defaultTag) || null,
+    selectedTag: normalizeTag(input.selectedTag) || null,
   })
   await runtime.start()
   activeRuntime = runtime
@@ -1005,10 +1014,7 @@ export async function startCodeySingBoxFlowProxy(input: {
     runtimeId,
     config: input.config,
     nodes,
-    selectedTag:
-      normalizeTag(input.selectedTag) ||
-      normalizeTag(input.config.singBox?.defaultTag) ||
-      null,
+    selectedTag: normalizeTag(input.selectedTag) || null,
     mixedProxy: await reserveMixedEndpoint(input.config),
   })
   try {

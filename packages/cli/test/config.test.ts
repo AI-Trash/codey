@@ -119,7 +119,6 @@ const singBoxEnvNames = {
   CODEY_SINGBOX_MIXED_HOST: undefined,
   CODEY_SINGBOX_MIXED_PORT: undefined,
   CODEY_SINGBOX_AUTO_START: undefined,
-  CODEY_SINGBOX_DEFAULT_TAG: undefined,
   CODEY_SINGBOX_CONFIG_DIR: undefined,
 }
 
@@ -186,7 +185,6 @@ describe('resolveConfig Android Appium config', () => {
       mixedHost: '127.0.0.1',
       mixedPort: 2080,
       autoStart: true,
-      defaultTag: undefined,
       configDir: undefined,
     })
   })
@@ -202,7 +200,6 @@ describe('resolveConfig Android Appium config', () => {
         CODEY_SINGBOX_MIXED_HOST: '127.0.0.2',
         CODEY_SINGBOX_MIXED_PORT: '2088',
         CODEY_SINGBOX_AUTO_START: 'false',
-        CODEY_SINGBOX_DEFAULT_TAG: 'singapore',
         CODEY_SINGBOX_CONFIG_DIR: 'C:\\tmp\\codey-sing-box',
       },
       () => resolveConfig(),
@@ -216,7 +213,6 @@ describe('resolveConfig Android Appium config', () => {
       mixedHost: '127.0.0.2',
       mixedPort: 2088,
       autoStart: false,
-      defaultTag: 'singapore',
       configDir: 'C:\\tmp\\codey-sing-box',
     })
   })

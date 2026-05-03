@@ -45,6 +45,7 @@ export type CliFlowDescriptionKey =
 
 export type CliFlowConfigFieldDisplayNameKey =
   | 'chromeDefaultProfile'
+  | 'proxyTag'
   | 'headless'
   | 'slowMo'
   | 'har'
@@ -83,6 +84,7 @@ export type CliFlowConfigFieldDisplayNameKey =
 
 export type CliFlowConfigFieldDescriptionKey =
   | 'chromeDefaultProfile'
+  | 'proxyTag'
   | 'headless'
   | 'slowMo'
   | 'har'
@@ -121,6 +123,7 @@ export type CliFlowConfigFieldDescriptionKey =
 
 export type CliFlowConfigFieldKey =
   | 'chromeDefaultProfile'
+  | 'proxyTag'
   | 'headless'
   | 'slowMo'
   | 'har'
@@ -190,6 +193,12 @@ export interface CommonFlowConfig {
    * before launch.
    */
   chromeDefaultProfile?: boolean
+
+  /**
+   * Optional Codey-managed proxy node tag. When omitted, the flow uses the
+   * browser/system proxy from the local runtime config.
+   */
+  proxyTag?: string
 
   /**
    * Run the browser without opening a visible window.
@@ -541,6 +550,15 @@ export const cliFlowCommonConfigFieldDefinitions = [
     type: 'boolean',
     displayNameKey: 'chromeDefaultProfile',
     descriptionKey: 'chromeDefaultProfile',
+    common: true,
+    runtimes: ['browser'],
+  },
+  {
+    key: 'proxyTag',
+    cliFlag: '--proxyTag',
+    type: 'string',
+    displayNameKey: 'proxyTag',
+    descriptionKey: 'proxyTag',
     common: true,
     runtimes: ['browser'],
   },
