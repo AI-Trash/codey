@@ -1,4 +1,5 @@
 import type { Page } from 'patchright'
+import { faker } from '@faker-js/faker'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import {
@@ -77,15 +78,77 @@ import {
 
 export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME = 'Summpot'
 
-export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS = {
-  name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
-  country: 'SG',
-  line1: '32 Penjuru Place',
-  line2: 'Jurong East',
-  city: 'Singapore',
-  state: undefined,
-  postalCode: '608560',
-} as const satisfies ChatGPTTeamTrialBillingAddress
+const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_COUNTRY = 'SG'
+const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_CITY = 'Singapore'
+
+const SINGAPORE_BILLING_ADDRESS_STREETS = [
+  'Alexandra Road',
+  'Beach Road',
+  'Cecil Street',
+  'Clementi Road',
+  'Eu Tong Sen Street',
+  'Geylang Road',
+  'Havelock Road',
+  'Holland Road',
+  'Jalan Besar',
+  'Joo Chiat Road',
+  'Marina Boulevard',
+  'New Bridge Road',
+  'North Bridge Road',
+  'Orchard Road',
+  'Outram Road',
+  'River Valley Road',
+  'Serangoon Road',
+  'Tanjong Pagar Road',
+  'Thomson Road',
+  'Upper Bukit Timah Road',
+] as const
+
+const SINGAPORE_BILLING_ADDRESS_DISTRICTS = [
+  'Ang Mo Kio',
+  'Bedok',
+  'Bishan',
+  'Bukit Batok',
+  'Bukit Merah',
+  'Bukit Timah',
+  'Clementi',
+  'Geylang',
+  'Hougang',
+  'Jurong East',
+  'Marine Parade',
+  'Orchard',
+  'Pasir Ris',
+  'Queenstown',
+  'Sengkang',
+  'Serangoon',
+  'Tampines',
+  'Toa Payoh',
+  'Woodlands',
+  'Yishun',
+] as const
+
+function createSingaporePostalCode(): string {
+  const sector = faker.number.int({ min: 1, max: 82 })
+  const deliveryPoint = faker.number.int({ min: 0, max: 9999 })
+
+  return `${sector.toString().padStart(2, '0')}${deliveryPoint
+    .toString()
+    .padStart(4, '0')}`
+}
+
+export function createChatGPTTeamTrialSingaporeBillingAddress(): ChatGPTTeamTrialBillingAddress {
+  return {
+    name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+    country: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_COUNTRY,
+    line1: `${faker.number.int({ min: 1, max: 999 })} ${faker.helpers.arrayElement(
+      SINGAPORE_BILLING_ADDRESS_STREETS,
+    )}`,
+    line2: faker.helpers.arrayElement(SINGAPORE_BILLING_ADDRESS_DISTRICTS),
+    city: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_CITY,
+    state: undefined,
+    postalCode: createSingaporePostalCode(),
+  }
+}
 
 export const CHATGPT_TEAM_TRIAL_GOPAY_CHECKOUT_PROXY_TAGS = [
   'japan',
@@ -647,36 +710,37 @@ export function resolveChatGPTTeamTrialBillingAddress(
   options: FlowOptions = {},
 ): ChatGPTTeamTrialBillingAddress {
   const config = getRuntimeConfig().chatgptTeamTrial?.billingAddress
+  const fallbackAddress = createChatGPTTeamTrialSingaporeBillingAddress()
 
   return {
     name:
       nonEmptyString(options.billingName) ||
       nonEmptyString(config?.name) ||
-      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+      fallbackAddress.name,
     country:
       nonEmptyString(options.billingCountry) ||
       nonEmptyString(config?.country) ||
-      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.country,
+      fallbackAddress.country,
     line1:
       nonEmptyString(options.billingAddressLine1) ||
       nonEmptyString(config?.line1) ||
-      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.line1,
+      fallbackAddress.line1,
     line2:
       nonEmptyString(options.billingAddressLine2) ||
       nonEmptyString(config?.line2) ||
-      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.line2,
+      fallbackAddress.line2,
     city:
       nonEmptyString(options.billingCity) ||
       nonEmptyString(config?.city) ||
-      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.city,
+      fallbackAddress.city,
     state:
       nonEmptyString(options.billingState) ||
       nonEmptyString(config?.state) ||
-      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.state,
+      fallbackAddress.state,
     postalCode:
       nonEmptyString(options.billingPostalCode) ||
       nonEmptyString(config?.postalCode) ||
-      DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS.postalCode,
+      fallbackAddress.postalCode,
   }
 }
 

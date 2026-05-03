@@ -7,6 +7,7 @@ catalog:
   '@codey/state-machine': '1.0.0'
   '@base-ui/react': '^1.4.0'
   '@cloudflare/workers-types': '^4.20260415.1'
+  '@faker-js/faker': '^10.4.0'
   '@hookform/resolvers': '^5.2.2'
   '@inlang/paraglide-js': '^2.13.1'
   '@paper-design/shaders-react': '^0.0.76'

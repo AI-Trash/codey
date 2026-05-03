@@ -216,8 +216,8 @@ proxy tag. The flow selects `japan` before creating the ChatGPT checkout link,
 then switches to `singapore` before opening and submitting the checkout. States
 without a proxy declaration keep the flow's current proxy, and repeated states
 with the same tag do not restart sing-box. The built-in default
-billing address is now `32 Penjuru Place, Singapore, Jurong East 608560,
-Singapore`, and can still be overridden with the billing flags or
+billing address is now a Faker-generated random Singapore address, and can
+still be overridden with the billing flags or
 `CHATGPT_TEAM_TRIAL_BILLING_*` environment variables.
 
 Pass `--recordPageContent true` on any flow to save the final settled `page.content()` HTML under `artifacts/` as a `*-page-content.html` file. This is intended for developing new page branches after upstream UI changes.

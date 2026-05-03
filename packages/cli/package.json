@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@codey/state-machine": "catalog:",
+    "@faker-js/faker": "catalog:",
     "dotenv": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:",

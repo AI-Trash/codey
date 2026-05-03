@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { faker } from '@faker-js/faker'
 import { resolveConfig, setRuntimeConfig } from '../src/config'
 import {
   DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
-  DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS,
   resolveChatGPTTeamTrialBillingAddress,
   resolveChatGPTTeamTrialGoPayAccount,
   resolveChatGPTTeamTrialGoPayUnlinkOptions,
@@ -31,8 +31,19 @@ const baseConfig = resolveConfig()
 
 afterEach(() => {
   setRuntimeConfig(baseConfig)
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
+
+const stripeBillingAddress = {
+  name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+  country: 'SG',
+  line1: '128 Orchard Road',
+  line2: 'Orchard',
+  city: 'Singapore',
+  state: undefined,
+  postalCode: '238858',
+} as const
 
 class FakeCheckoutLocator {
   clicks = 0
@@ -614,21 +625,22 @@ class FakePricingPage {
 }
 
 describe('chatgpt team trial checkout defaults', () => {
-  it('uses the configured Singapore billing address by default', () => {
+  it('generates a Singapore billing address with faker by default', () => {
     setRuntimeConfig({
       ...baseConfig,
       chatgptTeamTrial: undefined,
     })
+    vi.spyOn(faker.number, 'int')
+      .mockReturnValueOnce(128)
+      .mockReturnValueOnce(23)
+      .mockReturnValueOnce(8858)
+    vi.spyOn(faker.helpers, 'arrayElement')
+      .mockReturnValueOnce('Orchard Road')
+      .mockReturnValueOnce('Orchard')
 
     const address = resolveChatGPTTeamTrialBillingAddress()
 
-    expect(address).toMatchObject(DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS)
-    expect(address.name).toBe(DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME)
-    expect(address.country).toBe('SG')
-    expect(address.line1).toBe('32 Penjuru Place')
-    expect(address.line2).toBe('Jurong East')
-    expect(address.postalCode).toBe('608560')
-    expect(address.city).toBe('Singapore')
+    expect(address).toEqual(stripeBillingAddress)
   })
 
   it('lets CLI billing options override runtime config values', () => {
@@ -851,7 +863,7 @@ describe('trial coupon pricing helpers', () => {
 
       await fillChatGPTCheckoutBillingAddress(
         page as never,
-        DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS,
+        stripeBillingAddress,
       )
 
       expect(
@@ -860,14 +872,14 @@ describe('trial coupon pricing helpers', () => {
             'input[name="billing_details[address][line1]"]',
           ) as HTMLInputElement
         ).value,
-      ).toBe('32 Penjuru Place')
+      ).toBe('128 Orchard Road')
       expect(
         (
           window.document.querySelector(
             'input[name="billing_details[address][line2]"]',
           ) as HTMLInputElement
         ).value,
-      ).toBe('Jurong East')
+      ).toBe('Orchard')
       expect(
         (
           window.document.querySelector(
@@ -953,10 +965,7 @@ describe('trial coupon pricing helpers', () => {
       })
 
       await expect(
-        fillChatGPTCheckoutBillingAddress(
-          page as never,
-          DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_ADDRESS,
-        ),
+        fillChatGPTCheckoutBillingAddress(page as never, stripeBillingAddress),
       ).resolves.toBeUndefined()
 
       expect(
@@ -965,7 +974,7 @@ describe('trial coupon pricing helpers', () => {
             'input[name="billing_details[address][postal_code]"]',
           ) as HTMLInputElement
         ).value,
-      ).toBe('608560')
+      ).toBe('238858')
     } finally {
       Object.assign(globalThis, {
         window: previousWindow,
