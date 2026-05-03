@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createChatGPTRegistrationMachine } from '../src/flows/chatgpt-register'
+import {
+  createChatGPTRegistrationMachine,
+  resolveRegistrationTrialOptions,
+} from '../src/flows/chatgpt-register'
+import { buildProfileName } from '../src/modules/chatgpt/common'
 import { OPENAI_ADD_PHONE_ERROR_MESSAGE } from '../src/state-machine'
 
 describe('chatgpt registration machine', () => {
@@ -236,6 +240,27 @@ describe('chatgpt registration machine', () => {
         url: 'https://auth.openai.com/add-phone',
         lastMessage: OPENAI_ADD_PHONE_ERROR_MESSAGE,
       },
+    })
+  })
+
+  it('uses the about-you profile name as the registration trial billing default', () => {
+    const email = 'codey+trial-name@example.com'
+
+    expect(resolveRegistrationTrialOptions({}, email)).toMatchObject({
+      billingName: buildProfileName(email),
+    })
+  })
+
+  it('keeps an explicit registration trial billing name override', () => {
+    expect(
+      resolveRegistrationTrialOptions(
+        {
+          billingName: ' CLI Name ',
+        },
+        'codey+trial-name@example.com',
+      ),
+    ).toMatchObject({
+      billingName: ' CLI Name ',
     })
   })
 })

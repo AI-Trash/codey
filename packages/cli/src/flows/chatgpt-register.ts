@@ -66,6 +66,7 @@ import {
   AGE_GATE_INPUT_SELECTORS,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
   clickPasswordTimeoutRetry,
+  buildProfileName,
   createChatGPTBackendApiHeadersCapture,
   normalizeChatGPTTrialPaymentMethod,
   type ChatGPTTrialPaymentMethod,
@@ -1077,6 +1078,21 @@ function selectRegistrationAgeGateFieldMode(
   return null
 }
 
+export function resolveRegistrationTrialOptions(
+  options: FlowOptions,
+  email: string,
+): FlowOptions {
+  const billingName = options.billingName?.trim()
+  if (billingName) {
+    return options
+  }
+
+  return {
+    ...options,
+    billingName: buildProfileName(email),
+  }
+}
+
 async function waitForAgeGateSubmissionOutcome(
   page: Page,
   timeoutMs = 10000,
@@ -1562,6 +1578,7 @@ export async function registerChatGPT(
 
     let trial: ChatGPTRegistrationTrialResult | undefined
     if (claimTrial) {
+      const trialOptions = resolveRegistrationTrialOptions(options, email)
       await sendRegistrationMachine(machine, 'context.updated', {
         claimTrial,
         url: page.url(),
@@ -1602,7 +1619,7 @@ export async function registerChatGPT(
         const postLoginTrial =
           await completeChatGPTTrialAfterAuthenticatedSession(page, {
             email,
-            options,
+            options: trialOptions,
             machine: trialMachine,
             storageStateIdentity: storedIdentity,
             storageStateFlowType: 'chatgpt-register',
