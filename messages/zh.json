@@ -874,6 +874,8 @@
   "domain_empty_description": "先添加第一个验证域名，之后 CLI 注册就能从启用域名池里随机选择收件域名。",
   "domain_field_domain": "域名",
   "domain_field_domain_placeholder": "example.com",
+  "domain_field_mailbox_prefix": "邮箱前缀",
+  "domain_field_mailbox_prefix_placeholder": "可选，例如 codey",
   "domain_field_description": "描述",
   "domain_field_description_placeholder": "可选，记录路由规则或归属说明。",
   "domain_field_updated_at": "最近更新",

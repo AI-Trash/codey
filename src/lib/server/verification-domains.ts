@@ -10,6 +10,7 @@ import { createId } from './security'
 export interface VerificationDomainSummary {
   id: string
   domain: string
+  mailboxPrefix: string | null
   description: string | null
   enabled: boolean
   isDefault: boolean
@@ -26,6 +27,7 @@ export interface VerificationDomainOption {
 
 export interface CreateVerificationDomainInput {
   domain: string
+  mailboxPrefix?: string | null
   description?: string
   enabled?: boolean
   isDefault?: boolean
@@ -33,6 +35,7 @@ export interface CreateVerificationDomainInput {
 
 export interface UpdateVerificationDomainInput {
   domain?: string
+  mailboxPrefix?: string | null
   description?: string | null
   enabled?: boolean
   isDefault?: boolean
@@ -62,6 +65,19 @@ function normalizeDomain(value: string): string {
 function normalizeDescription(value: string | null | undefined): string | null {
   const normalized = value?.trim()
   return normalized ? normalized : null
+}
+
+function normalizeMailboxPrefix(
+  value: string | null | undefined,
+): string | null {
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+
+  return normalized || null
 }
 
 function getLegacyVerificationDomain(): string | null {
@@ -104,6 +120,7 @@ async function ensureLegacyVerificationDomainSeeded(): Promise<void> {
     .values({
       id: createId(),
       domain: legacyDomain,
+      mailboxPrefix: null,
       description: null,
       enabled: true,
       isDefault: true,
@@ -143,6 +160,7 @@ function toSummary(
   return {
     id: row.id,
     domain: row.domain,
+    mailboxPrefix: row.mailboxPrefix,
     description: row.description,
     enabled: row.enabled,
     isDefault: row.isDefault,
@@ -295,6 +313,7 @@ export async function createVerificationDomain(
   await ensureLegacyVerificationDomainSeeded()
 
   const domain = normalizeDomain(input.domain)
+  const mailboxPrefix = normalizeMailboxPrefix(input.mailboxPrefix)
   const description = normalizeDescription(input.description)
   const enabled = input.enabled ?? true
   const now = new Date()
@@ -321,6 +340,7 @@ export async function createVerificationDomain(
       .values({
         id: createId(),
         domain,
+        mailboxPrefix,
         description,
         enabled,
         isDefault: false,
@@ -369,6 +389,10 @@ export async function updateVerificationDomain(
 
   const domain =
     input.domain === undefined ? existing.domain : normalizeDomain(input.domain)
+  const mailboxPrefix =
+    input.mailboxPrefix === undefined
+      ? existing.mailboxPrefix
+      : normalizeMailboxPrefix(input.mailboxPrefix)
   const description =
     input.description === undefined
       ? existing.description
@@ -399,6 +423,7 @@ export async function updateVerificationDomain(
       .update(verificationDomains)
       .set({
         domain,
+        mailboxPrefix,
         description,
         enabled,
         isDefault: existing.isDefault,

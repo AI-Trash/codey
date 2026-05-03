@@ -575,11 +575,6 @@ function sanitizeReservationLocalPartSegment(
   return normalized || null
 }
 
-function getReservationAliasPrefix(): string | null {
-  const env = getAppEnv()
-  return sanitizeReservationLocalPartSegment(env.verificationEmailPrefix)
-}
-
 function createMemorableReservationMailboxName(): string {
   const adjective =
     RESERVATION_MAILBOX_ADJECTIVES[
@@ -596,18 +591,20 @@ function createMemorableReservationMailboxName(): string {
 
 function buildReservationEmail(
   mailboxName: string,
-  domain: string,
+  verificationDomain: { domain: string; mailboxPrefix?: string | null },
 ): {
   email: string
   prefix?: string
   mailbox?: string
 } {
-  const prefix = getReservationAliasPrefix()
+  const prefix = sanitizeReservationLocalPartSegment(
+    verificationDomain.mailboxPrefix,
+  )
   const localPart = prefix ? `${prefix}-${mailboxName}` : mailboxName
   return {
-    email: `${localPart}@${domain}`,
+    email: `${localPart}@${verificationDomain.domain}`,
     prefix: prefix || undefined,
-    mailbox: `${localPart}@${domain}`,
+    mailbox: `${localPart}@${verificationDomain.domain}`,
   }
 }
 
@@ -1268,7 +1265,7 @@ export async function reserveVerificationEmailTarget(options?: {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const target = buildReservationEmail(
       createMemorableReservationMailboxName(),
-      verificationDomain.domain,
+      verificationDomain,
     )
 
     const [reservation] = await getDb()

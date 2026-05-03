@@ -60,6 +60,7 @@ import {
   ingestWhatsAppNotification,
   isChatGptBusinessTrialEndedSubject,
   isChatGptPlusSubscriptionSuccessEmail,
+  reserveVerificationEmailTarget,
 } from './verification'
 
 function createEmailInsertChain(emailRecord: unknown) {
@@ -85,6 +86,22 @@ function createInsertChain(record: unknown) {
   const values = vi.fn(() => ({
     onConflictDoNothing,
     returning,
+  }))
+
+  return {
+    returning,
+    onConflictDoNothing,
+    values,
+  }
+}
+
+function createReservationInsertChain(records: unknown[]) {
+  const returning = vi.fn().mockResolvedValue(records)
+  const onConflictDoNothing = vi.fn(() => ({
+    returning,
+  }))
+  const values = vi.fn(() => ({
+    onConflictDoNothing,
   }))
 
   return {
@@ -126,6 +143,110 @@ function createCliConnectionSummary(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
 }
+
+describe('verification email reservations', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.createId.mockImplementation(() => 'reservation-id')
+    process.env.DATABASE_URL = 'postgresql://codey:codey@localhost:5432/codey'
+    process.env.VERIFICATION_RESERVATION_TTL_MINUTES = '15'
+    delete process.env.VERIFICATION_DOMAIN
+    delete process.env.VERIFICATION_MAILBOX
+  })
+
+  it('does not prepend a mailbox prefix when the selected domain has none', async () => {
+    const reservation = {
+      id: 'reservation-id',
+      email: 'memorable-name@example.com',
+      prefix: null,
+      mailbox: 'memorable-name@example.com',
+      expiresAt: new Date('2026-05-03T00:15:00.000Z'),
+    }
+    const reservationInsert = createReservationInsertChain([reservation])
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationDomains: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'domain-1',
+              domain: 'example.com',
+              mailboxPrefix: null,
+              enabled: true,
+              isDefault: true,
+              createdAt: new Date('2026-05-03T00:00:00.000Z'),
+            },
+          ]),
+        },
+      },
+      insert: vi.fn(() => ({
+        values: reservationInsert.values,
+      })),
+    })
+    await expect(reserveVerificationEmailTarget()).resolves.toMatchObject({
+      reservationId: 'reservation-id',
+      email: 'memorable-name@example.com',
+      mailbox: 'memorable-name@example.com',
+    })
+
+    expect(reservationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: expect.stringMatching(/^[a-z]+-[a-z]+-\d+@example\.com$/),
+        prefix: undefined,
+        mailbox: expect.not.stringMatching(/^codey-/),
+      }),
+    )
+  })
+
+  it('prepends the domain mailbox prefix only when it is configured', async () => {
+    const reservation = {
+      id: 'reservation-id',
+      email: 'codey-memorable-name@example.com',
+      prefix: 'codey',
+      mailbox: 'codey-memorable-name@example.com',
+      expiresAt: new Date('2026-05-03T00:15:00.000Z'),
+    }
+    const reservationInsert = createReservationInsertChain([reservation])
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationDomains: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'domain-1',
+              domain: 'example.com',
+              mailboxPrefix: ' Codey ',
+              enabled: true,
+              isDefault: true,
+              createdAt: new Date('2026-05-03T00:00:00.000Z'),
+            },
+          ]),
+        },
+      },
+      insert: vi.fn(() => ({
+        values: reservationInsert.values,
+      })),
+    })
+    await expect(reserveVerificationEmailTarget()).resolves.toMatchObject({
+      reservationId: 'reservation-id',
+      email: 'codey-memorable-name@example.com',
+      prefix: 'codey',
+      mailbox: 'codey-memorable-name@example.com',
+    })
+
+    expect(reservationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: expect.stringMatching(/^codey-[a-z]+-[a-z]+-\d+@example\.com$/),
+        prefix: 'codey',
+        mailbox: expect.stringMatching(
+          /^codey-[a-z]+-[a-z]+-\d+@example\.com$/,
+        ),
+      }),
+    )
+  })
+})
 
 describe('ChatGPT Business trial-ended email handling', () => {
   beforeEach(() => {

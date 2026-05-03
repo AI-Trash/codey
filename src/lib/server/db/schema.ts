@@ -844,6 +844,7 @@ export const verificationDomains = pgTable(
   {
     id: text('id').primaryKey(),
     domain: text('domain').notNull(),
+    mailboxPrefix: text('mailbox_prefix'),
     description: text('description'),
     enabled: boolean('enabled').default(true).notNull(),
     isDefault: boolean('is_default').default(false).notNull(),

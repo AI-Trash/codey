@@ -253,6 +253,13 @@
       "when": 1777737600000,
       "tag": "0035_proxy_node_vless_flow",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1777824000000,
+      "tag": "0036_verification_domain_mailbox_prefix",
+      "breakpoints": true
     }
   ]
 }

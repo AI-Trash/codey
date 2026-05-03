@@ -27,6 +27,7 @@ import { m } from '#/paraglide/messages'
 export type ManagedVerificationDomain = {
   id: string
   domain: string
+  mailboxPrefix: string | null
   description: string | null
   enabled: boolean
   isDefault: boolean
@@ -37,6 +38,7 @@ export type ManagedVerificationDomain = {
 
 type VerificationDomainFormValues = {
   domain: string
+  mailboxPrefix: string
   description: string
   enabled: boolean
   isDefault: boolean
@@ -134,6 +136,7 @@ export function CreateVerificationDomainDialog({
         },
         body: JSON.stringify({
           domain: form.domain,
+          mailboxPrefix: form.mailboxPrefix.trim() || null,
           description: form.description.trim() || undefined,
           enabled: form.enabled,
           isDefault: form.isDefault,
@@ -182,6 +185,20 @@ export function CreateVerificationDomainDialog({
               }}
               placeholder={m.domain_field_domain_placeholder()}
               required
+            />
+          </Field>
+
+          <Field label={m.domain_field_mailbox_prefix()}>
+            <Input
+              value={form.mailboxPrefix}
+              onChange={(event) => {
+                const nextValue = event.target.value
+                setForm((current) => ({
+                  ...current,
+                  mailboxPrefix: nextValue,
+                }))
+              }}
+              placeholder={m.domain_field_mailbox_prefix_placeholder()}
             />
           </Field>
 
@@ -251,6 +268,8 @@ function VerificationDomainCard({
     try {
       const payload = {
         domain: overrides?.domain ?? form.domain,
+        mailboxPrefix:
+          (overrides?.mailboxPrefix ?? form.mailboxPrefix).trim() || null,
         description:
           (overrides?.description ?? form.description).trim() || undefined,
         enabled: overrides?.enabled ?? form.enabled,
@@ -324,7 +343,7 @@ function VerificationDomainCard({
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,240px)_220px]">
           <Field label={m.domain_field_domain()}>
             <Input
               value={form.domain}
@@ -332,6 +351,20 @@ function VerificationDomainCard({
                 const nextValue = event.target.value
                 setForm((current) => ({ ...current, domain: nextValue }))
               }}
+            />
+          </Field>
+
+          <Field label={m.domain_field_mailbox_prefix()}>
+            <Input
+              value={form.mailboxPrefix}
+              onChange={(event) => {
+                const nextValue = event.target.value
+                setForm((current) => ({
+                  ...current,
+                  mailboxPrefix: nextValue,
+                }))
+              }}
+              placeholder={m.domain_field_mailbox_prefix_placeholder()}
             />
           </Field>
 
@@ -443,6 +476,7 @@ function toFormValues(
 ): VerificationDomainFormValues {
   return {
     domain: domain.domain,
+    mailboxPrefix: domain.mailboxPrefix || '',
     description: domain.description || '',
     enabled: domain.enabled,
     isDefault: domain.isDefault,
@@ -454,6 +488,7 @@ function createNewVerificationDomainFormValues(
 ): VerificationDomainFormValues {
   return {
     domain: '',
+    mailboxPrefix: '',
     description: '',
     enabled: true,
     isDefault: !hasExistingDomains,

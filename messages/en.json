@@ -874,6 +874,8 @@
   "domain_empty_description": "Add the first verification domain and CLI registrations can start choosing from the enabled domain pool at random.",
   "domain_field_domain": "Domain",
   "domain_field_domain_placeholder": "example.com",
+  "domain_field_mailbox_prefix": "Mailbox prefix",
+  "domain_field_mailbox_prefix_placeholder": "Optional, for example codey",
   "domain_field_description": "Description",
   "domain_field_description_placeholder": "Optional note about routing or ownership.",
   "domain_field_updated_at": "Last updated",

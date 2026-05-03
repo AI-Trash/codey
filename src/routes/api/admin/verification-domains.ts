@@ -9,6 +9,7 @@ import {
 
 interface CreateVerificationDomainBody {
   domain?: string
+  mailboxPrefix?: string | null
   description?: string
   enabled?: boolean
   isDefault?: boolean
@@ -46,6 +47,11 @@ export const Route = createFileRoute('/api/admin/verification-domains')({
         try {
           const domain = await createVerificationDomain({
             domain: String(body.domain || ''),
+            mailboxPrefix:
+              typeof body.mailboxPrefix === 'string' ||
+              body.mailboxPrefix === null
+                ? body.mailboxPrefix
+                : undefined,
             description: String(body.description || '').trim() || undefined,
             enabled:
               typeof body.enabled === 'boolean' ? body.enabled : undefined,

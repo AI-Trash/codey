@@ -6,6 +6,7 @@ import { updateVerificationDomain } from '../../../../lib/server/verification-do
 
 interface UpdateVerificationDomainBody {
   domain?: string
+  mailboxPrefix?: string | null
   description?: string | null
   enabled?: boolean
   isDefault?: boolean
@@ -31,6 +32,11 @@ export const Route = createFileRoute(
         try {
           const domain = await updateVerificationDomain(params.domainId, {
             domain: typeof body.domain === 'string' ? body.domain : undefined,
+            mailboxPrefix:
+              typeof body.mailboxPrefix === 'string' ||
+              body.mailboxPrefix === null
+                ? body.mailboxPrefix
+                : undefined,
             description:
               typeof body.description === 'string' || body.description === null
                 ? body.description

@@ -19,7 +19,6 @@ export interface AppEnv {
   githubScope: string
   appBaseUrl?: string
   verificationMailbox?: string
-  verificationEmailPrefix?: string
   verificationDomain?: string
   verificationReservationTtlMinutes: number
   deviceChallengeTtlMinutes: number
@@ -196,7 +195,6 @@ export function getAppEnv(): AppEnv {
     githubScope: process.env.GITHUB_SCOPE || 'read:user user:email',
     appBaseUrl: process.env.APP_BASE_URL,
     verificationMailbox: process.env.VERIFICATION_MAILBOX,
-    verificationEmailPrefix: process.env.VERIFICATION_EMAIL_PREFIX,
     verificationDomain: process.env.VERIFICATION_DOMAIN,
     verificationReservationTtlMinutes: readNumber(
       process.env.VERIFICATION_RESERVATION_TTL_MINUTES,

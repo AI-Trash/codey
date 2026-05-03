@@ -70,8 +70,7 @@ GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
 
 VERIFICATION_PROVIDER=app
-# Optional: prepend a stable prefix before the generated mailbox name
-# VERIFICATION_EMAIL_PREFIX=codey
+# Optional mailbox prefixes are configured per domain in /admin/domains
 CLOUDFLARE_EMAIL_WEBHOOK_SECRET=replace-with-a-long-random-secret
 
 CODEY_APP_BASE_URL=http://localhost:3000
@@ -115,7 +114,7 @@ CODEY_SINGBOX_MIXED_HOST=127.0.0.1
 CODEY_SINGBOX_MIXED_PORT=2080
 ```
 
-Verification mail domains are now managed in the admin console at `/admin/domains` and stored in Postgres. App-backed CLI registrations now randomly pick one enabled domain for each reserved mailbox instead of binding a domain to the OAuth client. `VERIFICATION_EMAIL_PREFIX` is optional and, when set, is prepended before the generated memorable mailbox name.
+Verification mail domains are now managed in the admin console at `/admin/domains` and stored in Postgres. App-backed CLI registrations now randomly pick one enabled domain for each reserved mailbox instead of binding a domain to the OAuth client. Reserved mailboxes use the generated memorable mailbox name by default; a prefix such as `codey` is only prepended when that specific domain has an explicit mailbox prefix configured.
 
 If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MAILBOX` or `VERIFICATION_DOMAIN` values are only used as a compatibility seed when the database does not have any registered domains yet.
 
