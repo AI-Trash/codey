@@ -291,6 +291,11 @@ export interface GoPayAuthorizationOpenInput {
   statusCode?: string
 }
 
+export interface GoPayPhoneSubmitInput {
+  redirectUrl: string
+  url: string
+}
+
 export interface GoPayAuthorizationOtpCodeInput {
   redirectUrl: string
   activationLinkUrl?: string
@@ -307,6 +312,7 @@ export interface GoPayAccountLinkingOptions {
   phoneNumber?: string
   pin?: string
   authorizationTimeoutMs?: number
+  beforePhoneSubmit?: (input: GoPayPhoneSubmitInput) => Promise<void> | void
   beforeAuthorizationOpen?: (
     input: GoPayAuthorizationOpenInput,
   ) => Promise<void> | void
@@ -1103,6 +1109,11 @@ export async function continueGoPayPaymentFromRedirect(
         'GoPay tokenization requires a phone number. Set CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER before running the GoPay trial flow.',
       )
     }
+
+    await options.beforePhoneSubmit?.({
+      redirectUrl: redirect.url,
+      url: page.url(),
+    })
 
     const linking = await submitMidtransGoPayLinking(page, {
       countryCode: options.countryCode,

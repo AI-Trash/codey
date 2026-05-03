@@ -27,9 +27,11 @@ type FakeGoPayScreen =
   | 'settings'
   | 'linked-apps'
   | 'confirm'
+  | 'confirm-from-source'
   | 'empty'
   | 'notification'
   | 'linked-app-without-unlink'
+  | 'linked-apps-from-source'
   | 'loading'
 
 class FakeAndroidElement {
@@ -65,7 +67,8 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
   async $$(selector: string): Promise<FakeAndroidElement[]> {
     if (
       this.screen === 'home' &&
-      (selector === GOPAY_PROFILE_XPATH || selector === GOPAY_PROFILE_FUZZY_XPATH)
+      (selector === GOPAY_PROFILE_XPATH ||
+        selector === GOPAY_PROFILE_FUZZY_XPATH)
     ) {
       return [
         new FakeAndroidElement(this, 'profile', () => {
@@ -121,6 +124,13 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
     }
 
     if (
+      this.screen === 'linked-apps-from-source' &&
+      selector === GOPAY_LINKED_APP_ITEM_XPATH
+    ) {
+      return []
+    }
+
+    if (
       this.screen === 'linked-app-without-unlink' &&
       selector === GOPAY_LINKED_APP_ITEM_XPATH
     ) {
@@ -139,6 +149,13 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
           }),
         ]
       }
+      if (this.screen === 'linked-apps-from-source') {
+        return [
+          new FakeAndroidElement(this, 'initial-unlink', () => {
+            this.screen = 'confirm-from-source'
+          }),
+        ]
+      }
       if (this.screen === 'confirm') {
         return [
           new FakeAndroidElement(this, 'background-unlink'),
@@ -148,10 +165,20 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
           }),
         ]
       }
+      if (this.screen === 'confirm-from-source') {
+        return [
+          new FakeAndroidElement(this, 'background-unlink'),
+          new FakeAndroidElement(this, 'confirm-unlink', () => {
+            this.screen = 'empty'
+          }),
+        ]
+      }
     }
 
     if (
-      (this.screen === 'linked-apps' || this.screen === 'empty') &&
+      (this.screen === 'linked-apps' ||
+        this.screen === 'linked-apps-from-source' ||
+        this.screen === 'empty') &&
       (selector === GOPAY_LINKED_APPS_BACK_BUTTON_XPATH ||
         selector === GOPAY_LINKED_APPS_BACK_BUTTON_FUZZY_XPATH ||
         selector === GOPAY_BACK_IMAGE_XPATH)
@@ -175,9 +202,20 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
     }
     if (
       this.screen === 'linked-apps' ||
+      this.screen === 'linked-apps-from-source' ||
       this.screen === 'empty' ||
       this.screen === 'linked-app-without-unlink'
     ) {
+      if (this.screen === 'linked-apps-from-source') {
+        return [
+          '<android.widget.FrameLayout package="com.gojek.gopay" pane-title="Linked apps">',
+          '<android.view.View content-desc="Linked apps" heading="true" />',
+          '<android.view.View content-desc="OpenAI LLC&#10;Linked on May 3, 2026">',
+          '<android.widget.Button content-desc="Unlink" />',
+          '</android.view.View>',
+          '</android.widget.FrameLayout>',
+        ].join('')
+      }
       return '<android.widget.FrameLayout pane-title="Linked apps" />'
     }
     if (this.screen === 'loading') {
@@ -221,12 +259,12 @@ class FakeGoPayAndroidDriver implements GoPayAndroidUnlinkDriver {
     return this.screen === 'other-app' ? '.OtherActivity' : GOPAY_MAIN_ACTIVITY
   }
 
-  async startActivity(
-    appPackage: string,
-    appActivity: string,
-  ): Promise<void> {
+  async startActivity(appPackage: string, appActivity: string): Promise<void> {
     this.startActivityCalls.push({ appPackage, appActivity })
-    if (appPackage === GOPAY_APP_PACKAGE && appActivity === GOPAY_MAIN_ACTIVITY) {
+    if (
+      appPackage === GOPAY_APP_PACKAGE &&
+      appActivity === GOPAY_MAIN_ACTIVITY
+    ) {
       this.screen = 'home'
     }
   }
@@ -358,10 +396,29 @@ describe('GoPay Android unlink helper', () => {
       unlinkedAppCount: 1,
       exitedLinkedApps: false,
     })
-    expect(driver.clicks).toEqual([
-      'initial-unlink',
-      'confirm-unlink',
-    ])
+    expect(driver.clicks).toEqual(['initial-unlink', 'confirm-unlink'])
+  })
+
+  it('recognizes an OpenAI linked app row from Appium page source', async () => {
+    const driver = new FakeGoPayAndroidDriver('linked-apps-from-source')
+
+    const result = await unlinkGoPayLinkedAppsInSession(
+      {
+        appiumSessionId: 'appium-openai-source',
+        driver: driver as never,
+      },
+      { timeoutMs: 1000 },
+    )
+
+    expect(result).toMatchObject({
+      status: 'unlinked',
+      clickedLinkedApps: false,
+      clickedInitialUnlink: true,
+      clickedConfirmUnlink: true,
+      unlinkedAppCount: 1,
+      exitedLinkedApps: false,
+    })
+    expect(driver.clicks).toEqual(['initial-unlink', 'confirm-unlink'])
   })
 
   it('fails when Linked apps shows only loading placeholders', async () => {

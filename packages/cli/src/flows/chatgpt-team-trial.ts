@@ -1497,7 +1497,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
       {
         ...gopayAccount,
         waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
-        async beforeAuthorizationOpen({ activationLinkUrl }) {
+        async beforePhoneSubmit() {
           if (!gopayUnlinkTask) {
             return
           }
@@ -1516,7 +1516,6 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                   checkoutUrl,
                   paymentRedirectUrl: paymentRedirect.url,
                   paymentRedirectUrlPath,
-                  gopayActivationLinkUrl: activationLinkUrl,
                   gopayUnlinkStatus: 'failed',
                   lastMessage:
                     'GoPay unlink task failed; continuing authorization without unlink',
@@ -1539,10 +1538,9 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                 checkoutUrl,
                 paymentRedirectUrl: paymentRedirect.url,
                 paymentRedirectUrlPath,
-                gopayActivationLinkUrl: activationLinkUrl,
                 gopayUnlinkStatus: 'waiting',
                 lastMessage:
-                  'Waiting for GoPay unlink task before opening GoPay authorization',
+                  'Waiting for GoPay unlink task before submitting GoPay linking',
               },
             )
           }
@@ -1564,7 +1562,6 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                   checkoutUrl,
                   paymentRedirectUrl: paymentRedirect.url,
                   paymentRedirectUrlPath,
-                  gopayActivationLinkUrl: activationLinkUrl,
                   gopayUnlinkStatus: 'failed',
                   gopayUnlinkError: message,
                   lastMessage:
@@ -1588,7 +1585,6 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                 checkoutUrl,
                 paymentRedirectUrl: paymentRedirect.url,
                 paymentRedirectUrlPath,
-                gopayActivationLinkUrl: activationLinkUrl,
                 gopayUnlinkStatus: gopayUnlink.status,
                 gopayUnlinkCompleted: true,
                 gopayUnlinkAppiumSessionId: gopayUnlink.appiumSessionId,
@@ -1734,7 +1730,7 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
   const gopayPayment = await continueGoPayPaymentFromRedirect(page, redirect, {
     ...resolveChatGPTTeamTrialGoPayAccount(),
     waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
-    async beforeAuthorizationOpen({ activationLinkUrl }) {
+    async beforePhoneSubmit() {
       if (!gopayUnlinkTask) {
         return
       }
@@ -1745,7 +1741,6 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
           url: page.url(),
           paymentRedirectUrl: redirect.url,
           paypalApprovalUrl: redirect.url,
-          gopayActivationLinkUrl: activationLinkUrl,
           gopayUnlinkStatus: 'failed',
           lastMessage:
             'GoPay unlink task failed; continuing authorization without unlink',
@@ -1758,10 +1753,9 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
         url: page.url(),
         paymentRedirectUrl: redirect.url,
         paypalApprovalUrl: redirect.url,
-        gopayActivationLinkUrl: activationLinkUrl,
         gopayUnlinkStatus: 'waiting',
         lastMessage:
-          'Waiting for GoPay unlink task before opening GoPay authorization',
+          'Waiting for GoPay unlink task before submitting GoPay linking',
       })
 
       try {
@@ -1772,7 +1766,6 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
           url: page.url(),
           paymentRedirectUrl: redirect.url,
           paypalApprovalUrl: redirect.url,
-          gopayActivationLinkUrl: activationLinkUrl,
           gopayUnlinkStatus: 'failed',
           gopayUnlinkError: sanitizeErrorForOutput(error).message,
           lastMessage:
@@ -1786,7 +1779,6 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
         url: page.url(),
         paymentRedirectUrl: redirect.url,
         paypalApprovalUrl: redirect.url,
-        gopayActivationLinkUrl: activationLinkUrl,
         gopayUnlinkStatus: gopayUnlink.status,
         gopayUnlinkCompleted: true,
         gopayUnlinkAppiumSessionId: gopayUnlink.appiumSessionId,

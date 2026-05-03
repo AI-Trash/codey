@@ -19,6 +19,7 @@ import {
   extractPaypalBillingAgreementLink,
   getChatGPTTrialPricingFreeTrialSelectors,
   getChatGPTTrialPricingPlanToggleSelectors,
+  continueGoPayPaymentFromRedirect,
   selectChatGPTCheckoutPaymentMethodIfPresent,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
@@ -556,6 +557,157 @@ class FakeGoPayOtpPage {
 
     return matches ? new FakeCheckoutLocator(true) : this.hiddenLocator
   }
+}
+
+class FakeGoPayTokenizationLocator extends FakeCheckoutLocator {
+  constructor(
+    private readonly page: FakeGoPayTokenizationPage,
+    private readonly kind: 'body' | 'phone' | 'link' | 'pay',
+  ) {
+    super(
+      () => page.isLocatorVisible(kind),
+      () => page.clickLocator(kind),
+    )
+  }
+
+  async waitFor(options: { state?: string } = {}): Promise<void> {
+    const state = options.state ?? 'visible'
+    const visible = this.page.isLocatorVisible(this.kind)
+    if ((state === 'visible' || state === 'attached') && visible) return
+    if ((state === 'hidden' || state === 'detached') && !visible) return
+    throw new Error(`GoPay tokenization ${this.kind} did not reach ${state}`)
+  }
+
+  async fill(value: string): Promise<void> {
+    this.page.phoneNumber = value
+  }
+
+  async evaluate<T>(
+    callback: (element: HTMLElement & { disabled?: boolean }) => T,
+  ): Promise<T> {
+    const element = {
+      disabled: !this.page.isLocatorVisible(this.kind),
+      dispatchEvent: vi.fn(),
+      getAttribute: (name: string) =>
+        name === 'aria-disabled'
+          ? String(!this.page.isLocatorVisible(this.kind))
+          : null,
+    } as unknown as HTMLElement & { disabled?: boolean }
+    return callback(element)
+  }
+
+  async innerText(): Promise<string> {
+    return ''
+  }
+}
+
+class FakeGoPayTokenizationPage {
+  readonly calls: string[] = []
+  phoneNumber = ''
+  private pageUrl = ''
+  private payReady = false
+  private readonly hiddenLocator = new FakeCheckoutLocator(false)
+
+  async goto(url: string): Promise<void> {
+    this.pageUrl = url
+    this.calls.push(url.includes('/authorize') ? 'goto:authorize' : 'goto')
+  }
+
+  url(): string {
+    return this.pageUrl
+  }
+
+  async title(): Promise<string> {
+    return 'Midtrans GoPay'
+  }
+
+  async waitForLoadState(): Promise<void> {}
+
+  waitForResponse(
+    predicate: (response: {
+      url: () => string
+      request: () => { method: () => string }
+    }) => boolean,
+  ): Promise<{
+    ok: () => boolean
+    status: () => number
+    text: () => Promise<string>
+  }> {
+    return new Promise((resolve) => {
+      this.responseResolvers.push(() => {
+        const response = {
+          url: () => 'https://api.midtrans.com/snap/v4/accounts/test/linking',
+          request: () => ({ method: () => 'POST' }),
+        }
+        if (!predicate(response)) return
+        resolve({
+          ok: () => true,
+          status: () => 200,
+          text: async () =>
+            JSON.stringify({
+              account_status: 'linked',
+              status_code: '200',
+            }),
+        })
+      })
+    })
+  }
+
+  locator(selector = ''): FakeCheckoutLocator {
+    const normalizedSelector = selector.toLowerCase()
+    if (normalizedSelector === 'body') {
+      return new FakeGoPayTokenizationLocator(this, 'body')
+    }
+    if (normalizedSelector.includes('input[type="tel"]')) {
+      return new FakeGoPayTokenizationLocator(this, 'phone')
+    }
+    if (normalizedSelector.includes('linking-cta')) {
+      return new FakeGoPayTokenizationLocator(this, 'link')
+    }
+    if (
+      normalizedSelector.includes('gopay-tokenization-balance-content') ||
+      normalizedSelector.includes('masked-phone')
+    ) {
+      return new FakeGoPayTokenizationLocator(this, 'pay')
+    }
+
+    return this.hiddenLocator
+  }
+
+  getByRole(
+    role: string,
+    options: { name?: RegExp } = {},
+  ): FakeCheckoutLocator {
+    if (role !== 'button') return this.hiddenLocator
+    const name = options.name
+    if (name?.test('Link and pay')) {
+      return new FakeGoPayTokenizationLocator(this, 'link')
+    }
+    if (name?.test('Pay now')) {
+      return new FakeGoPayTokenizationLocator(this, 'pay')
+    }
+
+    return this.hiddenLocator
+  }
+
+  getByText(): FakeCheckoutLocator {
+    return this.hiddenLocator
+  }
+
+  isLocatorVisible(kind: 'body' | 'phone' | 'link' | 'pay'): boolean {
+    if (kind === 'body') return Boolean(this.pageUrl)
+    if (kind === 'phone' || kind === 'link') return !this.payReady
+    return this.payReady
+  }
+
+  clickLocator(kind: 'body' | 'phone' | 'link' | 'pay'): void {
+    this.calls.push(`click:${kind}`)
+    if (kind !== 'link') return
+    this.payReady = true
+    this.responseResolvers.splice(0).forEach((resolve) => resolve())
+  }
+
+  private readonly responseResolvers: Array<() => void> = []
 }
 
 class FakePricingLocator {
@@ -1454,6 +1606,32 @@ describe('gopay payment redirect extraction', () => {
     ).resolves.toBe(true)
 
     expect(consentButton.clicks).toBe(1)
+  })
+
+  it('waits for GoPay unlink before submitting the tokenization phone number', async () => {
+    const page = new FakeGoPayTokenizationPage()
+    const redirect = extractGoPayPaymentRedirectLink(
+      'https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking',
+    )
+    const events: string[] = []
+
+    await expect(
+      continueGoPayPaymentFromRedirect(page as never, redirect!, {
+        phoneNumber: '18400000000',
+        async beforePhoneSubmit() {
+          events.push('beforePhoneSubmit')
+          page.calls.push('beforePhoneSubmit')
+          expect(page.calls).not.toContain('click:link')
+        },
+      }),
+    ).rejects.toThrow(
+      'GoPay tokenization did not return an activation link after submitting the phone number.',
+    )
+
+    expect(events).toEqual(['beforePhoneSubmit'])
+    expect(page.calls.indexOf('beforePhoneSubmit')).toBeLessThan(
+      page.calls.indexOf('click:link'),
+    )
   })
 
   it('does not click matching consent buttons outside GoPay authorization', async () => {
