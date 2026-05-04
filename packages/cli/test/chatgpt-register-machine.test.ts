@@ -263,4 +263,20 @@ describe('chatgpt registration machine', () => {
       billingName: ' CLI Name ',
     })
   })
+
+  it('preserves the checkout default country for registration GoPay trials', () => {
+    expect(
+      resolveRegistrationTrialOptions(
+        {
+          claimTrial: 'gopay',
+          billingCountry: 'SG',
+        },
+        'codey+trial-name@example.com',
+      ),
+    ).toMatchObject({
+      billingName: buildProfileName('codey+trial-name@example.com'),
+      billingCountry: 'SG',
+      preserveCheckoutBillingCountry: true,
+    })
+  })
 })

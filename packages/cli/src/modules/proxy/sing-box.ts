@@ -721,6 +721,11 @@ async function installSingBoxExecutable(
     if (fs.existsSync(existingPath)) {
       return existingPath
     }
+  } else {
+    const cachedPath = findCachedSingBoxExecutable(config)
+    if (cachedPath) {
+      return cachedPath
+    }
   }
 
   const release = await fetchSingBoxRelease(config.singBox?.version)
@@ -748,6 +753,34 @@ async function installSingBoxExecutable(
   })
 
   return executablePath
+}
+
+function findCachedSingBoxExecutable(
+  config: CliRuntimeConfig,
+): string | undefined {
+  const installDir = getSingBoxInstallDir(config)
+  if (!fs.existsSync(installDir)) {
+    return undefined
+  }
+
+  const platform = getPlatformAssetPart()
+  const arch = getArchAssetPart()
+  const fileName = getExecutableFileName()
+  const candidates = fs
+    .readdirSync(installDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort(compareSingBoxVersionsDescending)
+    .map((version) => path.join(installDir, version, platform, arch, fileName))
+
+  return candidates.find((candidate) => fs.existsSync(candidate))
+}
+
+function compareSingBoxVersionsDescending(left: string, right: string): number {
+  return right.localeCompare(left, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  })
 }
 
 async function resolveSingBoxExecutable(

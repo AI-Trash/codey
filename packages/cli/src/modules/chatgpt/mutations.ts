@@ -906,6 +906,9 @@ async function clickVisiblePricingPlanToggleIfNeeded(
 export async function fillChatGPTCheckoutBillingAddress(
   page: Page,
   address: ChatGPTTeamTrialBillingAddress,
+  options: {
+    fillCountry?: boolean
+  } = {},
 ): Promise<void> {
   const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
   if (!checkoutReady) {
@@ -917,7 +920,9 @@ export async function fillChatGPTCheckoutBillingAddress(
     throw new Error('ChatGPT checkout billing address frame was not visible.')
   }
 
-  const fillResult = await fillStripeBillingAddressFrame(frame, address)
+  const fillResult = await fillStripeBillingAddressFrame(frame, address, {
+    fillCountry: options.fillCountry !== false,
+  })
   const missingRequired = [
     address.name && !fillResult.name ? 'billing name' : undefined,
     fillResult.country ? undefined : 'country',
@@ -1907,6 +1912,9 @@ async function isStripeBillingAddressFrameReady(
 async function fillStripeBillingAddressFrame(
   frame: Frame,
   address: ChatGPTTeamTrialBillingAddress,
+  options: {
+    fillCountry: boolean
+  },
 ): Promise<Record<keyof ChatGPTTeamTrialBillingAddress, boolean>> {
   return frame.evaluate(async (input) => {
     type BillingField =
@@ -1922,6 +1930,8 @@ async function fillStripeBillingAddressFrame(
     const SHORT_FIELD_WAIT_MS = 750
     const FIELD_SETTLE_MS = 200
     const FIELD_EXPAND_WAIT_MS = 600
+    const address = input.address
+    const shouldFillCountry = input.options.fillCountry
 
     const fieldSelectors: Record<BillingField, string[]> = {
       name: [
@@ -2090,13 +2100,13 @@ async function fillStripeBillingAddressFrame(
     }
 
     const values: Record<BillingField, string | undefined> = {
-      name: input.name,
-      country: input.country,
-      line1: input.line1,
-      line2: input.line2,
-      city: input.city,
-      state: input.state,
-      postalCode: input.postalCode,
+      name: address.name,
+      country: address.country,
+      line1: address.line1,
+      line2: address.line2,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
     }
 
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
@@ -2597,7 +2607,9 @@ async function fillStripeBillingAddressFrame(
       postalCode: false,
     }
 
-    result.country = await setField('country', SHORT_FIELD_WAIT_MS)
+    result.country = shouldFillCountry
+      ? await setField('country', SHORT_FIELD_WAIT_MS)
+      : true
     if (result.country) await sleepInFrame(FIELD_SETTLE_MS)
 
     result.name = await setField('name', SHORT_FIELD_WAIT_MS)
@@ -2606,11 +2618,11 @@ async function fillStripeBillingAddressFrame(
 
     result.line2 = await setField(
       'line2',
-      input.line2 ? FIELD_WAIT_MS : SHORT_FIELD_WAIT_MS,
+      address.line2 ? FIELD_WAIT_MS : SHORT_FIELD_WAIT_MS,
     )
     result.postalCode = await setField('postalCode', FIELD_WAIT_MS)
-    const cityRequired = input.city
-      ? !['SG'].includes(normalizeCountry(input.country))
+    const cityRequired = address.city
+      ? !['SG'].includes(normalizeCountry(address.country))
       : false
     result.city = await setField(
       'city',
@@ -2620,22 +2632,26 @@ async function fillStripeBillingAddressFrame(
 
     if (!result.postalCode || (cityRequired && !result.city)) {
       await sleepInFrame(FIELD_SETTLE_MS)
-      result.country ||= await setField('country', SHORT_FIELD_WAIT_MS)
+      if (shouldFillCountry) {
+        result.country ||= await setField('country', SHORT_FIELD_WAIT_MS)
+      }
       result.postalCode ||= await setField('postalCode', SHORT_FIELD_WAIT_MS)
       if (cityRequired) {
         result.city ||= await setField('city', SHORT_FIELD_WAIT_MS)
       }
     }
 
-    if (input.line2 && !result.line2) {
+    if (address.line2 && !result.line2) {
       result.line2 = await setField('line2', SHORT_FIELD_WAIT_MS)
     }
 
     result.line1 ||= await setField('line1', SHORT_FIELD_WAIT_MS)
-    result.country ||= await setField('country', FIELD_WAIT_MS)
+    if (shouldFillCountry) {
+      result.country ||= await setField('country', FIELD_WAIT_MS)
+    }
 
     return result
-  }, address)
+  }, { address, options })
 }
 
 function isBillingCityRequired(country: string): boolean {

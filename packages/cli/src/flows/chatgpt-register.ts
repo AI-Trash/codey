@@ -1082,13 +1082,23 @@ export function resolveRegistrationTrialOptions(
   options: FlowOptions,
   email: string,
 ): FlowOptions {
+  const paymentMethod = normalizeChatGPTTrialPaymentMethod(
+    options.claimTrial ?? options.claimTeamTrial,
+  )
+  const trialOptions =
+    paymentMethod === 'gopay'
+      ? {
+          ...options,
+          preserveCheckoutBillingCountry: true,
+        }
+      : options
   const billingName = options.billingName?.trim()
   if (billingName) {
-    return options
+    return trialOptions
   }
 
   return {
-    ...options,
+    ...trialOptions,
     billingName: buildProfileName(email),
   }
 }

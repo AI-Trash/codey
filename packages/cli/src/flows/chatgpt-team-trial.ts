@@ -1232,6 +1232,8 @@ async function submitChatGPTTeamTrialCheckout<Result>(
   checkoutUrl: string,
 ): Promise<ChatGPTTeamTrialSubmittedPayment> {
   const billingAddress = resolveChatGPTTeamTrialBillingAddress(context.options)
+  const preserveBillingCountry =
+    context.options.preserveCheckoutBillingCountry === true
 
   if (context.machine) {
     await sendTeamTrialMachine(
@@ -1288,14 +1290,18 @@ async function submitChatGPTTeamTrialCheckout<Result>(
         paymentMethod: context.paymentMethod,
         url: checkoutUrl,
         checkoutUrl,
-        billingCountry: billingAddress.country,
+        ...(preserveBillingCountry
+          ? {}
+          : { billingCountry: billingAddress.country }),
         paymentMethodSelected: true,
         paypalPaymentMethodSelected: context.paymentMethod === 'paypal',
         lastMessage: 'Filling ChatGPT checkout billing address',
       },
     )
   }
-  await fillChatGPTCheckoutBillingAddress(page, billingAddress)
+  await fillChatGPTCheckoutBillingAddress(page, billingAddress, {
+    fillCountry: !preserveBillingCountry,
+  })
 
   if (context.machine) {
     await sendTeamTrialMachine(
@@ -1308,7 +1314,9 @@ async function submitChatGPTTeamTrialCheckout<Result>(
         paymentMethod: context.paymentMethod,
         url: page.url(),
         checkoutUrl,
-        billingCountry: billingAddress.country,
+        ...(preserveBillingCountry
+          ? {}
+          : { billingCountry: billingAddress.country }),
         paymentMethodSelected: true,
         billingAddressFilled: true,
         lastMessage: 'ChatGPT checkout billing address filled',

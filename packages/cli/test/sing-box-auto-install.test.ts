@@ -84,6 +84,65 @@ describe('managed sing-box auto install', () => {
     expect(executable).toBe('C:\\tools\\sing-box.exe')
   })
 
+  it('uses a cached executable before looking up the latest release', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    vi.spyOn(process, 'arch', 'get').mockReturnValue('x64')
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codey-sing-box-'))
+    const config = createRuntimeConfig(rootDir, {
+      autoInstall: true,
+    })
+    const cachedExecutable = path.join(
+      rootDir,
+      '.codey',
+      'sing-box',
+      'bin',
+      '1.13.11',
+      'windows',
+      'amd64',
+      'sing-box.exe',
+    )
+    fs.mkdirSync(path.dirname(cachedExecutable), { recursive: true })
+    fs.writeFileSync(cachedExecutable, 'fake cached sing-box exe')
+
+    vi.stubGlobal('fetch', vi.fn())
+    const executable = await resolveSingBoxExecutableForTest(config)
+
+    expect(executable).toBe(cachedExecutable)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('uses the newest matching cached executable before looking up a release', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    vi.spyOn(process, 'arch', 'get').mockReturnValue('x64')
+    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codey-sing-box-'))
+    const config = createRuntimeConfig(rootDir, {
+      autoInstall: true,
+    })
+    const createCachedExecutable = (version: string) => {
+      const executable = path.join(
+        rootDir,
+        '.codey',
+        'sing-box',
+        'bin',
+        version,
+        'windows',
+        'amd64',
+        'sing-box.exe',
+      )
+      fs.mkdirSync(path.dirname(executable), { recursive: true })
+      fs.writeFileSync(executable, `fake sing-box exe ${version}`)
+      return executable
+    }
+    createCachedExecutable('1.13.9')
+    const newestExecutable = createCachedExecutable('1.13.11')
+
+    vi.stubGlobal('fetch', vi.fn())
+    const executable = await resolveSingBoxExecutableForTest(config)
+
+    expect(executable).toBe(newestExecutable)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('does not emit unsupported hysteria2 username fields', () => {
     const { config } = buildSingBoxConfigForTest({
       host: '127.0.0.1',
