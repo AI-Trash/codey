@@ -137,12 +137,56 @@ describe('chatgpt team trial machine', () => {
     })
   })
 
+  it('selects the checkout entry branch from session access token observations', async () => {
+    const machine = createChatGPTTeamTrialMachine()
+
+    machine.start({
+      email: 'person@example.com',
+      paymentMethod: 'gopay',
+    })
+
+    await machine.send('chatgpt.checkout.entry.observed', {
+      patch: {
+        paymentMethod: 'gopay',
+        sessionAccessTokenAvailable: false,
+        lastMessage:
+          'ChatGPT session access token was not observed; opening pricing promo checkout',
+      },
+    })
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'opening-pricing',
+      context: {
+        checkoutEntryMode: 'pricing',
+        checkoutEntryFallbackReason: 'session-access-token-unavailable',
+        sessionAccessTokenAvailable: false,
+      },
+    })
+
+    await machine.send('chatgpt.checkout.entry.observed', {
+      patch: {
+        paymentMethod: 'gopay',
+        sessionAccessTokenAvailable: true,
+        lastMessage: 'Creating ChatGPT Team trial checkout link directly',
+      },
+    })
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'creating-checkout',
+      context: {
+        checkoutEntryMode: 'direct',
+        sessionAccessTokenAvailable: true,
+      },
+    })
+  })
+
   it('does not declare hardcoded GoPay proxy requirements on state definitions', () => {
+    expect(chatgptTeamTrialStates['creating-checkout']).toEqual({})
     expect(
-      chatgptTeamTrialStates['creating-checkout'].meta?.proxy,
+      getChatGPTTeamTrialStateProxyConfig('creating-checkout'),
     ).toBeUndefined()
-    expect(chatgptTeamTrialStates['checkout-ready'].meta?.proxy).toBeUndefined()
-    expect(chatgptTeamTrialStates['gopay-linking'].meta?.proxy).toBeUndefined()
+    expect(
+      getChatGPTTeamTrialStateProxyConfig('checkout-ready'),
+    ).toBeUndefined()
+    expect(getChatGPTTeamTrialStateProxyConfig('gopay-linking')).toBeUndefined()
     expect(getChatGPTTeamTrialStateProxyConfig('home-ready')).toBeUndefined()
   })
 

@@ -93,6 +93,7 @@ const CHATGPT_BACKEND_ORIGIN = new URL(CHATGPT_HOME_URL).origin
 const CHATGPT_BACKEND_ME_PATH = '/backend-api/me'
 const CHATGPT_BACKEND_ME_URL = `${CHATGPT_BACKEND_ORIGIN}${CHATGPT_BACKEND_ME_PATH}`
 const CHATGPT_BACKEND_ME_ROUTE = '/backend-api/me'
+const CHATGPT_AUTH_SESSION_URL = `${CHATGPT_BACKEND_ORIGIN}/api/auth/session`
 const CHATGPT_PROMO_COUPON_CHECK_PATH =
   '/backend-api/promo_campaign/check_coupon'
 const CHATGPT_PROMO_COUPON_CHECK_ROUTE =
@@ -150,6 +151,14 @@ interface ChatGPTBrowserApiResponse<T> {
   error?: string
 }
 
+export interface ChatGPTSessionAccessTokenObservation {
+  available: boolean
+  ok: boolean
+  status: number
+  url: string
+  error?: string
+}
+
 export interface ChatGPTPromoCouponCheckResponse {
   coupon?: string
   state?: string
@@ -180,6 +189,7 @@ export interface ChatGPTPromoCouponEligibilityResult {
 export interface ChatGPTTrialPromoCouponSelection {
   selected?: ChatGPTPromoCouponEligibilityResult
   checked: ChatGPTPromoCouponEligibilityResult[]
+  sessionAccessToken?: ChatGPTSessionAccessTokenObservation
 }
 
 export interface ChatGPTBackendMeSessionProbe {
@@ -470,6 +480,8 @@ export async function selectEligibleChatGPTTrialPromoCoupon(
   options: {
     coupons?: readonly ChatGPTTrialPromoCoupon[]
     requestHeaders?: Record<string, string>
+    observeSessionAccessToken?: boolean
+    sessionAccessTokenTimeoutMs?: number
   } = {},
 ): Promise<ChatGPTTrialPromoCouponSelection> {
   const checked: ChatGPTPromoCouponEligibilityResult[] = []
@@ -481,14 +493,118 @@ export async function selectEligibleChatGPTTrialPromoCoupon(
     })
     checked.push(result)
     if (result.eligible) {
+      const sessionAccessToken = options.observeSessionAccessToken
+        ? await observeChatGPTSessionAccessToken(page, {
+            timeoutMs: options.sessionAccessTokenTimeoutMs,
+          })
+        : undefined
       return {
         selected: result,
         checked,
+        ...(sessionAccessToken ? { sessionAccessToken } : {}),
       }
     }
   }
 
   return { checked }
+}
+
+export async function observeChatGPTSessionAccessToken(
+  page: Page,
+  options: {
+    timeoutMs?: number
+  } = {},
+): Promise<ChatGPTSessionAccessTokenObservation> {
+  const timeoutMs = Math.max(0, options.timeoutMs ?? 0)
+  const deadline = Date.now() + timeoutMs
+  let lastObservation: ChatGPTSessionAccessTokenObservation | undefined
+
+  do {
+    lastObservation = await fetchChatGPTSessionAccessTokenObservation(page)
+    if (lastObservation.available || timeoutMs === 0) {
+      return lastObservation
+    }
+
+    await sleep(Math.min(250, Math.max(1, deadline - Date.now())))
+  } while (Date.now() < deadline)
+
+  return lastObservation
+}
+
+async function fetchChatGPTSessionAccessTokenObservation(
+  page: Page,
+): Promise<ChatGPTSessionAccessTokenObservation> {
+  return page
+    .evaluate(
+      async ({ sessionUrl }) => {
+        function parseJson(text: string): unknown {
+          try {
+            return text ? JSON.parse(text) : undefined
+          } catch {
+            return undefined
+          }
+        }
+
+        function getStringField(
+          value: unknown,
+          key: string,
+        ): string | undefined {
+          if (!value || typeof value !== 'object') {
+            return undefined
+          }
+
+          const field = (value as Record<string, unknown>)[key]
+          return typeof field === 'string' && field.trim()
+            ? field.trim()
+            : undefined
+        }
+
+        try {
+          const response = await fetch(sessionUrl, {
+            credentials: 'include',
+            cache: 'no-store',
+          })
+          const text = await response.text()
+          const data = parseJson(text)
+          const accessToken =
+            getStringField(data, 'accessToken') ||
+            getStringField(data, 'access_token')
+          return {
+            available: Boolean(accessToken),
+            ok: response.ok,
+            status: response.status,
+            url: response.url,
+            ...(!response.ok
+              ? {
+                  error:
+                    getStringField(data, 'detail') ||
+                    getStringField(data, 'error') ||
+                    getStringField(data, 'message') ||
+                    'ChatGPT session access token was not available.',
+                }
+              : {}),
+          }
+        } catch (error) {
+          return {
+            available: false,
+            ok: false,
+            status: 0,
+            url: sessionUrl,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        }
+      },
+      {
+        sessionUrl: CHATGPT_AUTH_SESSION_URL,
+      },
+    )
+    .catch((error) => ({
+      available: false,
+      ok: false,
+      status: 0,
+      url: CHATGPT_AUTH_SESSION_URL,
+      error: error instanceof Error ? error.message : String(error),
+    }))
 }
 
 async function fetchChatGPTBrowserJsonApi<T>(

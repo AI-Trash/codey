@@ -10,6 +10,7 @@ import { pathToFileURL } from 'url'
 import {
   assignContextFromInput,
   composeStateMachineConfig,
+  createGuardedCaseTransitions,
   createStateMachine,
   defineStateMachineFragment,
   isStateMachinePatchInput,
@@ -42,6 +43,7 @@ import {
   selectChatGPTTrialPricingPlanIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
   type ChatGPTBackendApiHeadersCapture,
+  type ChatGPTSessionAccessTokenObservation,
   type ChatGPTTeamTrialBillingAddress,
   type ChatGPTTrialPromoCoupon,
   type ChatGPTTrialPaymentMethod,
@@ -313,6 +315,7 @@ export type ChatGPTTeamTrialFlowEvent =
   | 'chatgpt.pricing.ready'
   | 'chatgpt.trial.claiming'
   | 'chatgpt.trial.claimed'
+  | 'chatgpt.checkout.entry.observed'
   | 'chatgpt.checkout.creating'
   | 'chatgpt.checkout.ready'
   | 'chatgpt.paypal_payment_method.selecting'
@@ -350,6 +353,11 @@ export interface ChatGPTTeamTrialFlowContext<Result = unknown> {
   coupon?: ChatGPTTrialPromoCoupon
   trialPlan?: ChatGPTTrialPromoPlan
   couponState?: string
+  sessionAccessTokenAvailable?: boolean
+  sessionAccessTokenStatus?: number
+  sessionAccessTokenError?: string
+  checkoutEntryMode?: 'direct' | 'pricing'
+  checkoutEntryFallbackReason?: string
   paymentMethod?: ChatGPTTrialPaymentMethod
   pricingRegion?: string
   billingCountry?: string
@@ -683,9 +691,97 @@ export function createChatGPTTeamTrialMachine<
         states: createChatGPTTeamTrialStateConfigs<Result>(),
       },
       createChatGPTTeamTrialLifecycleFragment<Result>(),
+      createChatGPTTeamTrialCheckoutEntryFragment<Result>(),
       createChatGPTTeamTrialGoPayUnlinkRegionFragment<Result>(),
     ),
   )
+}
+
+function createChatGPTTeamTrialCheckoutEntryFragment<
+  Result,
+>(): StateMachineFragment<
+  ChatGPTTeamTrialFlowState,
+  ChatGPTTeamTrialFlowContext<Result>,
+  ChatGPTTeamTrialFlowEvent
+> {
+  return defineStateMachineFragment<
+    ChatGPTTeamTrialFlowState,
+    ChatGPTTeamTrialFlowContext<Result>,
+    ChatGPTTeamTrialFlowEvent
+  >({
+    on: {
+      'chatgpt.checkout.entry.observed':
+        createChatGPTTeamTrialCheckoutEntryObservedTransitions<Result>(),
+    },
+  })
+}
+
+function createChatGPTTeamTrialCheckoutEntryObservedTransitions<Result>() {
+  return createGuardedCaseTransitions<
+    ChatGPTTeamTrialFlowState,
+    ChatGPTTeamTrialFlowContext<Result>,
+    ChatGPTTeamTrialFlowEvent,
+    StateMachinePatchInput<
+      ChatGPTTeamTrialFlowState,
+      ChatGPTTeamTrialFlowContext<Result>
+    >
+  >({
+    isInput: isStateMachinePatchInput,
+    cases: [
+      {
+        priority: 20,
+        when: ({ input }) =>
+          input.patch?.paymentMethod === 'gopay' &&
+          input.patch.sessionAccessTokenAvailable === true,
+        target: 'creating-checkout',
+        actions: assignContextFromInput<
+          ChatGPTTeamTrialFlowState,
+          ChatGPTTeamTrialFlowContext<Result>,
+          ChatGPTTeamTrialFlowEvent,
+          StateMachinePatchInput<
+            ChatGPTTeamTrialFlowState,
+            ChatGPTTeamTrialFlowContext<Result>
+          >
+        >(isStateMachinePatchInput, (_context, { input }) => ({
+          ...input.patch,
+          checkoutEntryMode: 'direct',
+          checkoutEntryFallbackReason: undefined,
+          lastMessage:
+            input.patch?.lastMessage ||
+            'ChatGPT session access token is available for direct trial checkout',
+        })),
+      },
+      {
+        priority: 10,
+        target: 'opening-pricing',
+        actions: assignContextFromInput<
+          ChatGPTTeamTrialFlowState,
+          ChatGPTTeamTrialFlowContext<Result>,
+          ChatGPTTeamTrialFlowEvent,
+          StateMachinePatchInput<
+            ChatGPTTeamTrialFlowState,
+            ChatGPTTeamTrialFlowContext<Result>
+          >
+        >(isStateMachinePatchInput, (_context, { input }) => {
+          const directCheckoutRequested = input.patch?.paymentMethod === 'gopay'
+          return {
+            ...input.patch,
+            checkoutEntryMode: 'pricing',
+            checkoutEntryFallbackReason:
+              directCheckoutRequested &&
+              input.patch?.sessionAccessTokenAvailable !== true
+                ? 'session-access-token-unavailable'
+                : undefined,
+            lastMessage:
+              input.patch?.lastMessage ||
+              (directCheckoutRequested
+                ? 'ChatGPT session access token was not observed; opening pricing promo checkout'
+                : 'Opening ChatGPT pricing promo checkout'),
+          }
+        }),
+      },
+    ],
+  })
 }
 
 async function sendTeamTrialMachine<Result>(
@@ -1017,6 +1113,7 @@ interface ChatGPTTeamTrialCheckoutContext<Result = unknown> {
   coupon: ChatGPTTrialPromoCoupon
   plan: ChatGPTTrialPromoPlan
   couponState?: string
+  sessionAccessToken?: ChatGPTSessionAccessTokenObservation
   pricingUrl: string
 }
 
@@ -1093,6 +1190,7 @@ async function selectChatGPTTeamTrialCoupon<Result>(
   coupon: ChatGPTTrialPromoCoupon
   plan: ChatGPTTrialPromoPlan
   couponState?: string
+  sessionAccessToken?: ChatGPTSessionAccessTokenObservation
   pricingUrl: string
 }> {
   if (context.machine) {
@@ -1108,6 +1206,8 @@ async function selectChatGPTTeamTrialCoupon<Result>(
 
   const couponSelection = await selectEligibleChatGPTTrialPromoCoupon(page, {
     requestHeaders: input.backendApiHeadersCapture?.get()?.headers,
+    observeSessionAccessToken: context.paymentMethod === 'gopay',
+    sessionAccessTokenTimeoutMs: 10000,
   })
   const coupon = couponSelection.selected?.coupon
   if (!coupon) {
@@ -1118,10 +1218,18 @@ async function selectChatGPTTeamTrialCoupon<Result>(
 
   const plan = getChatGPTTrialPromoPlan(coupon)
   const couponState = couponSelection.selected?.state
+  const sessionAccessToken = couponSelection.sessionAccessToken
   const pricingUrl = buildChatGPTTrialPricingPromoUrl(coupon)
   context.options.progressReporter?.({
     message: `Selected ChatGPT ${plan} trial coupon ${coupon}`,
   })
+  if (context.paymentMethod === 'gopay' && sessionAccessToken) {
+    context.options.progressReporter?.({
+      message: sessionAccessToken.available
+        ? 'ChatGPT session access token is available for direct trial checkout'
+        : 'ChatGPT session access token was not observed during coupon eligibility check',
+    })
+  }
 
   if (context.machine) {
     await context.machine.send('context.updated', {
@@ -1131,6 +1239,7 @@ async function selectChatGPTTeamTrialCoupon<Result>(
         trialPlan: plan,
         paymentMethod: context.paymentMethod,
         couponState,
+        ...getSessionAccessTokenContextPatch(sessionAccessToken),
         url: page.url(),
         lastMessage: `Selected ChatGPT ${plan} trial coupon ${coupon}`,
       },
@@ -1141,6 +1250,7 @@ async function selectChatGPTTeamTrialCoupon<Result>(
     coupon,
     plan,
     couponState,
+    ...(sessionAccessToken ? { sessionAccessToken } : {}),
     pricingUrl,
   }
 }
@@ -1149,21 +1259,61 @@ async function openChatGPTTeamTrialCheckout<Result>(
   page: Page,
   context: ChatGPTTeamTrialCheckoutContext<Result>,
 ): Promise<ChatGPTTeamTrialCheckoutEntry> {
-  if (context.paymentMethod === 'gopay') {
-    await openDirectGoPayTrialCheckout(page, context)
-    const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
-    if (!checkoutReady) {
-      throw new Error(
-        `ChatGPT ${context.plan} trial checkout did not become ready.`,
-      )
-    }
-    return {
-      checkoutUrl: page.url(),
-      checkoutTitle: await page.title(),
-      trialClaimClicked: false,
+  const checkoutEntryMode = await observeChatGPTTeamTrialCheckoutEntry(
+    page,
+    context,
+  )
+  if (checkoutEntryMode === 'direct') {
+    try {
+      await openDirectGoPayTrialCheckout(page, context)
+      const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
+      if (!checkoutReady) {
+        throw new Error(
+          `ChatGPT ${context.plan} trial checkout did not become ready.`,
+        )
+      }
+      return {
+        checkoutUrl: page.url(),
+        checkoutTitle: await page.title(),
+        trialClaimClicked: false,
+      }
+    } catch (error) {
+      if (!isSessionAccessTokenUnavailableCheckoutError(error)) {
+        throw error
+      }
+
+      const message = sanitizeErrorForOutput(error).message
+      context.options.progressReporter?.({
+        message:
+          'ChatGPT session access token disappeared during direct checkout; opening pricing promo checkout',
+      })
+      if (context.machine) {
+        await sendTeamTrialMachine(
+          context.machine,
+          'chatgpt.checkout.entry.observed',
+          {
+            email: context.email,
+            coupon: context.coupon,
+            trialPlan: context.plan,
+            paymentMethod: context.paymentMethod,
+            couponState: context.couponState,
+            sessionAccessTokenAvailable: false,
+            sessionAccessTokenError: message,
+            url: page.url(),
+            lastMessage:
+              'ChatGPT session access token disappeared during direct checkout; opening pricing promo checkout',
+          },
+        )
+      }
     }
   }
 
+  if (context.paymentMethod === 'gopay') {
+    context.options.progressReporter?.({
+      message:
+        'Opening ChatGPT pricing promo checkout because direct checkout access token was not observed',
+    })
+  }
   await openPricingTrialCheckout(page, context)
   const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
   if (!checkoutReady) {
@@ -1176,6 +1326,65 @@ async function openChatGPTTeamTrialCheckout<Result>(
     checkoutUrl: page.url(),
     checkoutTitle: await page.title(),
     trialClaimClicked: true,
+  }
+}
+
+function isSessionAccessTokenUnavailableCheckoutError(error: unknown): boolean {
+  return sanitizeErrorForOutput(error).message.includes(
+    'ChatGPT session access token was not available',
+  )
+}
+
+async function observeChatGPTTeamTrialCheckoutEntry<Result>(
+  page: Page,
+  context: ChatGPTTeamTrialCheckoutContext<Result>,
+): Promise<'direct' | 'pricing'> {
+  const directCheckoutRequested = context.paymentMethod === 'gopay'
+  const directCheckoutAvailable =
+    directCheckoutRequested && context.sessionAccessToken?.available === true
+  const message = directCheckoutAvailable
+    ? `Creating ChatGPT ${context.plan} trial checkout link directly`
+    : directCheckoutRequested
+      ? 'ChatGPT session access token was not observed; opening pricing promo checkout'
+      : `Opening ChatGPT ${context.plan} pricing promo checkout`
+
+  if (context.machine) {
+    await sendTeamTrialMachine(
+      context.machine,
+      'chatgpt.checkout.entry.observed',
+      {
+        email: context.email,
+        coupon: context.coupon,
+        trialPlan: context.plan,
+        paymentMethod: context.paymentMethod,
+        couponState: context.couponState,
+        pricingRegion: directCheckoutAvailable
+          ? CHATGPT_GOPAY_PRICING_REGION
+          : undefined,
+        url: page.url(),
+        ...getSessionAccessTokenContextPatch(context.sessionAccessToken),
+        lastMessage: message,
+      },
+    )
+    return context.machine.getSnapshot().context.checkoutEntryMode === 'direct'
+      ? 'direct'
+      : 'pricing'
+  }
+
+  return directCheckoutAvailable ? 'direct' : 'pricing'
+}
+
+function getSessionAccessTokenContextPatch<Result>(
+  observation: ChatGPTSessionAccessTokenObservation | undefined,
+): Partial<ChatGPTTeamTrialFlowContext<Result>> {
+  if (!observation) {
+    return {}
+  }
+
+  return {
+    sessionAccessTokenAvailable: observation.available,
+    sessionAccessTokenStatus: observation.status,
+    sessionAccessTokenError: observation.error,
   }
 }
 
@@ -1566,6 +1775,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
     coupon: selectedCoupon,
     plan: selectedPlan,
     couponState: selectedCouponState,
+    sessionAccessToken: selected.sessionAccessToken,
     pricingUrl,
   }
 

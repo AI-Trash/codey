@@ -3231,6 +3231,18 @@ async function clickPaymentMethodLocatorIfPresent(
 
   const hadSelectionState = await hasPaymentMethodSelectionState(scope)
   await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
+  if (paymentMethod === 'gopay') {
+    const hostedClickResult =
+      await clickHostedGoPayAccordionActionWithJs(candidate)
+    if (hostedClickResult === 'clicked') {
+      return waitForCheckoutPaymentMethodSelected(
+        scope,
+        paymentMethod,
+        settleTimeoutMs,
+      )
+    }
+  }
+
   const clicked = await candidate
     .click()
     .then(() => true)
@@ -3258,6 +3270,27 @@ async function clickPaymentMethodLocatorIfPresent(
   }
 
   return true
+}
+
+async function clickHostedGoPayAccordionActionWithJs(
+  locator: Locator,
+): Promise<'clicked' | 'missing' | 'failed'> {
+  return locator
+    .evaluate((element) => {
+      const root = element.closest(
+        '[data-testid="gopay-accordion-item"]',
+      ) as HTMLElement | null
+      const action = root?.querySelector(
+        '.AccordionItemCover-actionContainer.AccordionItemCover-actionContainer--noButton button[data-testid="gopay-accordion-item-button"] > div',
+      ) as HTMLElement | null
+      if (!action) {
+        return 'missing'
+      }
+
+      action.click()
+      return 'clicked'
+    })
+    .catch(() => 'failed')
 }
 
 async function waitForCheckoutPaymentMethodSelected(

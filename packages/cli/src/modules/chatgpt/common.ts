@@ -236,9 +236,10 @@ export const CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS = [
 ] as const
 
 export const CHATGPT_CHECKOUT_GOPAY_PAYMENT_METHOD_SELECTORS = [
-  'button[data-testid="gopay-accordion-item-button"]',
   '[data-testid="gopay-accordion-item"] .AccordionItemHeader',
   '[data-testid="gopay-accordion-item"] .AccordionItemCover-header',
+  '[data-testid="gopay-accordion-item"] .AccordionButton-expandedClickArea',
+  'button[data-testid="gopay-accordion-item-button"]',
   '[data-testid="gopay-accordion-item"] button',
   '[data-testid="gopay-accordion-item"]',
   '[data-testid="gopay-accordion-item"] input[type="radio"]',
