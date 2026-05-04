@@ -231,6 +231,13 @@ function createFakerForBillingCountry(country: string): Faker {
   })
 }
 
+function createChatGPTTeamTrialFakerBillingAddressLine2(
+  countryFaker: Faker,
+): string | undefined {
+  const line2 = countryFaker.location.secondaryAddress().trim()
+  return line2 || undefined
+}
+
 function createChatGPTTeamTrialFakerBillingAddress(
   country: string,
 ): ChatGPTTeamTrialBillingAddress {
@@ -248,6 +255,7 @@ function createChatGPTTeamTrialFakerBillingAddress(
     name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
     country: normalizedCountry,
     line1: countryFaker.location.streetAddress(),
+    line2: createChatGPTTeamTrialFakerBillingAddressLine2(countryFaker),
     city: countryFaker.location.city(),
     state: countryFaker.location.state(),
     postalCode: countryFaker.location.zipCode(),

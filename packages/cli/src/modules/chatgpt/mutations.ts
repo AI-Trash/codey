@@ -2088,6 +2088,19 @@ async function fillStripeBillingAddressFrame(
     const FIELD_EXPAND_WAIT_MS = 600
     const address = input.address
     const shouldFillCountry = input.options.fillCountry
+    const stateRequired = [
+      'AR',
+      'AU',
+      'BR',
+      'CA',
+      'CN',
+      'ES',
+      'HK',
+      'IN',
+      'JP',
+      'MX',
+      'US',
+    ].includes(address.country.trim().toUpperCase())
 
     const fieldSelectors: Record<BillingField, string[]> = {
       name: [
@@ -2175,6 +2188,8 @@ async function fillStripeBillingAddressFrame(
         'input[placeholder*="address line 2" i]',
         'input[placeholder*="apt" i]',
         'input[placeholder*="suite" i]',
+        'input[placeholder*="apartment" i]',
+        'input[placeholder*="unit" i]',
       ],
       city: [
         'input[name="locality"]',
@@ -2218,9 +2233,15 @@ async function fillStripeBillingAddressFrame(
         'input[aria-label*="州" i]',
         'input[aria-label*="省" i]',
         'input[aria-label*="state" i]',
+        'input[aria-label*="province" i]',
+        'select[aria-label*="州" i]',
+        'select[aria-label*="省" i]',
+        'select[aria-label*="state" i]',
+        'select[aria-label*="province" i]',
         'input[placeholder*="州" i]',
         'input[placeholder*="省" i]',
         'input[placeholder*="state" i]',
+        'input[placeholder*="province" i]',
       ],
       postalCode: [
         'input[name="postalCode"]',
@@ -2344,6 +2365,14 @@ async function fillStripeBillingAddressFrame(
     function looksLikeLine2(text: string): boolean {
       return /address[-_\s]*line[-_\s]*2|addressline2|address_line2|address-line2|line[-_\s]*2|line2|地址\s*第?\s*2\s*行|地址.*2|apt|apartment|suite|unit|公寓|套房/i.test(
         text,
+      )
+    }
+
+    function looksLikeLine2Disclosure(text: string): boolean {
+      return (
+        /add|enter|include|optional|address|line|apt|apartment|suite|unit|floor|公寓|套房|地址|第二行|第\s*2\s*行/i.test(
+          text,
+        ) && looksLikeLine2(text)
       )
     }
 
@@ -2471,6 +2500,38 @@ async function fillStripeBillingAddressFrame(
       return null
     }
 
+    async function expandLine2FieldIfPresent(): Promise<boolean> {
+      const candidates = Array.from(
+        document.querySelectorAll(
+          'button, [role="button"], a, summary, label, div, span',
+        ),
+      ).filter((element): element is HTMLElement => {
+        if (!isVisible(element)) return false
+        if (getVisibleControls(element).length > 0) return false
+
+        const descriptor = normalizeText(
+          [
+            element.textContent,
+            element.getAttribute('aria-label'),
+            element.getAttribute('title'),
+          ]
+            .filter(Boolean)
+            .join(' '),
+        )
+
+        return looksLikeLine2Disclosure(descriptor)
+      })
+
+      for (const candidate of candidates) {
+        candidate.focus()
+        candidate.click()
+        await sleepInFrame(FIELD_SETTLE_MS)
+        if (findField('line2')) return true
+      }
+
+      return false
+    }
+
     function findField(field: BillingField): HTMLElement | null {
       for (const selector of fieldSelectors[field]) {
         const elements = Array.from(document.querySelectorAll(selector)).filter(
@@ -2498,10 +2559,18 @@ async function fillStripeBillingAddressFrame(
       timeoutMs = FIELD_WAIT_MS,
     ): Promise<HTMLElement | null> {
       const deadline = Date.now() + timeoutMs
+      let line2Expanded = field !== 'line2'
 
       do {
         const element = findField(field)
         if (element) return element
+        if (!line2Expanded) {
+          line2Expanded = true
+          if (await expandLine2FieldIfPresent()) {
+            const expandedElement = findField(field)
+            if (expandedElement) return expandedElement
+          }
+        }
         const remainingMs = deadline - Date.now()
         if (remainingMs <= 0) break
         await sleepInFrame(Math.min(100, remainingMs))
@@ -2571,15 +2640,83 @@ async function fillStripeBillingAddressFrame(
       )
     }
 
+    function fieldValueMatches(
+      candidate: string | null | undefined,
+      value: string,
+    ): boolean {
+      const normalizedCandidate = normalizeText(candidate)
+      const normalizedValue = normalizeText(value)
+      if (!normalizedCandidate || !normalizedValue) return false
+
+      const candidateLower = normalizedCandidate.toLowerCase()
+      const valueLower = normalizedValue.toLowerCase()
+      if (candidateLower === valueLower) return true
+
+      const compactCandidate = candidateLower.replace(
+        /[^a-z0-9\u4e00-\u9fff]/gi,
+        '',
+      )
+      const compactValue = valueLower.replace(/[^a-z0-9\u4e00-\u9fff]/gi, '')
+      if (compactCandidate && compactCandidate === compactValue) return true
+
+      return (
+        (valueLower.length >= 3 && candidateLower.includes(valueLower)) ||
+        (candidateLower.length >= 3 && valueLower.includes(candidateLower))
+      )
+    }
+
+    function selectOptionMatches(
+      field: BillingField,
+      option: HTMLOptionElement,
+      value: string,
+    ): boolean {
+      const candidates = [
+        option.value,
+        option.getAttribute('data-value'),
+        option.textContent,
+      ]
+      if (field === 'country') {
+        return candidates.some((candidate) =>
+          countryValueMatches(candidate, value),
+        )
+      }
+
+      return candidates.some((candidate) => fieldValueMatches(candidate, value))
+    }
+
+    function selectValueMatches(
+      field: BillingField,
+      element: HTMLSelectElement,
+      value: string,
+    ): boolean {
+      const selected = element.selectedOptions[0]
+      const candidates = [
+        element.value,
+        selected?.value,
+        selected?.getAttribute('data-value'),
+        selected?.textContent,
+      ]
+      if (field === 'country') {
+        return candidates.some((candidate) =>
+          countryValueMatches(candidate, value),
+        )
+      }
+
+      return candidates.some((candidate) => fieldValueMatches(candidate, value))
+    }
+
     function elementValueMatches(
       field: BillingField,
       element: HTMLElement,
       value: string,
     ): boolean {
+      if (element instanceof HTMLSelectElement) {
+        return selectValueMatches(field, element, value)
+      }
+
       if (
         element instanceof HTMLInputElement ||
-        element instanceof HTMLTextAreaElement ||
-        element instanceof HTMLSelectElement
+        element instanceof HTMLTextAreaElement
       ) {
         if (field === 'country') {
           return countryValueMatches(element.value, value)
@@ -2672,24 +2809,16 @@ async function fillStripeBillingAddressFrame(
       element.focus()
 
       if (element instanceof HTMLSelectElement) {
-        const normalized = normalizeCountry(value)
-        const option =
-          Array.from(element.options).find(
-            (entry) => entry.value.toUpperCase() === normalized,
-          ) ||
-          Array.from(element.options).find((entry) =>
-            entry.textContent
-              ?.trim()
-              .toLowerCase()
-              .includes(value.toLowerCase()),
-          )
+        const option = Array.from(element.options).find((entry) =>
+          selectOptionMatches(field, entry, value),
+        )
 
         const nextValue = option?.value || value
         nativeSelectValueSetter?.call(element, nextValue)
         element.value = nextValue
         dispatchValueEvents(element, nextValue)
         element.blur()
-        return element.value === nextValue
+        return selectValueMatches(field, element, value)
       }
 
       if (field === 'country') {
@@ -2784,9 +2913,16 @@ async function fillStripeBillingAddressFrame(
       'city',
       cityRequired ? FIELD_WAIT_MS : SHORT_FIELD_WAIT_MS,
     )
-    result.state = await setField('state', SHORT_FIELD_WAIT_MS)
+    result.state = await setField(
+      'state',
+      stateRequired ? FIELD_WAIT_MS : SHORT_FIELD_WAIT_MS,
+    )
 
-    if (!result.postalCode || (cityRequired && !result.city)) {
+    if (
+      !result.postalCode ||
+      (cityRequired && !result.city) ||
+      (stateRequired && !result.state)
+    ) {
       await sleepInFrame(FIELD_SETTLE_MS)
       if (shouldFillCountry) {
         result.country ||= await setField('country', SHORT_FIELD_WAIT_MS)
@@ -2794,6 +2930,9 @@ async function fillStripeBillingAddressFrame(
       result.postalCode ||= await setField('postalCode', SHORT_FIELD_WAIT_MS)
       if (cityRequired) {
         result.city ||= await setField('city', SHORT_FIELD_WAIT_MS)
+      }
+      if (stateRequired) {
+        result.state ||= await setField('state', SHORT_FIELD_WAIT_MS)
       }
     }
 
