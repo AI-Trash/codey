@@ -47,52 +47,10 @@ const stripeBillingAddress = {
   postalCode: '238858',
 } as const
 
-function buildHostedGoPayAccordionElement(
-  options: {
-    onActionClick?: () => void
-  } = {},
-): HTMLElement & {
-  disabled?: boolean
-} {
-  const root = {
-    getBoundingClientRect: () => ({
-      left: 100,
-      top: 20,
-      right: 500,
-      bottom: 68,
-      width: 400,
-      height: 48,
-    }),
-    querySelector: (selector: string) =>
-      selector ===
-      '.AccordionItemCover-actionContainer.AccordionItemCover-actionContainer--noButton button[data-testid="gopay-accordion-item-button"] > div'
-        ? action
-        : null,
-  }
-  const action = {
-    click: () => {
-      options.onActionClick?.()
-    },
-  }
-  const element = {
-    disabled: false,
-    getAttribute(): string | null {
-      return null
-    },
-    closest: (selector: string) =>
-      selector === '[data-testid="gopay-accordion-item"]' ||
-      selector.includes('gopay-accordion-item') ||
-      selector.includes('PaymentMethodFormAccordionItem')
-        ? root
-        : null,
-  }
-
-  return element as unknown as HTMLElement & { disabled?: boolean }
-}
-
 class FakeCheckoutLocator {
   clicks = 0
   fills: string[] = []
+  forceClicks = 0
 
   constructor(
     private readonly visible: boolean | (() => boolean) = false,
@@ -121,11 +79,14 @@ class FakeCheckoutLocator {
 
   async scrollIntoViewIfNeeded(): Promise<void> {}
 
-  async click(): Promise<void> {
+  async click(options?: { force?: boolean }): Promise<void> {
     if (!this.isCurrentlyVisible()) {
       throw new Error('Locator is not visible')
     }
     this.clicks += 1
+    if (options?.force === true) {
+      this.forceClicks += 1
+    }
     this.onClick?.()
   }
 
@@ -185,6 +146,7 @@ interface FakeCheckoutPageOptions {
   gopayRadioLocator?: FakeCheckoutLocator
   hasHostedPaymentSelectionState?: () => boolean
   hostedGopaySelected?: () => boolean
+  gopayAccordionAction?: FakeCheckoutLocator
   paymentErrorMessage?: string | (() => string | undefined)
   evaluateCallback?: <T, Arg>(
     callback: (arg: Arg) => Promise<T> | T,
@@ -450,6 +412,13 @@ class FakeCheckoutPage {
       return new FakeCheckoutLocator(() =>
         Boolean(this.options.hasHostedPaymentSelectionState?.()),
       )
+    }
+    if (
+      requestedMethod === 'gopay' &&
+      normalizedSelector.includes('gopay-accordion-item-button') &&
+      normalizedSelector.includes('> div')
+    ) {
+      return this.options.gopayAccordionAction ?? this.hiddenLocator
     }
     if (
       requestedMethod === 'gopay' &&
@@ -2154,21 +2123,14 @@ describe('checkout payment method selection', () => {
 
   it('opens hosted GoPay checkout with the accordion button before the hidden radio', async () => {
     let gopaySelected = false
-    let actionClicks = 0
-    const gopayAccordionButton = new FakeCheckoutLocator(
-      true,
-      undefined,
-      '',
-      buildHostedGoPayAccordionElement({
-        onActionClick: () => {
-          actionClicks += 1
-          gopaySelected = true
-        },
-      }),
-    )
+    const gopayAccordionButton = new FakeCheckoutLocator(true, undefined, '')
+    const gopayAccordionAction = new FakeCheckoutLocator(true, () => {
+      gopaySelected = true
+    })
     const gopayRadioLocator = new FakeCheckoutLocator(true)
     const page = new FakeCheckoutPage([], {
       gopayAccordionButton,
+      gopayAccordionAction,
       gopayRadioLocator,
       hasHostedPaymentSelectionState: () => true,
       hostedGopaySelected: () => gopaySelected,
@@ -2180,7 +2142,8 @@ describe('checkout payment method selection', () => {
       }),
     ).resolves.toBe(true)
 
-    expect(actionClicks).toBe(1)
+    expect(gopayAccordionAction.clicks).toBe(1)
+    expect(gopayAccordionAction.forceClicks).toBe(1)
     expect(gopayAccordionButton.clicks).toBe(0)
     expect(gopayRadioLocator.clicks).toBe(0)
     expect(gopaySelected).toBe(true)

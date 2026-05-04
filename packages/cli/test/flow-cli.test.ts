@@ -385,10 +385,55 @@ describe('flow cli helpers', () => {
     })
 
     expect(progress).toBe(
-      '[flow:chatgpt-register] email-step --chatgpt.password.submitted--> verification-polling | Polling verification provider for verification code (attempt 3)',
+      '[flow:chatgpt-register] Polling verification provider for verification code (attempt 3)',
     )
     expect(failure).toContain('ChatGPT registration failed')
     expect(failure).toContain('Verification code=***redacted*** was rejected')
+  })
+
+  it('keeps state-machine internals out of default progress output', () => {
+    expect(
+      formatFlowProgressUpdate('flow:chatgpt-register', {
+        status: 'running',
+        state: 'idle',
+        event: 'machine.started',
+        fromState: 'idle',
+        toState: 'idle',
+      }),
+    ).toBeUndefined()
+
+    expect(
+      formatFlowProgressUpdate('flow:chatgpt-register', {
+        status: 'running',
+        state: 'post-signup-home',
+        event: 'context.updated',
+        fromState: 'post-signup-home',
+        toState: 'post-signup-home',
+      }),
+    ).toBeUndefined()
+
+    expect(
+      formatFlowProgressUpdate('flow:chatgpt-register', {
+        status: 'running',
+        state: 'post-signup-home',
+        event: 'context.updated',
+        message: 'ChatGPT home ready',
+        fromState: 'post-signup-home',
+        toState: 'post-signup-home',
+      }),
+    ).toBe('[flow:chatgpt-register] ChatGPT home ready')
+  })
+
+  it('shortens long URLs in progress messages', () => {
+    const progress = formatFlowProgressUpdate('flow:chatgpt-register', {
+      status: 'running',
+      message:
+        'Opened ChatGPT plus direct checkout: https://pay.openai.com/c/pay/cs_live_123#long-fragment',
+    })
+
+    expect(progress).toBe(
+      '[flow:chatgpt-register] Opened ChatGPT plus direct checkout: https://pay.openai.com/...',
+    )
   })
 
   it('reports state-machine transition snapshots to the progress reporter', async () => {

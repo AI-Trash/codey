@@ -18,6 +18,7 @@ import {
   redactForOutput,
   sanitizeErrorForOutput,
   sanitizeSummaryString,
+  sanitizeUrlString,
 } from '../../utils/redaction'
 
 export interface CommonOptions {
@@ -114,8 +115,38 @@ function normalizeProgressField(value: string | undefined): string | undefined {
     return undefined
   }
 
-  const sanitized = sanitizeSummaryString(value)
+  const sanitized = sanitizeProgressText(value)
   return sanitized.trim() ? sanitized.trim() : undefined
+}
+
+function sanitizeProgressText(value: string): string {
+  return sanitizeSummaryString(value).replace(
+    /\bhttps?:\/\/[^\s<>"')]+/gi,
+    (url) => summarizeProgressUrl(url),
+  )
+}
+
+function summarizeProgressUrl(value: string): string {
+  const sanitized = sanitizeUrlString(value)
+
+  try {
+    const parsed = new URL(sanitized)
+    return `${parsed.protocol}//${parsed.host}/...`
+  } catch {
+    return sanitized
+  }
+}
+
+function formatAttemptSuffix(attempt: number | undefined): string {
+  if (
+    typeof attempt !== 'number' ||
+    !Number.isFinite(attempt) ||
+    attempt <= 1
+  ) {
+    return ''
+  }
+
+  return ` (attempt ${attempt})`
 }
 
 export { redactForOutput, sanitizeErrorForOutput }
@@ -606,29 +637,33 @@ export function formatFlowProgressMessage(
     (update.state !== 'idle' ? normalizeProgressField(update.state) : undefined)
   const event = normalizeProgressField(update.event)
   const message = normalizeProgressField(update.message)
-  const transition = formatFlowProgressTransition({
+  const attempt = formatAttemptSuffix(update.attempt)
+
+  if (message) {
+    let body = `${message}${attempt}`
+    if (update.status === 'failed' && update.error) {
+      const error = sanitizeProgressText(update.error)
+      if (!body.includes(error)) {
+        body += `: ${error}`
+      }
+    }
+    return body
+  }
+
+  if (update.status === 'failed') {
+    const error = normalizeProgressField(update.error)
+    return error ? `Flow failed: ${error}` : undefined
+  }
+
+  if (isInternalProgressEvent(event)) {
+    return undefined
+  }
+
+  let body = formatFlowProgressTransition({
     fromState,
     toState,
     event,
   })
-
-  let body = transition
-
-  if (message) {
-    body = body ? `${body} | ${message}` : message
-  }
-
-  if (!body && event && event !== 'machine.started') {
-    body = `event ${event}`
-  }
-
-  if (!body && toState) {
-    body = `state ${toState}`
-  }
-
-  if (!body && update.status === 'failed' && !update.error) {
-    return undefined
-  }
 
   if (!body) {
     body = normalizeProgressField(update.status)
@@ -638,18 +673,13 @@ export function formatFlowProgressMessage(
     return undefined
   }
 
-  if (typeof update.attempt === 'number' && Number.isFinite(update.attempt)) {
-    body += ` (attempt ${update.attempt})`
-  }
-
-  if (update.status === 'failed' && update.error) {
-    const error = sanitizeSummaryString(update.error)
-    if (!body.includes(error)) {
-      body += `: ${error}`
-    }
-  }
+  body += attempt
 
   return body
+}
+
+function isInternalProgressEvent(event: string | undefined): boolean {
+  return event === 'machine.started' || event === 'context.updated'
 }
 
 function formatFlowProgressTransition(input: {
@@ -694,16 +724,17 @@ export function createConsoleFlowProgressReporter(
   let lastLine: string | undefined
 
   return (update) => {
+    logCliEvent('debug', 'flow.progress', {
+      command,
+      update,
+    })
+
     const line = formatFlowProgressUpdate(command, update)
     if (!line || line === lastLine) {
       return
     }
 
     lastLine = line
-    logCliEvent('debug', 'flow.progress', {
-      command,
-      update,
-    })
     writeCliStderrLine(line)
   }
 }

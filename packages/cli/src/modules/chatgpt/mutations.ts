@@ -239,6 +239,8 @@ function buildPaymentMethodStateSelectors(
 }
 
 type CheckoutLocatorScope = Page | Frame
+const HOSTED_GOPAY_ACCORDION_ACTION_SELECTOR =
+  '[data-testid="gopay-accordion-item"] button[data-testid="gopay-accordion-item-button"] > div'
 
 export interface OpenAIWorkspaceSelectionResult {
   availableWorkspaces: number
@@ -3233,7 +3235,7 @@ async function clickPaymentMethodLocatorIfPresent(
   await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
   if (paymentMethod === 'gopay') {
     const hostedClickResult =
-      await clickHostedGoPayAccordionActionWithJs(candidate)
+      await clickHostedGoPayAccordionActionWithForce(scope)
     if (hostedClickResult === 'clicked') {
       return waitForCheckoutPaymentMethodSelected(
         scope,
@@ -3272,25 +3274,19 @@ async function clickPaymentMethodLocatorIfPresent(
   return true
 }
 
-async function clickHostedGoPayAccordionActionWithJs(
-  locator: Locator,
+async function clickHostedGoPayAccordionActionWithForce(
+  scope: CheckoutLocatorScope,
 ): Promise<'clicked' | 'missing' | 'failed'> {
-  return locator
-    .evaluate((element) => {
-      const root = element.closest(
-        '[data-testid="gopay-accordion-item"]',
-      ) as HTMLElement | null
-      const action = root?.querySelector(
-        '.AccordionItemCover-actionContainer.AccordionItemCover-actionContainer--noButton button[data-testid="gopay-accordion-item-button"] > div',
-      ) as HTMLElement | null
-      if (!action) {
-        return 'missing'
-      }
+  const action = scope.locator(HOSTED_GOPAY_ACCORDION_ACTION_SELECTOR).first()
+  const count = await action.count().catch(() => 0)
+  if (count < 1) {
+    return 'missing'
+  }
 
-      action.click()
-      return 'clicked'
-    })
-    .catch(() => 'failed')
+  return action
+    .click({ force: true })
+    .then(() => 'clicked' as const)
+    .catch(() => 'failed' as const)
 }
 
 async function waitForCheckoutPaymentMethodSelected(
