@@ -91,6 +91,81 @@ describe('chatgpt registration machine', () => {
     })
   })
 
+  it('prioritizes combined verification and profile fields when both signals are present', async () => {
+    const machine = createChatGPTRegistrationMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.email.observed', {
+      candidates: ['verification', 'verification-profile'],
+      url: 'https://auth.openai.com/email-verification/register',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'verification-polling',
+      context: {
+        postEmailStep: 'verification-profile',
+        method: 'verification',
+        ageGateActive: true,
+        submitProfileWithVerification: true,
+        lastMessage:
+          'Combined verification and profile step detected after registration email submission',
+      },
+    })
+
+    await machine.send('chatgpt.verification.submitted', {
+      verificationCode: '123456',
+      profileSubmitted: true,
+      url: 'https://chatgpt.com/',
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'post-signup-home',
+      context: {
+        verificationCode: '123456',
+        ageGateActive: false,
+        ageGateRetryCount: 0,
+        lastMessage: 'Verification code and profile submitted',
+      },
+    })
+  })
+
+  it('keeps verification entry state when observing combined profile fields', async () => {
+    const machine = createChatGPTRegistrationMachine()
+
+    machine.start({
+      email: 'person@example.com',
+    })
+
+    await machine.send('chatgpt.verification.code-found', {
+      verificationCode: '123456',
+      url: 'https://auth.openai.com/email-verification/register',
+    })
+
+    await machine.send('chatgpt.verification.surface.observed', {
+      candidates: ['verification-profile', 'verification'],
+      url: 'https://auth.openai.com/email-verification/register',
+      patch: {
+        email: 'person@example.com',
+      },
+    })
+
+    expect(machine.getSnapshot()).toMatchObject({
+      state: 'verification-code-entry',
+      context: {
+        postEmailStep: 'verification-profile',
+        submitProfileWithVerification: true,
+        lastMessage:
+          'Combined verification and profile step observed during verification entry',
+      },
+    })
+  })
+
   it('selects the post-email transition with guards', async () => {
     const machine = createChatGPTRegistrationMachine()
 

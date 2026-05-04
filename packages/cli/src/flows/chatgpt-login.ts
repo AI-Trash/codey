@@ -340,7 +340,9 @@ function createChatGPTLoginPostEmailObservedTransitions<Result>() {
       },
       {
         priority: 40,
-        when: ({ input }) => input.candidates.includes('verification'),
+        when: ({ input }) =>
+          input.candidates.includes('verification') ||
+          input.candidates.includes('verification-profile'),
         target: 'verification-polling',
         actions: assignObservedPostEmailContext(
           'verification',
@@ -419,7 +421,9 @@ function createChatGPTLoginEmailSubmittedTransitions<Result>() {
       },
       {
         priority: 40,
-        when: ({ input }) => input.step === 'verification',
+        when: ({ input }) =>
+          input.step === 'verification' ||
+          input.step === 'verification-profile',
         target: 'verification-polling',
         actions: assignPostEmailContext(
           'Verification step detected after email submission',
@@ -803,7 +807,12 @@ function selectStoredLoginPostEmailStep(
 ): 'authenticated' | 'password' | 'verification' | 'retry' | undefined {
   if (postEmailCandidates.includes('authenticated')) return 'authenticated'
   if (postEmailCandidates.includes('password')) return 'password'
-  if (postEmailCandidates.includes('verification')) return 'verification'
+  if (
+    postEmailCandidates.includes('verification') ||
+    postEmailCandidates.includes('verification-profile')
+  ) {
+    return 'verification'
+  }
   if (postEmailCandidates.includes('retry')) return 'retry'
   return undefined
 }

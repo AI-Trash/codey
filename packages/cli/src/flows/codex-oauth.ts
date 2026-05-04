@@ -541,7 +541,9 @@ function createCodexOAuthPostLoginObservedTransitions<Result>() {
       },
       {
         priority: 24,
-        when: ({ input }) => input.candidates.includes('verification'),
+        when: ({ input }) =>
+          input.candidates.includes('verification') ||
+          input.candidates.includes('verification-profile'),
         target: 'verification-step',
         actions: assignObservedPostLoginContext(
           'verification',
@@ -1427,6 +1429,7 @@ function isCodexOAuthPostLoginCandidate(
     value === 'authenticated' ||
     value === 'password' ||
     value === 'verification' ||
+    value === 'verification-profile' ||
     value === 'retry'
   )
 }
@@ -1718,6 +1721,7 @@ async function runCodexOAuthPostLoginObservation(
       )
 
     case 'verification':
+    case 'verification-profile':
       await submitCodexOAuthStoredVerification(
         page,
         machine,

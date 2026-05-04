@@ -20,6 +20,7 @@ import {
   getChatGPTTrialPricingFreeTrialSelectors,
   getChatGPTTrialPricingPlanToggleSelectors,
   continueGoPayPaymentFromRedirect,
+  readChatGPTCheckoutBillingCountry,
   selectChatGPTCheckoutPaymentMethodIfPresent,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
@@ -901,6 +902,24 @@ describe('chatgpt team trial checkout defaults', () => {
     })
   })
 
+  it('generates a Faker billing address for the checkout country when preserved', () => {
+    setRuntimeConfig({
+      ...baseConfig,
+      chatgptTeamTrial: undefined,
+    })
+
+    const address = resolveChatGPTTeamTrialBillingAddress({}, 'ID')
+
+    expect(address).toMatchObject({
+      name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+      country: 'ID',
+    })
+    expect(address.line1).toBeTruthy()
+    expect(address.city).toBeTruthy()
+    expect(address.postalCode).toBeTruthy()
+    expect(address.line1).not.toContain('Orchard Road')
+  })
+
   it('resolves GoPay account config from runtime config', () => {
     setRuntimeConfig({
       ...baseConfig,
@@ -1225,6 +1244,71 @@ describe('trial coupon pricing helpers', () => {
         Event: previousEvent,
         InputEvent: previousInputEvent,
         FocusEvent: previousFocusEvent,
+      })
+    }
+  }, 10000)
+
+  it('reads the preselected checkout billing country', async () => {
+    const { JSDOM } = await import('jsdom')
+    const dom = new JSDOM(
+      `<form>
+        <select name="billing_details[address][country]">
+          <option value="ID" selected>Indonesia</option>
+          <option value="SG">Singapore</option>
+        </select>
+      </form>`,
+      { pretendToBeVisual: true },
+    )
+    const window = dom.window as unknown as Window & typeof globalThis
+    window.HTMLElement.prototype.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 1,
+        bottom: 1,
+        width: 1,
+        height: 1,
+        toJSON: () => ({}),
+      }) as DOMRect
+    const previousWindow = globalThis.window
+    const previousDocument = globalThis.document
+    const previousHTMLElement = globalThis.HTMLElement
+    const previousHTMLInputElement = globalThis.HTMLInputElement
+    const previousHTMLSelectElement = globalThis.HTMLSelectElement
+
+    Object.assign(globalThis, {
+      window,
+      document: window.document,
+      HTMLElement: window.HTMLElement,
+      HTMLInputElement: window.HTMLInputElement,
+      HTMLSelectElement: window.HTMLSelectElement,
+    })
+
+    try {
+      const addressFrame = new FakeCheckoutFrame(
+        new FakeCheckoutLocator(false),
+        'https://js.stripe.com/v3/elements-inner-address-test.html',
+        {
+          addressFrameReady: true,
+          evaluateCallback: (callback) => Promise.resolve(callback()),
+        },
+      )
+      const page = new FakeCheckoutPage([addressFrame], {
+        billingAddressFrameVisible: true,
+      })
+
+      await expect(
+        readChatGPTCheckoutBillingCountry(page as never),
+      ).resolves.toBe('ID')
+    } finally {
+      Object.assign(globalThis, {
+        window: previousWindow,
+        document: previousDocument,
+        HTMLElement: previousHTMLElement,
+        HTMLInputElement: previousHTMLInputElement,
+        HTMLSelectElement: previousHTMLSelectElement,
       })
     }
   }, 10000)

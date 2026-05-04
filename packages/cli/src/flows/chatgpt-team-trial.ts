@@ -1,5 +1,10 @@
 import type { Page } from 'patchright'
-import { faker } from '@faker-js/faker'
+import {
+  Faker,
+  allLocales,
+  faker,
+  type LocaleDefinition,
+} from '@faker-js/faker'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import {
@@ -32,6 +37,7 @@ import {
   getChatGPTTrialPromoPlan,
   gotoTrialPricingPromo,
   normalizeChatGPTTrialPaymentMethod,
+  readChatGPTCheckoutBillingCountry,
   selectChatGPTCheckoutPaymentMethodIfPresent,
   selectChatGPTTrialPricingPlanIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
@@ -80,6 +86,40 @@ export const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME = 'Summpot'
 
 const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_COUNTRY = 'SG'
 const DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_CITY = 'Singapore'
+const DEFAULT_CHATGPT_TEAM_TRIAL_FAKER_LOCALE = 'en'
+
+const CHATGPT_TEAM_TRIAL_BILLING_COUNTRY_LOCALES: Record<string, string> = {
+  AR: 'es',
+  AT: 'de_AT',
+  AU: 'en_AU',
+  BE: 'nl_BE',
+  BR: 'pt_BR',
+  CA: 'en_CA',
+  CH: 'de_CH',
+  CN: 'zh_CN',
+  DE: 'de',
+  ES: 'es',
+  FR: 'fr',
+  GB: 'en_GB',
+  GH: 'en_GH',
+  HK: 'en_HK',
+  ID: 'id_ID',
+  IE: 'en_IE',
+  IN: 'en_IN',
+  IT: 'it',
+  JP: 'ja',
+  KR: 'ko',
+  LU: 'fr_LU',
+  MX: 'es_MX',
+  NG: 'en_NG',
+  NL: 'nl',
+  PT: 'pt_PT',
+  SG: 'en',
+  TH: 'th',
+  TW: 'zh_TW',
+  US: 'en_US',
+  ZA: 'en_ZA',
+} as const
 
 const SINGAPORE_BILLING_ADDRESS_STREETS = [
   'Alexandra Road',
@@ -148,6 +188,69 @@ export function createChatGPTTeamTrialSingaporeBillingAddress(): ChatGPTTeamTria
     city: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_CITY,
     state: undefined,
     postalCode: createSingaporePostalCode(),
+  }
+}
+
+function normalizeBillingCountry(
+  value: string | undefined,
+): string | undefined {
+  const normalized = value?.trim().toUpperCase()
+  return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : undefined
+}
+
+function getFakerLocale(localeCode: string): LocaleDefinition | undefined {
+  return (allLocales as Record<string, LocaleDefinition | undefined>)[
+    localeCode
+  ]
+}
+
+function getFakerLocaleCodesForCountry(country: string): string[] {
+  const normalized = normalizeBillingCountry(country)
+  if (!normalized) {
+    return [DEFAULT_CHATGPT_TEAM_TRIAL_FAKER_LOCALE]
+  }
+
+  const mappedLocale = CHATGPT_TEAM_TRIAL_BILLING_COUNTRY_LOCALES[normalized]
+  const languageCode = normalized.toLowerCase()
+  return [
+    mappedLocale,
+    `${languageCode}_${normalized}`,
+    languageCode,
+    DEFAULT_CHATGPT_TEAM_TRIAL_FAKER_LOCALE,
+    'base',
+  ].filter((entry): entry is string => Boolean(entry))
+}
+
+function createFakerForBillingCountry(country: string): Faker {
+  const locales = getFakerLocaleCodesForCountry(country)
+    .map((localeCode) => getFakerLocale(localeCode))
+    .filter((locale): locale is LocaleDefinition => Boolean(locale))
+
+  return new Faker({
+    locale: locales.length > 0 ? locales : [allLocales.en, allLocales.base],
+  })
+}
+
+function createChatGPTTeamTrialFakerBillingAddress(
+  country: string,
+): ChatGPTTeamTrialBillingAddress {
+  const normalizedCountry =
+    normalizeBillingCountry(country) ||
+    DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_COUNTRY
+
+  if (normalizedCountry === DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_COUNTRY) {
+    return createChatGPTTeamTrialSingaporeBillingAddress()
+  }
+
+  const countryFaker = createFakerForBillingCountry(normalizedCountry)
+
+  return {
+    name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+    country: normalizedCountry,
+    line1: countryFaker.location.streetAddress(),
+    city: countryFaker.location.city(),
+    state: countryFaker.location.state(),
+    postalCode: countryFaker.location.zipCode(),
   }
 }
 
@@ -670,9 +773,16 @@ function nonEmptyString(value: string | undefined): string | undefined {
 
 export function resolveChatGPTTeamTrialBillingAddress(
   options: FlowOptions = {},
+  runtimeCountry?: string,
 ): ChatGPTTeamTrialBillingAddress {
   const config = getRuntimeConfig().chatgptTeamTrial?.billingAddress
-  const fallbackAddress = createChatGPTTeamTrialSingaporeBillingAddress()
+  const fallbackCountry =
+    nonEmptyString(options.billingCountry) ||
+    nonEmptyString(config?.country) ||
+    normalizeBillingCountry(runtimeCountry) ||
+    DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_COUNTRY
+  const fallbackAddress =
+    createChatGPTTeamTrialFakerBillingAddress(fallbackCountry)
 
   return {
     name:
@@ -1231,8 +1341,8 @@ async function submitChatGPTTeamTrialCheckout<Result>(
   context: ChatGPTTeamTrialCheckoutContext<Result>,
   checkoutUrl: string,
 ): Promise<ChatGPTTeamTrialSubmittedPayment> {
-  const billingAddress = resolveChatGPTTeamTrialBillingAddress(context.options)
   const preserveBillingCountry =
+    context.paymentMethod === 'gopay' ||
     context.options.preserveCheckoutBillingCountry === true
 
   if (context.machine) {
@@ -1264,6 +1374,14 @@ async function submitChatGPTTeamTrialCheckout<Result>(
     )
   }
 
+  const runtimeBillingCountry = preserveBillingCountry
+    ? await readChatGPTCheckoutBillingCountry(page)
+    : undefined
+  const billingAddress = resolveChatGPTTeamTrialBillingAddress(
+    context.options,
+    runtimeBillingCountry,
+  )
+
   if (context.machine) {
     await sendTeamTrialMachine(
       context.machine,
@@ -1290,9 +1408,7 @@ async function submitChatGPTTeamTrialCheckout<Result>(
         paymentMethod: context.paymentMethod,
         url: checkoutUrl,
         checkoutUrl,
-        ...(preserveBillingCountry
-          ? {}
-          : { billingCountry: billingAddress.country }),
+        billingCountry: billingAddress.country,
         paymentMethodSelected: true,
         paypalPaymentMethodSelected: context.paymentMethod === 'paypal',
         lastMessage: 'Filling ChatGPT checkout billing address',
@@ -1314,9 +1430,7 @@ async function submitChatGPTTeamTrialCheckout<Result>(
         paymentMethod: context.paymentMethod,
         url: page.url(),
         checkoutUrl,
-        ...(preserveBillingCountry
-          ? {}
-          : { billingCountry: billingAddress.country }),
+        billingCountry: billingAddress.country,
         paymentMethodSelected: true,
         billingAddressFilled: true,
         lastMessage: 'ChatGPT checkout billing address filled',

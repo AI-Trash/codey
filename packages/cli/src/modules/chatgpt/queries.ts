@@ -53,6 +53,7 @@ export type ChatGPTPostEmailLoginStep =
   | 'authenticated'
   | 'password'
   | 'verification'
+  | 'verification-profile'
   | 'retry'
   | 'unknown'
 
@@ -1274,7 +1275,14 @@ export async function getPostEmailLoginStepCandidates(
   if (await isAnySelectorVisible(page, CHATGPT_AUTHENTICATED_SELECTORS)) {
     pushUniqueCandidate(candidates, 'authenticated')
   }
-  if (await isAnySelectorVisible(page, VERIFICATION_CODE_INPUT_SELECTORS)) {
+  const verificationCodeVisible = await isAnySelectorVisible(
+    page,
+    VERIFICATION_CODE_INPUT_SELECTORS,
+  )
+  if (verificationCodeVisible) {
+    if ((await getAgeGateFieldCandidates(page)).length > 0) {
+      pushUniqueCandidate(candidates, 'verification-profile')
+    }
     pushUniqueCandidate(candidates, 'verification')
   }
   if (await hasEnabledSelector(page, PASSWORD_INPUT_SELECTORS)) {

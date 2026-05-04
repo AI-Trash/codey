@@ -50,6 +50,7 @@ import {
   gotoLoginEntry,
   waitForAnySelectorState,
   getAgeGateFieldCandidates,
+  getPostEmailLoginStepCandidates,
   waitForEnabledSelector,
   waitForLoginEmailFormReady,
   waitForPasswordInputReady,
@@ -122,6 +123,7 @@ export type ChatGPTRegistrationFlowEvent =
   | 'chatgpt.password.started'
   | 'chatgpt.password.submitted'
   | 'chatgpt.verification.polling'
+  | 'chatgpt.verification.surface.observed'
   | 'chatgpt.verification.code-found'
   | 'chatgpt.verification.submitted'
   | 'chatgpt.age-gate.started'
@@ -139,7 +141,7 @@ export type ChatGPTRegistrationFlowEvent =
   | 'action.finished'
 
 interface RegistrationPostEmailBranchSelection {
-  branch: 'password' | 'verification' | 'retry'
+  branch: 'password' | 'verification' | 'verification-profile' | 'retry'
   verificationEvent: 'chatgpt.password.submitted' | 'context.updated'
   verificationMessage: string
 }
@@ -167,6 +169,7 @@ export interface ChatGPTRegistrationFlowContext<Result = unknown> {
   retryFromState?: ChatGPTRegistrationFlowState
   ageGateActive?: boolean
   ageGateRetryCount?: number
+  submitProfileWithVerification?: boolean
   lastMessage?: string
   lastAttempt?: number
   result?: Result
@@ -233,6 +236,7 @@ interface ChatGPTAgeGateOutcomeInput {
 interface ChatGPTVerificationSubmittedInput {
   verificationCode: string
   url: string
+  profileSubmitted?: boolean
 }
 
 interface ChatGPTRegistrationEmailSubmittedInput<Result = unknown> {
@@ -370,6 +374,7 @@ const chatgptRegistrationAddPhoneGuardEvents = [
   'chatgpt.password.started',
   'chatgpt.password.submitted',
   'chatgpt.verification.polling',
+  'chatgpt.verification.surface.observed',
   'chatgpt.verification.code-found',
   'chatgpt.verification.submitted',
   'chatgpt.age-gate.started',
@@ -503,6 +508,20 @@ function createChatGPTRegistrationPostEmailObservedTransitions<Result>() {
         ),
       },
       {
+        priority: 45,
+        when: ({ input }) => input.candidates.includes('verification-profile'),
+        target: 'verification-polling',
+        actions: assignObservedPostEmailContext(
+          'verification-profile',
+          'Combined verification and profile step detected after registration email submission',
+          {
+            method: 'verification',
+            ageGateActive: true,
+            submitProfileWithVerification: true,
+          },
+        ),
+      },
+      {
         priority: 40,
         when: ({ input }) => input.candidates.includes('verification'),
         target: 'verification-polling',
@@ -511,6 +530,7 @@ function createChatGPTRegistrationPostEmailObservedTransitions<Result>() {
           'Verification step detected after registration email submission',
           {
             method: 'verification',
+            submitProfileWithVerification: false,
           },
         ),
       },
@@ -588,6 +608,19 @@ function createChatGPTRegistrationEmailSubmittedTransitions<Result>() {
         ),
       },
       {
+        priority: 45,
+        when: ({ input }) => input.step === 'verification-profile',
+        target: 'verification-polling',
+        actions: assignPostEmailContext(
+          'Combined verification and profile step detected after registration email submission',
+          {
+            method: 'verification',
+            ageGateActive: true,
+            submitProfileWithVerification: true,
+          },
+        ),
+      },
+      {
         priority: 40,
         when: ({ input }) => input.step === 'verification',
         target: 'verification-polling',
@@ -595,6 +628,7 @@ function createChatGPTRegistrationEmailSubmittedTransitions<Result>() {
           'Verification step detected after registration email submission',
           {
             method: 'verification',
+            submitProfileWithVerification: false,
           },
         ),
       },
@@ -622,6 +656,64 @@ function createChatGPTRegistrationEmailSubmittedTransitions<Result>() {
               lastMessage:
                 'Retry step detected after registration email submission',
             }
+          },
+        ),
+      },
+    ],
+  })
+}
+
+function createChatGPTRegistrationVerificationSurfaceObservedTransitions<
+  Result,
+>() {
+  const assignVerificationSurfaceContext = (
+    postEmailStep: 'verification' | 'verification-profile',
+    lastMessage: string,
+    extras: Partial<ChatGPTRegistrationFlowContext<Result>> = {},
+  ) =>
+    assignContextFromInput<
+      ChatGPTRegistrationFlowState,
+      ChatGPTRegistrationFlowContext<Result>,
+      ChatGPTRegistrationFlowEvent,
+      ChatGPTRegistrationPostEmailObservedInput<Result>
+    >(isChatGPTRegistrationPostEmailObservedInput, (_context, { input }) => ({
+      ...input.patch,
+      ...extras,
+      postEmailStep,
+      url: input.url,
+      lastMessage,
+    }))
+
+  return createGuardedCaseTransitions<
+    ChatGPTRegistrationFlowState,
+    ChatGPTRegistrationFlowContext<Result>,
+    ChatGPTRegistrationFlowEvent,
+    ChatGPTRegistrationPostEmailObservedInput<Result>
+  >({
+    isInput: isChatGPTRegistrationPostEmailObservedInput,
+    cases: [
+      {
+        priority: 20,
+        when: ({ input }) => input.candidates.includes('verification-profile'),
+        actions: assignVerificationSurfaceContext(
+          'verification-profile',
+          'Combined verification and profile step observed during verification entry',
+          {
+            method: 'verification',
+            ageGateActive: true,
+            submitProfileWithVerification: true,
+          },
+        ),
+      },
+      {
+        priority: 10,
+        when: ({ input }) => input.candidates.includes('verification'),
+        actions: assignVerificationSurfaceContext(
+          'verification',
+          'Verification step observed during verification entry',
+          {
+            method: 'verification',
+            submitProfileWithVerification: false,
           },
         ),
       },
@@ -718,19 +810,49 @@ function createChatGPTRegistrationPostEmailFragment<Result>() {
         createChatGPTRegistrationPostEmailObservedTransitions<Result>(),
       'chatgpt.email.submitted':
         createChatGPTRegistrationEmailSubmittedTransitions<Result>(),
-      'chatgpt.verification.submitted': {
-        target: 'age-gate',
-        actions: assignContextFromInput<
-          ChatGPTRegistrationFlowState,
-          ChatGPTRegistrationFlowContext<Result>,
-          ChatGPTRegistrationFlowEvent,
-          ChatGPTVerificationSubmittedInput
-        >(isVerificationSubmittedInput, (_context, { input }) => ({
-          verificationCode: input.verificationCode,
-          url: input.url,
-          lastMessage: 'Verification code submitted',
-        })),
-      },
+      'chatgpt.verification.surface.observed':
+        createChatGPTRegistrationVerificationSurfaceObservedTransitions<Result>(),
+      'chatgpt.verification.submitted': createGuardedCaseTransitions<
+        ChatGPTRegistrationFlowState,
+        ChatGPTRegistrationFlowContext<Result>,
+        ChatGPTRegistrationFlowEvent,
+        ChatGPTVerificationSubmittedInput
+      >({
+        isInput: isVerificationSubmittedInput,
+        cases: [
+          {
+            priority: 20,
+            when: ({ input }) => input.profileSubmitted === true,
+            target: 'post-signup-home',
+            actions: assignContextFromInput<
+              ChatGPTRegistrationFlowState,
+              ChatGPTRegistrationFlowContext<Result>,
+              ChatGPTRegistrationFlowEvent,
+              ChatGPTVerificationSubmittedInput
+            >(isVerificationSubmittedInput, (_context, { input }) => ({
+              verificationCode: input.verificationCode,
+              url: input.url,
+              ageGateActive: false,
+              ageGateRetryCount: 0,
+              lastMessage: 'Verification code and profile submitted',
+            })),
+          },
+          {
+            priority: 10,
+            target: 'age-gate',
+            actions: assignContextFromInput<
+              ChatGPTRegistrationFlowState,
+              ChatGPTRegistrationFlowContext<Result>,
+              ChatGPTRegistrationFlowEvent,
+              ChatGPTVerificationSubmittedInput
+            >(isVerificationSubmittedInput, (_context, { input }) => ({
+              verificationCode: input.verificationCode,
+              url: input.url,
+              lastMessage: 'Verification code submitted',
+            })),
+          },
+        ],
+      }),
     },
   })
 }
@@ -1070,6 +1192,30 @@ async function fillRegistrationAgeGateFields(
   return mode
 }
 
+async function fillRegistrationCombinedVerificationProfileFields(
+  page: Page,
+  email?: string,
+): Promise<void> {
+  const ageGateReady = await waitForAnySelectorState(
+    page,
+    AGE_GATE_INPUT_SELECTORS,
+    'visible',
+    5000,
+  )
+  if (!ageGateReady) {
+    throw new Error(
+      'Combined registration profile fields did not become ready.',
+    )
+  }
+
+  const filledMode = await fillRegistrationAgeGateFields(page, email)
+  if (!filledMode) {
+    throw new Error(
+      'Combined registration profile fields were visible but could not be filled.',
+    )
+  }
+}
+
 function selectRegistrationAgeGateFieldMode(
   candidates: ChatGPTAgeGateFieldMode[],
 ): ChatGPTAgeGateFieldMode | null {
@@ -1246,6 +1392,15 @@ async function observeRegistrationPostEmailBranch(
   }
 
   if (snapshot.state === 'verification-polling') {
+    if (snapshot.context.postEmailStep === 'verification-profile') {
+      return {
+        branch: 'verification-profile',
+        verificationEvent: 'context.updated',
+        verificationMessage:
+          'Registration requested email verification with profile fields',
+      }
+    }
+
     return {
       branch: 'verification',
       verificationEvent: 'context.updated',
@@ -1271,6 +1426,30 @@ async function observeRegistrationPostEmailBranch(
   throw new Error(
     `ChatGPT registration reached unsupported post-email candidates: ${postEmailCandidates.join(', ')}`,
   )
+}
+
+async function observeRegistrationVerificationSurface(
+  machine: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
+  page: Page,
+  email: string,
+): Promise<boolean> {
+  const candidates = await getPostEmailLoginStepCandidates(page)
+  if (
+    !candidates.includes('verification-profile') &&
+    !candidates.includes('verification')
+  ) {
+    return machine.getSnapshot().context.submitProfileWithVerification === true
+  }
+
+  const snapshot = await machine.send('chatgpt.verification.surface.observed', {
+    candidates,
+    url: page.url(),
+    patch: {
+      email,
+    },
+  })
+
+  return snapshot.context.submitProfileWithVerification === true
 }
 
 async function completeRegistrationPasswordBranch(
@@ -1478,8 +1657,16 @@ export async function registerChatGPT(
       lastMessage: 'Submitting verification code',
     })
     await waitForVerificationCodeInputReady(page, 10000)
+    const submitProfileWithVerification =
+      await observeRegistrationVerificationSurface(machine, page, email)
     await typeVerificationCode(page, verificationCode)
+    if (submitProfileWithVerification) {
+      await fillRegistrationCombinedVerificationProfileFields(page, email)
+    }
     await clickVerificationContinue(page)
+    if (submitProfileWithVerification) {
+      await confirmAgeDialogIfPresent(page)
+    }
     const submittedVerificationCode =
       await waitForVerificationCodeUpdatesAfterSubmit(page, {
         verificationProvider,
@@ -1487,6 +1674,19 @@ export async function registerChatGPT(
         startedAt,
         timeoutMs: verificationTimeoutMs,
         currentCode: verificationCode,
+        onBeforeSubmit: submitProfileWithVerification
+          ? async () => {
+              await fillRegistrationCombinedVerificationProfileFields(
+                page,
+                email,
+              )
+            }
+          : undefined,
+        onAfterSubmit: submitProfileWithVerification
+          ? async () => {
+              await confirmAgeDialogIfPresent(page)
+            }
+          : undefined,
         onCodeUpdate: async (event) => {
           await sendRegistrationMachine(machine, 'context.updated', {
             verificationCode: event.code,
@@ -1502,9 +1702,12 @@ export async function registerChatGPT(
     await machine.send('chatgpt.verification.submitted', {
       verificationCode: submittedVerificationCode,
       url: page.url(),
+      profileSubmitted: submitProfileWithVerification,
     })
     await page.waitForLoadState('domcontentloaded').catch(() => undefined)
-    await completeRegistrationAgeGate(page, machine, email)
+    if (!submitProfileWithVerification) {
+      await completeRegistrationAgeGate(page, machine, email)
+    }
 
     await sendRegistrationMachine(machine, 'chatgpt.home.waiting', {
       url: page.url(),

@@ -12,12 +12,15 @@ import {
   fillAgeGateAge,
   fillAgeGateBirthday,
   fillAgeGateName,
+  waitForVerificationCodeUpdatesAfterSubmit,
 } from '../src/modules/chatgpt/mutations'
 import { waitForAgeGateFieldCandidates } from '../src/modules/chatgpt/queries'
 
 class FakePage {
   hiddenBirthdayValue = ''
   supportsHiddenBirthdayInput = true
+  verificationReadySequence: boolean[] = []
+  deactivated = false
   readonly locators: Record<string, FakeLocator> = {}
   lastBoundingBoxTarget: FakeLocator | null = null
 
@@ -80,6 +83,16 @@ class FakePage {
 
     return false
   }
+
+  title(): Promise<string> {
+    return Promise.resolve(this.deactivated ? '糟糕，出错了！ - OpenAI' : '')
+  }
+
+  takeVerificationReady(): boolean | undefined {
+    return this.verificationReadySequence.length > 0
+      ? this.verificationReadySequence.shift()
+      : undefined
+  }
 }
 
 class FakeLocator {
@@ -97,6 +110,7 @@ class FakeLocator {
       attached?: boolean
       visible?: boolean
       editable?: boolean
+      verificationReady?: boolean
       onClick?: () => void
       onMouseDown?: () => void
       onMouseUp?: () => void
@@ -108,6 +122,9 @@ class FakeLocator {
   }
 
   async isVisible(): Promise<boolean> {
+    if (this.state.verificationReady) {
+      return this.page.takeVerificationReady() ?? true
+    }
     return this.state.visible ?? true
   }
 
@@ -329,5 +346,67 @@ describe('age gate text inputs', () => {
 
     await expect(fillAgeGateAge(page as never)).resolves.toBe(true)
     expect(ageInput.text).toBe(ADULT_AGE)
+  })
+})
+
+describe('verification code resubmission callbacks', () => {
+  it('refills profile fields before resubmitting an updated verification code', async () => {
+    const page = new FakePage()
+    page.verificationReadySequence = [true, true, false]
+    const verificationInput = new FakeLocator(page, {
+      visible: true,
+      editable: true,
+      verificationReady: true,
+    })
+    const continueButton = new FakeLocator(page, {
+      visible: true,
+      editable: true,
+      onClick: () => {
+        verificationInput.state.verificationReady = false
+        verificationInput.state.visible = false
+      },
+    })
+
+    page.locators['input[autocomplete="one-time-code"]'] = verificationInput
+    page.locators['button[type="submit"]'] = continueButton
+
+    async function* streamVerificationEvents() {
+      yield {
+        type: 'verification_code' as const,
+        email: 'person@example.com',
+        code: '222222',
+        source: 'APP',
+        receivedAt: new Date().toISOString(),
+      }
+    }
+
+    const beforeSubmitCalls: string[] = []
+    const afterSubmitCalls: string[] = []
+
+    await expect(
+      waitForVerificationCodeUpdatesAfterSubmit(page as never, {
+        verificationProvider: {
+          kind: 'app',
+          prepareEmailTarget: async () => ({ email: 'person@example.com' }),
+          primeInbox: async () => undefined,
+          waitForVerificationCode: async () => '111111',
+          streamVerificationEvents,
+        },
+        email: 'person@example.com',
+        startedAt: new Date(0).toISOString(),
+        timeoutMs: 500,
+        currentCode: '111111',
+        onBeforeSubmit: () => {
+          beforeSubmitCalls.push(verificationInput.text)
+        },
+        onAfterSubmit: () => {
+          afterSubmitCalls.push(verificationInput.text)
+        },
+      }),
+    ).resolves.toBe('222222')
+
+    expect(beforeSubmitCalls).toEqual(['222222'])
+    expect(afterSubmitCalls).toEqual(['222222'])
+    expect(continueButton.clickCount).toBe(1)
   })
 })

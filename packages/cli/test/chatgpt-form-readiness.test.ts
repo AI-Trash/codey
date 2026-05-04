@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getCodexOAuthSurfaceCandidates,
   getLoginEntryCandidates,
+  getPostEmailLoginStepCandidates,
   isOpenAIWorkspacePickerReady,
   waitForEnabledSelector,
   waitForEditableSelector,
@@ -209,6 +210,33 @@ describe('waitForEditableSelector', () => {
     await expect(getLoginEntryCandidates(page as never)).resolves.toContain(
       'email',
     )
+  })
+
+  it('detects combined registration verification and profile fields', async () => {
+    const verificationLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const nameLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const ageLocator = new FakeLocator({
+      visible: true,
+      editableSequence: [true],
+    })
+    const page = new FakePage(
+      {
+        'input[autocomplete="one-time-code"]': verificationLocator,
+        'input[name="name"]': nameLocator,
+        'input[name="age"]': ageLocator,
+      },
+      'https://auth.openai.com/email-verification/register',
+    )
+
+    await expect(
+      getPostEmailLoginStepCandidates(page as never),
+    ).resolves.toEqual(['verification-profile', 'verification'])
   })
 
   it('detects the codex organization picker from the organization route', async () => {

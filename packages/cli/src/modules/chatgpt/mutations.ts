@@ -97,6 +97,11 @@ const STRIPE_ADDRESS_FIELD_SELECTORS = [
   'input[name="postal_code"]',
   'input[autocomplete*="postal-code" i]',
   'select[name="country"]',
+  'select[name="billingCountry"]',
+  'select[name="billing_details[address][country]"]',
+  'input[name="country"]',
+  'input[name="billingCountry"]',
+  'input[name="billing_details[address][country]"]',
 ] as const
 const PAYPAL_HOST_PATTERN = /(^|\.)paypal\.com$/i
 const MIDTRANS_HOST_PATTERN = /^app\.midtrans\.com$/i
@@ -944,6 +949,22 @@ export async function fillChatGPTCheckoutBillingAddress(
   }
 
   await sleep(500)
+}
+
+export async function readChatGPTCheckoutBillingCountry(
+  page: Page,
+): Promise<string | undefined> {
+  const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
+  if (!checkoutReady) {
+    return undefined
+  }
+
+  const frame = await waitForStripeBillingAddressFrame(page, 30000)
+  if (!frame) {
+    return undefined
+  }
+
+  return readStripeBillingAddressCountry(frame)
 }
 
 export async function clickChatGPTCheckoutSubscribeAndCapturePaypalLink(
@@ -1909,6 +1930,139 @@ async function isStripeBillingAddressFrameReady(
   return false
 }
 
+async function readStripeBillingAddressCountry(
+  frame: Frame,
+): Promise<string | undefined> {
+  return frame.evaluate(() => {
+    const countrySelectors = [
+      'select[name="country"]',
+      'select[name="billingCountry"]',
+      'select[name="billing_details[address][country]"]',
+      'select[name="billing_details[address][country]" i]',
+      'select[id*="country" i]',
+      'select[autocomplete*="country" i]',
+      'input[name="country"]',
+      'input[name="billingCountry"]',
+      'input[name="billing_details[address][country]"]',
+      'input[name="billing_details[address][country]" i]',
+      'input[autocomplete*="country" i]',
+      '[role="combobox"][aria-label*="country" i]',
+      '[role="combobox"][aria-label*="国家" i]',
+      '[role="combobox"][aria-label*="地区" i]',
+    ] as const
+
+    const countryCodesByLabel: Record<string, string> = {
+      australia: 'AU',
+      austria: 'AT',
+      belgium: 'BE',
+      brazil: 'BR',
+      canada: 'CA',
+      china: 'CN',
+      france: 'FR',
+      germany: 'DE',
+      hongkong: 'HK',
+      'hong kong': 'HK',
+      india: 'IN',
+      indonesia: 'ID',
+      ireland: 'IE',
+      italy: 'IT',
+      japan: 'JP',
+      malaysia: 'MY',
+      mexico: 'MX',
+      netherlands: 'NL',
+      portugal: 'PT',
+      singapore: 'SG',
+      spain: 'ES',
+      thailand: 'TH',
+      'united kingdom': 'GB',
+      uk: 'GB',
+      'united states': 'US',
+      usa: 'US',
+      美国: 'US',
+      英国: 'GB',
+      法国: 'FR',
+      德国: 'DE',
+      荷兰: 'NL',
+      荷蘭: 'NL',
+      印尼: 'ID',
+      印度尼西亚: 'ID',
+      新加坡: 'SG',
+      中国: 'CN',
+      中國: 'CN',
+      日本: 'JP',
+    }
+
+    function isVisible(element: Element | null): element is HTMLElement {
+      if (!(element instanceof HTMLElement)) return false
+      const style = window.getComputedStyle(element)
+      const rect = element.getBoundingClientRect()
+      return (
+        element.isConnected &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        Number(style.opacity || '1') > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      )
+    }
+
+    function normalizeCountryCode(value: string | null | undefined): string {
+      const normalized = value?.replace(/\s+/g, ' ').trim() || ''
+      if (!normalized) return ''
+
+      const alpha2 = normalized.match(/^[A-Za-z]{2}$/)?.[0]
+      if (alpha2) return alpha2.toUpperCase()
+
+      const leadingAlpha2 = normalized.match(/^\s*([A-Za-z]{2})\b/)?.[1]
+      if (leadingAlpha2) return leadingAlpha2.toUpperCase()
+
+      return countryCodesByLabel[normalized.toLowerCase()] || ''
+    }
+
+    function readElementCountry(element: HTMLElement): string {
+      if (element instanceof HTMLSelectElement) {
+        const selected = element.selectedOptions[0]
+        const candidates = [
+          selected?.value,
+          selected?.getAttribute('data-value'),
+          element.value,
+          selected?.textContent,
+        ]
+        for (const candidate of candidates) {
+          const code = normalizeCountryCode(candidate)
+          if (code) return code
+        }
+      }
+
+      const candidates = [
+        element instanceof HTMLInputElement ? element.value : undefined,
+        element.getAttribute('value'),
+        element.getAttribute('data-value'),
+        element.getAttribute('aria-valuetext'),
+        element.textContent,
+      ]
+      for (const candidate of candidates) {
+        const code = normalizeCountryCode(candidate)
+        if (code) return code
+      }
+
+      return ''
+    }
+
+    for (const selector of countrySelectors) {
+      const elements = Array.from(document.querySelectorAll(selector)).filter(
+        isVisible,
+      )
+      for (const element of elements) {
+        const code = readElementCountry(element)
+        if (code) return code
+      }
+    }
+
+    return undefined
+  })
+}
+
 async function fillStripeBillingAddressFrame(
   frame: Frame,
   address: ChatGPTTeamTrialBillingAddress,
@@ -1916,6 +2070,8 @@ async function fillStripeBillingAddressFrame(
     fillCountry: boolean
   },
 ): Promise<Record<keyof ChatGPTTeamTrialBillingAddress, boolean>> {
+  const fillInput = { address, options }
+
   return frame.evaluate(async (input) => {
     type BillingField =
       | 'name'
@@ -2651,7 +2807,7 @@ async function fillStripeBillingAddressFrame(
     }
 
     return result
-  }, { address, options })
+  }, fillInput)
 }
 
 function isBillingCityRequired(country: string): boolean {
@@ -3250,6 +3406,8 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
     startedAt: string
     timeoutMs: number
     currentCode: string
+    onBeforeSubmit?: () => void | Promise<void>
+    onAfterSubmit?: () => void | Promise<void>
     onCodeUpdate?: (event: VerificationCodeUpdateEvent) => void | Promise<void>
   },
 ): Promise<string> {
@@ -3325,7 +3483,9 @@ export async function waitForVerificationCodeUpdatesAfterSubmit(
       }
 
       await typeVerificationCode(page, event.code)
+      await options.onBeforeSubmit?.()
       await clickVerificationContinue(page)
+      await options.onAfterSubmit?.()
       currentCode = event.code
       await options.onCodeUpdate?.(event)
     }
