@@ -224,45 +224,6 @@ describe('flow registry', () => {
     })
   })
 
-  it('normalizes identity maintenance metadata for app dispatch', () => {
-    expect(
-      normalizeCliFlowTaskPayload({
-        kind: 'flow_task',
-        flowId: 'chatgpt-login',
-        config: {
-          identityId: ' identity-1 ',
-          email: 'PERSON@example.com',
-          restoreStorageState: 'true',
-        },
-        metadata: {
-          identityMaintenance: {
-            kind: 'identity-maintenance',
-            runId: ' maintenance-run-1 ',
-            identityId: ' identity-1 ',
-            email: ' PERSON@example.com ',
-            ignored: true,
-          },
-        },
-      }),
-    ).toEqual({
-      kind: 'flow_task',
-      flowId: 'chatgpt-login',
-      config: {
-        identityId: 'identity-1',
-        email: 'PERSON@example.com',
-        restoreStorageState: true,
-      },
-      metadata: {
-        identityMaintenance: {
-          kind: 'identity-maintenance',
-          runId: 'maintenance-run-1',
-          identityId: 'identity-1',
-          email: 'PERSON@example.com',
-        },
-      },
-    })
-  })
-
   it('drops unsupported external service metadata', () => {
     expect(
       normalizeCliFlowTaskPayload({

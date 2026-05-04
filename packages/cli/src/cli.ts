@@ -815,8 +815,7 @@ async function runRemoteWorker(
       }
 
       const canClaimMoreTasks = () =>
-        getClaimedTaskCount() < taskScheduler.getBrowserLimit() ||
-        taskScheduler.hasMaintenanceTasks()
+        getClaimedTaskCount() < taskScheduler.getBrowserLimit()
 
       const logTaskLeaseError = (taskId: string, error: Error) => {
         writeCliStderrLine(
@@ -845,9 +844,6 @@ async function runRemoteWorker(
           taskId: task.notificationId,
           batchId: task.batch?.batchId,
           parallelism: task.batch?.parallelism,
-          kind: task.metadata?.identityMaintenance
-            ? 'identity-maintenance'
-            : 'default',
           run: async () =>
             withObservabilityContext(
               {
@@ -1064,45 +1060,6 @@ async function runRemoteWorker(
         })
       }
 
-      const cancelServerCanceledTasks = (taskIds: string[]) => {
-        const normalizedTaskIds = Array.from(
-          new Set(taskIds.map((taskId) => taskId.trim()).filter(Boolean)),
-        )
-        if (!normalizedTaskIds.length) {
-          return
-        }
-
-        for (const taskId of normalizedTaskIds) {
-          serverCanceledTaskIds.add(taskId)
-        }
-
-        const cancelMessage =
-          'Identity maintenance canceled because normal flow work needs browser capacity.'
-        taskScheduler.clearPendingTaskIds(normalizedTaskIds, cancelMessage)
-        for (const taskId of normalizedTaskIds) {
-          const leaseReporter = taskLeaseReporters.get(taskId)
-          if (!activeFlowAbortControllers.has(taskId)) {
-            void leaseReporter
-              ?.complete({
-                status: 'CANCELED',
-                message: cancelMessage,
-              })
-              .catch((error) => {
-                logTaskLeaseError(taskId, sanitizeErrorForOutput(error))
-              })
-              .finally(() => {
-                taskLeaseReporters.delete(taskId)
-              })
-          }
-          const controller = activeFlowAbortControllers.get(taskId)
-          if (controller && !controller.signal.aborted) {
-            controller.abort(new FlowInterruptedError(cancelMessage))
-          }
-        }
-
-        syncRuntimeReporterState()
-      }
-
       const tryClaimTasks = async () => {
         if (!connectionId || claimInFlight) {
           return
@@ -1119,7 +1076,6 @@ async function runRemoteWorker(
               taskScheduler.setBrowserLimit(claimResult.browserLimit)
               syncRuntimeReporterState()
             }
-            cancelServerCanceledTasks(claimResult.canceledTaskIds)
             const claimedTask = claimResult.task
             if (!claimedTask) {
               break

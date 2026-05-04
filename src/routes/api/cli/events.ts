@@ -14,7 +14,6 @@ import {
   registerCliConnection,
   touchCliConnection,
 } from '../../../lib/server/cli-connections'
-import { runIdentityMaintenanceScheduler } from '../../../lib/server/identity-maintenance'
 import { createSubscriptionSseResponse } from '../../../lib/server/sse'
 
 const CLI_EVENT_POLL_INTERVAL_MS = 2000
@@ -142,14 +141,6 @@ export const Route = createFileRoute('/api/cli/events')({
               await touchCliConnection(connection.id)
             }
 
-            const tickIdentityMaintenance = async () => {
-              try {
-                await runIdentityMaintenanceScheduler()
-              } catch (error) {
-                console.error('Unable to run identity maintenance tick', error)
-              }
-            }
-
             const runTick = async () => {
               if (closed || ticking) {
                 return
@@ -158,7 +149,6 @@ export const Route = createFileRoute('/api/cli/events')({
               ticking = true
               try {
                 await touchConnection()
-                await tickIdentityMaintenance()
 
                 let offset = 0
                 let next:
@@ -233,7 +223,6 @@ export const Route = createFileRoute('/api/cli/events')({
 
             try {
               await touchConnection(true)
-              await tickIdentityMaintenance()
               await runTick()
             } catch (error) {
               closed = true

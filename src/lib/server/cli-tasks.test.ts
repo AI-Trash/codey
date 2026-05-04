@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   createId: vi.fn(),
-  cancelIdentityMaintenanceForNormalDispatch: vi.fn(),
   getFlowTaskDefaultConfig: vi.fn(),
   getAdminCliConnectionSummaryById: vi.fn(),
   getDb: vi.fn(),
@@ -27,11 +26,6 @@ vi.mock('./cli-connections', () => ({
   listAdminCliConnectionState: mocks.listAdminCliConnectionState,
   listAdminCliConnectionStateForActor:
     mocks.listAdminCliConnectionStateForActor,
-}))
-
-vi.mock('./identity-maintenance', () => ({
-  cancelIdentityMaintenanceForNormalDispatch:
-    mocks.cancelIdentityMaintenanceForNormalDispatch,
 }))
 
 vi.mock('./flow-defaults', () => ({
@@ -145,7 +139,6 @@ describe('cli flow task dispatch', () => {
 
     let nextId = 0
     mocks.createId.mockImplementation(() => `generated-${++nextId}`)
-    mocks.cancelIdentityMaintenanceForNormalDispatch.mockResolvedValue([])
     mocks.getFlowTaskDefaultConfig.mockResolvedValue({})
     mocks.isCliConnectionOwnedByActor.mockReturnValue(true)
     mocks.isSharedCliConnection.mockReturnValue(false)

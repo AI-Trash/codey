@@ -11,15 +11,12 @@ export interface FlowTaskSchedulerTask<TResult> {
   taskId: string
   batchId?: string
   parallelism?: number
-  kind?: 'default' | 'identity-maintenance'
   run: () => Promise<TResult>
 }
 
 export interface FlowTaskSchedulerSnapshot {
   activeCount: number
   pendingCount: number
-  activeMaintenanceCount: number
-  pendingMaintenanceCount: number
   browserLimit: number
 }
 
@@ -57,10 +54,6 @@ function normalizeBatchParallelism(value: number | undefined): number {
 
 export class FlowTaskScheduler<TResult> {
   private readonly batches = new Map<string, FlowTaskSchedulerBatch<TResult>>()
-  private readonly activeEntries = new Map<
-    string,
-    FlowTaskSchedulerEntry<TResult>
-  >()
   private readonly idleResolvers: Array<() => void> = []
   private nextOrder = 0
   private activeCount = 0
@@ -121,20 +114,10 @@ export class FlowTaskScheduler<TResult> {
     return this.getPendingCount() > 0
   }
 
-  hasMaintenanceTasks(): boolean {
-    return (
-      this.getPendingCount(isIdentityMaintenanceTask) +
-        this.getActiveCount(isIdentityMaintenanceTask) >
-      0
-    )
-  }
-
   getSnapshot(): FlowTaskSchedulerSnapshot {
     return {
       activeCount: this.activeCount,
       pendingCount: this.getPendingCount(),
-      activeMaintenanceCount: this.getActiveCount(isIdentityMaintenanceTask),
-      pendingMaintenanceCount: this.getPendingCount(isIdentityMaintenanceTask),
       browserLimit: this.browserLimit,
     }
   }
@@ -201,22 +184,6 @@ export class FlowTaskScheduler<TResult> {
     return count
   }
 
-  private getActiveCount(
-    predicate?: (task: FlowTaskSchedulerTask<TResult>) => boolean,
-  ): number {
-    if (!predicate) {
-      return this.activeCount
-    }
-
-    let count = 0
-    for (const entry of this.activeEntries.values()) {
-      if (predicate(entry)) {
-        count += 1
-      }
-    }
-    return count
-  }
-
   private pickNextEntry():
     | {
         batch: FlowTaskSchedulerBatch<TResult>
@@ -266,7 +233,6 @@ export class FlowTaskScheduler<TResult> {
 
       this.activeCount += 1
       candidate.batch.activeCount += 1
-      this.activeEntries.set(nextEntry.taskId, nextEntry)
       void this.runEntry(candidate.batch, nextEntry)
     }
 
@@ -284,7 +250,6 @@ export class FlowTaskScheduler<TResult> {
     } finally {
       this.activeCount = Math.max(this.activeCount - 1, 0)
       batch.activeCount = Math.max(batch.activeCount - 1, 0)
-      this.activeEntries.delete(entry.taskId)
 
       if (!batch.queue.length && batch.activeCount <= 0) {
         this.batches.delete(batch.id)
@@ -303,10 +268,4 @@ export class FlowTaskScheduler<TResult> {
       resolve()
     }
   }
-}
-
-function isIdentityMaintenanceTask<TResult>(
-  task: FlowTaskSchedulerTask<TResult>,
-): boolean {
-  return task.kind === 'identity-maintenance'
 }

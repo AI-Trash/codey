@@ -36,13 +36,6 @@ export interface AppEnv {
   oauthSigningKeyRetentionDays: number
   oauthDefaultResourceIndicator?: string
   oauthSupportedScopes: string[]
-  identityMaintenanceEnabled: boolean
-  identityMaintenanceSchedulerIntervalMs: number
-  identityMaintenanceMinIntervalMs: number
-  identityMaintenanceMaxAssignedTasksPerCli: number
-  identityMaintenanceMinIdleBrowserSlots: number
-  identityMaintenanceMaxTasksPerCli: number
-  identityMaintenanceMaxTasksPerTick: number
 }
 
 function readDatabaseUrl(value: string | undefined): string {
@@ -74,39 +67,6 @@ function readDatabaseUrl(value: string | undefined): string {
 function readNumber(value: string | undefined, fallback: number): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
-}
-
-function readBoolean(value: string | undefined, fallback: boolean): boolean {
-  const normalized = value?.trim().toLowerCase()
-  if (!normalized) {
-    return fallback
-  }
-
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return true
-  }
-
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false
-  }
-
-  return fallback
-}
-
-function readNonNegativeInteger(
-  value: string | undefined,
-  fallback: number,
-): number {
-  const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback
-}
-
-function readPositiveInteger(
-  value: string | undefined,
-  fallback: number,
-): number {
-  const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
 function readList(value: string | undefined): string[] {
@@ -238,33 +198,5 @@ export function getAppEnv(): AppEnv {
     oauthSupportedScopes: readList(process.env.OAUTH_SUPPORTED_SCOPES).length
       ? readList(process.env.OAUTH_SUPPORTED_SCOPES)
       : DEFAULT_OAUTH_SUPPORTED_SCOPES,
-    identityMaintenanceEnabled: readBoolean(
-      process.env.IDENTITY_MAINTENANCE_ENABLED,
-      true,
-    ),
-    identityMaintenanceSchedulerIntervalMs: readPositiveInteger(
-      process.env.IDENTITY_MAINTENANCE_SCHEDULER_INTERVAL_MS,
-      60_000,
-    ),
-    identityMaintenanceMinIntervalMs: readPositiveInteger(
-      process.env.IDENTITY_MAINTENANCE_MIN_INTERVAL_MS,
-      12 * 60 * 60 * 1000,
-    ),
-    identityMaintenanceMaxAssignedTasksPerCli: readNonNegativeInteger(
-      process.env.IDENTITY_MAINTENANCE_MAX_ASSIGNED_TASKS_PER_CLI,
-      0,
-    ),
-    identityMaintenanceMinIdleBrowserSlots: readNonNegativeInteger(
-      process.env.IDENTITY_MAINTENANCE_MIN_IDLE_BROWSER_SLOTS,
-      0,
-    ),
-    identityMaintenanceMaxTasksPerCli: readPositiveInteger(
-      process.env.IDENTITY_MAINTENANCE_MAX_TASKS_PER_CLI,
-      1,
-    ),
-    identityMaintenanceMaxTasksPerTick: readPositiveInteger(
-      process.env.IDENTITY_MAINTENANCE_MAX_TASKS_PER_TICK,
-      3,
-    ),
   }
 }

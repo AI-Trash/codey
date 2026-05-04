@@ -23,12 +23,6 @@ import {
 } from './db/schema'
 import { createId } from './security'
 import {
-  cancelBlockingIdentityMaintenanceTasksForWorker,
-  cancelQueuedIdentityMaintenanceTasksForWorkers,
-  nonIdentityMaintenanceTaskFilter,
-  syncIdentityMaintenanceRunFromFlowTask,
-} from './identity-maintenance'
-import {
   normalizeTeamTrialPaypalUrl,
   recordWorkspaceInvitesFromFlowTask,
   recordWorkspaceTeamTrialPaypalUrlFromFlowTask,
@@ -310,16 +304,6 @@ function buildActiveTaskFilter(input: { workerId: string; now: Date }) {
   )
 }
 
-function buildNonMaintenanceClaimableTaskFilter(input: {
-  workerId: string
-  now: Date
-}) {
-  return and(
-    buildClaimableTaskFilter(input),
-    nonIdentityMaintenanceTaskFilter(),
-  )
-}
-
 async function getCliConnectionRow(
   connectionId: string,
 ): Promise<CliConnectionRow | null> {
@@ -335,7 +319,6 @@ export async function claimNextFlowTaskForConnection(input: {
   leaseMs?: number
 }): Promise<{
   task: FlowTaskRow | null
-  canceledTaskIds: string[]
 }> {
   const connection = await getCliConnectionRow(input.connectionId)
   if (!connection) {
@@ -344,27 +327,9 @@ export async function claimNextFlowTaskForConnection(input: {
 
   const workerId = getCliConnectionTaskWorkerId(connection)
   const leaseMs = Math.max(input.leaseMs || DEFAULT_FLOW_TASK_LEASE_MS, 5_000)
-  const canceledTaskIds = new Set<string>()
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const now = new Date()
-    const nonMaintenanceCandidate = await getDb().query.flowTasks.findFirst({
-      where: buildNonMaintenanceClaimableTaskFilter({ workerId, now }),
-      orderBy: [asc(flowTasks.createdAt), asc(flowTasks.id)],
-    })
-
-    if (nonMaintenanceCandidate) {
-      const queuedCanceled =
-        await cancelQueuedIdentityMaintenanceTasksForWorkers({
-          workerIds: [workerId],
-          reason:
-            'Identity maintenance canceled because normal flow work needs browser capacity.',
-        })
-      for (const taskId of queuedCanceled) {
-        canceledTaskIds.add(taskId)
-      }
-    }
-
     const [activeTaskCount] = await getDb()
       .select({
         count: sql<number>`count(*)::int`,
@@ -373,40 +338,19 @@ export async function claimNextFlowTaskForConnection(input: {
       .where(buildActiveTaskFilter({ workerId, now }))
 
     if ((activeTaskCount?.count || 0) >= connection.browserLimit) {
-      if (nonMaintenanceCandidate) {
-        const activeCanceled =
-          await cancelBlockingIdentityMaintenanceTasksForWorker({
-            workerId,
-            browserLimit: connection.browserLimit,
-            reason:
-              'Identity maintenance canceled because normal flow work needs browser capacity.',
-          })
-        for (const taskId of activeCanceled) {
-          canceledTaskIds.add(taskId)
-        }
-
-        if (activeCanceled.length) {
-          continue
-        }
-      }
-
       return {
         task: null,
-        canceledTaskIds: [...canceledTaskIds],
       }
     }
 
-    const candidate =
-      nonMaintenanceCandidate ||
-      (await getDb().query.flowTasks.findFirst({
-        where: buildClaimableTaskFilter({ workerId, now }),
-        orderBy: [asc(flowTasks.createdAt), asc(flowTasks.id)],
-      }))
+    const candidate = await getDb().query.flowTasks.findFirst({
+      where: buildClaimableTaskFilter({ workerId, now }),
+      orderBy: [asc(flowTasks.createdAt), asc(flowTasks.id)],
+    })
 
     if (!candidate) {
       return {
         task: null,
-        canceledTaskIds: [...canceledTaskIds],
       }
     }
 
@@ -443,21 +387,14 @@ export async function claimNextFlowTaskForConnection(input: {
         status: 'LEASED',
         message: 'Task claimed by CLI',
       })
-      await syncIdentityMaintenanceRunFromFlowTask({
-        task: claimed,
-        status: 'LEASED',
-        message: 'Task claimed by CLI',
-      })
       return {
         task: claimed,
-        canceledTaskIds: [...canceledTaskIds],
       }
     }
   }
 
   return {
     task: null,
-    canceledTaskIds: [...canceledTaskIds],
   }
 }
 
@@ -547,12 +484,6 @@ export async function refreshFlowTaskLease(input: {
       message: normalizedMessage,
     })
   }
-
-  await syncIdentityMaintenanceRunFromFlowTask({
-    task: updated,
-    status: input.status,
-    message: normalizedMessage,
-  })
 
   return {
     task: updated,
@@ -649,13 +580,6 @@ async function requeueActiveFlowTask(input: {
       },
     },
   })
-  await syncIdentityMaintenanceRunFromFlowTask({
-    task: updated,
-    status: 'QUEUED',
-    message: retryMessage,
-    error: normalizedError,
-  })
-
   return updated
 }
 
@@ -739,13 +663,6 @@ export async function completeFlowTask(input: {
           : 'Flow failed'),
     ...(input.result ? { payload: { result: input.result } } : {}),
   })
-  await syncIdentityMaintenanceRunFromFlowTask({
-    task: updated,
-    status: input.status,
-    message: normalizedMessage,
-    error: normalizedError,
-  })
-
   if (input.status === 'SUCCEEDED' && input.result) {
     let teamTrialWorkspace: Awaited<
       ReturnType<typeof recordWorkspaceTeamTrialPaypalUrlFromFlowTask>
@@ -960,11 +877,6 @@ export async function requestFlowTaskStop(input: {
       status: 'CANCELED',
       message: reason,
     })
-    await syncIdentityMaintenanceRunFromFlowTask({
-      task: updated,
-      status: 'CANCELED',
-      message: reason,
-    })
     return updated
   }
 
@@ -1002,12 +914,6 @@ export async function requestFlowTaskStop(input: {
       cancelRequested: true,
     },
   })
-  await syncIdentityMaintenanceRunFromFlowTask({
-    task: updated,
-    status: updated.status,
-    message: reason,
-  })
-
   return updated
 }
 
@@ -1067,11 +973,5 @@ export async function requeueFlowTask(input: {
       },
     },
   })
-  await syncIdentityMaintenanceRunFromFlowTask({
-    task: updated,
-    status: 'QUEUED',
-    message: reason,
-  })
-
   return updated
 }

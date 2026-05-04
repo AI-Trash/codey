@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   createId: vi.fn(),
   getDb: vi.fn(),
   sendAstrBotTrialPaymentNotification: vi.fn(),
-  syncIdentityMaintenanceRunFromFlowTask: vi.fn(),
 }))
 
 vi.mock('@tanstack/react-start/server-only', () => ({}))
@@ -16,14 +15,6 @@ vi.mock('./astrbot', () => ({
 
 vi.mock('./db/client', () => ({
   getDb: mocks.getDb,
-}))
-
-vi.mock('./identity-maintenance', () => ({
-  cancelBlockingIdentityMaintenanceTasksForWorker: vi.fn(),
-  cancelQueuedIdentityMaintenanceTasksForWorkers: vi.fn(),
-  nonIdentityMaintenanceTaskFilter: vi.fn(() => undefined),
-  syncIdentityMaintenanceRunFromFlowTask:
-    mocks.syncIdentityMaintenanceRunFromFlowTask,
 }))
 
 vi.mock('./security', () => ({
@@ -243,12 +234,6 @@ describe('flow task completion', () => {
         },
       },
     })
-    expect(mocks.syncIdentityMaintenanceRunFromFlowTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'QUEUED',
-        error: 'Browser failed',
-      }),
-    )
   })
 
   it('keeps non-registration failures final', async () => {
@@ -463,12 +448,6 @@ describe('flow task admin controls', () => {
       status: 'CANCELED',
       message: 'No longer needed.',
     })
-    expect(mocks.syncIdentityMaintenanceRunFromFlowTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'CANCELED',
-        message: 'No longer needed.',
-      }),
-    )
   })
 
   it('marks active tasks with a stop request so the CLI can cancel its lease', async () => {

@@ -15,7 +15,6 @@ export interface ClaimedCliFlowTask {
 export interface ClaimCliFlowTaskResult {
   task: ClaimedCliFlowTask | null
   browserLimit?: number
-  canceledTaskIds: string[]
 }
 
 type FlowTaskLeaseStatus = 'LEASED' | 'RUNNING'
@@ -69,7 +68,6 @@ export async function claimCliFlowTask(input: {
     ok: boolean
     task?: ClaimedCliFlowTask | null
     browserLimit?: number
-    canceledTaskIds?: string[]
   }>({
     authState: input.authState,
     path: `/api/cli/connections/${encodeURIComponent(input.connectionId)}/tasks/claim`,
@@ -79,11 +77,6 @@ export async function claimCliFlowTask(input: {
     task: result.task || null,
     browserLimit:
       typeof result.browserLimit === 'number' ? result.browserLimit : undefined,
-    canceledTaskIds: Array.isArray(result.canceledTaskIds)
-      ? result.canceledTaskIds.filter(
-          (taskId): taskId is string => typeof taskId === 'string',
-        )
-      : [],
   }
 }
 
