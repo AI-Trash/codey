@@ -1,4 +1,4 @@
-import type { Locator, Page } from 'patchright'
+import type { Page } from 'patchright'
 
 export type SelectorObject =
   | { css: string }
@@ -25,13 +25,3 @@ export interface Session {
   harPath?: string
   close(): Promise<void>
 }
-
-export interface FlowResult {
-  pageName: string
-  url: string
-  title: string
-  matchedSignals: string[]
-}
-
-export type FlowHandler<T extends object = object> = (page: Page) => Promise<T>
-export type LocatorLike = Locator

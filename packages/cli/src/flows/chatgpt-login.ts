@@ -1,5 +1,4 @@
 import type { Page } from 'patchright'
-import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
 import {
   assignContextFromInput,
@@ -48,10 +47,6 @@ import type { ChatGPTSessionCapture } from '../modules/chatgpt/session'
 import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
 import type { ResolvedChatGPTIdentity } from '../modules/credentials'
 import type { FlowOptions } from '../modules/flow-cli/helpers'
-import {
-  runSingleFileFlowFromCommandLine,
-  type SingleFileFlowDefinition,
-} from '../modules/flow-cli/single-file'
 import { createFlowLifecycleFragment } from './machine-fragments'
 import {
   attachStateMachineProgressReporter,
@@ -1201,19 +1196,4 @@ export async function loginChatGPT(
     sessionCapture.dispose()
     detachProgress()
   }
-}
-
-export const chatgptLoginFlow: SingleFileFlowDefinition<
-  FlowOptions,
-  ChatGPTLoginFlowResult
-> = {
-  command: 'flow:chatgpt-login',
-  run: loginChatGPT,
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  runSingleFileFlowFromCommandLine('chatgpt-login', chatgptLoginFlow)
 }

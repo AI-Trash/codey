@@ -1,5 +1,4 @@
 import type { APIRequestContext, Page } from 'patchright'
-import { pathToFileURL } from 'url'
 import { getRuntimeConfig } from '../config'
 import {
   assignContextFromInput,
@@ -25,10 +24,6 @@ import {
 } from '../modules/flow-cli/helpers'
 import { shareCodexOAuthSessionWithCodeyApp } from '../modules/app-auth/codex-oauth-sharing'
 import { resolveAssociatedManagedWorkspaceFromCodeyApp } from '../modules/app-auth/workspaces'
-import {
-  runSingleFileFlowFromCommandLine,
-  type SingleFileFlowDefinition,
-} from '../modules/flow-cli/single-file'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 import {
   resolveStoredChatGPTIdentity,
@@ -2130,19 +2125,4 @@ export async function runCodexOAuthFlow(
     apiHarRecorder?.flush()
     detachProgress()
   }
-}
-
-export const codexOAuthFlow: SingleFileFlowDefinition<
-  FlowOptions,
-  CodexOAuthFlowRunResult
-> = {
-  command: 'flow:codex-oauth',
-  run: runCodexOAuthFlow,
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  runSingleFileFlowFromCommandLine('codex-oauth', codexOAuthFlow)
 }

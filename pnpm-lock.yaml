@@ -114,9 +114,6 @@ catalogs:
     input-otp:
       specifier: ^1.4.2
       version: 1.4.2
-    jiti:
-      specifier: ^2.6.1
-      version: 2.6.1
     jsdom:
       specifier: ^28.1.0
       version: 28.1.0
@@ -439,9 +436,6 @@ importers:
       esbuild:
         specifier: 'catalog:'
         version: 0.27.7
-      jiti:
-        specifier: 'catalog:'
-        version: 2.6.1
       patchright:
         specifier: 'catalog:'
         version: 1.59.4

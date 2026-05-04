@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import { noopFlow } from '../src/flows/noop'
 import {
   attachStateMachineProgressReporter,
   applyFlowOptionDefaults,
@@ -133,13 +132,6 @@ describe('flow cli helpers', () => {
     })
     expect(keepBrowserOpenForHarWhenUnspecified({ har: false })).toMatchObject({
       har: false,
-    })
-  })
-
-  it('defaults noop flow to har and record enabled', () => {
-    expect(noopFlow.defaultOptions).toMatchObject({
-      har: true,
-      record: true,
     })
   })
 

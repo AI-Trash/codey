@@ -1,5 +1,4 @@
 import type { Page } from 'patchright'
-import { pathToFileURL } from 'url'
 import {
   assignContext,
   assignContextFromInput,
@@ -79,10 +78,6 @@ import {
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
 import { sleep } from '../utils/wait'
-import {
-  runSingleFileFlowFromCommandLine,
-  type SingleFileFlowDefinition,
-} from '../modules/flow-cli/single-file'
 import { createFlowLifecycleFragment } from './machine-fragments'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
@@ -1942,19 +1937,4 @@ export async function registerChatGPT(
     sessionCapture.dispose()
     detachProgress()
   }
-}
-
-export const chatgptRegisterFlow: SingleFileFlowDefinition<
-  FlowOptions,
-  ChatGPTRegistrationFlowResult
-> = {
-  command: 'flow:chatgpt-register',
-  run: registerChatGPT,
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  runSingleFileFlowFromCommandLine('chatgpt-register', chatgptRegisterFlow)
 }

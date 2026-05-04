@@ -11,7 +11,6 @@
     "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --sourcemap --outfile=dist/cli.js --packages=external --alias:@codey/state-machine=../state-machine/src/index.ts",
     "fmt": "oxfmt -c ../../.oxfmtrc.json",
     "fmt:check": "oxfmt -c ../../.oxfmtrc.json --check",
-    "flow": "jiti",
     "lint": "oxlint --config ../../.oxlintrc.json src vitest.config.ts test",
     "lint:fix": "oxlint --config ../../.oxlintrc.json src vitest.config.ts test --fix",
     "start": "node --enable-source-maps dist/cli.js",
@@ -30,7 +29,6 @@
     "@microsoft/microsoft-graph-client": "catalog:",
     "@types/node": "catalog:",
     "esbuild": "catalog:",
-    "jiti": "catalog:",
     "patchright": "catalog:"
   }
 }

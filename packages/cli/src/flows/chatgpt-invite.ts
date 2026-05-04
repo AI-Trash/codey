@@ -1,4 +1,3 @@
-import { pathToFileURL } from 'url'
 import {
   attachStateMachineProgressReporter,
   parseBooleanFlag,
@@ -19,10 +18,6 @@ import {
   type ResolvedInviteEmails,
 } from '../modules/chatgpt/workspace-invites'
 import { loginChatGPT, type ChatGPTLoginFlowResult } from './chatgpt-login'
-import {
-  runSingleFileFlowFromCommandLine,
-  type SingleFileFlowDefinition,
-} from '../modules/flow-cli/single-file'
 import { syncManagedWorkspaceToCodeyApp } from '../modules/app-auth/workspaces'
 import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
@@ -428,19 +423,4 @@ export async function inviteChatGPTWorkspaceMembers(
   }
 }
 
-export const chatgptInviteFlow: SingleFileFlowDefinition<
-  FlowOptions,
-  ChatGPTInviteFlowResult
-> = {
-  command: 'flow:chatgpt-invite',
-  run: inviteChatGPTWorkspaceMembers,
-}
-
 export const loginChatGPTAndInviteMembers = inviteChatGPTWorkspaceMembers
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  runSingleFileFlowFromCommandLine('chatgpt-invite', chatgptInviteFlow)
-}

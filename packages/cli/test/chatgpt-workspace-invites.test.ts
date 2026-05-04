@@ -138,7 +138,7 @@ function findFetchEventIndex(
 }
 
 describe('workspace invite helpers', () => {
-  it('collects repeated inviteEmail flags from single-file argv parsing', () => {
+  it('collects repeated inviteEmail flags from flow argv parsing', () => {
     expect(
       parseFlowCliArgs([
         '--inviteEmail',

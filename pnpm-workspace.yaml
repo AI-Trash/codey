@@ -41,7 +41,6 @@ catalog:
   'embla-carousel-react': '^8.6.0'
   'esbuild': '^0.27.7'
   'input-otp': '^1.4.2'
-  'jiti': '^2.6.1'
   'jsdom': '^28.1.0'
   'letterparser': '^0.1.8'
   'lucide-react': '^0.577.0'

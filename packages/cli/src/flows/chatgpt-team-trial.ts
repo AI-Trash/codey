@@ -6,7 +6,6 @@ import {
   type LocaleDefinition,
 } from '@faker-js/faker'
 import path from 'path'
-import { pathToFileURL } from 'url'
 import {
   assignContextFromInput,
   composeStateMachineConfig,
@@ -68,10 +67,6 @@ import {
   resolveVerificationAppConfig,
 } from '../modules/verification'
 import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
-import {
-  runSingleFileFlowFromCommandLine,
-  type SingleFileFlowDefinition,
-} from '../modules/flow-cli/single-file'
 import { writeFileAtomic } from '../utils/fs'
 import { loginChatGPT, type ChatGPTLoginFlowResult } from './chatgpt-login'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
@@ -2396,27 +2391,4 @@ export async function runChatGPTTeamTrial(
     backendApiHeadersCapture.dispose()
     detachProgress()
   }
-}
-
-export const chatgptTeamTrialFlow: SingleFileFlowDefinition<
-  FlowOptions,
-  ChatGPTTeamTrialFlowResult
-> = {
-  command: 'flow:chatgpt-team-trial',
-  run: runChatGPTTeamTrial,
-}
-
-export const chatgptTeamTrialGoPayFlow: SingleFileFlowDefinition<
-  FlowOptions,
-  ChatGPTTeamTrialGoPayFlowResult
-> = {
-  command: 'flow:chatgpt-team-trial-gopay',
-  run: runChatGPTTeamTrialGoPay,
-}
-
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  runSingleFileFlowFromCommandLine('chatgpt-team-trial', chatgptTeamTrialFlow)
 }
