@@ -1426,6 +1426,15 @@ async function submitChatGPTTeamTrialCheckout<Result>(
   await fillChatGPTCheckoutBillingAddress(page, billingAddress, {
     fillCountry: !preserveBillingCountry,
   })
+  if (context.paymentMethod === 'gopay') {
+    await selectChatGPTCheckoutPaymentMethodIfPresent(
+      page,
+      context.paymentMethod,
+      {
+        timeoutMs: 10000,
+      },
+    )
+  }
 
   if (context.machine) {
     await sendTeamTrialMachine(

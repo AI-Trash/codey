@@ -27,6 +27,7 @@ import {
   CHATGPT_LOGIN_URL,
   CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS,
   CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS,
+  CHATGPT_HOSTED_CHECKOUT_BILLING_ADDRESS_SELECTORS,
   CHATGPT_GOPAY_PRICING_REGION,
   CHATGPT_TRIAL_CHECKOUT_URL,
   COMPLETE_ACCOUNT_SELECTORS,
@@ -86,16 +87,20 @@ const STRIPE_ADDRESS_FIELD_SELECTORS = [
   'input[name="billingName"]',
   'input[name="billing_details[name]"]',
   'input[name="addressLine1"]',
+  'input[name="billingAddressLine1"]',
   'input[name="line1"]',
   'input[name="address_line1"]',
   'input[name="address-line1"]',
   'input[autocomplete*="address-line1" i]',
   'input[name="locality"]',
+  'input[name="billingLocality"]',
   'input[name="city"]',
   'input[autocomplete*="address-level2" i]',
   'input[name="postalCode"]',
+  'input[name="billingPostalCode"]',
   'input[name="postal_code"]',
   'input[autocomplete*="postal-code" i]',
+  'select[name="billingAdministrativeArea"]',
   'select[name="country"]',
   'select[name="billingCountry"]',
   'select[name="billing_details[address][country]"]',
@@ -168,10 +173,16 @@ const CHATGPT_CHECKOUT_SELECTED_PAYMENT_METHOD_SELECTORS = {
     'paypal',
     PAYMENT_METHOD_ACTIVE_STATE_SELECTORS,
   ),
-  gopay: buildPaymentMethodStateSelectors(
-    'gopay',
-    PAYMENT_METHOD_ACTIVE_STATE_SELECTORS,
-  ),
+  gopay: [
+    '[data-testid="gopay-accordion-item"].PaymentMethodFormAccordionItem--selected',
+    '[data-testid="gopay-accordion-item"] .PaymentMethodFormAccordionItem--selected',
+    '[data-testid="gopay-accordion-item"] input[type="radio"][aria-checked="true"]',
+    '[data-testid="gopay-accordion-item"] input[type="radio"]:checked',
+    ...buildPaymentMethodStateSelectors(
+      'gopay',
+      PAYMENT_METHOD_ACTIVE_STATE_SELECTORS,
+    ),
+  ],
 } as const satisfies Record<ChatGPTTrialPaymentMethod, readonly string[]>
 const CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTION_STATE_SELECTORS = [
   ...buildPaymentMethodStateSelectors(
@@ -188,6 +199,8 @@ const CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTION_STATE_SELECTORS = [
   '[role="tab"][data-testid*="card" i][data-state]',
   'button#paypal-tab[aria-selected]',
   'button#gopay-tab[aria-selected]',
+  '[data-testid="paypal-accordion-item"] input[type="radio"]',
+  '[data-testid="gopay-accordion-item"] input[type="radio"]',
   'button#card-tab[aria-selected]',
   'button#card-tab[data-state]',
   '[role="tab"][aria-selected]',
@@ -423,8 +436,8 @@ export async function clickTrialPricingFreeTrial(
 
 export interface ChatGPTTrialCheckoutLink {
   url: string
-  checkoutSessionId: string
-  processorEntity: string
+  checkoutSessionId?: string
+  processorEntity?: string
   payload: ChatGPTTrialCheckoutPayload
 }
 
@@ -520,14 +533,20 @@ export async function createChatGPTTrialCheckoutLink(
   )
   const checkoutSessionId = getCheckoutSessionId(result.data)
   const processorEntity = getCheckoutProcessorEntity(result.data)
-  if (!result.ok || !checkoutSessionId || !processorEntity) {
+  const hostedUrl = getCheckoutHostedUrl(result.data)
+  const checkoutUrl =
+    hostedUrl ||
+    (checkoutSessionId && processorEntity
+      ? buildChatGPTTrialCheckoutUrl(checkoutSessionId, processorEntity)
+      : undefined)
+  if (!result.ok || !checkoutUrl) {
     throw new Error(formatCheckoutLinkError(result))
   }
 
   return {
-    url: buildChatGPTTrialCheckoutUrl(checkoutSessionId, processorEntity),
-    checkoutSessionId,
-    processorEntity,
+    url: checkoutUrl,
+    ...(checkoutSessionId ? { checkoutSessionId } : {}),
+    ...(processorEntity ? { processorEntity } : {}),
     payload,
   }
 }
@@ -568,6 +587,27 @@ function getCheckoutProcessorEntity(value: unknown): string | undefined {
   return typeof processorEntity === 'string' && processorEntity.trim()
     ? processorEntity.trim()
     : undefined
+}
+
+function getCheckoutHostedUrl(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const record = value as Record<string, unknown>
+  for (const key of ['url', 'stripe_hosted_url', 'checkout_url']) {
+    const field = record[key]
+    if (typeof field !== 'string') {
+      continue
+    }
+
+    const normalized = field.trim()
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return undefined
 }
 
 function formatCheckoutLinkError(
@@ -920,14 +960,28 @@ export async function fillChatGPTCheckoutBillingAddress(
     throw new Error('ChatGPT trial checkout did not become ready.')
   }
 
-  const frame = await waitForStripeBillingAddressFrame(page, 30000)
-  if (!frame) {
-    throw new Error('ChatGPT checkout billing address frame was not visible.')
-  }
+  const fillCountry = options.fillCountry !== false
+  const hostedFillResult = await fillHostedCheckoutBillingAddress(
+    page,
+    address,
+    {
+      fillCountry,
+    },
+  )
+  const fillResult =
+    hostedFillResult ??
+    (await (async () => {
+      const frame = await waitForStripeBillingAddressFrame(page, 30000)
+      if (!frame) {
+        throw new Error(
+          'ChatGPT checkout billing address frame was not visible.',
+        )
+      }
 
-  const fillResult = await fillStripeBillingAddressFrame(frame, address, {
-    fillCountry: options.fillCountry !== false,
-  })
+      return fillStripeBillingAddressFrame(frame, address, {
+        fillCountry,
+      })
+    })())
   const missingRequired = [
     address.name && !fillResult.name ? 'billing name' : undefined,
     fillResult.country ? undefined : 'country',
@@ -957,6 +1011,11 @@ export async function readChatGPTCheckoutBillingCountry(
   const checkoutReady = await waitForChatGPTCheckoutReady(page, 60000)
   if (!checkoutReady) {
     return undefined
+  }
+
+  const hostedCountry = await readHostedCheckoutBillingCountry(page)
+  if (hostedCountry) {
+    return hostedCountry
   }
 
   const frame = await waitForStripeBillingAddressFrame(page, 30000)
@@ -1933,7 +1992,13 @@ async function isStripeBillingAddressFrameReady(
 async function readStripeBillingAddressCountry(
   frame: Frame,
 ): Promise<string | undefined> {
-  return frame.evaluate(() => {
+  return readCheckoutBillingAddressCountryScope(frame)
+}
+
+async function readCheckoutBillingAddressCountryScope(
+  scope: CheckoutLocatorScope,
+): Promise<string | undefined> {
+  return scope.evaluate(() => {
     const countrySelectors = [
       'select[name="country"]',
       'select[name="billingCountry"]',
@@ -2063,6 +2128,69 @@ async function readStripeBillingAddressCountry(
   })
 }
 
+async function readHostedCheckoutBillingCountry(
+  page: Page,
+): Promise<string | undefined> {
+  if (
+    !(await waitForAnySelectorState(
+      page,
+      CHATGPT_HOSTED_CHECKOUT_BILLING_ADDRESS_SELECTORS,
+      'visible',
+      1000,
+    ))
+  ) {
+    return undefined
+  }
+
+  return readCheckoutBillingAddressCountryScope(page)
+}
+
+async function clickHostedCheckoutTermsIfPresent(page: Page): Promise<boolean> {
+  for (const selector of [
+    'input[name="termsOfServiceConsentCheckbox"]',
+    'input#termsOfServiceConsentCheckbox',
+  ]) {
+    const locator = page.locator(selector).first()
+    const visible = await locator.isVisible().catch(() => false)
+    if (!visible) continue
+
+    const checked = await locator
+      .evaluate((element) => (element as HTMLInputElement).checked === true)
+      .catch(() => false)
+    if (checked) {
+      return false
+    }
+
+    await locator.scrollIntoViewIfNeeded().catch(() => undefined)
+    await locator.click()
+    await sleep(250)
+    return true
+  }
+
+  return false
+}
+
+async function fillHostedCheckoutBillingAddress(
+  page: Page,
+  address: ChatGPTTeamTrialBillingAddress,
+  options: {
+    fillCountry: boolean
+  },
+): Promise<Record<keyof ChatGPTTeamTrialBillingAddress, boolean> | undefined> {
+  if (
+    !(await waitForAnySelectorState(
+      page,
+      CHATGPT_HOSTED_CHECKOUT_BILLING_ADDRESS_SELECTORS,
+      'visible',
+      1000,
+    ))
+  ) {
+    return undefined
+  }
+
+  return fillCheckoutBillingAddressScope(page, address, options)
+}
+
 async function fillStripeBillingAddressFrame(
   frame: Frame,
   address: ChatGPTTeamTrialBillingAddress,
@@ -2070,9 +2198,19 @@ async function fillStripeBillingAddressFrame(
     fillCountry: boolean
   },
 ): Promise<Record<keyof ChatGPTTeamTrialBillingAddress, boolean>> {
+  return fillCheckoutBillingAddressScope(frame, address, options)
+}
+
+async function fillCheckoutBillingAddressScope(
+  scope: CheckoutLocatorScope,
+  address: ChatGPTTeamTrialBillingAddress,
+  options: {
+    fillCountry: boolean
+  },
+): Promise<Record<keyof ChatGPTTeamTrialBillingAddress, boolean>> {
   const fillInput = { address, options }
 
-  return frame.evaluate(async (input) => {
+  return scope.evaluate(async (input) => {
     type BillingField =
       | 'name'
       | 'country'
@@ -2193,6 +2331,7 @@ async function fillStripeBillingAddressFrame(
       ],
       city: [
         'input[name="locality"]',
+        'input[name="billingLocality"]',
         'input[name="addressLocality"]',
         'input[name="billingCity"]',
         'input[name="billing_details[address][city]"]',
@@ -2216,6 +2355,8 @@ async function fillStripeBillingAddressFrame(
       state: [
         'input[name="administrativeArea"]',
         'select[name="administrativeArea"]',
+        'input[name="billingAdministrativeArea"]',
+        'select[name="billingAdministrativeArea"]',
         'input[name="billingState"]',
         'select[name="billingState"]',
         'input[name="billing_details[address][state]"]',
@@ -3050,17 +3191,18 @@ function getChatGPTCheckoutPaymentMethodLocators(
 ): Locator[] {
   const labelPattern = PAYMENT_METHOD_LABEL_PATTERNS[paymentMethod]
   const labelText = PAYMENT_METHOD_TEXT_LABELS[paymentMethod]
+  const methodSelectors = CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS[
+    paymentMethod
+  ].map((selector) => scope.locator(selector))
 
   return [
-    scope.getByRole('radio', { name: labelPattern }),
-    scope.getByRole('tab', { name: labelPattern }),
-    scope.getByRole('button', { name: labelPattern }),
-    ...CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS[paymentMethod].map(
-      (selector) => scope.locator(selector),
-    ),
-    scope.locator(`[role="radio"]:has-text("${labelText}")`),
-    scope.locator(`[role="tab"]:has-text("${labelText}")`),
+    ...methodSelectors,
     scope.locator(`button:has-text("${labelText}")`),
+    scope.getByRole('button', { name: labelPattern }),
+    scope.locator(`[role="tab"]:has-text("${labelText}")`),
+    scope.getByRole('tab', { name: labelPattern }),
+    scope.locator(`[role="radio"]:has-text("${labelText}")`),
+    scope.getByRole('radio', { name: labelPattern }),
     scope.getByText(labelPattern),
     scope.locator(`label:has-text("${labelText}")`),
   ]
@@ -3192,6 +3334,22 @@ async function isPaymentMethodLocatorSelected(
 
   return locator
     .evaluate((element) => {
+      const accordionRoot = element.closest(
+        '[data-testid$="-accordion-item"], .PaymentMethodFormAccordionItem',
+      ) as HTMLElement | null
+      if (
+        accordionRoot?.classList.contains(
+          'PaymentMethodFormAccordionItem--selected',
+        ) ||
+        accordionRoot?.getAttribute('aria-selected') === 'true' ||
+        accordionRoot?.getAttribute('aria-checked') === 'true' ||
+        accordionRoot?.querySelector(
+          'input[type="radio"]:checked, input[type="radio"][aria-checked="true"]',
+        )
+      ) {
+        return true
+      }
+
       const selectionRoot = element.closest(
         '[role="tab"], [role="radio"], button, input',
       ) as (HTMLElement & { checked?: boolean }) | null
@@ -3214,6 +3372,8 @@ async function isPaymentMethodLocatorSelected(
 }
 
 async function clickChatGPTCheckoutSubscribe(page: Page): Promise<void> {
+  await clickHostedCheckoutTermsIfPresent(page)
+
   for (const selector of CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS) {
     const locator = toLocator(page, selector).first()
     const visible = await locator.isVisible().catch(() => false)

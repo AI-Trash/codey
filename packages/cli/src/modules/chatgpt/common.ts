@@ -79,6 +79,7 @@ export const CHATGPT_CODEX_ACCOUNT_CONSENT_URL =
 export const CHATGPT_CHECKOUT_ORIGIN = 'https://chatgpt.com'
 export const CHATGPT_TRIAL_CHECKOUT_PATH = '/backend-api/payments/checkout'
 export const CHATGPT_TRIAL_CHECKOUT_URL = `${CHATGPT_CHECKOUT_ORIGIN}${CHATGPT_TRIAL_CHECKOUT_PATH}`
+export const CHATGPT_TRIAL_CHECKOUT_CANCEL_URL = `${CHATGPT_CHECKOUT_ORIGIN}/#pricing`
 export const DEFAULT_CHATGPT_TRIAL_CHECKOUT_PROCESSOR_ENTITY = 'openai_ie'
 export const CHATGPT_TEAM_TRIAL_CHECKOUT_PLAN_NAME = 'chatgptteamplan'
 export const CHATGPT_PLUS_TRIAL_CHECKOUT_PLAN_NAME = 'chatgptplusplan'
@@ -202,6 +203,17 @@ export const CHATGPT_CHECKOUT_PAYMENT_METHOD_FRAME_SELECTORS: SelectorTarget[] =
     'iframe[title*="payment" i]',
   ]
 
+export const CHATGPT_HOSTED_CHECKOUT_BILLING_ADDRESS_SELECTORS: SelectorTarget[] =
+  [
+    'input[name="billingName"]',
+    'select[name="billingCountry"]',
+    'input[name="billingAddressLine1"]',
+    'input[name="billingLocality"]',
+    'input[name="billingPostalCode"]',
+    'select[name="billingAdministrativeArea"]',
+    '[data-qa="FormFieldGroup-billing-address"]',
+  ]
+
 export const CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS = [
   '[role="tab"][value*="paypal" i]',
   '[role="tab"][data-testid*="paypal" i]',
@@ -224,6 +236,27 @@ export const CHATGPT_CHECKOUT_PAYPAL_PAYMENT_METHOD_SELECTORS = [
 ] as const
 
 export const CHATGPT_CHECKOUT_GOPAY_PAYMENT_METHOD_SELECTORS = [
+  'button[data-testid="gopay-accordion-item-button"]',
+  '[data-testid="gopay-accordion-item"] .AccordionItemHeader',
+  '[data-testid="gopay-accordion-item"] .AccordionItemCover-header',
+  '[data-testid="gopay-accordion-item"] button',
+  '[data-testid="gopay-accordion-item"]',
+  '[data-testid="gopay-accordion-item"] input[type="radio"]',
+  'button[aria-label*="gopay" i]',
+  'button[aria-label*="go pay" i]',
+  'button[data-testid*="gopay" i]',
+  'button[data-testid*="go-pay" i]',
+  'button[data-testid*="go_pay" i]',
+  'button[value*="gopay" i]',
+  'button[value*="go-pay" i]',
+  'button[value*="go_pay" i]',
+  'button[id*="gopay" i]',
+  'button[id*="go-pay" i]',
+  'button[id*="go_pay" i]',
+  'button[aria-controls*="gopay" i]',
+  'button[aria-controls*="go-pay" i]',
+  'button[aria-controls*="go_pay" i]',
+  'button#gopay-tab',
   '[role="tab"][value*="gopay" i]',
   '[role="tab"][value*="go-pay" i]',
   '[role="tab"][value*="go_pay" i]',
@@ -249,21 +282,8 @@ export const CHATGPT_CHECKOUT_GOPAY_PAYMENT_METHOD_SELECTORS = [
   '[role="radio"][id*="go_pay" i]',
   '[role="radio"][aria-label*="gopay" i]',
   '[role="radio"][aria-label*="go pay" i]',
-  'button[value*="gopay" i]',
-  'button[value*="go-pay" i]',
-  'button[value*="go_pay" i]',
-  'button[data-testid*="gopay" i]',
-  'button[data-testid*="go-pay" i]',
-  'button[data-testid*="go_pay" i]',
-  'button[id*="gopay" i]',
-  'button[id*="go-pay" i]',
-  'button[id*="go_pay" i]',
-  'button[aria-controls*="gopay" i]',
-  'button[aria-controls*="go-pay" i]',
-  'button[aria-controls*="go_pay" i]',
-  'button[aria-label*="gopay" i]',
-  'button[aria-label*="go pay" i]',
-  'button#gopay-tab',
+  'input[value="gopay" i]',
+  'input[id*="gopay" i]',
   'input[value*="gopay" i]',
   'input[value*="go-pay" i]',
   'input[value*="go_pay" i]',
@@ -297,6 +317,7 @@ export const CHATGPT_CHECKOUT_GOPAY_SELECTORS: SelectorTarget[] = [
 ]
 
 export const CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS: SelectorTarget[] = [
+  'button[data-testid="hosted-payment-submit-button"]',
   'button[data-testid="checkout-submit-button"]',
   'button[type="submit"]',
   {
@@ -310,8 +331,7 @@ export const CHATGPT_CHECKOUT_SUBSCRIBE_SELECTORS: SelectorTarget[] = [
   },
 ]
 
-export interface ChatGPTTrialCheckoutPayload {
-  entry_point: 'all_plans_pricing_modal'
+interface ChatGPTTrialCheckoutBasePayload {
   plan_name:
     | typeof CHATGPT_TEAM_TRIAL_CHECKOUT_PLAN_NAME
     | typeof CHATGPT_PLUS_TRIAL_CHECKOUT_PLAN_NAME
@@ -323,8 +343,21 @@ export interface ChatGPTTrialCheckoutPayload {
     promo_campaign_id: ChatGPTTrialPromoCoupon
     is_coupon_from_query_param: false
   }
+}
+
+export interface ChatGPTTrialCustomCheckoutPayload extends ChatGPTTrialCheckoutBasePayload {
+  entry_point: 'all_plans_pricing_modal'
   checkout_ui_mode: 'custom'
 }
+
+export interface ChatGPTTrialHostedCheckoutPayload extends ChatGPTTrialCheckoutBasePayload {
+  cancel_url: typeof CHATGPT_TRIAL_CHECKOUT_CANCEL_URL
+  checkout_ui_mode: 'hosted'
+}
+
+export type ChatGPTTrialCheckoutPayload =
+  | ChatGPTTrialCustomCheckoutPayload
+  | ChatGPTTrialHostedCheckoutPayload
 
 export function buildChatGPTTrialCheckoutPayload(
   coupon: ChatGPTTrialPromoCoupon,
@@ -336,26 +369,31 @@ export function buildChatGPTTrialCheckoutPayload(
     CHATGPT_TRIAL_CHECKOUT_BILLING_DETAILS[
       options.paymentMethod || DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD
     ]
+  const planName =
+    coupon === CHATGPT_PLUS_TRIAL_PROMO_COUPON
+      ? CHATGPT_PLUS_TRIAL_CHECKOUT_PLAN_NAME
+      : CHATGPT_TEAM_TRIAL_CHECKOUT_PLAN_NAME
   const basePayload = {
-    entry_point: 'all_plans_pricing_modal',
+    plan_name: planName,
     billing_details: { ...billingDetails },
     promo_campaign: {
       promo_campaign_id: coupon,
       is_coupon_from_query_param: false,
     },
-    checkout_ui_mode: 'custom',
   } as const
 
-  if (coupon === CHATGPT_PLUS_TRIAL_PROMO_COUPON) {
+  if (options.paymentMethod === 'gopay') {
     return {
-      plan_name: CHATGPT_PLUS_TRIAL_CHECKOUT_PLAN_NAME,
       ...basePayload,
+      cancel_url: CHATGPT_TRIAL_CHECKOUT_CANCEL_URL,
+      checkout_ui_mode: 'hosted',
     }
   }
 
   return {
-    plan_name: CHATGPT_TEAM_TRIAL_CHECKOUT_PLAN_NAME,
     ...basePayload,
+    entry_point: 'all_plans_pricing_modal',
+    checkout_ui_mode: 'custom',
   }
 }
 

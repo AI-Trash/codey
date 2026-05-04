@@ -49,6 +49,7 @@ const stripeBillingAddress = {
 
 class FakeCheckoutLocator {
   clicks = 0
+  fills: string[] = []
 
   constructor(
     private readonly visible: boolean | (() => boolean) = false,
@@ -80,6 +81,13 @@ class FakeCheckoutLocator {
     }
     this.clicks += 1
     this.onClick?.()
+  }
+
+  async fill(value: string): Promise<void> {
+    if (!this.isCurrentlyVisible()) {
+      throw new Error('Locator is not visible')
+    }
+    this.fills.push(value)
   }
 
   async textContent(): Promise<string> {
@@ -122,7 +130,16 @@ interface FakeCheckoutPageOptions {
   paymentMethodFrameVisible?: boolean
   billingAddressFrameVisible?: boolean
   subscribeButton?: FakeCheckoutLocator
+  termsCheckbox?: FakeCheckoutLocator
+  gopayAccordionButton?: FakeCheckoutLocator
+  gopayRadioLocator?: FakeCheckoutLocator
+  hasHostedPaymentSelectionState?: () => boolean
+  hostedGopaySelected?: () => boolean
   paymentErrorMessage?: string | (() => string | undefined)
+  evaluateCallback?: <T, Arg>(
+    callback: (arg: Arg) => Promise<T> | T,
+    arg: Arg,
+  ) => Promise<T>
 }
 
 class FakeCheckoutFrame {
@@ -176,6 +193,7 @@ class FakeCheckoutFrame {
       normalizedSelector.includes('[data-state="selected"]') ||
       normalizedSelector.includes('[data-state="on"]') ||
       normalizedSelector.includes('[data-selected="true"]') ||
+      normalizedSelector.includes('paymentmethodformaccordionitem--selected') ||
       normalizedSelector.includes(':checked')
     ) {
       return new FakeCheckoutLocator(() =>
@@ -346,11 +364,68 @@ class FakeCheckoutPage {
 
   locator(selector = ''): FakeCheckoutLocator {
     const normalizedSelector = selector.toLowerCase()
+    const requestedMethod =
+      normalizedSelector.includes('gopay') ||
+      normalizedSelector.includes('go-pay') ||
+      normalizedSelector.includes('go_pay')
+        ? 'gopay'
+        : undefined
+
+    if (
+      requestedMethod === 'gopay' &&
+      (normalizedSelector.includes('[aria-selected="true"]') ||
+        normalizedSelector.includes('[aria-checked="true"]') ||
+        normalizedSelector.includes('[aria-pressed="true"]') ||
+        normalizedSelector.includes('[data-state="active"]') ||
+        normalizedSelector.includes('[data-state="checked"]') ||
+        normalizedSelector.includes('[data-state="selected"]') ||
+        normalizedSelector.includes('[data-state="on"]') ||
+        normalizedSelector.includes('[data-selected="true"]') ||
+        normalizedSelector.includes(':checked') ||
+        normalizedSelector.includes('paymentmethodformaccordionitem--selected'))
+    ) {
+      return new FakeCheckoutLocator(() =>
+        Boolean(this.options.hostedGopaySelected?.()),
+      )
+    }
+    if (
+      requestedMethod === 'gopay' &&
+      (normalizedSelector.includes('input[type="radio"]') ||
+        normalizedSelector.includes('[aria-selected]') ||
+        normalizedSelector.includes('[aria-checked]') ||
+        normalizedSelector.includes('[aria-pressed]') ||
+        normalizedSelector.includes('[data-state]') ||
+        normalizedSelector.includes('[data-selected]'))
+    ) {
+      return new FakeCheckoutLocator(() =>
+        Boolean(this.options.hasHostedPaymentSelectionState?.()),
+      )
+    }
+    if (
+      requestedMethod === 'gopay' &&
+      (normalizedSelector.includes('accordion-item-button') ||
+        normalizedSelector.includes('accordionitemheader') ||
+        normalizedSelector.includes('accordionitemcover-header') ||
+        normalizedSelector.includes('[data-testid="gopay-accordion-item"]'))
+    ) {
+      return this.options.gopayAccordionButton ?? this.hiddenLocator
+    }
+    if (
+      requestedMethod === 'gopay' &&
+      (normalizedSelector.includes('input') ||
+        normalizedSelector.includes('[role="radio"]'))
+    ) {
+      return this.options.gopayRadioLocator ?? this.hiddenLocator
+    }
     if (
       normalizedSelector.includes('checkout-submit-button') ||
+      normalizedSelector.includes('hosted-payment-submit-button') ||
       normalizedSelector.includes('button[type="submit"]')
     ) {
       return this.options.subscribeButton ?? this.hiddenLocator
+    }
+    if (normalizedSelector.includes('termsofserviceconsentcheckbox')) {
+      return this.options.termsCheckbox ?? this.hiddenLocator
     }
     if (
       normalizedSelector.includes('[role="alert"]') ||
@@ -368,8 +443,31 @@ class FakeCheckoutPage {
         Boolean(this.options.billingAddressFrameVisible),
       )
     }
+    if (
+      this.options.evaluateCallback &&
+      (normalizedSelector.includes('billingname') ||
+        normalizedSelector.includes('billingcountry') ||
+        normalizedSelector.includes('billingaddressline1') ||
+        normalizedSelector.includes('billinglocality') ||
+        normalizedSelector.includes('billingpostalcode') ||
+        normalizedSelector.includes('billingadministrativearea') ||
+        normalizedSelector.includes('formfieldgroup-billing-address'))
+    ) {
+      return new FakeCheckoutLocator(true)
+    }
 
     return this.hiddenLocator
+  }
+
+  async evaluate<T, Arg>(
+    callback: (arg: Arg) => Promise<T> | T,
+    arg: Arg,
+  ): Promise<T> {
+    if (this.options.evaluateCallback) {
+      return this.options.evaluateCallback(callback, arg)
+    }
+
+    return callback(arg)
   }
 
   private getPaymentErrorMessage(): string | undefined {
@@ -993,13 +1091,12 @@ describe('trial coupon pricing helpers', () => {
     ).toContain('button[role="radio"][aria-label*="Business" i]')
   })
 
-  it('builds direct checkout payloads for GoPay with Indonesian billing details', () => {
+  it('builds hosted direct checkout payloads for GoPay with Indonesian billing details', () => {
     expect(
       buildChatGPTTrialCheckoutPayload('team-1-month-free', {
         paymentMethod: 'gopay',
       }),
     ).toMatchObject({
-      entry_point: 'all_plans_pricing_modal',
       plan_name: 'chatgptteamplan',
       billing_details: {
         country: 'ID',
@@ -1009,8 +1106,14 @@ describe('trial coupon pricing helpers', () => {
         promo_campaign_id: 'team-1-month-free',
         is_coupon_from_query_param: false,
       },
-      checkout_ui_mode: 'custom',
+      cancel_url: 'https://chatgpt.com/#pricing',
+      checkout_ui_mode: 'hosted',
     })
+    expect(
+      buildChatGPTTrialCheckoutPayload('team-1-month-free', {
+        paymentMethod: 'gopay',
+      }),
+    ).not.toHaveProperty('entry_point')
   })
 
   it('uses the actual selected coupon when building Plus direct checkout payloads', () => {
@@ -1019,7 +1122,6 @@ describe('trial coupon pricing helpers', () => {
         paymentMethod: 'gopay',
       }),
     ).toMatchObject({
-      entry_point: 'all_plans_pricing_modal',
       plan_name: 'chatgptplusplan',
       billing_details: {
         country: 'ID',
@@ -1029,13 +1131,19 @@ describe('trial coupon pricing helpers', () => {
         promo_campaign_id: 'plus-1-month-free',
         is_coupon_from_query_param: false,
       },
-      checkout_ui_mode: 'custom',
+      cancel_url: 'https://chatgpt.com/#pricing',
+      checkout_ui_mode: 'hosted',
     })
     expect(
       buildChatGPTTrialCheckoutPayload('plus-1-month-free', {
         paymentMethod: 'gopay',
       }),
     ).not.toHaveProperty('team_plan_data')
+    expect(
+      buildChatGPTTrialCheckoutPayload('plus-1-month-free', {
+        paymentMethod: 'gopay',
+      }),
+    ).not.toHaveProperty('entry_point')
   })
 
   it('builds direct checkout URLs from checkout session ids', () => {
@@ -1133,6 +1241,122 @@ describe('trial coupon pricing helpers', () => {
           ) as HTMLInputElement
         ).value,
       ).toBe('Singapore')
+    } finally {
+      Object.assign(globalThis, {
+        window: previousWindow,
+        document: previousDocument,
+        HTMLElement: previousHTMLElement,
+        HTMLInputElement: previousHTMLInputElement,
+        HTMLTextAreaElement: previousHTMLTextAreaElement,
+        HTMLSelectElement: previousHTMLSelectElement,
+        Event: previousEvent,
+        InputEvent: previousInputEvent,
+        FocusEvent: previousFocusEvent,
+      })
+    }
+  }, 10000)
+
+  it('fills hosted GoPay checkout billing fields with Stripe hosted names', async () => {
+    const { JSDOM } = await import('jsdom')
+    const dom = new JSDOM(
+      `<form>
+        <input name="billingName" />
+        <select name="billingCountry">
+          <option value="US">United States</option>
+          <option value="ID">Indonesia</option>
+        </select>
+        <input name="billingAddressLine1" />
+        <input name="billingAddressLine2" />
+        <input name="billingLocality" />
+        <input name="billingPostalCode" />
+      </form>`,
+      { pretendToBeVisual: true },
+    )
+    const window = dom.window as unknown as Window & typeof globalThis
+    window.HTMLElement.prototype.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 1,
+        bottom: 1,
+        width: 1,
+        height: 1,
+        toJSON: () => ({}),
+      }) as DOMRect
+    const previousWindow = globalThis.window
+    const previousDocument = globalThis.document
+    const previousHTMLElement = globalThis.HTMLElement
+    const previousHTMLInputElement = globalThis.HTMLInputElement
+    const previousHTMLTextAreaElement = globalThis.HTMLTextAreaElement
+    const previousHTMLSelectElement = globalThis.HTMLSelectElement
+    const previousEvent = globalThis.Event
+    const previousInputEvent = globalThis.InputEvent
+    const previousFocusEvent = globalThis.FocusEvent
+
+    Object.assign(globalThis, {
+      window,
+      document: window.document,
+      HTMLElement: window.HTMLElement,
+      HTMLInputElement: window.HTMLInputElement,
+      HTMLTextAreaElement: window.HTMLTextAreaElement,
+      HTMLSelectElement: window.HTMLSelectElement,
+      Event: window.Event,
+      InputEvent: window.InputEvent,
+      FocusEvent: window.FocusEvent,
+    })
+
+    try {
+      const page = new FakeCheckoutPage([], {
+        evaluateCallback: (callback, arg) => Promise.resolve(callback(arg)),
+      })
+
+      await fillChatGPTCheckoutBillingAddress(
+        page as never,
+        {
+          ...stripeBillingAddress,
+          country: 'ID',
+          postalCode: '10110',
+        },
+        { fillCountry: true },
+      )
+
+      expect(
+        (
+          window.document.querySelector(
+            'input[name="billingName"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe(stripeBillingAddress.name)
+      expect(
+        (
+          window.document.querySelector(
+            'select[name="billingCountry"]',
+          ) as HTMLSelectElement
+        ).value,
+      ).toBe('ID')
+      expect(
+        (
+          window.document.querySelector(
+            'input[name="billingAddressLine1"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe('128 Orchard Road')
+      expect(
+        (
+          window.document.querySelector(
+            'input[name="billingLocality"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe('Singapore')
+      expect(
+        (
+          window.document.querySelector(
+            'input[name="billingPostalCode"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe('10110')
     } finally {
       Object.assign(globalThis, {
         window: previousWindow,
@@ -1637,6 +1861,7 @@ describe('trial coupon pricing helpers', () => {
         url: String(url),
         text: async () =>
           JSON.stringify({
+            url: 'https://chatgpt.com/checkout/openai_llc/cs_hosted_456',
             checkout_session_id: 'cs_live_123',
             processor_entity: 'openai_llc',
           }),
@@ -1660,7 +1885,7 @@ describe('trial coupon pricing helpers', () => {
     )
 
     expect(link).toMatchObject({
-      url: 'https://chatgpt.com/checkout/openai_llc/cs_live_123',
+      url: 'https://chatgpt.com/checkout/openai_llc/cs_hosted_456',
       checkoutSessionId: 'cs_live_123',
       processorEntity: 'openai_llc',
     })
@@ -1672,7 +1897,6 @@ describe('trial coupon pricing helpers', () => {
       'Content-Type': 'application/json',
     })
     expect(JSON.parse(String(requests[1]?.init?.body))).toMatchObject({
-      entry_point: 'all_plans_pricing_modal',
       plan_name: 'chatgptplusplan',
       billing_details: {
         country: 'ID',
@@ -1682,7 +1906,12 @@ describe('trial coupon pricing helpers', () => {
         promo_campaign_id: 'plus-1-month-free',
         is_coupon_from_query_param: false,
       },
+      cancel_url: 'https://chatgpt.com/#pricing',
+      checkout_ui_mode: 'hosted',
     })
+    expect(JSON.parse(String(requests[1]?.init?.body))).not.toHaveProperty(
+      'entry_point',
+    )
   })
 
   it('switches Plus pricing to Personal before claiming the free trial', async () => {
@@ -1873,6 +2102,30 @@ describe('checkout payment method selection', () => {
     expect(gopaySelected).toBe(true)
   })
 
+  it('opens hosted GoPay checkout with the accordion button before the hidden radio', async () => {
+    let gopaySelected = false
+    const gopayAccordionButton = new FakeCheckoutLocator(true, () => {
+      gopaySelected = true
+    })
+    const gopayRadioLocator = new FakeCheckoutLocator(true)
+    const page = new FakeCheckoutPage([], {
+      gopayAccordionButton,
+      gopayRadioLocator,
+      hasHostedPaymentSelectionState: () => true,
+      hostedGopaySelected: () => gopaySelected,
+    })
+
+    await expect(
+      selectChatGPTCheckoutPaymentMethodIfPresent(page as never, 'gopay', {
+        timeoutMs: 1000,
+      }),
+    ).resolves.toBe(true)
+
+    expect(gopayAccordionButton.clicks).toBe(1)
+    expect(gopayRadioLocator.clicks).toBe(0)
+    expect(gopaySelected).toBe(true)
+  })
+
   it('does not report GoPay selected when the payment tab state remains on another method', async () => {
     const gopaySelectorLocator = new FakeCheckoutLocator(true)
     const page = new FakeCheckoutPage([
@@ -1925,6 +2178,36 @@ describe('checkout payment method selection', () => {
     ).rejects.toThrow('ChatGPT checkout payment was not approved: 付款未获批准')
 
     expect(subscribeButton.clicks).toBe(1)
+  })
+
+  it('checks hosted checkout terms before submitting GoPay', async () => {
+    const termsCheckbox = new FakeCheckoutLocator(true)
+    const subscribeButton = new FakeCheckoutLocator(true)
+    const page = new FakeCheckoutPage(
+      [
+        new FakeCheckoutFrame(
+          new FakeCheckoutLocator(true),
+          'https://js.stripe.com/v3/elements-inner-payment-test.html',
+          {
+            gopaySelected: () => true,
+          },
+        ),
+      ],
+      {
+        subscribeButton,
+        termsCheckbox,
+      },
+    )
+
+    await expect(
+      clickChatGPTCheckoutSubscribeAndCapturePaymentLink(page as never, {
+        paymentMethod: 'gopay',
+        timeoutMs: 50,
+      }),
+    ).rejects.toThrow('ChatGPT gopay payment redirect link was not captured.')
+
+    expect(termsCheckbox.clicks).toBeGreaterThan(0)
+    expect(subscribeButton.clicks).toBeGreaterThan(0)
   })
 })
 
