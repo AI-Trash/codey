@@ -37,9 +37,7 @@ import {
   continueOpenAIWorkspaceSelection,
   completePasswordOrVerificationLoginFallback,
   gotoLoginEntry,
-  submitLoginEmail,
   waitForPostLoginCompletionCandidates,
-  waitForPostEmailLoginCandidates,
   createChatGPTBackendMeSessionProbe,
 } from '../modules/chatgpt/shared'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
@@ -55,6 +53,10 @@ import {
 } from '../modules/flow-cli/helpers'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
+import {
+  submitLoginEmailUntilPostEmailCandidates,
+  type ChatGPTLoginEmailRetryObservation,
+} from './chatgpt-email-submission'
 
 export type ChatGPTLoginFlowKind = 'chatgpt-login'
 
@@ -159,9 +161,8 @@ export interface ChatGPTLoginFlowResult {
 type ChatGPTLoginSurfaceStrategy = 'open-entry' | 'current-page'
 
 interface ChatGPTStoredLoginRetryCallbacks {
-  onEmailRetry?: (
-    attempt: number,
-    reason: 'retry' | 'timeout',
+  onEmailRetryObserved?: (
+    observation: ChatGPTLoginEmailRetryObservation,
   ) => void | Promise<void>
   machineObserver?: ChatGPTStoredLoginMachineObserver
 }
@@ -691,11 +692,16 @@ async function triggerStoredLogin(
   }
 
   const startedAt = new Date().toISOString()
-  await submitLoginEmail(page, stored.identity.email, {
-    onRetry: options.onEmailRetry,
-  })
+  const postEmailCandidates = await submitLoginEmailUntilPostEmailCandidates(
+    page,
+    stored.identity.email,
+    {
+      onRetryObserved: async (observation) => {
+        await options.onEmailRetryObserved?.(observation)
+      },
+    },
+  )
 
-  const postEmailCandidates = await waitForPostEmailLoginCandidates(page, 20000)
   if (postEmailCandidates.length === 0) {
     throw new Error('ChatGPT login did not reach a supported post-email step.')
   }
@@ -914,14 +920,14 @@ export async function continueChatGPTLoginWithStoredIdentity(
     email: options.email,
   })
   const login = await performStoredLogin(page, stored, {
-    onEmailRetry: async (attempt, reason) => {
-      await options.onEmailRetry?.(attempt, reason)
+    onEmailRetryObserved: async (observation) => {
+      await options.onEmailRetryObserved?.(observation)
       options.progressReporter?.({
         message:
-          reason === 'retry'
+          observation.reason === 'retry'
             ? 'Retrying login email submission'
             : 'Retrying timed out login email submission',
-        attempt,
+        attempt: observation.attempt,
       })
     },
     surfaceStrategy: 'current-page',
@@ -1039,25 +1045,25 @@ export async function loginChatGPT(
         machine,
         storedIdentity: stored.summary,
       },
-      onEmailRetry: async (attempt, reason) => {
+      onEmailRetryObserved: async (observation) => {
         await machine.send('chatgpt.retry.requested', {
-          reason: `email:${reason}`,
+          reason: `email:${observation.reason}`,
           message:
-            reason === 'retry'
+            observation.reason === 'retry'
               ? 'Retrying login email submission'
               : 'Retrying timed out login email submission',
           patch: {
             email: stored.identity.email,
             storedIdentity: stored.summary,
-            url: page.url(),
+            url: observation.url,
           },
         })
         options.progressReporter?.({
           message:
-            reason === 'retry'
+            observation.reason === 'retry'
               ? 'Retrying login email submission'
               : 'Retrying timed out login email submission',
-          attempt,
+          attempt: observation.attempt,
         })
       },
     })

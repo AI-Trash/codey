@@ -10,7 +10,7 @@ const completePasswordOrVerificationLoginFallback = vi.fn()
 const continueCodexOrganizationSelection = vi.fn()
 const continueCodexWorkspaceSelection = vi.fn()
 const continueCodexOAuthConsent = vi.fn()
-const submitLoginEmail = vi.fn()
+const submitLoginEmailUntilPostEmailCandidates = vi.fn()
 const typePassword = vi.fn()
 const typeVerificationCode = vi.fn()
 const waitForPasswordInputReady = vi.fn()
@@ -36,7 +36,6 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   continueCodexOAuthConsent,
   continueCodexOrganizationSelection,
   continueCodexWorkspaceSelection,
-  submitLoginEmail,
   typePassword,
   typeVerificationCode,
   waitForCodexOAuthSurface,
@@ -45,6 +44,10 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   waitForPostEmailLoginCandidates,
   waitForVerificationCode,
   waitForVerificationCodeInputReady,
+}))
+
+vi.mock('../src/flows/chatgpt-email-submission', () => ({
+  submitLoginEmailUntilPostEmailCandidates,
 }))
 
 vi.mock('../src/modules/credentials', () => ({
@@ -151,7 +154,7 @@ describe('runCodexOAuthFlow', () => {
       availableProjects: 1,
       selectedProjectIndex: 1,
     })
-    submitLoginEmail.mockResolvedValue(undefined)
+    submitLoginEmailUntilPostEmailCandidates.mockResolvedValue([])
     typePassword.mockResolvedValue(true)
     typeVerificationCode.mockResolvedValue(undefined)
     waitForCodexOAuthSurfaceCandidates.mockResolvedValue([])
@@ -238,21 +241,28 @@ describe('runCodexOAuthFlow', () => {
       },
     )
     clickLoginEntryIfPresent.mockResolvedValue(true)
-    submitLoginEmail.mockImplementation(
+    submitLoginEmailUntilPostEmailCandidates.mockImplementation(
       async (
-        _page: unknown,
+        page: { url: () => string },
         _email: string,
         options?: {
-          onRetry?: (
-            attempt: number,
-            reason: 'retry' | 'timeout',
-          ) => void | Promise<void>
+          onRetryObserved?: (observation: {
+            attempt: number
+            reason: 'retry' | 'timeout'
+            candidates: ['retry']
+            url: string
+          }) => void | Promise<void>
         },
       ) => {
-        await options?.onRetry?.(1, 'retry')
+        await options?.onRetryObserved?.({
+          attempt: 1,
+          reason: 'retry',
+          candidates: ['retry'],
+          url: page.url(),
+        })
+        return ['retry', 'password']
       },
     )
-    waitForPostEmailLoginCandidates.mockResolvedValueOnce(['retry', 'password'])
     completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
       currentUrl =
         'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
@@ -305,14 +315,13 @@ describe('runCodexOAuthFlow', () => {
       page,
       180000,
     )
-    expect(submitLoginEmail).toHaveBeenCalledWith(
+    expect(submitLoginEmailUntilPostEmailCandidates).toHaveBeenCalledWith(
       page,
       'person@example.com',
       expect.objectContaining({
-        onRetry: expect.any(Function),
+        onRetryObserved: expect.any(Function),
       }),
     )
-    expect(waitForPostEmailLoginCandidates).toHaveBeenCalledWith(page, 15000)
     expect(completePasswordOrVerificationLoginFallback).toHaveBeenCalledWith(
       page,
       expect.objectContaining({
@@ -388,7 +397,7 @@ describe('runCodexOAuthFlow', () => {
         return new Promise<never>(() => undefined)
       },
     )
-    waitForPostEmailLoginCandidates.mockResolvedValueOnce(['password'])
+    submitLoginEmailUntilPostEmailCandidates.mockResolvedValueOnce(['password'])
     completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
       currentUrl =
         'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
@@ -427,11 +436,11 @@ describe('runCodexOAuthFlow', () => {
       id: undefined,
       email: undefined,
     })
-    expect(submitLoginEmail).toHaveBeenCalledWith(
+    expect(submitLoginEmailUntilPostEmailCandidates).toHaveBeenCalledWith(
       page,
       'person@example.com',
       expect.objectContaining({
-        onRetry: expect.any(Function),
+        onRetryObserved: expect.any(Function),
       }),
     )
     expect(result).toMatchObject({
@@ -479,7 +488,7 @@ describe('runCodexOAuthFlow', () => {
       currentUrl = 'https://auth.openai.com/log-in-or-create-account'
       return true
     })
-    waitForPostEmailLoginCandidates.mockResolvedValueOnce(['password'])
+    submitLoginEmailUntilPostEmailCandidates.mockResolvedValueOnce(['password'])
     completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
       currentUrl =
         'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
@@ -528,8 +537,7 @@ describe('runCodexOAuthFlow', () => {
       page,
       15000,
     )
-    expect(submitLoginEmail).toHaveBeenCalledOnce()
-    expect(waitForPostEmailLoginCandidates).toHaveBeenCalledWith(page, 15000)
+    expect(submitLoginEmailUntilPostEmailCandidates).toHaveBeenCalledOnce()
     expect(completePasswordOrVerificationLoginFallback).toHaveBeenCalledWith(
       page,
       expect.objectContaining({
@@ -592,7 +600,9 @@ describe('runCodexOAuthFlow', () => {
         return new Promise<never>(() => undefined)
       },
     )
-    waitForPostEmailLoginCandidates.mockResolvedValueOnce(['verification'])
+    submitLoginEmailUntilPostEmailCandidates.mockResolvedValueOnce([
+      'verification',
+    ])
     waitForVerificationCodeInputReady.mockResolvedValue(true)
     completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
       currentUrl =
@@ -1092,7 +1102,7 @@ describe('runCodexOAuthFlow', () => {
       redirectUri: 'http://localhost:1455/auth/callback',
       tokenStorePath: 'codey-app://managed-sessions/managed-session-1',
     })
-    expect(submitLoginEmail).not.toHaveBeenCalled()
+    expect(submitLoginEmailUntilPostEmailCandidates).not.toHaveBeenCalled()
     expect(page.waitForURL).toHaveBeenCalled()
   })
 

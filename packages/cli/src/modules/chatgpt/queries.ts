@@ -1154,7 +1154,9 @@ export async function waitForPasswordSubmissionOutcome(
     if (await hasPasswordTimeoutErrorState(page)) {
       return 'timeout'
     }
-    await sleep(500)
+    await waitForPasswordSubmissionProgressSignal(page, {
+      timeoutMs: Math.min(500, Math.max(1, deadline - Date.now())),
+    })
   }
   await throwIfChatGPTAccountDeactivated(page)
   return 'unknown'
@@ -1298,7 +1300,10 @@ export async function waitForLoginEmailSubmissionOutcome(
       }
     }
 
-    await sleep(500)
+    await waitForPostEmailLoginProgressSignal(page, {
+      includeEmailSurface: emailSurfaceLeft,
+      timeoutMs: Math.min(500, Math.max(1, deadline - Date.now())),
+    })
   }
 
   await throwIfChatGPTAccountDeactivated(page)
@@ -1380,6 +1385,24 @@ function pushUniqueCandidate<T extends string>(list: T[], candidate: T): void {
   }
 }
 
+async function waitForPasswordSubmissionProgressSignal(
+  page: Page,
+  options: {
+    timeoutMs: number
+  },
+): Promise<boolean> {
+  return waitForAnySelectorState(
+    page,
+    [
+      ...VERIFICATION_CODE_INPUT_SELECTORS,
+      ...PASSWORD_TIMEOUT_ERROR_SELECTORS,
+      ...PASSWORD_TIMEOUT_RETRY_SELECTORS,
+    ],
+    'visible',
+    options.timeoutMs,
+  )
+}
+
 export async function getPostEmailLoginStepCandidates(
   page: Page,
 ): Promise<Exclude<ChatGPTPostEmailLoginStep, 'unknown'>[]> {
@@ -1415,6 +1438,27 @@ export async function getPostEmailLoginStepCandidates(
   return candidates
 }
 
+async function waitForPostEmailLoginProgressSignal(
+  page: Page,
+  options: {
+    includeEmailSurface?: boolean
+    timeoutMs: number
+  },
+): Promise<boolean> {
+  const selectors: SelectorTarget[] = [
+    ...VERIFICATION_CODE_INPUT_SELECTORS,
+    ...PASSWORD_INPUT_SELECTORS,
+    ...PASSWORD_TIMEOUT_RETRY_SELECTORS,
+    ...CHATGPT_AUTHENTICATED_SELECTORS,
+  ]
+
+  if (options.includeEmailSurface) {
+    selectors.push(...LOGIN_EMAIL_SELECTORS, ...LOGIN_CONTINUE_SELECTORS)
+  }
+
+  return waitForAnySelectorState(page, selectors, 'visible', options.timeoutMs)
+}
+
 export async function detectPostEmailLoginStep(
   page: Page,
 ): Promise<ChatGPTPostEmailLoginStep> {
@@ -1431,7 +1475,9 @@ export async function waitForPostEmailLoginCandidates(
     if (candidates.length > 0) {
       return candidates
     }
-    await sleep(250)
+    await waitForPostEmailLoginProgressSignal(page, {
+      timeoutMs: Math.min(250, Math.max(1, deadline - Date.now())),
+    })
   }
 
   return getPostEmailLoginStepCandidates(page)
@@ -1672,7 +1718,12 @@ export async function waitForLoginEmailFormReady(
   while (Date.now() < deadline) {
     const emailReady = await isLoginEmailFieldReady(page)
     if (emailReady) {
-      await sleep(500)
+      await waitForAnySelectorState(
+        page,
+        LOGIN_CONTINUE_SELECTORS,
+        'visible',
+        Math.min(500, Math.max(1, deadline - Date.now())),
+      )
       return true
     }
     await sleep(200)

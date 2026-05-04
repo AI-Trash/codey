@@ -43,7 +43,6 @@ import {
   fillAgeGateAge,
   fillAgeGateBirthday,
   fillAgeGateName,
-  submitLoginEmail,
   typePassword,
   typeVerificationCode,
   gotoLoginEntry,
@@ -54,7 +53,6 @@ import {
   waitForLoginEmailFormReady,
   waitForPasswordInputReady,
   waitForAgeGateFieldCandidates,
-  waitForPostEmailLoginCandidates,
   waitForPasswordSubmissionOutcome,
   waitForRegistrationEntryCandidates,
   waitUntilChatGPTHomeReady,
@@ -88,6 +86,7 @@ import {
   type ChatGPTTeamTrialFlowSnapshot,
   type ChatGPTTrialPostLoginResult,
 } from './chatgpt-team-trial'
+import { submitLoginEmailUntilPostEmailCandidates } from './chatgpt-email-submission'
 
 export type ChatGPTRegistrationFlowKind = 'chatgpt-registration'
 
@@ -1569,25 +1568,24 @@ export async function registerChatGPT(
       url: page.url(),
       lastMessage: 'Typing registration email',
     })
-    await submitLoginEmail(page, email, {
-      onRetry: async (_attempt, reason) => {
-        await machine.send('chatgpt.retry.requested', {
-          reason: `registration-email:${reason}`,
-          message:
-            reason === 'retry'
-              ? 'Retrying registration email submission'
-              : 'Retrying timed out registration email submission',
-          patch: {
-            email,
-            url: page.url(),
-          },
-        })
-      },
-    })
-
-    const postEmailCandidates = await waitForPostEmailLoginCandidates(
+    const postEmailCandidates = await submitLoginEmailUntilPostEmailCandidates(
       page,
-      20000,
+      email,
+      {
+        onRetryObserved: async (observation) => {
+          await machine.send('chatgpt.retry.requested', {
+            reason: `registration-email:${observation.reason}`,
+            message:
+              observation.reason === 'retry'
+                ? 'Retrying registration email submission'
+                : 'Retrying timed out registration email submission',
+            patch: {
+              email,
+              url: observation.url,
+            },
+          })
+        },
+      },
     )
     if (postEmailCandidates.length === 0) {
       throw new Error(

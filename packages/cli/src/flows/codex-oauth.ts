@@ -43,7 +43,6 @@ import {
   continueCodexOAuthConsent,
   continueCodexOrganizationSelection,
   continueCodexWorkspaceSelection,
-  submitLoginEmail,
   type ChatGPTCodexOAuthSurface,
   type ChatGPTPostEmailLoginStep,
   waitForCodexOAuthSurfaceCandidates,
@@ -56,6 +55,10 @@ import {
 } from '../modules/verification'
 import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
 import { createFlowLifecycleFragment } from './machine-fragments'
+import {
+  submitLoginEmailUntilPostEmailCandidates,
+  type ChatGPTLoginEmailRetryObservation,
+} from './chatgpt-email-submission'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
 
@@ -936,19 +939,20 @@ async function waitForCodexOAuthLoginProgressStep(
 
 function buildCodexOAuthRetryCallbacks(
   machine: CodexOAuthFlowMachine<CodexOAuthFlowRunResult>,
-  page: Page,
   redirectUri: string,
 ) {
   return {
-    onEmailRetry: async (_attempt: number, reason: 'retry' | 'timeout') => {
+    onEmailRetryObserved: async (
+      observation: ChatGPTLoginEmailRetryObservation,
+    ) => {
       await machine.send('codex.oauth.retry.requested', {
-        reason: `email:${reason}`,
+        reason: `email:${observation.reason}`,
         message:
-          reason === 'retry'
+          observation.reason === 'retry'
             ? 'Retrying OpenAI email submission during Codex OAuth'
             : 'Retrying timed out OpenAI email submission during Codex OAuth',
         patch: {
-          url: sanitizeUrl(page.url()),
+          url: sanitizeUrl(observation.url),
           redirectUri,
         },
       })
@@ -1181,7 +1185,10 @@ async function submitCodexOAuthStoredLoginEmail(
   options: FlowOptions,
   redirectUri: string,
   progress: CodexOAuthStoredLoginProgress,
-): Promise<StoredChatGPTIdentitySummary> {
+): Promise<{
+  storedIdentity: StoredChatGPTIdentitySummary
+  candidates: CodexOAuthLoginProgressStep[]
+}> {
   const stored = await requireCodexOAuthStoredLoginIdentity(machine, options)
 
   await sendCodexOAuthMachine(machine, 'codex.oauth.email.submitting', {
@@ -1194,12 +1201,19 @@ async function submitCodexOAuthStoredLoginEmail(
 
   progress.startedAt = new Date().toISOString()
 
-  await submitLoginEmail(page, stored.identity.email, {
-    onRetry: buildCodexOAuthRetryCallbacks(machine, page, redirectUri)
-      .onEmailRetry,
-  })
+  const postLoginCandidates = await submitLoginEmailUntilPostEmailCandidates(
+    page,
+    stored.identity.email,
+    {
+      onRetryObserved: buildCodexOAuthRetryCallbacks(machine, redirectUri)
+        .onEmailRetryObserved,
+    },
+  )
 
-  return stored.summary
+  return {
+    storedIdentity: stored.summary,
+    candidates: postLoginCandidates,
+  }
 }
 
 async function submitCodexOAuthStoredPassword(
@@ -1612,19 +1626,18 @@ async function runCodexOAuthSurfaceObservation(
       )
 
     case 'email':
-      await submitCodexOAuthStoredLoginEmail(
-        page,
-        machine,
-        options,
-        redirectUri,
-        progress,
-      )
-      return waitForNextCodexOAuthLoginProgressStep(
-        page,
-        waitForCallback,
-        redirectUri,
-        getResolvedCallback,
-      )
+      return {
+        kind: 'post-login-candidates',
+        candidates: (
+          await submitCodexOAuthStoredLoginEmail(
+            page,
+            machine,
+            options,
+            redirectUri,
+            progress,
+          )
+        ).candidates,
+      }
 
     case 'login': {
       try {
@@ -1732,19 +1745,18 @@ async function runCodexOAuthPostLoginObservation(
       )
 
     case 'retry':
-      await submitCodexOAuthStoredLoginEmail(
-        page,
-        machine,
-        options,
-        redirectUri,
-        progress,
-      )
-      return waitForNextCodexOAuthLoginProgressStep(
-        page,
-        waitForCallback,
-        redirectUri,
-        getResolvedCallback,
-      )
+      return {
+        kind: 'post-login-candidates',
+        candidates: (
+          await submitCodexOAuthStoredLoginEmail(
+            page,
+            machine,
+            options,
+            redirectUri,
+            progress,
+          )
+        ).candidates,
+      }
   }
 
   throw new Error(

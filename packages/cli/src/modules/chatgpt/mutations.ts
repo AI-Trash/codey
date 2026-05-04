@@ -68,7 +68,6 @@ import {
   waitForEnabledSelector,
   waitForEditableSelector,
   waitForLoginEmailFormReady,
-  waitForLoginEmailSubmissionOutcome,
   waitForPasswordInputReady,
   waitForPasswordSubmissionOutcome,
   waitForPostEmailLoginStep,
@@ -4158,69 +4157,30 @@ export async function recoverLoginEmailSubmissionSurface(
   return waitForLoginEmailFormReady(page, 5000)
 }
 
-export interface SubmitLoginEmailOptions {
-  maxAttempts?: number
-  onRetry?: (
-    attempt: number,
-    reason: 'retry' | 'timeout',
-  ) => void | Promise<void>
-}
-
-export async function submitLoginEmail(
+export async function submitLoginEmailOnce(
   page: Page,
   email: string,
-  options: SubmitLoginEmailOptions = {},
 ): Promise<void> {
-  const maxAttempts = Math.max(1, options.maxAttempts ?? 3)
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const formReady = await waitForLoginEmailFormReady(page, 15000)
-    if (!formReady) {
-      throw new Error(
-        'ChatGPT login page did not finish rendering a stable email form.',
-      )
-    }
-
-    const filled = await typeLoginEmail(page, email)
-    if (!filled) {
-      throw new Error(
-        'ChatGPT login email field was visible but could not be filled.',
-      )
-    }
-
-    const submitted = await clickLoginContinue(page)
-    if (!submitted) {
-      throw new Error(
-        'ChatGPT login page did not expose a clickable continue button.',
-      )
-    }
-
-    const outcome = await waitForLoginEmailSubmissionOutcome(page)
-    let retryReason: 'retry' | 'timeout' | undefined
-    if (outcome === 'next') {
-      return
-    }
-    if (outcome === 'unknown') {
-      const lateStep = await waitForPostEmailLoginStep(page, 5000)
-      if (lateStep !== 'retry') {
-        return
-      }
-      retryReason = 'retry'
-    } else {
-      retryReason = outcome
-    }
-
-    await options.onRetry?.(attempt, retryReason)
-    const recovered = await recoverLoginEmailSubmissionSurface(page)
-    if (!recovered) {
-      throw new Error(
-        retryReason === 'retry'
-          ? 'Login email submission returned to the email step and could not be recovered.'
-          : 'Login email submission timed out and retry button was not clickable.',
-      )
-    }
+  const formReady = await waitForLoginEmailFormReady(page, 15000)
+  if (!formReady) {
+    throw new Error(
+      'ChatGPT login page did not finish rendering a stable email form.',
+    )
   }
 
-  throw new Error('Login email submission timed out repeatedly.')
+  const filled = await typeLoginEmail(page, email)
+  if (!filled) {
+    throw new Error(
+      'ChatGPT login email field was visible but could not be filled.',
+    )
+  }
+
+  const submitted = await clickLoginContinue(page)
+  if (!submitted) {
+    throw new Error(
+      'ChatGPT login page did not expose a clickable continue button.',
+    )
+  }
 }
 
 export interface CompletePasswordOrVerificationLoginFallbackOptions {

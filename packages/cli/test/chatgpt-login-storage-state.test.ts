@@ -12,12 +12,11 @@ const completePasswordOrVerificationLoginFallback = vi.fn()
 const continueOpenAIWorkspaceSelection = vi.fn()
 const gotoLoginEntry = vi.fn()
 const logStep = vi.fn()
-const submitLoginEmail = vi.fn()
+const submitLoginEmailUntilPostEmailCandidates = vi.fn()
 const waitForAuthenticatedSession = vi.fn()
 const waitForLoginSurface = vi.fn()
 const waitForPasswordInputReady = vi.fn()
 const waitForPostLoginCompletionCandidates = vi.fn()
-const waitForPostEmailLoginCandidates = vi.fn()
 const createChatGPTBackendMeSessionProbe = vi.fn()
 const waitForBackendMeSession = vi.fn()
 const disposeBackendMeSessionProbe = vi.fn()
@@ -57,13 +56,15 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   createChatGPTBackendMeSessionProbe,
   gotoLoginEntry,
   logStep,
-  submitLoginEmail,
   waitForAuthenticatedSession,
   waitForLoginSurface,
   waitForPasswordInputReady,
   waitForPostLoginCompletionCandidates,
-  waitForPostEmailLoginCandidates,
   waitForVerificationCodeInputReady,
+}))
+
+vi.mock('../src/flows/chatgpt-email-submission', () => ({
+  submitLoginEmailUntilPostEmailCandidates,
 }))
 
 vi.mock('../src/modules/app-auth/managed-identities', () => ({
@@ -137,11 +138,10 @@ describe('loginChatGPT local storage-state restore', () => {
       method: 'password',
     })
     gotoLoginEntry.mockResolvedValue(undefined)
-    submitLoginEmail.mockResolvedValue(undefined)
+    submitLoginEmailUntilPostEmailCandidates.mockResolvedValue(['password'])
     waitForLoginSurface.mockResolvedValue('email')
     waitForPasswordInputReady.mockResolvedValue(true)
     waitForPostLoginCompletionCandidates.mockResolvedValue(['authenticated'])
-    waitForPostEmailLoginCandidates.mockResolvedValue(['password'])
     waitForBackendMeSession.mockResolvedValue(false)
     disposeBackendMeSessionProbe.mockReturnValue(undefined)
     createChatGPTBackendMeSessionProbe.mockReturnValue({
