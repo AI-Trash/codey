@@ -108,6 +108,9 @@ catalogs:
     embla-carousel-react:
       specifier: ^8.6.0
       version: 8.6.0
+    esbuild:
+      specifier: ^0.27.7
+      version: 0.27.7
     input-otp:
       specifier: ^1.4.2
       version: 1.4.2
@@ -433,6 +436,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.17
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.27.7
       jiti:
         specifier: 'catalog:'
         version: 2.6.1

@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build codey cli",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["--filter", "./packages/cli", "run", "build"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    }
+  ]
+}
