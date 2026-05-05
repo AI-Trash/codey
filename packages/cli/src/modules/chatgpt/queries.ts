@@ -9,6 +9,7 @@ import {
   AGE_GATE_AGE_SELECTORS,
   AGE_GATE_BIRTHDAY_GROUP_SELECTORS,
   AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS,
+  AGE_GATE_INPUT_SELECTORS,
   CODEX_CONSENT_SUBMIT_SELECTORS,
   CODEX_ORGANIZATION_SELECTORS,
   CODEX_ORGANIZATION_SUBMIT_SELECTORS,
@@ -81,6 +82,7 @@ export type ChatGPTRegistrationEntrySurface =
   | 'unknown'
 
 export type ChatGPTAgeGateFieldMode = 'age' | 'birthday'
+export type ChatGPTAgeGateSubmissionSignal = 'advanced' | 'retry'
 
 const CHATGPT_NEW_USER_ONBOARDING_ANNOUNCEMENT_KEYS: readonly string[] = [
   'oai/apps/hasSeenOnboardingFlow',
@@ -1679,6 +1681,116 @@ export async function getAgeGateFieldCandidates(
   }
 
   return candidates
+}
+
+export async function getAgeGateSubmissionSignal(
+  page: Page,
+): Promise<ChatGPTAgeGateSubmissionSignal | null> {
+  if (await isAnySelectorVisible(page, PASSWORD_TIMEOUT_RETRY_SELECTORS)) {
+    return 'retry'
+  }
+
+  const ageGateSurfaceActive =
+    (await isAnySelectorVisible(page, AGE_GATE_INPUT_SELECTORS)) ||
+    (await getAgeGateFieldCandidates(page)).length > 0
+
+  return ageGateSurfaceActive ? null : 'advanced'
+}
+
+export async function waitForAgeGateSubmissionSignal(
+  page: Page,
+  timeoutMs = 10000,
+): Promise<ChatGPTAgeGateSubmissionSignal | null> {
+  const currentSignal = await getAgeGateSubmissionSignal(page)
+  if (currentSignal) return currentSignal
+  if (timeoutMs <= 0) return null
+
+  await page
+    .waitForFunction(
+      waitForAgeGateSubmissionSignalPredicate,
+      createAgeGateSubmissionSignalProbe(),
+      { timeout: timeoutMs },
+    )
+    .catch(() => undefined)
+
+  return getAgeGateSubmissionSignal(page)
+}
+
+function createAgeGateSubmissionSignalProbe() {
+  return {
+    retrySelectors: PASSWORD_TIMEOUT_RETRY_SELECTORS.filter(
+      (selector): selector is string => typeof selector === 'string',
+    ),
+    ageGateSelectors: AGE_GATE_INPUT_SELECTORS.filter(
+      (selector): selector is string => typeof selector === 'string',
+    ),
+    attachedAgeGateSelectors: AGE_GATE_BIRTHDAY_HIDDEN_INPUT_SELECTORS.filter(
+      (selector): selector is string => typeof selector === 'string',
+    ),
+    retryPattern: '重试|再次提交|重新提交|try again|retry|resubmit',
+  }
+}
+
+function waitForAgeGateSubmissionSignalPredicate(probe: {
+  retrySelectors: string[]
+  ageGateSelectors: string[]
+  attachedAgeGateSelectors: string[]
+  retryPattern: string
+}): boolean {
+  const isVisible = (element: Element | null): boolean => {
+    if (!element) return false
+    const htmlElement = element as HTMLElement
+    const style = window.getComputedStyle(htmlElement)
+    const rect = htmlElement.getBoundingClientRect()
+    return (
+      htmlElement.isConnected &&
+      style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      Number(style.opacity || '1') > 0 &&
+      rect.width > 0 &&
+      rect.height > 0
+    )
+  }
+
+  const selectorVisible = (selector: string): boolean => {
+    try {
+      return isVisible(document.querySelector(selector))
+    } catch {
+      return false
+    }
+  }
+
+  const retryTextPattern = new RegExp(probe.retryPattern, 'i')
+  const retryVisible =
+    probe.retrySelectors.some(selectorVisible) ||
+    Array.from(
+      document.querySelectorAll(
+        'button,a,[role="button"],input[type="submit"]',
+      ),
+    ).some((element) => {
+      if (!isVisible(element)) return false
+      const inputValue =
+        element instanceof HTMLInputElement ? element.value : ''
+      const text = [
+        element.textContent ?? '',
+        element.getAttribute('aria-label') ?? '',
+        inputValue,
+      ].join(' ')
+
+      return retryTextPattern.test(text)
+    })
+  if (retryVisible) return true
+
+  const ageGateVisible = probe.ageGateSelectors.some(selectorVisible)
+  const ageGateAttached = probe.attachedAgeGateSelectors.some((selector) => {
+    try {
+      return Boolean(document.querySelector(selector))
+    } catch {
+      return false
+    }
+  })
+
+  return !ageGateVisible && !ageGateAttached
 }
 
 export async function waitForAgeGateFieldCandidates(

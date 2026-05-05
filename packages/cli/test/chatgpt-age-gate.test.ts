@@ -14,7 +14,10 @@ import {
   fillAgeGateName,
   waitForVerificationCodeUpdatesAfterSubmit,
 } from '../src/modules/chatgpt/mutations'
-import { waitForAgeGateFieldCandidates } from '../src/modules/chatgpt/queries'
+import {
+  waitForAgeGateFieldCandidates,
+  waitForAgeGateSubmissionSignal,
+} from '../src/modules/chatgpt/queries'
 
 class FakePage {
   hiddenBirthdayValue = ''
@@ -82,6 +85,14 @@ class FakePage {
     }
 
     return false
+  }
+
+  async waitForFunction(
+    fn: (arg: unknown) => boolean,
+    arg?: unknown,
+  ): Promise<void> {
+    if (fn(arg)) return
+    throw new Error('waitForFunction timed out')
   }
 
   title(): Promise<string> {
@@ -346,6 +357,43 @@ describe('age gate text inputs', () => {
 
     await expect(fillAgeGateAge(page as never)).resolves.toBe(true)
     expect(ageInput.text).toBe(ADULT_AGE)
+  })
+})
+
+describe('waitForAgeGateSubmissionSignal', () => {
+  it('returns advanced when age gate fields are already gone', async () => {
+    const page = new FakePage()
+    page.locators['input[name="age"]'] = new FakeLocator(page, {
+      attached: false,
+      visible: false,
+      editable: false,
+    })
+
+    await expect(
+      waitForAgeGateSubmissionSignal(page as never, 1000),
+    ).resolves.toBe('advanced')
+  })
+
+  it('waits for age gate fields to disappear before returning advanced', async () => {
+    const page = new FakePage()
+    const ageInput = new FakeLocator(page, {
+      attached: true,
+      visible: true,
+      editable: true,
+    })
+    page.locators['input[name="age"]'] = ageInput
+
+    let waitForFunctionCalls = 0
+    page.waitForFunction = async () => {
+      waitForFunctionCalls += 1
+      ageInput.state.attached = false
+      ageInput.state.visible = false
+    }
+
+    await expect(
+      waitForAgeGateSubmissionSignal(page as never, 1000),
+    ).resolves.toBe('advanced')
+    expect(waitForFunctionCalls).toBe(1)
   })
 })
 

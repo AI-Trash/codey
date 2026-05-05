@@ -8,6 +8,7 @@ const fillAgeGateBirthday = vi.fn()
 const fillAgeGateName = vi.fn()
 const getAgeGateFieldCandidates = vi.fn()
 const waitForAgeGateFieldCandidates = vi.fn()
+const waitForAgeGateSubmissionSignal = vi.fn()
 const waitForAnySelectorState = vi.fn()
 const waitForEnabledSelector = vi.fn()
 
@@ -24,6 +25,7 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   fillAgeGateName,
   getAgeGateFieldCandidates,
   waitForAgeGateFieldCandidates,
+  waitForAgeGateSubmissionSignal,
   waitForAnySelectorState,
   waitForEnabledSelector,
 }))
@@ -40,6 +42,7 @@ describe('registration age gate helper', () => {
     fillAgeGateName.mockResolvedValue(true)
     getAgeGateFieldCandidates.mockResolvedValue([])
     waitForAgeGateFieldCandidates.mockResolvedValue(['age'])
+    waitForAgeGateSubmissionSignal.mockResolvedValue('advanced')
     waitForAnySelectorState.mockImplementation(
       async (_page: unknown, selectors: string[]) =>
         selectors[0] === 'age-gate-input',
@@ -78,13 +81,9 @@ describe('registration age gate helper', () => {
   })
 
   it('clicks retry and refills fields when submission asks for retry', async () => {
-    let retryChecks = 0
-    waitForAnySelectorState.mockImplementation(
-      async (_page: unknown, selectors: string[]) =>
-        selectors[0] === 'retry-button'
-          ? retryChecks++ === 0
-          : selectors[0] === 'age-gate-input',
-    )
+    waitForAgeGateSubmissionSignal
+      .mockResolvedValueOnce('retry')
+      .mockResolvedValueOnce('advanced')
     const onOutcomeObserved = vi.fn()
 
     const { completeRegistrationAgeGate } =

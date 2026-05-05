@@ -850,6 +850,99 @@ describe('runCodexOAuthFlow', () => {
     ).toBe(true)
   })
 
+  it('falls through to the email surface after a recoverable workspace branch failure', async () => {
+    let currentUrl = 'https://auth.openai.com/oauth/authorize'
+    let resolveCallback!: (value: {
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }) => void
+
+    const callbackResult = new Promise<{
+      code: string
+      state: string
+      callbackUrl: string
+      rawQuery: string
+    }>((resolve) => {
+      resolveCallback = resolve
+    })
+
+    createAuthorizationCallbackCapture.mockResolvedValue({
+      result: callbackResult,
+      abort: vi.fn().mockResolvedValue(undefined),
+    })
+
+    waitForCodexOAuthSurfaceCandidates.mockImplementation(
+      async (_page: unknown, timeoutMs: number) => {
+        if (timeoutMs >= 180000) {
+          return ['workspace', 'email']
+        }
+        return new Promise<never>(() => undefined)
+      },
+    )
+    continueCodexWorkspaceSelection.mockRejectedValueOnce(
+      new Error('workspace picker is temporarily stale'),
+    )
+    submitLoginEmailUntilPostEmailCandidates.mockResolvedValueOnce(['password'])
+    completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
+      currentUrl =
+        'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
+      resolveCallback({
+        code: 'oauth-code',
+        state: 'oauth-state',
+        callbackUrl: currentUrl,
+        rawQuery: '/auth/callback?code=oauth-code&state=oauth-state',
+      })
+
+      return { method: 'password' }
+    })
+
+    exchangeCodexAuthorizationCode.mockResolvedValue({
+      accessToken: 'codex-access-token',
+      refreshToken: 'codex-refresh-token',
+      expiresIn: 3600,
+      scope: 'openid profile email offline_access',
+      tokenType: 'Bearer',
+      createdAt: '2026-04-17T00:00:00.000Z',
+    })
+
+    const page = {
+      goto: vi.fn(async (url: string) => {
+        currentUrl = url
+      }),
+      url: vi.fn(() => currentUrl),
+      title: vi.fn(async () => 'Authorization received'),
+    } as never
+
+    const { runCodexOAuthFlow } = await import('../src/flows/codex-oauth')
+    const result = await runCodexOAuthFlow(page, {
+      identityId: 'identity-123',
+      email: 'person@example.com',
+    })
+
+    expect(continueCodexWorkspaceSelection).toHaveBeenCalledOnce()
+    expect(submitLoginEmailUntilPostEmailCandidates).toHaveBeenCalledWith(
+      page,
+      'person@example.com',
+      expect.any(Object),
+    )
+    expect(
+      result.machine.history.some(
+        (entry) =>
+          entry.event === 'codex.oauth.retry.requested' &&
+          entry.to === 'retrying',
+      ),
+    ).toBe(true)
+    expect(
+      result.machine.history.some(
+        (entry) =>
+          entry.event === 'codex.oauth.surface.ready' &&
+          entry.to === 'email-step',
+      ),
+    ).toBe(true)
+  })
+
   it('defaults to the first workspace when no workspace index is provided', async () => {
     let currentUrl =
       'https://auth.openai.com/sign-in-with-chatgpt/codex/consent'

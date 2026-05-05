@@ -4,7 +4,6 @@ import {
   AGE_GATE_INPUT_SELECTORS,
   COMPLETE_ACCOUNT_SELECTORS,
   DEFAULT_EVENT_TIMEOUT_MS,
-  PASSWORD_TIMEOUT_RETRY_SELECTORS,
   clickCompleteAccountCreation,
   clickRetryButtonIfPresent,
   confirmAgeDialogIfPresent,
@@ -13,10 +12,10 @@ import {
   fillAgeGateName,
   getAgeGateFieldCandidates,
   waitForAgeGateFieldCandidates,
+  waitForAgeGateSubmissionSignal,
   waitForAnySelectorState,
   waitForEnabledSelector,
 } from '../modules/chatgpt/shared'
-import { sleep } from '../utils/wait'
 
 export type ChatGPTRegistrationAgeGateOutcome =
   | 'advanced'
@@ -203,33 +202,8 @@ async function waitForAgeGateSubmissionOutcome(
   page: Page,
   timeoutMs = 10000,
 ): Promise<ChatGPTRegistrationAgeGateOutcome> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const retryVisible = await waitForAnySelectorState(
-      page,
-      PASSWORD_TIMEOUT_RETRY_SELECTORS,
-      'visible',
-      250,
-    )
-    if (retryVisible) {
-      return 'retry'
-    }
-    if (!(await isRegistrationAgeGateActive(page))) {
-      return 'advanced'
-    }
-    await sleep(250)
-  }
+  const signal = await waitForAgeGateSubmissionSignal(page, timeoutMs)
+  if (signal) return signal
 
-  if (!(await isRegistrationAgeGateActive(page))) {
-    return 'advanced'
-  }
-
-  return (await waitForAnySelectorState(
-    page,
-    PASSWORD_TIMEOUT_RETRY_SELECTORS,
-    'visible',
-    250,
-  ))
-    ? 'retry'
-    : 'age-gate'
+  return (await isRegistrationAgeGateActive(page)) ? 'age-gate' : 'advanced'
 }
