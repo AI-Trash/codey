@@ -29,7 +29,9 @@ function readLastJsonObject(
   for (const line of lines) {
     const trimmed = line.trim()
     const resultMatch =
-      /^INSTRUMENTATION_RESULT:\s*codey_result=(\{.*\})$/.exec(trimmed)
+      /^INSTRUMENTATION_(?:RESULT|STATUS):\s*codey_result=(\{.*\})$/.exec(
+        trimmed,
+      )
     const candidate = resultMatch?.[1] ?? trimmed
     if (!candidate.startsWith('{') || !candidate.endsWith('}')) {
       continue
@@ -148,6 +150,16 @@ async function runAdbShellCommand(
   })
 }
 
+async function stopKnownUiAutomationRunners(): Promise<void> {
+  const commands = [
+    `am force-stop ${shellQuote('dev.mobile.maestro')}`,
+    `am force-stop ${shellQuote('dev.mobile.maestro.test')}`,
+  ].join('; ')
+  try {
+    await runAdbShellCommand(commands, 10_000)
+  } catch {}
+}
+
 export async function runCodeyAppGoPayUnlink(
   options: GoPayAndroidUnlinkOptions = {},
   runnerOptions: CodeyAppAutomatorOptions = {},
@@ -172,6 +184,7 @@ export async function runCodeyAppGoPayUnlink(
         step: 'session-opened',
         message: 'Starting CodeyApp UiAutomator GoPay unlink',
       })
+      await stopKnownUiAutomationRunners()
       const instrumentationCommand = [
         'am',
         'instrument',

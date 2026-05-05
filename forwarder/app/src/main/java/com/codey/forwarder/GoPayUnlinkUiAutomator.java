@@ -204,7 +204,7 @@ final class GoPayUnlinkUiAutomator {
     }
 
     private boolean launchGoPay(long deadline) {
-        Context context = instrumentation.getTargetContext();
+        Context context = instrumentation.getContext();
         Intent intent = context.getPackageManager().getLaunchIntentForPackage(GOPAY_APP_PACKAGE);
         if (intent == null) {
             throw new IllegalStateException("GoPay launch intent was not found.");

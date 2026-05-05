@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "CodeyApp"
 include(":app")
+include(":automator-host")

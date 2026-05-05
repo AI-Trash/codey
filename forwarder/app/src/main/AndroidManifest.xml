@@ -16,7 +16,7 @@
     <instrumentation
         android:name=".CodeyAutomatorInstrumentation"
         android:exported="true"
-        android:targetPackage="${applicationId}" />
+        android:targetPackage="com.codey.automatorhost" />
 
     <application
         android:allowBackup="true"

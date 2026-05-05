@@ -24,6 +24,7 @@ final class CodeyAutomatorLauncher {
             Math.max(1L, timeoutMs)
         );
 
+        stopKnownUiAutomationRunners();
         CommandResult root = runLocalProcess(
             new String[] {"su", "-c", instrumentCommand},
             timeoutMs + 20_000L
@@ -63,6 +64,16 @@ final class CodeyAutomatorLauncher {
             if (Shizuku.pingBinder() && Shizuku.checkSelfPermission() != 0) {
                 Shizuku.requestPermission(SHIZUKU_PERMISSION_REQUEST_CODE);
             }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static void stopKnownUiAutomationRunners() {
+        try {
+            runLocalProcess(
+                new String[] {"su", "-c", "am force-stop dev.mobile.maestro; am force-stop dev.mobile.maestro.test"},
+                5_000L
+            );
         } catch (Throwable ignored) {
         }
     }
@@ -160,6 +171,8 @@ final class CodeyAutomatorLauncher {
                 String line = lines[index].trim();
                 if (line.startsWith("INSTRUMENTATION_RESULT: codey_result=")) {
                     line = line.substring("INSTRUMENTATION_RESULT: codey_result=".length()).trim();
+                } else if (line.startsWith("INSTRUMENTATION_STATUS: codey_result=")) {
+                    line = line.substring("INSTRUMENTATION_STATUS: codey_result=".length()).trim();
                 }
                 if (!line.startsWith("{") || !line.endsWith("}")) {
                     continue;

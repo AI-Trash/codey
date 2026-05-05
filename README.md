@@ -215,7 +215,8 @@ session lifecycle check that opens an Android session and reports the connected
 device details.
 
 GoPay unlink automation uses the installed CodeyApp by default instead of
-Appium. Install `forwarder/` as `com.codey.app`; the CLI starts CodeyApp's
+Appium. Install `forwarder/` as `com.codey.app` and install the companion
+`com.codey.automatorhost` APK from the same build; the CLI starts CodeyApp's
 AndroidX UiAutomator instrumentation through
 `adb shell su -c am instrument ...`, so the target device must allow root for
 the CLI path. The Android app itself also has a root fastpath and a Shizuku

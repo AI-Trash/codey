@@ -2,10 +2,13 @@ package com.codey.app;
 
 import android.app.Instrumentation;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.util.Log;
 
 import org.json.JSONObject;
 
 public final class CodeyAutomatorInstrumentation extends Instrumentation {
+    private static final String TAG = "CodeyAutomator";
     private static final String DEFAULT_COMMAND = "gopay-unlink";
     private static final long DEFAULT_TIMEOUT_MS = 60_000L;
     private Bundle arguments;
@@ -34,6 +37,7 @@ public final class CodeyAutomatorInstrumentation extends Instrumentation {
                 throw new IllegalArgumentException("Unknown automator command: " + command);
             }
             long timeoutMs = longArg(arguments, "timeoutMs", DEFAULT_TIMEOUT_MS);
+            SystemClock.sleep(250L);
             payload = new GoPayUnlinkUiAutomator(this, timeoutMs).run();
         } catch (Throwable error) {
             resultCode = 1;
@@ -51,7 +55,46 @@ public final class CodeyAutomatorInstrumentation extends Instrumentation {
 
         output.putString("codey_result", payload.toString());
         output.putString("stream", payload.toString() + "\n");
-        finish(resultCode, output);
+        Log.i(TAG, payload.toString());
+        sendStatus(0, output);
+        finishSafely(resultCode, output);
+    }
+
+    private void finishSafely(int resultCode, Bundle output) {
+        waitForUiAutomationIdle();
+        for (int attempt = 0; attempt < 20; attempt += 1) {
+            try {
+                finish(resultCode, output);
+                return;
+            } catch (IllegalStateException error) {
+                if (!isUiAutomationConnectingError(error)) {
+                    throw error;
+                }
+                SystemClock.sleep(100L);
+            }
+        }
+
+        try {
+            SystemClock.sleep(1_000L);
+            finish(resultCode, output);
+        } catch (IllegalStateException error) {
+            if (!isUiAutomationConnectingError(error)) {
+                throw error;
+            }
+            Log.e(TAG, "UiAutomation was still connecting while finishing instrumentation.", error);
+        }
+    }
+
+    private void waitForUiAutomationIdle() {
+        try {
+            getUiAutomation().waitForIdle(100L, 2_000L);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean isUiAutomationConnectingError(IllegalStateException error) {
+        String message = error.getMessage();
+        return message != null && message.contains("Cannot call disconnect() while connecting UiAutomation");
     }
 
     private static String stringArg(Bundle arguments, String key, String fallback) {
