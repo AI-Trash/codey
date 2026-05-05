@@ -163,6 +163,12 @@ const CHATGPT_CHECKOUT_PAYMENT_ERROR_SELECTORS: SelectorTarget[] = [
     text: /payment (?:was )?(?:not approved|declined|failed)|your payment (?:could not be processed|was declined)/i,
   },
 ] as const
+const CHATGPT_PRICING_REGION_COMBOBOX_SIGNAL_SELECTORS = [
+  'button[role="combobox"]',
+  '[role="combobox"]',
+  'button[aria-haspopup="listbox"]',
+  'button[aria-controls^="radix-"]',
+] as const
 const CHATGPT_CHECKOUT_SELECTED_PAYMENT_METHOD_SELECTORS = {
   paypal: buildPaymentMethodStateSelectors(
     'paypal',
@@ -684,14 +690,26 @@ export async function selectChatGPTPricingRegion(
           .catch(() => false)
         if (!opened) continue
 
-        await sleep(250)
+        await waitForChatGPTPricingRegionOptionReady(
+          page,
+          targetPattern,
+          getCappedRemainingTimeoutMs(deadline, 750),
+        )
         if (await clickChatGPTPricingRegionOption(page, targetPattern)) {
           await page.waitForLoadState('networkidle').catch(() => undefined)
-          await sleep(500)
-          return isChatGPTPricingRegionSelected(page, countryCode)
+          return waitForChatGPTPricingRegionSelected(
+            page,
+            countryCode,
+            getCappedRemainingTimeoutMs(deadline, 1500),
+          )
         }
         if (
-          await selectChatGPTPricingRegionOptionWithKeyboard(page, countryCode)
+          await selectChatGPTPricingRegionOptionWithKeyboard(
+            page,
+            countryCode,
+            targetPattern,
+            getCappedRemainingTimeoutMs(deadline, 1500),
+          )
         ) {
           return true
         }
@@ -699,8 +717,11 @@ export async function selectChatGPTPricingRegion(
           await scrollAndClickChatGPTPricingRegionOption(page, targetPattern)
         ) {
           await page.waitForLoadState('networkidle').catch(() => undefined)
-          await sleep(500)
-          return isChatGPTPricingRegionSelected(page, countryCode)
+          return waitForChatGPTPricingRegionSelected(
+            page,
+            countryCode,
+            getCappedRemainingTimeoutMs(deadline, 1500),
+          )
         }
 
         await page.keyboard.press('Escape').catch(() => undefined)
@@ -709,10 +730,19 @@ export async function selectChatGPTPricingRegion(
 
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0) break
-    await sleep(Math.min(250, remainingMs))
+    await waitForChatGPTPricingRegionSurfaceSignal(
+      page,
+      Math.min(250, remainingMs),
+    )
   } while (Date.now() <= deadline)
 
   return isChatGPTPricingRegionSelected(page, countryCode)
+}
+
+function getCappedRemainingTimeoutMs(deadline: number, capMs: number): number {
+  const remainingMs = deadline - Date.now()
+  if (remainingMs <= 0) return 0
+  return Math.min(capMs, remainingMs)
 }
 
 function getPricingRegionOptionPattern(
@@ -757,14 +787,10 @@ async function clickChatGPTPricingRegionOption(
   page: Page,
   targetPattern: RegExp,
 ): Promise<boolean> {
-  for (const locator of [
-    page.getByRole('option', { name: targetPattern }),
-    page.locator('[role="option"]').filter({ hasText: targetPattern }),
-    page.locator('[data-radix-collection-item]').filter({
-      hasText: targetPattern,
-    }),
-    page.getByText(targetPattern),
-  ]) {
+  for (const locator of getChatGPTPricingRegionOptionLocators(
+    page,
+    targetPattern,
+  )) {
     const count = await locator.count().catch(() => 0)
     const limit = Math.min(count, 5)
     for (let index = 0; index < limit; index += 1) {
@@ -786,9 +812,61 @@ async function clickChatGPTPricingRegionOption(
   return false
 }
 
+function getChatGPTPricingRegionOptionLocators(
+  page: Page,
+  targetPattern: RegExp,
+): Locator[] {
+  return [
+    page.getByRole('option', { name: targetPattern }),
+    page.locator('[role="option"]').filter({ hasText: targetPattern }),
+    page.locator('[data-radix-collection-item]').filter({
+      hasText: targetPattern,
+    }),
+    page.getByText(targetPattern),
+  ]
+}
+
+async function waitForChatGPTPricingRegionOptionReady(
+  page: Page,
+  targetPattern: RegExp,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (await isChatGPTPricingRegionOptionVisible(page, targetPattern)) {
+    return true
+  }
+
+  return waitForVisibleLocatorSignal(
+    getChatGPTPricingRegionOptionLocators(page, targetPattern),
+    timeoutMs,
+  )
+}
+
+async function isChatGPTPricingRegionOptionVisible(
+  page: Page,
+  targetPattern: RegExp,
+): Promise<boolean> {
+  for (const locator of getChatGPTPricingRegionOptionLocators(
+    page,
+    targetPattern,
+  )) {
+    const count = await locator.count().catch(() => 0)
+    const limit = Math.min(count, 5)
+    for (let index = 0; index < limit; index += 1) {
+      const candidate = locator.nth(index)
+      if (await candidate.isVisible().catch(() => false)) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
 async function selectChatGPTPricingRegionOptionWithKeyboard(
   page: Page,
   countryCode: string,
+  targetPattern: RegExp,
+  timeoutMs: number,
 ): Promise<boolean> {
   const typeahead = getPricingRegionTypeaheadText(countryCode)
   if (!typeahead) {
@@ -796,12 +874,15 @@ async function selectChatGPTPricingRegionOptionWithKeyboard(
   }
 
   await page.keyboard.type(typeahead, { delay: 20 }).catch(() => undefined)
-  await sleep(250)
+  await waitForChatGPTPricingRegionOptionReady(
+    page,
+    targetPattern,
+    Math.min(250, timeoutMs),
+  )
   await page.keyboard.press('Enter').catch(() => undefined)
   await page.waitForLoadState('networkidle').catch(() => undefined)
-  await sleep(500)
 
-  return isChatGPTPricingRegionSelected(page, countryCode)
+  return waitForChatGPTPricingRegionSelected(page, countryCode, timeoutMs)
 }
 
 function getPricingRegionTypeaheadText(
@@ -827,10 +908,74 @@ async function scrollAndClickChatGPTPricingRegionOption(
     if (!scrolled) {
       await page.keyboard.press('PageDown').catch(() => undefined)
     }
-    await sleep(150)
+    await waitForChatGPTPricingRegionOptionReady(page, targetPattern, 150)
   }
 
   return clickChatGPTPricingRegionOption(page, targetPattern)
+}
+
+async function waitForVisibleLocatorSignal(
+  locators: Locator[],
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0) return false
+
+  const signals = locators.map(async (locator) => {
+    const candidate = locator.first()
+    const waitFor = (candidate as { waitFor?: Locator['waitFor'] }).waitFor
+    if (typeof waitFor !== 'function') {
+      return false
+    }
+
+    return waitFor
+      .call(candidate, {
+        state: 'visible',
+        timeout: Math.max(1, timeoutMs),
+      })
+      .then(() => true)
+      .catch(() => false)
+  })
+
+  return waitForFirstTruthySignal(signals)
+}
+
+async function waitForChatGPTPricingRegionSurfaceSignal(
+  page: Page,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0 || typeof page.evaluate !== 'function') {
+    return false
+  }
+
+  return page
+    .evaluate(
+      ({ timeout }) =>
+        new Promise<boolean>((resolve) => {
+          let observer: MutationObserver | undefined
+          let timer: number | undefined
+          let settled = false
+          const resolveOnce = (value: boolean): void => {
+            if (settled) return
+            settled = true
+            if (timer !== undefined) window.clearTimeout(timer)
+            observer?.disconnect()
+            resolve(value)
+          }
+
+          timer = window.setTimeout(() => resolveOnce(false), timeout)
+          observer = new MutationObserver(() => resolveOnce(true))
+          observer.observe(document.documentElement, {
+            attributes: true,
+            childList: true,
+            characterData: true,
+            subtree: true,
+          })
+        }),
+      {
+        timeout: Math.max(1, timeoutMs),
+      },
+    )
+    .catch(() => false)
 }
 
 async function scrollOpenPricingRegionList(page: Page): Promise<boolean> {
@@ -897,6 +1042,108 @@ async function scrollOpenPricingRegionList(page: Page): Promise<boolean> {
 
       return false
     })
+    .catch(() => false)
+}
+
+async function waitForChatGPTPricingRegionSelected(
+  page: Page,
+  countryCode: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (await isChatGPTPricingRegionSelected(page, countryCode)) {
+    return true
+  }
+
+  await waitForChatGPTPricingRegionSelectedMutation(
+    page,
+    countryCode,
+    timeoutMs,
+  )
+
+  return isChatGPTPricingRegionSelected(page, countryCode)
+}
+
+async function waitForChatGPTPricingRegionSelectedMutation(
+  page: Page,
+  countryCode: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const selectedPattern = getPricingRegionSelectedPattern(countryCode)
+  if (
+    !selectedPattern ||
+    timeoutMs <= 0 ||
+    typeof page.evaluate !== 'function'
+  ) {
+    return false
+  }
+
+  return page
+    .evaluate(
+      ({ flags, pattern, selectors, timeout }) =>
+        new Promise<boolean>((resolve) => {
+          const selectedPattern = new RegExp(pattern, flags)
+          const isVisible = (element: Element): boolean => {
+            if (!(element instanceof HTMLElement)) return false
+            const style = window.getComputedStyle(element)
+            const rect = element.getBoundingClientRect()
+            return (
+              element.isConnected &&
+              style.display !== 'none' &&
+              style.visibility !== 'hidden' &&
+              Number(style.opacity || '1') > 0 &&
+              rect.width > 0 &&
+              rect.height > 0
+            )
+          }
+          const hasSelectedRegion = (): boolean => {
+            for (const element of document.querySelectorAll(
+              selectors.join(','),
+            )) {
+              if (
+                isVisible(element) &&
+                selectedPattern.test(element.textContent || '')
+              ) {
+                return true
+              }
+            }
+
+            return false
+          }
+
+          if (hasSelectedRegion()) {
+            resolve(true)
+            return
+          }
+
+          let observer: MutationObserver | undefined
+          let timer: number | undefined
+          let settled = false
+          const resolveOnce = (value: boolean): void => {
+            if (settled) return
+            settled = true
+            if (timer !== undefined) window.clearTimeout(timer)
+            observer?.disconnect()
+            resolve(value)
+          }
+
+          timer = window.setTimeout(() => resolveOnce(false), timeout)
+          observer = new MutationObserver(() => {
+            if (hasSelectedRegion()) resolveOnce(true)
+          })
+          observer.observe(document.documentElement, {
+            attributes: true,
+            childList: true,
+            characterData: true,
+            subtree: true,
+          })
+        }),
+      {
+        flags: selectedPattern.flags,
+        pattern: selectedPattern.source,
+        selectors: CHATGPT_PRICING_REGION_COMBOBOX_SIGNAL_SELECTORS,
+        timeout: Math.max(1, timeoutMs),
+      },
+    )
     .catch(() => false)
 }
 
@@ -1485,27 +1732,138 @@ async function selectMidtransGoPayCountryCode(
   }
 
   await trigger.click().catch(() => undefined)
-  await sleep(250)
+  await waitForMidtransGoPayCountryPickerReady(page, normalized, 750)
 
-  const search = page
-    .locator('input[type="search"], input[placeholder*="country" i]')
-    .first()
+  const search = getMidtransGoPayCountrySearchInput(page)
   if (await search.isVisible().catch(() => false)) {
     await search.fill(normalized).catch(() => undefined)
-    await sleep(250)
+    await waitForMidtransGoPayCountryCodeOptionVisible(page, normalized, 750)
   }
 
-  const option = page
-    .locator(`.country-item:has-text("(+${normalized})")`)
-    .first()
+  const option = getMidtransGoPayCountryCodeOption(page, normalized)
   if (!(await option.isVisible().catch(() => false))) {
     await page.keyboard.press('Escape').catch(() => undefined)
     return isMidtransGoPayCountryCodeSelected(page, normalized)
   }
 
   await option.click()
-  await sleep(500)
-  return isMidtransGoPayCountryCodeSelected(page, normalized)
+  return waitForMidtransGoPayCountryCodeSelected(page, normalized, 1500)
+}
+
+function getMidtransGoPayCountrySearchInput(page: Page): Locator {
+  return page
+    .locator('input[type="search"], input[placeholder*="country" i]')
+    .first()
+}
+
+function getMidtransGoPayCountryCodeOption(
+  page: Page,
+  countryCode: string,
+): Locator {
+  return page.locator(`.country-item:has-text("(+${countryCode})")`).first()
+}
+
+async function waitForMidtransGoPayCountryPickerReady(
+  page: Page,
+  countryCode: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const search = getMidtransGoPayCountrySearchInput(page)
+  if (await search.isVisible().catch(() => false)) {
+    return true
+  }
+
+  const option = getMidtransGoPayCountryCodeOption(page, countryCode)
+  if (await option.isVisible().catch(() => false)) {
+    return true
+  }
+
+  return waitForVisibleLocatorSignal([search, option], timeoutMs)
+}
+
+async function waitForMidtransGoPayCountryCodeOptionVisible(
+  page: Page,
+  countryCode: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const option = getMidtransGoPayCountryCodeOption(page, countryCode)
+  if (await option.isVisible().catch(() => false)) {
+    return true
+  }
+
+  return waitForVisibleLocatorSignal([option], timeoutMs)
+}
+
+async function waitForMidtransGoPayCountryCodeSelected(
+  page: Page,
+  countryCode: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (await isMidtransGoPayCountryCodeSelected(page, countryCode)) {
+    return true
+  }
+
+  await waitForMidtransGoPayCountryCodeTextMutation(
+    page,
+    countryCode,
+    timeoutMs,
+  )
+
+  return isMidtransGoPayCountryCodeSelected(page, countryCode)
+}
+
+async function waitForMidtransGoPayCountryCodeTextMutation(
+  page: Page,
+  countryCode: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0 || typeof page.evaluate !== 'function') {
+    return false
+  }
+
+  return page
+    .evaluate(
+      ({ countryCode, timeout }) =>
+        new Promise<boolean>((resolve) => {
+          const hasSelectedCountryCode = (): boolean => {
+            const selected = document.querySelector('.phone-code')
+            const digits = (selected?.textContent || '').replace(/\D+/g, '')
+            return digits === countryCode
+          }
+
+          if (hasSelectedCountryCode()) {
+            resolve(true)
+            return
+          }
+
+          let observer: MutationObserver | undefined
+          let timer: number | undefined
+          let settled = false
+          const resolveOnce = (value: boolean): void => {
+            if (settled) return
+            settled = true
+            if (timer !== undefined) window.clearTimeout(timer)
+            observer?.disconnect()
+            resolve(value)
+          }
+
+          timer = window.setTimeout(() => resolveOnce(false), timeout)
+          observer = new MutationObserver(() => {
+            if (hasSelectedCountryCode()) resolveOnce(true)
+          })
+          observer.observe(document.documentElement, {
+            attributes: true,
+            childList: true,
+            characterData: true,
+            subtree: true,
+          })
+        }),
+      {
+        countryCode,
+        timeout: Math.max(1, timeoutMs),
+      },
+    )
+    .catch(() => false)
 }
 
 async function isMidtransGoPayCountryCodeSelected(
@@ -1538,17 +1896,11 @@ async function fillMidtransGoPayPhoneNumber(
     element.dispatchEvent(new Event('input', { bubbles: true }))
     element.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  await sleep(300)
+  await waitForMidtransGoPayLinkButtonReady(page, 1000)
 }
 
 async function clickMidtransGoPayLinkAndPay(page: Page): Promise<void> {
-  const candidates = [
-    page.getByRole('button', { name: /link and pay/i }),
-    page.locator('button:has-text("Link and pay")'),
-    page.locator('.linking-cta button'),
-  ]
-
-  for (const locator of candidates) {
+  for (const locator of getMidtransGoPayLinkButtonCandidates(page)) {
     const candidate = locator.first()
     const visible = await candidate.isVisible().catch(() => false)
     if (!visible) {
@@ -1568,14 +1920,45 @@ async function clickMidtransGoPayLinkAndPay(page: Page): Promise<void> {
   throw new Error('GoPay tokenization Link and pay button was not enabled.')
 }
 
-async function clickMidtransGoPayPayNow(page: Page): Promise<boolean> {
-  const candidates = [
-    page.getByRole('button', { name: /pay now|bayar/i }),
-    page.locator('button:has-text("Pay now")'),
-    page.locator('.button-down button.primary, .button-down button.btn'),
+function getMidtransGoPayLinkButtonCandidates(page: Page): Locator[] {
+  return [
+    page.getByRole('button', { name: /link and pay/i }),
+    page.locator('button:has-text("Link and pay")'),
+    page.locator('.linking-cta button'),
   ]
+}
 
-  for (const locator of candidates) {
+async function waitForMidtransGoPayLinkButtonReady(
+  page: Page,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (await isMidtransGoPayLinkButtonReady(page)) {
+    return true
+  }
+
+  await waitForVisibleLocatorSignal(
+    getMidtransGoPayLinkButtonCandidates(page),
+    timeoutMs,
+  )
+
+  return isMidtransGoPayLinkButtonReady(page)
+}
+
+async function isMidtransGoPayLinkButtonReady(page: Page): Promise<boolean> {
+  for (const locator of getMidtransGoPayLinkButtonCandidates(page)) {
+    const candidate = locator.first()
+    const visible = await candidate.isVisible().catch(() => false)
+    if (!visible) continue
+
+    const enabled = await isLocatorEnabled(candidate).catch(() => true)
+    if (enabled) return true
+  }
+
+  return false
+}
+
+async function clickMidtransGoPayPayNow(page: Page): Promise<boolean> {
+  for (const locator of getMidtransGoPayPayNowButtonCandidates(page)) {
     const candidate = locator.first()
     const visible = await candidate.isVisible().catch(() => false)
     if (!visible) {
@@ -1596,6 +1979,21 @@ async function clickMidtransGoPayPayNow(page: Page): Promise<boolean> {
   return false
 }
 
+function getMidtransGoPayPayNowButtonCandidates(page: Page): Locator[] {
+  return [
+    page.getByRole('button', { name: /pay now|bayar/i }),
+    page.locator('button:has-text("Pay now")'),
+    page.locator('.button-down button.primary, .button-down button.btn'),
+  ]
+}
+
+function getMidtransGoPayPaymentPageReadyLocators(page: Page): Locator[] {
+  return [
+    ...getMidtransGoPayPayNowButtonCandidates(page),
+    page.locator('.gopay-tokenization-balance-content, .masked-phone'),
+  ]
+}
+
 async function isMidtransGoPayPhoneInputReady(page: Page): Promise<boolean> {
   return page
     .locator('.phone-number-input input[type="tel"], input[type="tel"]')
@@ -1605,20 +2003,15 @@ async function isMidtransGoPayPhoneInputReady(page: Page): Promise<boolean> {
 }
 
 async function isMidtransGoPayPaymentPageReady(page: Page): Promise<boolean> {
-  const payNowVisible = await page
-    .getByRole('button', { name: /pay now|bayar/i })
-    .first()
-    .isVisible({ timeout: 1000 })
-    .catch(() => false)
-  if (payNowVisible) {
-    return true
+  for (const locator of getMidtransGoPayPaymentPageReadyLocators(page)) {
+    const visible = await locator
+      .first()
+      .isVisible({ timeout: 1000 })
+      .catch(() => false)
+    if (visible) return true
   }
 
-  return page
-    .locator('.gopay-tokenization-balance-content, .masked-phone')
-    .first()
-    .isVisible({ timeout: 1000 })
-    .catch(() => false)
+  return false
 }
 
 async function waitForMidtransGoPayPaymentPageReady(
@@ -1637,7 +2030,10 @@ async function waitForMidtransGoPayPaymentPageReady(
     if (remainingMs <= 0) {
       break
     }
-    await sleep(Math.min(500, remainingMs))
+    await waitForVisibleLocatorSignal(
+      getMidtransGoPayPaymentPageReadyLocators(page),
+      Math.min(500, remainingMs),
+    )
   } while (Date.now() <= deadline)
 
   return isMidtransGoPayPaymentPageReady(page)
@@ -3178,7 +3574,11 @@ export async function selectChatGPTCheckoutPaymentMethodIfPresent(
 
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0) break
-    await sleep(Math.min(PAYMENT_METHOD_POLL_MS, remainingMs))
+    await waitForCheckoutPaymentMethodCandidateSignal(
+      page,
+      paymentMethod,
+      Math.min(PAYMENT_METHOD_POLL_MS, remainingMs),
+    )
   } while (Date.now() <= deadline)
 
   return false
@@ -3280,6 +3680,123 @@ function getChatGPTCheckoutPaymentMethodLocators(
     scope.getByText(labelPattern),
     scope.locator(`label:has-text("${labelText}")`),
   ]
+}
+
+async function waitForCheckoutPaymentMethodCandidateSignal(
+  page: Page,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  timeoutMs: number,
+): Promise<boolean> {
+  const signals = getPrioritizedCheckoutScopes(page).map((scope) =>
+    waitForCheckoutPaymentMethodCandidateMutation(
+      scope,
+      paymentMethod,
+      timeoutMs,
+    ),
+  )
+
+  return waitForFirstTruthySignal(signals)
+}
+
+function getCheckoutPaymentMethodCandidateSignalSelectors(
+  paymentMethod: ChatGPTTrialPaymentMethod,
+): string[] {
+  return [
+    ...new Set([
+      ...CHATGPT_CHECKOUT_PAYMENT_METHOD_SELECTORS[paymentMethod],
+      ...CHATGPT_CHECKOUT_SELECTED_PAYMENT_METHOD_SELECTORS[paymentMethod],
+      ...(paymentMethod === 'gopay'
+        ? [HOSTED_GOPAY_ACCORDION_ACTION_SELECTOR]
+        : []),
+    ]),
+  ]
+}
+
+async function waitForCheckoutPaymentMethodCandidateMutation(
+  scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0 || typeof scope.evaluate !== 'function') {
+    return false
+  }
+
+  return scope
+    .evaluate(
+      ({ selectors, timeout }) =>
+        new Promise<boolean>((resolve) => {
+          const hasCandidate = (): boolean => {
+            for (const selector of selectors) {
+              try {
+                if (document.querySelector(selector)) return true
+              } catch {}
+            }
+
+            return false
+          }
+
+          if (hasCandidate()) {
+            resolve(true)
+            return
+          }
+
+          let observer: MutationObserver | undefined
+          let timer: number | undefined
+          let settled = false
+          const resolveOnce = (value: boolean): void => {
+            if (settled) return
+            settled = true
+            if (timer !== undefined) window.clearTimeout(timer)
+            observer?.disconnect()
+            resolve(value)
+          }
+
+          timer = window.setTimeout(() => resolveOnce(false), timeout)
+          observer = new MutationObserver(() => {
+            if (hasCandidate()) resolveOnce(true)
+          })
+          observer.observe(document.documentElement, {
+            attributes: true,
+            childList: true,
+            subtree: true,
+          })
+        }),
+      {
+        selectors:
+          getCheckoutPaymentMethodCandidateSignalSelectors(paymentMethod),
+        timeout: Math.max(1, timeoutMs),
+      },
+    )
+    .catch(() => false)
+}
+
+async function waitForFirstTruthySignal(
+  signals: Array<Promise<boolean>>,
+): Promise<boolean> {
+  if (signals.length < 1) return false
+
+  return new Promise<boolean>((resolve) => {
+    let pending = signals.length
+    let settled = false
+    const settle = (value: boolean): void => {
+      if (settled) return
+      if (value) {
+        settled = true
+        resolve(true)
+        return
+      }
+
+      pending -= 1
+      if (pending < 1) {
+        settled = true
+        resolve(false)
+      }
+    }
+
+    for (const signal of signals) {
+      signal.then(settle, () => settle(false))
+    }
+  })
 }
 
 async function clickPaymentMethodLocatorIfPresent(

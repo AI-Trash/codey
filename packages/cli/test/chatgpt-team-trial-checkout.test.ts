@@ -23,6 +23,7 @@ import {
   readChatGPTCheckoutBillingCountry,
   selectChatGPTCheckoutPaymentMethodIfPresent,
   selectChatGPTCheckoutPaypalPaymentMethodIfPresent,
+  selectChatGPTPricingRegion,
   selectEligibleChatGPTTrialPromoCoupon,
   submitGoPayAuthorizationOtpIfPresent,
   fillChatGPTCheckoutBillingAddress,
@@ -680,7 +681,15 @@ class FakeGoPayOtpPage {
 class FakeGoPayTokenizationLocator extends FakeCheckoutLocator {
   constructor(
     private readonly page: FakeGoPayTokenizationPage,
-    private readonly kind: 'body' | 'phone' | 'link' | 'pay',
+    private readonly kind:
+      | 'body'
+      | 'phone'
+      | 'link'
+      | 'pay'
+      | 'country-trigger'
+      | 'country-search'
+      | 'country-option'
+      | 'phone-code',
   ) {
     super(
       () => page.isLocatorVisible(kind),
@@ -690,13 +699,20 @@ class FakeGoPayTokenizationLocator extends FakeCheckoutLocator {
 
   async waitFor(options: { state?: string } = {}): Promise<void> {
     const state = options.state ?? 'visible'
-    const visible = this.page.isLocatorVisible(this.kind)
-    if ((state === 'visible' || state === 'attached') && visible) return
-    if ((state === 'hidden' || state === 'detached') && !visible) return
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const visible = this.page.isLocatorVisible(this.kind)
+      if ((state === 'visible' || state === 'attached') && visible) return
+      if ((state === 'hidden' || state === 'detached') && !visible) return
+    }
     throw new Error(`GoPay tokenization ${this.kind} did not reach ${state}`)
   }
 
   async fill(value: string): Promise<void> {
+    if (this.kind === 'country-search') {
+      this.page.countrySearch = value
+      return
+    }
+
     this.page.phoneNumber = value
   }
 
@@ -715,16 +731,33 @@ class FakeGoPayTokenizationLocator extends FakeCheckoutLocator {
   }
 
   async innerText(): Promise<string> {
-    return ''
+    return this.kind === 'phone-code' ? this.page.selectedCountryCode : ''
   }
 }
 
 class FakeGoPayTokenizationPage {
   readonly calls: string[] = []
+  readonly keyboard = {
+    press: vi.fn<() => Promise<void>>(async () => {}),
+  }
   phoneNumber = ''
+  countrySearch = ''
+  selectedCountryCode = '1'
   private pageUrl = ''
   private payReady = false
+  private countryPickerOpen = false
+  private countryOptionVisibilityChecks = 0
   private readonly hiddenLocator = new FakeCheckoutLocator(false)
+
+  constructor(
+    private readonly options: {
+      activationLinkUrl?: string
+      countryOptionVisibleAfterChecks?: number
+      payReadyAfterChecks?: number
+      pinReady?: boolean
+      showPayNowButton?: boolean
+    } = {},
+  ) {}
 
   async goto(url: string): Promise<void> {
     this.pageUrl = url
@@ -763,6 +796,7 @@ class FakeGoPayTokenizationPage {
           status: () => 200,
           text: async () =>
             JSON.stringify({
+              activation_link_url: this.options.activationLinkUrl,
               account_status: 'linked',
               status_code: '200',
             }),
@@ -776,11 +810,34 @@ class FakeGoPayTokenizationPage {
     if (normalizedSelector === 'body') {
       return new FakeGoPayTokenizationLocator(this, 'body')
     }
+    if (normalizedSelector.includes('phone-code-wrapper')) {
+      return new FakeGoPayTokenizationLocator(this, 'country-trigger')
+    }
+    if (
+      normalizedSelector.includes('input[type="search"]') ||
+      normalizedSelector.includes('placeholder*="country"')
+    ) {
+      return new FakeGoPayTokenizationLocator(this, 'country-search')
+    }
+    if (normalizedSelector.includes('country-item')) {
+      return new FakeGoPayTokenizationLocator(this, 'country-option')
+    }
+    if (normalizedSelector.includes('phone-code')) {
+      return new FakeGoPayTokenizationLocator(this, 'phone-code')
+    }
     if (normalizedSelector.includes('input[type="tel"]')) {
       return new FakeGoPayTokenizationLocator(this, 'phone')
     }
     if (normalizedSelector.includes('linking-cta')) {
       return new FakeGoPayTokenizationLocator(this, 'link')
+    }
+    if (
+      normalizedSelector.includes('[data-testid^="pin-input-"]') ||
+      normalizedSelector.includes('maxlength="1"')
+    ) {
+      return this.options.pinReady
+        ? new FakeGoPayOtpDigitInputsLocator()
+        : this.hiddenLocator
     }
     if (
       normalizedSelector.includes('gopay-tokenization-balance-content') ||
@@ -802,30 +859,92 @@ class FakeGoPayTokenizationPage {
       return new FakeGoPayTokenizationLocator(this, 'link')
     }
     if (name?.test('Pay now')) {
+      if (this.options.showPayNowButton === false) {
+        return this.hiddenLocator
+      }
+
       return new FakeGoPayTokenizationLocator(this, 'pay')
     }
 
     return this.hiddenLocator
   }
 
-  getByText(): FakeCheckoutLocator {
-    return this.hiddenLocator
+  getByText(text?: string | RegExp): FakeCheckoutLocator {
+    if (!this.options.pinReady || !text) {
+      return this.hiddenLocator
+    }
+
+    const bodyText = 'Masukkan 6 digit PIN kamu'
+    const matches =
+      typeof text === 'string' ? bodyText.includes(text) : text.test(bodyText)
+    return matches ? new FakeCheckoutLocator(true) : this.hiddenLocator
   }
 
-  isLocatorVisible(kind: 'body' | 'phone' | 'link' | 'pay'): boolean {
+  isLocatorVisible(
+    kind:
+      | 'body'
+      | 'phone'
+      | 'link'
+      | 'pay'
+      | 'country-trigger'
+      | 'country-search'
+      | 'country-option'
+      | 'phone-code',
+  ): boolean {
     if (kind === 'body') return Boolean(this.pageUrl)
+    if (kind === 'country-trigger') return Boolean(this.pageUrl)
+    if (kind === 'country-search') return this.countryPickerOpen
+    if (kind === 'country-option') {
+      this.countryOptionVisibilityChecks += 1
+      return (
+        this.countryPickerOpen &&
+        this.countrySearch === '86' &&
+        this.countryOptionVisibilityChecks >
+          (this.options.countryOptionVisibleAfterChecks ?? 0)
+      )
+    }
+    if (kind === 'phone-code') return Boolean(this.pageUrl)
     if (kind === 'phone' || kind === 'link') return !this.payReady
-    return this.payReady
+    if (kind === 'pay') {
+      if (!this.payReady) return false
+      const payReadyAfterChecks = this.options.payReadyAfterChecks
+      if (payReadyAfterChecks === undefined) return true
+
+      this.payVisibilityChecks += 1
+      return this.payVisibilityChecks > payReadyAfterChecks
+    }
+
+    return false
   }
 
-  clickLocator(kind: 'body' | 'phone' | 'link' | 'pay'): void {
+  clickLocator(
+    kind:
+      | 'body'
+      | 'phone'
+      | 'link'
+      | 'pay'
+      | 'country-trigger'
+      | 'country-search'
+      | 'country-option'
+      | 'phone-code',
+  ): void {
     this.calls.push(`click:${kind}`)
+    if (kind === 'country-trigger') {
+      this.countryPickerOpen = true
+      return
+    }
+    if (kind === 'country-option') {
+      this.selectedCountryCode = '86'
+      this.countryPickerOpen = false
+      return
+    }
     if (kind !== 'link') return
     this.payReady = true
     this.responseResolvers.splice(0).forEach((resolve) => resolve())
   }
 
   private readonly responseResolvers: Array<() => void> = []
+  private payVisibilityChecks = 0
 }
 
 class FakePricingLocator {
@@ -966,6 +1085,151 @@ class FakePricingPage {
   }
 
   async waitForLoadState(): Promise<void> {}
+}
+
+class FakePricingRegionLocator {
+  clicks = 0
+
+  constructor(
+    private readonly visible: boolean | (() => boolean) = false,
+    private readonly options: {
+      onClick?: () => void
+      text?: string | (() => string)
+    } = {},
+  ) {}
+
+  first(): FakePricingRegionLocator {
+    return this
+  }
+
+  nth(): FakePricingRegionLocator {
+    return this
+  }
+
+  filter(): FakePricingRegionLocator {
+    return this
+  }
+
+  async count(): Promise<number> {
+    return this.isCurrentlyVisible() ? 1 : 0
+  }
+
+  async isVisible(): Promise<boolean> {
+    return this.isCurrentlyVisible()
+  }
+
+  async waitFor(options: { state?: string } = {}): Promise<void> {
+    const state = options.state ?? 'visible'
+    const visible = this.isCurrentlyVisible()
+    if ((state === 'visible' || state === 'attached') && visible) return
+    if ((state === 'hidden' || state === 'detached') && !visible) return
+    throw new Error(`Pricing region locator did not reach state ${state}`)
+  }
+
+  async scrollIntoViewIfNeeded(): Promise<void> {}
+
+  async click(): Promise<void> {
+    if (!this.isCurrentlyVisible()) {
+      throw new Error('Pricing region locator is not visible')
+    }
+    this.clicks += 1
+    this.options.onClick?.()
+  }
+
+  async textContent(): Promise<string> {
+    const text = this.options.text
+    return typeof text === 'function' ? text() : text || ''
+  }
+
+  private isCurrentlyVisible(): boolean {
+    return typeof this.visible === 'function' ? this.visible() : this.visible
+  }
+}
+
+class FakePricingRegionPage {
+  readonly keyboard = {
+    press: vi.fn<() => Promise<void>>(async () => {}),
+    type: vi.fn<() => Promise<void>>(async () => {}),
+  }
+  readonly combobox: FakePricingRegionLocator
+  readonly option: FakePricingRegionLocator
+  private selectedCountry = 'United States'
+  private opened = false
+  private readonly hiddenLocator = new FakePricingRegionLocator(false)
+
+  constructor(options: { optionVisibleAfterChecks?: number } = {}) {
+    const optionVisibleAfterChecks = options.optionVisibleAfterChecks ?? 0
+    let optionVisibilityChecks = 0
+    this.combobox = new FakePricingRegionLocator(true, {
+      onClick: () => {
+        this.opened = true
+      },
+      text: () => this.selectedCountry,
+    })
+    this.option = new FakePricingRegionLocator(
+      () => {
+        optionVisibilityChecks += 1
+        return this.opened && optionVisibilityChecks > optionVisibleAfterChecks
+      },
+      {
+        onClick: () => {
+          this.selectedCountry = 'Indonesia'
+        },
+        text: 'Indonesia',
+      },
+    )
+  }
+
+  getByRole(
+    role: string,
+    options: { name?: string | RegExp } = {},
+  ): FakePricingRegionLocator {
+    if (role === 'combobox') return this.combobox
+    if (role === 'option' && this.matchesIndonesia(options.name)) {
+      return this.option
+    }
+
+    return this.hiddenLocator
+  }
+
+  getByText(text?: string | RegExp): FakePricingRegionLocator {
+    return this.matchesIndonesia(text) ? this.option : this.hiddenLocator
+  }
+
+  locator(selector = ''): FakePricingRegionLocator {
+    const normalizedSelector = selector.toLowerCase()
+    if (
+      normalizedSelector.includes('role="combobox"') ||
+      normalizedSelector.includes('aria-haspopup="listbox"') ||
+      normalizedSelector.includes('aria-controls^="radix-"')
+    ) {
+      return this.combobox
+    }
+    if (
+      normalizedSelector.includes('role="option"') ||
+      normalizedSelector.includes('radix-collection-item')
+    ) {
+      return this.option
+    }
+
+    return this.hiddenLocator
+  }
+
+  async waitForLoadState(): Promise<void> {}
+
+  async evaluate<T, Arg>(
+    callback: (arg: Arg) => Promise<T> | T,
+    arg: Arg,
+  ): Promise<T> {
+    return callback(arg)
+  }
+
+  private matchesIndonesia(value: string | RegExp | undefined): boolean {
+    if (!value) return false
+    return typeof value === 'string'
+      ? /indonesia|印度尼西亚|印尼/i.test(value)
+      : value.test('Indonesia')
+  }
 }
 
 describe('chatgpt team trial checkout defaults', () => {
@@ -1960,6 +2224,25 @@ describe('trial coupon pricing helpers', () => {
     expect(clickOrder).toEqual(['personal', 'plus'])
   })
 
+  it('selects the GoPay pricing region without fixed option delays', async () => {
+    vi.useFakeTimers()
+    const page = new FakePricingRegionPage({
+      optionVisibleAfterChecks: 12,
+    })
+
+    const result = selectChatGPTPricingRegion(page as never, 'ID', {
+      timeoutMs: 1000,
+    })
+
+    try {
+      await expect(result).resolves.toBe(true)
+      expect(page.combobox.clicks).toBe(1)
+      expect(page.option.clicks).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('checks Team before Plus and selects the first eligible coupon', async () => {
     const requested: Array<{
       url: string
@@ -2065,6 +2348,31 @@ describe('checkout payment method selection', () => {
     ).resolves.toBe(true)
 
     expect(paypalTabLocator.clicks).toBe(1)
+  })
+
+  it('rescans payment method candidates without a fixed poll delay', async () => {
+    vi.useFakeTimers()
+    let visibilityChecks = 0
+    const paypalTabLocator = new FakeCheckoutLocator(() => {
+      visibilityChecks += 1
+      return visibilityChecks > 12
+    })
+    const page = new FakeCheckoutPage([new FakeCheckoutFrame(paypalTabLocator)])
+
+    const result = selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
+      page as never,
+      {
+        timeoutMs: 1000,
+      },
+    )
+
+    try {
+      await expect(result).resolves.toBe(true)
+      expect(paypalTabLocator.clicks).toBe(1)
+      expect(visibilityChecks).toBeGreaterThan(12)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('switches card and PayPal Stripe tablists to the PayPal tab', async () => {
@@ -2398,29 +2706,69 @@ describe('gopay payment redirect extraction', () => {
   })
 
   it('waits for GoPay unlink before submitting the tokenization phone number', async () => {
-    const page = new FakeGoPayTokenizationPage()
+    vi.useFakeTimers()
+    const page = new FakeGoPayTokenizationPage({
+      countryOptionVisibleAfterChecks: 12,
+    })
     const redirect = extractGoPayPaymentRedirectLink(
       'https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking',
     )
     const events: string[] = []
 
-    await expect(
-      continueGoPayPaymentFromRedirect(page as never, redirect!, {
-        phoneNumber: '18400000000',
-        async beforePhoneSubmit() {
-          events.push('beforePhoneSubmit')
-          page.calls.push('beforePhoneSubmit')
-          expect(page.calls).not.toContain('click:link')
-        },
-      }),
-    ).rejects.toThrow(
-      'GoPay tokenization did not return an activation link after submitting the phone number.',
+    try {
+      await expect(
+        continueGoPayPaymentFromRedirect(page as never, redirect!, {
+          countryCode: '+86',
+          phoneNumber: '18400000000',
+          async beforePhoneSubmit() {
+            events.push('beforePhoneSubmit')
+            page.calls.push('beforePhoneSubmit')
+            expect(page.calls).not.toContain('click:link')
+          },
+        }),
+      ).rejects.toThrow(
+        'GoPay tokenization did not return an activation link after submitting the phone number.',
+      )
+
+      expect(events).toEqual(['beforePhoneSubmit'])
+      expect(page.calls.indexOf('beforePhoneSubmit')).toBeLessThan(
+        page.calls.indexOf('click:link'),
+      )
+      expect(page.calls).toContain('click:country-trigger')
+      expect(page.calls).toContain('click:country-option')
+      expect(page.selectedCountryCode).toBe('86')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits for Midtrans payment page readiness without fixed polling', async () => {
+    vi.useFakeTimers()
+    const page = new FakeGoPayTokenizationPage({
+      activationLinkUrl:
+        'https://merchants-gws-app.gopayapi.com/app/authorize?reference=abc',
+      payReadyAfterChecks: 12,
+      pinReady: true,
+      showPayNowButton: false,
+    })
+    const redirect = extractGoPayPaymentRedirectLink(
+      'https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking',
     )
 
-    expect(events).toEqual(['beforePhoneSubmit'])
-    expect(page.calls.indexOf('beforePhoneSubmit')).toBeLessThan(
-      page.calls.indexOf('click:link'),
-    )
+    const result = continueGoPayPaymentFromRedirect(page as never, redirect!, {
+      phoneNumber: '18400000000',
+    })
+
+    try {
+      await expect(result).resolves.toMatchObject({
+        status: 'payment-page-ready',
+        payNowClicked: false,
+      })
+      expect(page.calls).toContain('goto:authorize')
+      expect(page.calls).toContain('click:link')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does not click matching consent buttons outside GoPay authorization', async () => {
