@@ -28,7 +28,10 @@ import {
   submitGoPayAuthorizationOtpIfPresent,
   fillChatGPTCheckoutBillingAddress,
 } from '../src/modules/chatgpt/shared'
-import { waitForChatGPTCheckoutReady } from '../src/modules/chatgpt/queries'
+import {
+  isChatGPTCheckoutUrl,
+  waitForChatGPTCheckoutReady,
+} from '../src/modules/chatgpt/queries'
 
 const baseConfig = resolveConfig()
 
@@ -2409,10 +2412,32 @@ describe('trial coupon pricing helpers', () => {
 })
 
 describe('checkout readiness', () => {
+  it('recognizes OpenAI hosted checkout URLs', () => {
+    expect(
+      isChatGPTCheckoutUrl(
+        'https://pay.openai.com/c/pay/cs_live_123#fidkdWxOYHwn',
+      ),
+    ).toBe(true)
+    expect(
+      isChatGPTCheckoutUrl('https://pay.openai.com/c/session/cs_live_123'),
+    ).toBe(false)
+  })
+
   it('treats the payment method frame as ready before the billing address frame appears', async () => {
     const page = new FakeCheckoutPage([], {
       paymentMethodFrameVisible: true,
       billingAddressFrameVisible: false,
+    })
+
+    await expect(waitForChatGPTCheckoutReady(page as never, 100)).resolves.toBe(
+      true,
+    )
+  })
+
+  it('treats OpenAI hosted GoPay payment choices as checkout ready', async () => {
+    const page = new FakeCheckoutPage([], {
+      url: 'https://pay.openai.com/c/pay/cs_live_123#fidkdWxOYHwn',
+      gopayAccordionButton: new FakeCheckoutLocator(true),
     })
 
     await expect(waitForChatGPTCheckoutReady(page as never, 100)).resolves.toBe(

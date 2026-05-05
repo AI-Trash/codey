@@ -77,6 +77,7 @@ export const CHATGPT_CODEX_ORGANIZATION_URL =
 export const CHATGPT_CODEX_ACCOUNT_CONSENT_URL =
   'https://auth.openai.com/api/accounts/consent'
 export const CHATGPT_CHECKOUT_ORIGIN = 'https://chatgpt.com'
+export const OPENAI_PAY_CHECKOUT_ORIGIN = 'https://pay.openai.com'
 export const CHATGPT_TRIAL_CHECKOUT_PATH = '/backend-api/payments/checkout'
 export const CHATGPT_TRIAL_CHECKOUT_URL = `${CHATGPT_CHECKOUT_ORIGIN}${CHATGPT_TRIAL_CHECKOUT_PATH}`
 export const CHATGPT_TRIAL_CHECKOUT_CANCEL_URL = `${CHATGPT_CHECKOUT_ORIGIN}/#pricing`

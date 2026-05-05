@@ -17,6 +17,7 @@ import {
   CODEX_WORKSPACE_SUBMIT_SELECTORS,
   CHATGPT_AUTHENTICATED_SELECTORS,
   CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
+  CHATGPT_CHECKOUT_GOPAY_SELECTORS,
   CHATGPT_CHECKOUT_ORIGIN,
   CHATGPT_CHECKOUT_PAYMENT_METHOD_FRAME_SELECTORS,
   CHATGPT_HOSTED_CHECKOUT_BILLING_ADDRESS_SELECTORS,
@@ -42,6 +43,7 @@ import {
   PASSWORD_TIMEOUT_ERROR_SELECTORS,
   PASSWORD_TIMEOUT_ERROR_TITLE_PATTERN,
   PASSWORD_TIMEOUT_RETRY_SELECTORS,
+  OPENAI_PAY_CHECKOUT_ORIGIN,
   SIGNUP_ENTRY_SELECTORS,
   VERIFICATION_CODE_INPUT_SELECTORS,
   type ChatGPTTrialPromoCoupon,
@@ -1542,9 +1544,13 @@ export function isChatGPTTrialPricingPromoUrl(
 export function isChatGPTCheckoutUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
+    if (parsed.origin === CHATGPT_CHECKOUT_ORIGIN) {
+      return /^\/checkout\/[^/]+\/cs_[^/?#]+/i.test(parsed.pathname)
+    }
+
     return (
-      parsed.origin === CHATGPT_CHECKOUT_ORIGIN &&
-      /^\/checkout\/[^/]+\/cs_[^/?#]+/i.test(parsed.pathname)
+      parsed.origin === OPENAI_PAY_CHECKOUT_ORIGIN &&
+      /^\/c\/pay\/cs_[^/?#]+/i.test(parsed.pathname)
     )
   } catch {
     return false
@@ -1586,6 +1592,7 @@ export async function waitForChatGPTCheckoutReady(
     ...CHATGPT_CHECKOUT_BILLING_ADDRESS_FRAME_SELECTORS,
     ...CHATGPT_CHECKOUT_PAYMENT_METHOD_FRAME_SELECTORS,
     ...CHATGPT_CHECKOUT_PAYPAL_SELECTORS,
+    ...CHATGPT_CHECKOUT_GOPAY_SELECTORS,
   ]
 
   do {
