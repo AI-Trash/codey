@@ -237,6 +237,22 @@ type CheckoutLocatorScope = Page | Frame
 const HOSTED_GOPAY_ACCORDION_ACTION_SELECTOR =
   '[data-testid="gopay-accordion-item"] button[data-testid="gopay-accordion-item-button"] > div'
 
+type CheckoutPaymentMethodSelectionCandidate =
+  | {
+      kind: 'selected'
+      scope: CheckoutLocatorScope
+    }
+  | {
+      kind: 'hosted-gopay-action'
+      scope: CheckoutLocatorScope
+      locator: Locator
+    }
+  | {
+      kind: 'payment-method-locator'
+      scope: CheckoutLocatorScope
+      locator: Locator
+    }
+
 export interface OpenAIWorkspaceSelectionResult {
   availableWorkspaces: number
   selectedWorkspaceIndex: number
@@ -3128,48 +3144,33 @@ export async function selectChatGPTCheckoutPaymentMethodIfPresent(
 
   do {
     for (const scope of getPrioritizedCheckoutScopes(page)) {
-      if (await isCheckoutPaymentMethodSelected(scope, paymentMethod)) {
-        return true
-      }
-
-      if (paymentMethod === 'gopay') {
-        const hostedClickResult =
-          await clickHostedGoPayAccordionActionWithForce(scope)
-        if (
-          hostedClickResult === 'clicked' &&
-          (await waitForCheckoutPaymentMethodSelected(
-            scope,
-            paymentMethod,
-            PAYMENT_METHOD_SETTLE_MS,
-          ))
-        ) {
-          await sleep(500)
-          return true
-        }
-      }
-
-      for (const locator of getChatGPTCheckoutPaymentMethodLocators(
+      for (const candidate of await getCheckoutPaymentMethodSelectionCandidates(
         scope,
         paymentMethod,
       )) {
+        const alreadySelected = candidate.kind === 'selected'
         const remainingMs = deadline - Date.now()
-        if (timeoutMs > 0 && remainingMs <= 0) {
-          break
-        }
+        if (!alreadySelected && timeoutMs > 0 && remainingMs <= 0) break
 
-        const settleTimeoutMs =
-          timeoutMs > 0
+        const settleTimeoutMs = alreadySelected
+          ? PAYMENT_METHOD_SETTLE_MS
+          : timeoutMs > 0
             ? Math.min(PAYMENT_METHOD_SETTLE_MS, Math.max(1, remainingMs))
             : PAYMENT_METHOD_SETTLE_MS
         if (
-          await clickPaymentMethodLocatorIfPresent(
-            locator,
-            scope,
+          await runCheckoutPaymentMethodSelectionCandidate(
+            candidate,
             paymentMethod,
             settleTimeoutMs,
           )
         ) {
-          await sleep(500)
+          if (!alreadySelected) {
+            await waitForCheckoutPaymentMethodPostSelectionSignal(
+              candidate.scope,
+              paymentMethod,
+              settleTimeoutMs,
+            )
+          }
           return true
         }
       }
@@ -3181,6 +3182,66 @@ export async function selectChatGPTCheckoutPaymentMethodIfPresent(
   } while (Date.now() <= deadline)
 
   return false
+}
+
+async function getCheckoutPaymentMethodSelectionCandidates(
+  scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+): Promise<CheckoutPaymentMethodSelectionCandidate[]> {
+  if (await isCheckoutPaymentMethodSelected(scope, paymentMethod)) {
+    return [
+      {
+        kind: 'selected',
+        scope,
+      },
+    ]
+  }
+
+  const candidates: CheckoutPaymentMethodSelectionCandidate[] = []
+  if (paymentMethod === 'gopay') {
+    const hostedAction =
+      await getHostedGoPayAccordionActionCandidateIfPresent(scope)
+    if (hostedAction) {
+      candidates.push(hostedAction)
+    }
+  }
+
+  for (const locator of getChatGPTCheckoutPaymentMethodLocators(
+    scope,
+    paymentMethod,
+  )) {
+    candidates.push({
+      kind: 'payment-method-locator',
+      scope,
+      locator,
+    })
+  }
+
+  return candidates
+}
+
+async function runCheckoutPaymentMethodSelectionCandidate(
+  candidate: CheckoutPaymentMethodSelectionCandidate,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  settleTimeoutMs = PAYMENT_METHOD_SETTLE_MS,
+): Promise<boolean> {
+  switch (candidate.kind) {
+    case 'selected':
+      return true
+    case 'hosted-gopay-action':
+      return clickHostedGoPayAccordionActionCandidate(
+        candidate,
+        paymentMethod,
+        settleTimeoutMs,
+      )
+    case 'payment-method-locator':
+      return clickPaymentMethodLocatorIfPresent(
+        candidate.locator,
+        candidate.scope,
+        paymentMethod,
+        settleTimeoutMs,
+      )
+  }
 }
 
 function getPrioritizedCheckoutScopes(page: Page): CheckoutLocatorScope[] {
@@ -3244,18 +3305,6 @@ async function clickPaymentMethodLocatorIfPresent(
 
   const hadSelectionState = await hasPaymentMethodSelectionState(scope)
   await candidate.scrollIntoViewIfNeeded().catch(() => undefined)
-  if (paymentMethod === 'gopay') {
-    const hostedClickResult =
-      await clickHostedGoPayAccordionActionWithForce(scope)
-    if (hostedClickResult === 'clicked') {
-      return waitForCheckoutPaymentMethodSelected(
-        scope,
-        paymentMethod,
-        settleTimeoutMs,
-      )
-    }
-  }
-
   const clicked = await candidate
     .click()
     .then(() => true)
@@ -3285,19 +3334,41 @@ async function clickPaymentMethodLocatorIfPresent(
   return true
 }
 
-async function clickHostedGoPayAccordionActionWithForce(
+async function getHostedGoPayAccordionActionCandidateIfPresent(
   scope: CheckoutLocatorScope,
-): Promise<'clicked' | 'missing' | 'failed'> {
+): Promise<CheckoutPaymentMethodSelectionCandidate | null> {
   const action = scope.locator(HOSTED_GOPAY_ACCORDION_ACTION_SELECTOR).first()
   const count = await action.count().catch(() => 0)
   if (count < 1) {
-    return 'missing'
+    return null
   }
 
-  return action
+  return {
+    kind: 'hosted-gopay-action',
+    scope,
+    locator: action,
+  }
+}
+
+async function clickHostedGoPayAccordionActionCandidate(
+  candidate: Extract<
+    CheckoutPaymentMethodSelectionCandidate,
+    { kind: 'hosted-gopay-action' }
+  >,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  settleTimeoutMs = PAYMENT_METHOD_SETTLE_MS,
+): Promise<boolean> {
+  const clicked = await candidate.locator
     .click({ force: true })
-    .then(() => 'clicked' as const)
-    .catch(() => 'failed' as const)
+    .then(() => true)
+    .catch(() => false)
+  if (!clicked) return false
+
+  return waitForCheckoutPaymentMethodSelected(
+    candidate.scope,
+    paymentMethod,
+    settleTimeoutMs,
+  )
 }
 
 async function waitForCheckoutPaymentMethodSelected(
@@ -3305,19 +3376,47 @@ async function waitForCheckoutPaymentMethodSelected(
   paymentMethod: ChatGPTTrialPaymentMethod,
   timeoutMs: number,
 ): Promise<boolean> {
+  if (await isCheckoutPaymentMethodSelected(scope, paymentMethod)) {
+    return true
+  }
+
+  await waitForCheckoutPaymentMethodStateSignal(scope, paymentMethod, timeoutMs)
+
+  return isCheckoutPaymentMethodSelected(scope, paymentMethod)
+}
+
+async function waitForCheckoutPaymentMethodPostSelectionSignal(
+  scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  timeoutMs: number,
+): Promise<void> {
+  await waitForCheckoutPaymentMethodStateSignal(
+    scope,
+    paymentMethod,
+    Math.min(500, Math.max(0, timeoutMs)),
+  )
+}
+
+async function waitForCheckoutPaymentMethodStateSignal(
+  scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  timeoutMs: number,
+): Promise<void> {
   const deadline = Date.now() + Math.max(0, timeoutMs)
 
   do {
-    if (await isCheckoutPaymentMethodSelected(scope, paymentMethod)) {
-      return true
-    }
+    if (await isCheckoutPaymentMethodSelected(scope, paymentMethod)) return
+    if (!(await hasPaymentMethodSelectionState(scope))) return
 
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0) break
-    await sleep(Math.min(PAYMENT_METHOD_POLL_MS, remainingMs))
+    const signaled = await waitForPaymentMethodSelectionStateMutation(
+      scope,
+      paymentMethod,
+      Math.min(PAYMENT_METHOD_POLL_MS, remainingMs),
+    )
+    if (!signaled) break
   } while (Date.now() <= deadline)
-
-  return isCheckoutPaymentMethodSelected(scope, paymentMethod)
 }
 
 async function isCheckoutPaymentMethodSelected(
@@ -3363,6 +3462,49 @@ async function hasPaymentMethodSelectionState(
   }
 
   return false
+}
+
+async function waitForPaymentMethodSelectionStateMutation(
+  scope: CheckoutLocatorScope,
+  paymentMethod: ChatGPTTrialPaymentMethod,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0 || typeof scope.evaluate !== 'function') {
+    return false
+  }
+
+  return scope
+    .evaluate(
+      ({ selectors, timeout }) =>
+        new Promise<boolean>((resolve) => {
+          const resolveOnce = (value: boolean): void => {
+            clearTimeout(timer)
+            observer.disconnect()
+            resolve(value)
+          }
+          const timer = window.setTimeout(() => resolveOnce(false), timeout)
+          const observer = new MutationObserver(() => resolveOnce(true))
+          observer.observe(document.documentElement, {
+            attributes: true,
+            childList: true,
+            subtree: true,
+          })
+          for (const selector of selectors) {
+            try {
+              if (document.querySelector(selector)) {
+                resolveOnce(true)
+                return
+              }
+            } catch {}
+          }
+        }),
+      {
+        selectors:
+          CHATGPT_CHECKOUT_SELECTED_PAYMENT_METHOD_SELECTORS[paymentMethod],
+        timeout: Math.max(1, timeoutMs),
+      },
+    )
+    .catch(() => false)
 }
 
 async function isPaymentMethodLocatorSelected(

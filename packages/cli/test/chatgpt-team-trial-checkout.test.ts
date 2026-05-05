@@ -2094,6 +2094,39 @@ describe('checkout payment method selection', () => {
     expect(paypalSelected).toBe(true)
   })
 
+  it('does not wait on a fixed settle delay after PayPal selection is observed', async () => {
+    vi.useFakeTimers()
+    let paypalSelected = false
+    const paypalSelectorLocator = new FakeCheckoutLocator(true, () => {
+      paypalSelected = true
+    })
+    const page = new FakeCheckoutPage([
+      new FakeCheckoutFrame(
+        new FakeCheckoutLocator(false),
+        'https://js.stripe.com/v3/elements-inner-payment-test.html',
+        {
+          paypalSelectorLocator,
+          hasPaymentSelectionState: () => true,
+          paypalSelected: () => paypalSelected,
+        },
+      ),
+    ])
+
+    const result = selectChatGPTCheckoutPaypalPaymentMethodIfPresent(
+      page as never,
+      {
+        timeoutMs: 1000,
+      },
+    )
+
+    try {
+      await expect(result).resolves.toBe(true)
+      expect(paypalSelectorLocator.clicks).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('switches card and GoPay Stripe tablists to the GoPay tab', async () => {
     let gopaySelected = false
     const gopaySelectorLocator = new FakeCheckoutLocator(true, () => {
@@ -2172,6 +2205,32 @@ describe('checkout payment method selection', () => {
 
     expect(gopayAccordionAction.forceClicks).toBe(1)
     expect(gopayAccordionButton.clicks).toBe(0)
+  })
+
+  it('falls back to the visible GoPay button when the hosted action fails', async () => {
+    let gopaySelected = false
+    const gopayAccordionAction = new FakeCheckoutLocator(true, () => {
+      throw new Error('hosted GoPay action failed')
+    })
+    const gopayAccordionButton = new FakeCheckoutLocator(true, () => {
+      gopaySelected = true
+    })
+    const page = new FakeCheckoutPage([], {
+      gopayAccordionAction,
+      gopayAccordionButton,
+      hasHostedPaymentSelectionState: () => true,
+      hostedGopaySelected: () => gopaySelected,
+    })
+
+    await expect(
+      selectChatGPTCheckoutPaymentMethodIfPresent(page as never, 'gopay', {
+        timeoutMs: 1000,
+      }),
+    ).resolves.toBe(true)
+
+    expect(gopayAccordionAction.forceClicks).toBe(1)
+    expect(gopayAccordionButton.clicks).toBeGreaterThan(0)
+    expect(gopaySelected).toBe(true)
   })
 
   it('does not report GoPay selected when the payment tab state remains on another method', async () => {
