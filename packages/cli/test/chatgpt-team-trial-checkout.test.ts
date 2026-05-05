@@ -52,6 +52,7 @@ class FakeCheckoutLocator {
   clicks = 0
   fills: string[] = []
   forceClicks = 0
+  private readonly afterClickCallbacks: Array<() => void> = []
 
   constructor(
     private readonly visible: boolean | (() => boolean) = false,
@@ -78,6 +79,16 @@ class FakeCheckoutLocator {
     return this.isCurrentlyVisible()
   }
 
+  async waitFor(options: { state?: string } = {}): Promise<void> {
+    const state = options.state ?? 'visible'
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const visible = this.isCurrentlyVisible()
+      if ((state === 'visible' || state === 'attached') && visible) return
+      if ((state === 'hidden' || state === 'detached') && !visible) return
+    }
+    throw new Error(`Locator did not reach state ${state}`)
+  }
+
   async scrollIntoViewIfNeeded(): Promise<void> {}
 
   async click(options?: { force?: boolean }): Promise<void> {
@@ -89,6 +100,9 @@ class FakeCheckoutLocator {
       this.forceClicks += 1
     }
     this.onClick?.()
+    for (const callback of this.afterClickCallbacks) {
+      callback()
+    }
   }
 
   async fill(value: string): Promise<void> {
@@ -100,6 +114,15 @@ class FakeCheckoutLocator {
 
   async textContent(): Promise<string> {
     return typeof this.text === 'function' ? this.text() : this.text
+  }
+
+  async innerText(): Promise<string> {
+    return this.textContent()
+  }
+
+  afterClick(callback: () => void): this {
+    this.afterClickCallbacks.push(callback)
+    return this
   }
 
   async evaluate<T>(
@@ -504,24 +527,71 @@ class FakeCheckoutPage {
   }
 }
 
+interface FakeGoPayAuthorizationPageOptions {
+  otpReadyAfterConsent?: boolean
+  pinReadyAfterConsent?: boolean
+  redirectUrlAfterConsent?: string
+}
+
 class FakeGoPayAuthorizationPage {
   private readonly hiddenLocator = new FakeCheckoutLocator(false)
+  private readonly otpInput = new FakeGoPayOtpInputLocator()
+  private readonly digitInputs = new FakeGoPayOtpDigitInputsLocator()
+  private bodyText = ''
+  private otpReady = false
+  private pinReady = false
 
   constructor(
-    private readonly pageUrl: string,
+    private pageUrl: string,
     private readonly consentButton: FakeCheckoutLocator,
-  ) {}
+    private readonly options: FakeGoPayAuthorizationPageOptions = {},
+  ) {
+    this.consentButton.afterClick(() => this.applyPostConsentState())
+  }
 
   url(): string {
     return this.pageUrl
   }
 
-  getByRole(role: string): FakeCheckoutLocator {
-    return role === 'button' ? this.consentButton : this.hiddenLocator
+  getByRole(
+    role: string,
+    options: { name?: string | RegExp } = {},
+  ): FakeCheckoutLocator {
+    if (role !== 'button') {
+      return this.hiddenLocator
+    }
+
+    const consentButtonPattern =
+      /hubungkan|connect|authorize|confirm|continue|lanjut/i
+    const name = options.name
+    const matchesConsentButton =
+      name == null ||
+      (typeof name === 'string'
+        ? consentButtonPattern.test(name)
+        : name.test('Connect'))
+
+    return matchesConsentButton ? this.consentButton : this.hiddenLocator
   }
 
   locator(selector = ''): FakeCheckoutLocator {
     const normalizedSelector = selector.toLowerCase()
+    if (
+      normalizedSelector.includes('pin-input-field') ||
+      normalizedSelector.includes('pattern="\\\\d{6}"')
+    ) {
+      return this.otpReady ? this.otpInput : this.hiddenLocator
+    }
+    if (
+      normalizedSelector.includes('[data-testid^="pin-input-"]') ||
+      normalizedSelector.includes('maxlength="1"')
+    ) {
+      return this.otpReady || this.pinReady
+        ? this.digitInputs
+        : this.hiddenLocator
+    }
+    if (normalizedSelector === 'body') {
+      return new FakeGoPayTextLocator(this.bodyText)
+    }
     if (
       normalizedSelector.includes('consent-button') ||
       normalizedSelector.includes('hubungkan') ||
@@ -531,6 +601,36 @@ class FakeGoPayAuthorizationPage {
     }
 
     return this.hiddenLocator
+  }
+
+  getByText(text?: string | RegExp): FakeCheckoutLocator {
+    if (!text) {
+      return this.hiddenLocator
+    }
+
+    const matches =
+      typeof text === 'string'
+        ? this.bodyText.includes(text)
+        : text.test(this.bodyText)
+
+    return matches ? new FakeCheckoutLocator(true) : this.hiddenLocator
+  }
+
+  private applyPostConsentState(): void {
+    if (this.options.redirectUrlAfterConsent) {
+      this.pageUrl = this.options.redirectUrlAfterConsent
+    }
+
+    if (this.options.otpReadyAfterConsent) {
+      this.otpReady = true
+      this.bodyText = 'Masukkin OTP yang dikirim ke WhatsApp'
+      return
+    }
+
+    if (this.options.pinReadyAfterConsent) {
+      this.pinReady = true
+      this.bodyText = 'Masukkan 6 digit PIN kamu'
+    }
   }
 
   async waitForLoadState(): Promise<void> {}
@@ -2692,17 +2792,54 @@ describe('gopay payment redirect extraction', () => {
   })
 
   it('clicks the GoPay authorization consent button after linking', async () => {
+    vi.useFakeTimers()
     const consentButton = new FakeCheckoutLocator(true)
     const page = new FakeGoPayAuthorizationPage(
       'https://gwc.gopayapi.com/snap/linking/authorize',
       consentButton,
+      {
+        pinReadyAfterConsent: true,
+      },
     )
 
-    await expect(
-      clickGoPayAuthorizationConsentIfPresent(page as never),
-    ).resolves.toBe(true)
+    try {
+      await expect(
+        clickGoPayAuthorizationConsentIfPresent(page as never),
+      ).resolves.toBe(true)
 
-    expect(consentButton.clicks).toBe(1)
+      expect(consentButton.clicks).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits for GoPay authorization consent without fixed polling', async () => {
+    vi.useFakeTimers()
+    let visibilityChecks = 0
+    const consentButton = new FakeCheckoutLocator(() => {
+      visibilityChecks += 1
+      return visibilityChecks > 12
+    })
+    const page = new FakeGoPayAuthorizationPage(
+      'https://gwc.gopayapi.com/snap/linking/authorize',
+      consentButton,
+      {
+        pinReadyAfterConsent: true,
+      },
+    )
+
+    try {
+      await expect(
+        clickGoPayAuthorizationConsentIfPresent(page as never, {
+          timeoutMs: 1000,
+        }),
+      ).resolves.toBe(true)
+
+      expect(consentButton.clicks).toBe(1)
+      expect(visibilityChecks).toBeGreaterThan(12)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('waits for GoPay unlink before submitting the tokenization phone number', async () => {

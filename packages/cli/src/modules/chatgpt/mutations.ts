@@ -116,7 +116,6 @@ const GOPAY_AUTHORIZATION_TIMEOUT_MS = 180000
 const GOPAY_LINKING_RESPONSE_PATTERN =
   /\/snap\/v\d+\/accounts\/[^/]+\/linking$/i
 const GOPAY_AUTHORIZATION_HOST_PATTERN = /(^|\.)gopayapi\.com$/i
-const GOPAY_AUTHORIZATION_CONSENT_SETTLE_MS = 500
 const GOPAY_PIN_LENGTH = 6
 const GOPAY_AUTHORIZATION_OTP_TEXT_PATTERN =
   /otp|one[-\s]*time|whats\s*app|whatsapp|verification\s*code|kode/i
@@ -2092,7 +2091,10 @@ export async function clickGoPayAuthorizationConsentIfPresent(
       await page
         .waitForLoadState('networkidle', { timeout: 10000 })
         .catch(() => undefined)
-      await sleep(GOPAY_AUTHORIZATION_CONSENT_SETTLE_MS)
+      await waitForGoPayAuthorizationPostConsentSignal(
+        page,
+        Math.max(1, deadline - Date.now()),
+      )
       return true
     }
 
@@ -2100,10 +2102,60 @@ export async function clickGoPayAuthorizationConsentIfPresent(
     if (remainingMs <= 0) {
       break
     }
-    await sleep(Math.min(250, remainingMs))
+    await waitForVisibleLocatorSignal(
+      getGoPayAuthorizationConsentButtonCandidates(page),
+      Math.min(250, remainingMs),
+    )
   } while (Date.now() <= deadline)
 
   return false
+}
+
+async function waitForGoPayAuthorizationPostConsentSignal(
+  page: Page,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (!isGoPayAuthorizationUrl(page.url())) return true
+  if (await isGoPayAuthorizationOtpReady(page)) return true
+  if (await isGoPayAuthorizationPinReady(page)) return true
+  if (await isMidtransGoPayPaymentPageReady(page)) return true
+  if (timeoutMs <= 0) return false
+
+  await waitForFirstTruthySignal([
+    waitForVisibleLocatorSignal(
+      [
+        getGoPayAuthorizationSingleOtpInput(page),
+        getGoPayAuthorizationDigitInputs(page),
+        page.getByText(/6 digit PIN|PIN kamu|pin/i).first(),
+        ...getMidtransGoPayPaymentPageReadyLocators(page),
+      ],
+      timeoutMs,
+    ),
+    waitForGoPayAuthorizationUrlChange(page, timeoutMs),
+  ])
+
+  return (
+    !isGoPayAuthorizationUrl(page.url()) ||
+    (await isGoPayAuthorizationOtpReady(page)) ||
+    (await isGoPayAuthorizationPinReady(page)) ||
+    (await isMidtransGoPayPaymentPageReady(page))
+  )
+}
+
+async function waitForGoPayAuthorizationUrlChange(
+  page: Page,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0 || typeof page.waitForURL !== 'function') {
+    return false
+  }
+
+  return page
+    .waitForURL((url) => !isGoPayAuthorizationUrl(String(url)), {
+      timeout: Math.max(1, timeoutMs),
+    })
+    .then(() => true)
+    .catch(() => false)
 }
 
 function getGoPayAuthorizationSingleOtpInput(page: Page): Locator {
