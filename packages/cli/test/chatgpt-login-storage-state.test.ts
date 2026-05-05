@@ -20,7 +20,6 @@ const waitForPostLoginCompletionCandidates = vi.fn()
 const createChatGPTBackendMeSessionProbe = vi.fn()
 const waitForBackendMeSession = vi.fn()
 const disposeBackendMeSessionProbe = vi.fn()
-const waitForVerificationCodeInputReady = vi.fn()
 const syncManagedIdentityToCodeyApp = vi.fn()
 
 vi.mock('../src/config', () => ({
@@ -51,7 +50,6 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   CHATGPT_ENTRY_LOGIN_URL: 'https://chatgpt.com/auth/login',
   CHATGPT_HOME_URL: 'https://chatgpt.com/',
   clickLoginEntryIfPresent,
-  completePasswordOrVerificationLoginFallback,
   continueOpenAIWorkspaceSelection,
   createChatGPTBackendMeSessionProbe,
   gotoLoginEntry,
@@ -60,11 +58,14 @@ vi.mock('../src/modules/chatgpt/shared', () => ({
   waitForLoginSurface,
   waitForPasswordInputReady,
   waitForPostLoginCompletionCandidates,
-  waitForVerificationCodeInputReady,
 }))
 
 vi.mock('../src/flows/chatgpt-email-submission', () => ({
   submitLoginEmailUntilPostEmailCandidates,
+}))
+
+vi.mock('../src/flows/chatgpt-login-fallback', () => ({
+  completePasswordOrVerificationLoginFallback,
 }))
 
 vi.mock('../src/modules/app-auth/managed-identities', () => ({
@@ -148,7 +149,6 @@ describe('loginChatGPT local storage-state restore', () => {
       wait: waitForBackendMeSession,
       dispose: disposeBackendMeSessionProbe,
     })
-    waitForVerificationCodeInputReady.mockResolvedValue(false)
     syncManagedIdentityToCodeyApp.mockResolvedValue(undefined)
   })
 

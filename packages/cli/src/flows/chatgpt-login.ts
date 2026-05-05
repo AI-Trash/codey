@@ -35,7 +35,6 @@ import {
   waitForLoginSurface,
   clickLoginEntryIfPresent,
   continueOpenAIWorkspaceSelection,
-  completePasswordOrVerificationLoginFallback,
   gotoLoginEntry,
   waitForPostLoginCompletionCandidates,
   createChatGPTBackendMeSessionProbe,
@@ -57,6 +56,7 @@ import {
   submitLoginEmailUntilPostEmailCandidates,
   type ChatGPTLoginEmailRetryObservation,
 } from './chatgpt-email-submission'
+import { completePasswordOrVerificationLoginFallback } from './chatgpt-login-fallback'
 
 export type ChatGPTLoginFlowKind = 'chatgpt-login'
 

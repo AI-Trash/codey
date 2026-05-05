@@ -54,7 +54,6 @@ import {
 import type { SelectorTarget } from '../../types'
 import { toLocator } from '../../utils/selectors'
 import {
-  type ChatGPTPostEmailLoginStep,
   hasPasswordTimeoutErrorState,
   isCodexConsentReady,
   isCodexOrganizationPickerReady,
@@ -69,10 +68,7 @@ import {
   waitForEditableSelector,
   waitForLoginEmailFormReady,
   waitForPasswordInputReady,
-  waitForPasswordSubmissionOutcome,
-  waitForPostEmailLoginStep,
   waitForTrialPricingFreeTrialReady,
-  waitForVerificationCode,
   waitForVerificationCodeInputReady,
 } from './queries'
 
@@ -3136,6 +3132,22 @@ export async function selectChatGPTCheckoutPaymentMethodIfPresent(
         return true
       }
 
+      if (paymentMethod === 'gopay') {
+        const hostedClickResult =
+          await clickHostedGoPayAccordionActionWithForce(scope)
+        if (
+          hostedClickResult === 'clicked' &&
+          (await waitForCheckoutPaymentMethodSelected(
+            scope,
+            paymentMethod,
+            PAYMENT_METHOD_SETTLE_MS,
+          ))
+        ) {
+          await sleep(500)
+          return true
+        }
+      }
+
       for (const locator of getChatGPTCheckoutPaymentMethodLocators(
         scope,
         paymentMethod,
@@ -3663,6 +3675,25 @@ export async function clickPasswordSubmit(page: Page): Promise<void> {
   await clickAny(page, PASSWORD_SUBMIT_SELECTORS)
 }
 
+export async function submitPasswordOnce(
+  page: Page,
+  password: string,
+): Promise<void> {
+  const passwordReady = await waitForPasswordInputReady(page, 10000)
+  if (!passwordReady) {
+    throw new Error('ChatGPT password step did not become ready.')
+  }
+
+  const passwordTyped = await typePassword(page, password)
+  if (!passwordTyped) {
+    throw new Error(
+      'ChatGPT password field was visible but could not be typed into.',
+    )
+  }
+
+  await clickPasswordSubmit(page)
+}
+
 export async function clickPasswordTimeoutRetry(page: Page): Promise<boolean> {
   const deadline = Date.now() + 5000
   while (Date.now() < deadline) {
@@ -3723,6 +3754,20 @@ export async function clickVerificationContinue(page: Page): Promise<boolean> {
     { text: /继续|continue|verify|验证/i },
     'button[type="submit"]',
   ])
+}
+
+export async function submitVerificationCodeOnce(
+  page: Page,
+  code: string,
+): Promise<void> {
+  const verificationReady = await waitForVerificationCodeInputReady(page, 10000)
+  if (!verificationReady) {
+    await throwIfChatGPTAccountDeactivated(page)
+    throw new Error('ChatGPT verification code input did not become ready.')
+  }
+
+  await typeVerificationCode(page, code)
+  await clickVerificationContinue(page)
 }
 
 export async function waitForVerificationCodeUpdatesAfterSubmit(
@@ -4181,124 +4226,6 @@ export async function submitLoginEmailOnce(
       'ChatGPT login page did not expose a clickable continue button.',
     )
   }
-}
-
-export interface CompletePasswordOrVerificationLoginFallbackOptions {
-  email: string
-  password: string
-  step: Extract<ChatGPTPostEmailLoginStep, 'password' | 'verification'>
-  startedAt: string
-  verificationProvider?: VerificationProvider
-  getVerificationProvider?: () =>
-    | VerificationProvider
-    | Promise<VerificationProvider>
-  verificationTimeoutMs?: number
-  pollIntervalMs?: number
-}
-
-export interface CompletePasswordOrVerificationLoginFallbackResult {
-  method: 'password' | 'verification'
-  verificationCode?: string
-}
-
-export async function completePasswordOrVerificationLoginFallback(
-  page: Page,
-  options: CompletePasswordOrVerificationLoginFallbackOptions,
-): Promise<CompletePasswordOrVerificationLoginFallbackResult> {
-  let verificationProvider = options.verificationProvider
-
-  const requireVerificationProvider =
-    async (): Promise<VerificationProvider> => {
-      verificationProvider ??= await options.getVerificationProvider?.()
-      if (!verificationProvider) {
-        throw new Error(
-          'A verification provider is required when ChatGPT login fallback requests a verification code.',
-        )
-      }
-
-      return verificationProvider
-    }
-
-  const completeVerificationStep = async (): Promise<string> => {
-    const verificationReady = await waitForVerificationCodeInputReady(
-      page,
-      10000,
-    )
-    if (!verificationReady) {
-      await throwIfChatGPTAccountDeactivated(page)
-      throw new Error('ChatGPT verification code input did not become ready.')
-    }
-
-    const verificationCode = await waitForVerificationCode({
-      verificationProvider: await requireVerificationProvider(),
-      email: options.email,
-      startedAt: options.startedAt,
-      timeoutMs: options.verificationTimeoutMs ?? 180000,
-      pollIntervalMs: options.pollIntervalMs ?? 5000,
-    })
-    await typeVerificationCode(page, verificationCode)
-    await clickVerificationContinue(page)
-    return waitForVerificationCodeUpdatesAfterSubmit(page, {
-      verificationProvider: await requireVerificationProvider(),
-      email: options.email,
-      startedAt: options.startedAt,
-      timeoutMs: options.verificationTimeoutMs ?? 180000,
-      currentCode: verificationCode,
-    })
-  }
-
-  if (options.step === 'verification') {
-    return {
-      method: 'verification',
-      verificationCode: await completeVerificationStep(),
-    }
-  }
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const passwordReady = await waitForPasswordInputReady(page, 10000)
-    if (!passwordReady) {
-      throw new Error('ChatGPT password step did not become ready.')
-    }
-
-    const passwordTyped = await typePassword(page, options.password)
-    if (!passwordTyped) {
-      throw new Error(
-        'ChatGPT password field was visible but could not be typed into.',
-      )
-    }
-
-    await clickPasswordSubmit(page)
-    const outcome = await waitForPasswordSubmissionOutcome(page)
-    if (outcome === 'timeout') {
-      const retried = await clickPasswordTimeoutRetry(page)
-      if (!retried) {
-        throw new Error(
-          'Password submission timed out and retry button was not clickable.',
-        )
-      }
-      continue
-    }
-
-    if (outcome === 'verification') {
-      return {
-        method: 'verification',
-        verificationCode: await completeVerificationStep(),
-      }
-    }
-
-    const nextStep = await waitForPostEmailLoginStep(page, 5000)
-    if (nextStep === 'password') continue
-    if (nextStep === 'verification') {
-      return {
-        method: 'verification',
-        verificationCode: await completeVerificationStep(),
-      }
-    }
-
-    return { method: 'password' }
-  }
-
-  throw new Error('Password submission timed out repeatedly.')
 }
 
 async function selectOpenAIWorkspaceIdControl(

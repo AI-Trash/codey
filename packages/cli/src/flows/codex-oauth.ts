@@ -39,7 +39,6 @@ import { createAuthorizationCallbackCapture } from '../modules/authorization/cod
 import { createNodeHarRecorder } from '../modules/authorization/har-recorder'
 import {
   clickLoginEntryIfPresent,
-  completePasswordOrVerificationLoginFallback,
   continueCodexOAuthConsent,
   continueCodexOrganizationSelection,
   continueCodexWorkspaceSelection,
@@ -47,7 +46,6 @@ import {
   type ChatGPTPostEmailLoginStep,
   waitForCodexOAuthSurfaceCandidates,
   waitForPostEmailLoginCandidates,
-  waitForVerificationCodeInputReady,
 } from '../modules/chatgpt/shared'
 import {
   createVerificationProvider,
@@ -59,6 +57,7 @@ import {
   submitLoginEmailUntilPostEmailCandidates,
   type ChatGPTLoginEmailRetryObservation,
 } from './chatgpt-email-submission'
+import { completePasswordOrVerificationLoginFallback } from './chatgpt-login-fallback'
 
 export type CodexOAuthFlowKind = 'codex-oauth'
 
@@ -1283,11 +1282,6 @@ async function submitCodexOAuthStoredVerification(
     storedIdentity: stored.summary,
     lastMessage: 'Submitting ChatGPT verification code',
   })
-
-  const verificationReady = await waitForVerificationCodeInputReady(page, 10000)
-  if (!verificationReady) {
-    throw new Error('ChatGPT verification code input did not become ready.')
-  }
 
   progress.startedAt ??= new Date().toISOString()
   const verificationTimeoutMs =

@@ -4,19 +4,13 @@ const getRuntimeConfig = vi.fn()
 const waitForCodexOAuthSurface = vi.fn()
 const waitForCodexOAuthSurfaceCandidates = vi.fn()
 const clickLoginEntryIfPresent = vi.fn()
-const clickPasswordSubmit = vi.fn()
-const clickVerificationContinue = vi.fn()
 const completePasswordOrVerificationLoginFallback = vi.fn()
 const continueCodexOrganizationSelection = vi.fn()
 const continueCodexWorkspaceSelection = vi.fn()
 const continueCodexOAuthConsent = vi.fn()
 const submitLoginEmailUntilPostEmailCandidates = vi.fn()
-const typePassword = vi.fn()
-const typeVerificationCode = vi.fn()
 const waitForPasswordInputReady = vi.fn()
 const waitForPostEmailLoginCandidates = vi.fn()
-const waitForVerificationCode = vi.fn()
-const waitForVerificationCodeInputReady = vi.fn()
 const createAuthorizationCallbackCapture = vi.fn()
 const startCodexAuthorization = vi.fn()
 const exchangeCodexAuthorizationCode = vi.fn()
@@ -30,24 +24,21 @@ vi.mock('../src/config', () => ({
 
 vi.mock('../src/modules/chatgpt/shared', () => ({
   clickLoginEntryIfPresent,
-  clickPasswordSubmit,
-  clickVerificationContinue,
-  completePasswordOrVerificationLoginFallback,
   continueCodexOAuthConsent,
   continueCodexOrganizationSelection,
   continueCodexWorkspaceSelection,
-  typePassword,
-  typeVerificationCode,
   waitForCodexOAuthSurface,
   waitForCodexOAuthSurfaceCandidates,
   waitForPasswordInputReady,
   waitForPostEmailLoginCandidates,
-  waitForVerificationCode,
-  waitForVerificationCodeInputReady,
 }))
 
 vi.mock('../src/flows/chatgpt-email-submission', () => ({
   submitLoginEmailUntilPostEmailCandidates,
+}))
+
+vi.mock('../src/flows/chatgpt-login-fallback', () => ({
+  completePasswordOrVerificationLoginFallback,
 }))
 
 vi.mock('../src/modules/credentials', () => ({
@@ -143,8 +134,6 @@ describe('runCodexOAuthFlow', () => {
       },
     })
 
-    clickPasswordSubmit.mockResolvedValue(undefined)
-    clickVerificationContinue.mockResolvedValue(true)
     completePasswordOrVerificationLoginFallback.mockResolvedValue({
       method: 'password',
     })
@@ -155,13 +144,9 @@ describe('runCodexOAuthFlow', () => {
       selectedProjectIndex: 1,
     })
     submitLoginEmailUntilPostEmailCandidates.mockResolvedValue([])
-    typePassword.mockResolvedValue(true)
-    typeVerificationCode.mockResolvedValue(undefined)
     waitForCodexOAuthSurfaceCandidates.mockResolvedValue([])
     waitForPasswordInputReady.mockResolvedValue(false)
     waitForPostEmailLoginCandidates.mockResolvedValue([])
-    waitForVerificationCode.mockResolvedValue('654321')
-    waitForVerificationCodeInputReady.mockResolvedValue(false)
   })
 
   it('prefers current task inputs over stale machine context when selecting a stored identity', async () => {
@@ -603,7 +588,6 @@ describe('runCodexOAuthFlow', () => {
     submitLoginEmailUntilPostEmailCandidates.mockResolvedValueOnce([
       'verification',
     ])
-    waitForVerificationCodeInputReady.mockResolvedValue(true)
     completePasswordOrVerificationLoginFallback.mockImplementation(async () => {
       currentUrl =
         'http://localhost:1455/auth/callback?code=oauth-code&state=oauth-state'
@@ -642,7 +626,6 @@ describe('runCodexOAuthFlow', () => {
       email: 'person@example.com',
     })
 
-    expect(waitForVerificationCodeInputReady).toHaveBeenCalledWith(page, 10000)
     expect(completePasswordOrVerificationLoginFallback).toHaveBeenCalledWith(
       page,
       expect.objectContaining({

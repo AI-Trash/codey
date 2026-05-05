@@ -28,42 +28,23 @@ import { createVerificationProvider } from '../modules/verification'
 import { createChatGPTSessionCapture } from '../modules/chatgpt/session'
 import { saveLocalChatGPTStorageState } from '../modules/chatgpt/storage-state'
 import {
-  type ChatGPTAgeGateFieldMode,
   type ChatGPTRegistrationEntrySurface,
   type ChatGPTPostEmailLoginStep,
-  clickCompleteAccountCreation,
   clickOnboardingAction,
-  clickPasswordSubmit,
-  clickRetryButtonIfPresent,
   clickSignupEntry,
   clickVerificationContinue,
   buildPassword,
   CHATGPT_ENTRY_LOGIN_URL,
   confirmAgeDialogIfPresent,
-  fillAgeGateAge,
-  fillAgeGateBirthday,
-  fillAgeGateName,
-  typePassword,
   typeVerificationCode,
   gotoLoginEntry,
-  waitForAnySelectorState,
-  getAgeGateFieldCandidates,
   getPostEmailLoginStepCandidates,
-  waitForEnabledSelector,
   waitForLoginEmailFormReady,
-  waitForPasswordInputReady,
-  waitForAgeGateFieldCandidates,
-  waitForPasswordSubmissionOutcome,
   waitForRegistrationEntryCandidates,
   waitUntilChatGPTHomeReady,
   waitForVerificationCodeInputReady,
   waitForVerificationCode,
   waitForVerificationCodeUpdatesAfterSubmit,
-  DEFAULT_EVENT_TIMEOUT_MS,
-  COMPLETE_ACCOUNT_SELECTORS,
-  AGE_GATE_INPUT_SELECTORS,
-  PASSWORD_TIMEOUT_RETRY_SELECTORS,
-  clickPasswordTimeoutRetry,
   buildProfileName,
   createChatGPTBackendApiHeadersCapture,
   normalizeChatGPTTrialPaymentMethod,
@@ -75,7 +56,6 @@ import {
   sanitizeErrorForOutput,
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
-import { sleep } from '../utils/wait'
 import { createFlowLifecycleFragment } from './machine-fragments'
 import { reportChatGPTAccountDeactivationToCodeyApp } from '../modules/chatgpt/account-deactivation'
 import { isChatGPTAccountDeactivatedError } from '../modules/chatgpt/errors'
@@ -87,6 +67,11 @@ import {
   type ChatGPTTrialPostLoginResult,
 } from './chatgpt-team-trial'
 import { submitLoginEmailUntilPostEmailCandidates } from './chatgpt-email-submission'
+import {
+  completeRegistrationAgeGate,
+  fillRegistrationCombinedVerificationProfileFields,
+} from './chatgpt-registration-age-gate'
+import { submitRegistrationPasswordUntilVerification } from './chatgpt-registration-password'
 
 export type ChatGPTRegistrationFlowKind = 'chatgpt-registration'
 
@@ -994,10 +979,6 @@ async function sendRegistrationMachine(
   })
 }
 
-async function isRegistrationAgeGateActive(page: Page): Promise<boolean> {
-  return (await getAgeGateFieldCandidates(page)).length > 0
-}
-
 function isRecoverableRegistrationBranchEntryError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -1162,62 +1143,6 @@ async function observeRegistrationEntrySurface(
   )
 }
 
-async function fillRegistrationAgeGateFields(
-  page: Page,
-  email?: string,
-): Promise<'birthday' | 'age' | null> {
-  await fillAgeGateName(page, email)
-  const candidates = await waitForAgeGateFieldCandidates(page, 3000)
-  const mode = selectRegistrationAgeGateFieldMode(candidates)
-  if (!mode) return null
-
-  const filled =
-    mode === 'age'
-      ? await fillAgeGateAge(page)
-      : await fillAgeGateBirthday(page)
-  if (!filled) {
-    throw new Error(
-      mode === 'age'
-        ? 'Age gate age field could not be filled.'
-        : 'Age gate birthday field could not be filled.',
-    )
-  }
-
-  return mode
-}
-
-async function fillRegistrationCombinedVerificationProfileFields(
-  page: Page,
-  email?: string,
-): Promise<void> {
-  const ageGateReady = await waitForAnySelectorState(
-    page,
-    AGE_GATE_INPUT_SELECTORS,
-    'visible',
-    5000,
-  )
-  if (!ageGateReady) {
-    throw new Error(
-      'Combined registration profile fields did not become ready.',
-    )
-  }
-
-  const filledMode = await fillRegistrationAgeGateFields(page, email)
-  if (!filledMode) {
-    throw new Error(
-      'Combined registration profile fields were visible but could not be filled.',
-    )
-  }
-}
-
-function selectRegistrationAgeGateFieldMode(
-  candidates: ChatGPTAgeGateFieldMode[],
-): ChatGPTAgeGateFieldMode | null {
-  if (candidates.includes('age')) return 'age'
-  if (candidates.includes('birthday')) return 'birthday'
-  return null
-}
-
 export function resolveRegistrationTrialOptions(
   options: FlowOptions,
   email: string,
@@ -1241,126 +1166,6 @@ export function resolveRegistrationTrialOptions(
     ...trialOptions,
     billingName: buildProfileName(email),
   }
-}
-
-async function waitForAgeGateSubmissionOutcome(
-  page: Page,
-  timeoutMs = 10000,
-): Promise<'advanced' | 'retry' | 'age-gate'> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const retryVisible = await waitForAnySelectorState(
-      page,
-      PASSWORD_TIMEOUT_RETRY_SELECTORS,
-      'visible',
-      250,
-    )
-    if (retryVisible) {
-      return 'retry'
-    }
-    if (!(await isRegistrationAgeGateActive(page))) {
-      return 'advanced'
-    }
-    await sleep(250)
-  }
-
-  if (!(await isRegistrationAgeGateActive(page))) {
-    return 'advanced'
-  }
-
-  return (await waitForAnySelectorState(
-    page,
-    PASSWORD_TIMEOUT_RETRY_SELECTORS,
-    'visible',
-    250,
-  ))
-    ? 'retry'
-    : 'age-gate'
-}
-
-async function completeRegistrationAgeGate(
-  page: Page,
-  machine?: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
-  email?: string,
-): Promise<void> {
-  const ageGateReady = await waitForAnySelectorState(
-    page,
-    AGE_GATE_INPUT_SELECTORS,
-    'visible',
-    20000,
-  )
-  if (!ageGateReady) {
-    throw new Error('Age gate did not become ready.')
-  }
-
-  let filledMode = await fillRegistrationAgeGateFields(page, email)
-  if (!filledMode) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await clickCompleteAccountCreation(page)
-      await waitForAnySelectorState(
-        page,
-        AGE_GATE_INPUT_SELECTORS,
-        'visible',
-        DEFAULT_EVENT_TIMEOUT_MS,
-      )
-      filledMode = await fillRegistrationAgeGateFields(page, email)
-      if (filledMode) break
-    }
-  }
-
-  if (!filledMode) {
-    throw new Error('Age gate fields were visible but could not be filled.')
-  }
-
-  for (let attempt = 1; attempt <= MAX_AGE_GATE_SUBMIT_ATTEMPTS; attempt += 1) {
-    await waitForEnabledSelector(page, COMPLETE_ACCOUNT_SELECTORS, 5000)
-    const submitted = await clickCompleteAccountCreation(page)
-    if (!submitted) {
-      throw new Error('Age gate submit button was not clickable.')
-    }
-    await confirmAgeDialogIfPresent(page)
-
-    const outcome = await waitForAgeGateSubmissionOutcome(page)
-    const ageGateSnapshot = machine
-      ? await machine.send('chatgpt.age-gate.outcome', {
-          outcome,
-          url: page.url(),
-        })
-      : undefined
-
-    if (
-      outcome === 'advanced' ||
-      ageGateSnapshot?.state === 'post-signup-home'
-    ) {
-      return
-    }
-
-    if (outcome === 'retry') {
-      const retried = await clickRetryButtonIfPresent(page)
-      if (!retried) {
-        throw new Error(
-          'Age gate retry button became visible but could not be clicked.',
-        )
-      }
-    }
-
-    const ageGateVisible = await waitForAnySelectorState(
-      page,
-      AGE_GATE_INPUT_SELECTORS,
-      'visible',
-      DEFAULT_EVENT_TIMEOUT_MS,
-    )
-    if (!ageGateVisible && !(await isRegistrationAgeGateActive(page))) {
-      return
-    }
-
-    filledMode = await fillRegistrationAgeGateFields(page, email)
-    if (!filledMode) {
-      throw new Error('Age gate fields reappeared but could not be refilled.')
-    }
-  }
-
-  throw new Error('Age gate submission did not complete successfully.')
 }
 
 async function observeRegistrationPostEmailBranch(
@@ -1448,42 +1253,24 @@ async function observeRegistrationVerificationSurface(
 
 async function completeRegistrationPasswordBranch(
   page: Page,
+  machine: ChatGPTRegistrationFlowMachine<ChatGPTRegistrationFlowResult>,
+  email: string,
   password: string,
 ): Promise<void> {
   try {
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const passwordReady = await waitForPasswordInputReady(page, 10000)
-      if (!passwordReady) {
-        throw new Error('ChatGPT password step did not become ready.')
-      }
-      const passwordTyped = await typePassword(page, password)
-      if (!passwordTyped) {
-        throw new Error(
-          'ChatGPT password field was visible but could not be typed into.',
-        )
-      }
-      await waitForEnabledSelector(
-        page,
-        [
-          'button[type="submit"]',
-          {
-            role: 'button',
-            options: { name: /继续|continue|注册|create/i },
+    await submitRegistrationPasswordUntilVerification(page, password, {
+      onRetryObserved: async (observation) => {
+        await machine.send('chatgpt.retry.requested', {
+          reason: `registration-password:${observation.reason}`,
+          message: 'Retrying timed out registration password submission',
+          patch: {
+            email,
+            url: observation.url,
+            lastAttempt: observation.attempt,
           },
-          { text: /继续|continue|注册|create/i },
-        ],
-        5000,
-      )
-      await clickPasswordSubmit(page)
-      const outcome = await waitForPasswordSubmissionOutcome(page)
-      if (outcome === 'verification' || outcome === 'unknown') return
-      const retried = await clickPasswordTimeoutRetry(page)
-      if (!retried) {
-        throw new Error(
-          'Password submission timed out and retry button was not clickable.',
-        )
-      }
-    }
+        })
+      },
+    })
   } catch (error) {
     throw wrapRecoverableRegistrationBranchError('password', error)
   }
@@ -1610,7 +1397,7 @@ export async function registerChatGPT(
         url: page.url(),
         lastMessage: 'Waiting for password step',
       })
-      await completeRegistrationPasswordBranch(page, password)
+      await completeRegistrationPasswordBranch(page, machine, email, password)
     }
 
     await sendRegistrationMachine(
@@ -1699,7 +1486,20 @@ export async function registerChatGPT(
     })
     await page.waitForLoadState('domcontentloaded').catch(() => undefined)
     if (!submitProfileWithVerification) {
-      await completeRegistrationAgeGate(page, machine, email)
+      await completeRegistrationAgeGate(page, {
+        email,
+        maxSubmitAttempts: MAX_AGE_GATE_SUBMIT_ATTEMPTS,
+        onOutcomeObserved: async ({ outcome, url }) => {
+          const ageGateSnapshot = await machine.send(
+            'chatgpt.age-gate.outcome',
+            {
+              outcome,
+              url,
+            },
+          )
+          return ageGateSnapshot.state === 'post-signup-home'
+        },
+      })
     }
 
     await sendRegistrationMachine(machine, 'chatgpt.home.waiting', {

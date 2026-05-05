@@ -2149,6 +2149,31 @@ describe('checkout payment method selection', () => {
     expect(gopaySelected).toBe(true)
   })
 
+  it('selects hosted GoPay before trying generic payment method locators', async () => {
+    let gopaySelected = false
+    const gopayAccordionButton = new FakeCheckoutLocator(true, () => {
+      throw new Error('generic GoPay locator should not be clicked')
+    })
+    const gopayAccordionAction = new FakeCheckoutLocator(true, () => {
+      gopaySelected = true
+    })
+    const page = new FakeCheckoutPage([], {
+      gopayAccordionButton,
+      gopayAccordionAction,
+      hasHostedPaymentSelectionState: () => true,
+      hostedGopaySelected: () => gopaySelected,
+    })
+
+    await expect(
+      selectChatGPTCheckoutPaymentMethodIfPresent(page as never, 'gopay', {
+        timeoutMs: 1000,
+      }),
+    ).resolves.toBe(true)
+
+    expect(gopayAccordionAction.forceClicks).toBe(1)
+    expect(gopayAccordionButton.clicks).toBe(0)
+  })
+
   it('does not report GoPay selected when the payment tab state remains on another method', async () => {
     const gopaySelectorLocator = new FakeCheckoutLocator(true)
     const page = new FakeCheckoutPage([
