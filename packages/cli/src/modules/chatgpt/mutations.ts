@@ -149,6 +149,9 @@ const PAYMENT_METHOD_SELECTION_STATE_SELECTORS = [
 ] as const
 const CHATGPT_CHECKOUT_PAYMENT_ERROR_PATTERNS = [
   /付款未获批准/i,
+  /无法计算.*税额/i,
+  /(?:cannot|can't|could not|unable to|failed to) calculate .*tax/i,
+  /tax(?:es)?.*(?:cannot|can't|could not|unable to|failed to).*calculate/i,
   /payment (?:was )?(?:not approved|declined|failed)/i,
   /your payment (?:could not be processed|was declined)/i,
 ] as const
@@ -158,6 +161,9 @@ const CHATGPT_CHECKOUT_PAYMENT_ERROR_SELECTORS: SelectorTarget[] = [
   '[aria-live="assertive"]',
   '[aria-live="polite"]',
   { text: /付款未获批准/i },
+  {
+    text: /无法计算.*税额|(?:cannot|can't|could not|unable to|failed to) calculate .*tax|tax(?:es)?.*(?:cannot|can't|could not|unable to|failed to).*calculate/i,
+  },
   {
     text: /payment (?:was )?(?:not approved|declined|failed)|your payment (?:could not be processed|was declined)/i,
   },
@@ -1242,7 +1248,6 @@ export async function fillChatGPTCheckoutBillingAddress(
       })
     })())
   const missingRequired = [
-    address.name && !fillResult.name ? 'billing name' : undefined,
     fillResult.country ? undefined : 'country',
     fillResult.line1 ? undefined : 'address line 1',
     address.line2 && !fillResult.line2 ? 'address line 2' : undefined,

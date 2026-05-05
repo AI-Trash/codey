@@ -163,6 +163,18 @@ const SINGAPORE_BILLING_ADDRESS_DISTRICTS = [
   'Woodlands',
   'Yishun',
 ] as const
+
+const CHATGPT_TEAM_TRIAL_STABLE_BILLING_ADDRESSES = {
+  US: {
+    name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+    country: 'US',
+    line1: '1 Market Street',
+    line2: undefined,
+    city: 'San Francisco',
+    state: 'CA',
+    postalCode: '94105',
+  },
+} as const satisfies Partial<Record<string, ChatGPTTeamTrialBillingAddress>>
 const GOPAY_WHATSAPP_CODE_CLOCK_SKEW_TOLERANCE_MS = 15000
 
 function createSingaporePostalCode(): string {
@@ -244,6 +256,12 @@ function createChatGPTTeamTrialFakerBillingAddress(
 
   if (normalizedCountry === DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_COUNTRY) {
     return createChatGPTTeamTrialSingaporeBillingAddress()
+  }
+
+  const stableAddress =
+    CHATGPT_TEAM_TRIAL_STABLE_BILLING_ADDRESSES[normalizedCountry]
+  if (stableAddress) {
+    return { ...stableAddress }
   }
 
   const countryFaker = createFakerForBillingCountry(normalizedCountry)

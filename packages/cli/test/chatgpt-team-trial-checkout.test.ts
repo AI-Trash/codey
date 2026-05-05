@@ -1405,6 +1405,25 @@ describe('chatgpt team trial checkout defaults', () => {
     expect(address.line1).not.toContain('Orchard Road')
   })
 
+  it('uses a stable US billing address when the hosted checkout country is preserved', () => {
+    setRuntimeConfig({
+      ...baseConfig,
+      chatgptTeamTrial: undefined,
+    })
+
+    const address = resolveChatGPTTeamTrialBillingAddress({}, 'US')
+
+    expect(address).toEqual({
+      name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+      country: 'US',
+      line1: '1 Market Street',
+      line2: undefined,
+      city: 'San Francisco',
+      state: 'CA',
+      postalCode: '94105',
+    })
+  })
+
   it('resolves GoPay account config from runtime config', () => {
     setRuntimeConfig({
       ...baseConfig,
@@ -1743,6 +1762,113 @@ describe('trial coupon pricing helpers', () => {
           ) as HTMLInputElement
         ).value,
       ).toBe('10110')
+    } finally {
+      Object.assign(globalThis, {
+        window: previousWindow,
+        document: previousDocument,
+        HTMLElement: previousHTMLElement,
+        HTMLInputElement: previousHTMLInputElement,
+        HTMLTextAreaElement: previousHTMLTextAreaElement,
+        HTMLSelectElement: previousHTMLSelectElement,
+        Event: previousEvent,
+        InputEvent: previousInputEvent,
+        FocusEvent: previousFocusEvent,
+      })
+    }
+  }, 10000)
+
+  it('fills hosted US billing state fields with Stripe hosted names', async () => {
+    const { JSDOM } = await import('jsdom')
+    const dom = new JSDOM(
+      `<form>
+        <select name="billingCountry">
+          <option value="US" selected>United States</option>
+        </select>
+        <input name="billingAddressLine1" />
+        <input name="billingLocality" />
+        <input name="billingPostalCode" />
+        <select name="billingAdministrativeArea">
+          <option value="" disabled hidden>State</option>
+          <option value="CA">California</option>
+          <option value="NY">New York</option>
+        </select>
+      </form>`,
+      { pretendToBeVisual: true },
+    )
+    const window = dom.window as unknown as Window & typeof globalThis
+    window.HTMLElement.prototype.getBoundingClientRect = () =>
+      ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 1,
+        bottom: 1,
+        width: 1,
+        height: 1,
+        toJSON: () => ({}),
+      }) as DOMRect
+    const previousWindow = globalThis.window
+    const previousDocument = globalThis.document
+    const previousHTMLElement = globalThis.HTMLElement
+    const previousHTMLInputElement = globalThis.HTMLInputElement
+    const previousHTMLTextAreaElement = globalThis.HTMLTextAreaElement
+    const previousHTMLSelectElement = globalThis.HTMLSelectElement
+    const previousEvent = globalThis.Event
+    const previousInputEvent = globalThis.InputEvent
+    const previousFocusEvent = globalThis.FocusEvent
+
+    Object.assign(globalThis, {
+      window,
+      document: window.document,
+      HTMLElement: window.HTMLElement,
+      HTMLInputElement: window.HTMLInputElement,
+      HTMLTextAreaElement: window.HTMLTextAreaElement,
+      HTMLSelectElement: window.HTMLSelectElement,
+      Event: window.Event,
+      InputEvent: window.InputEvent,
+      FocusEvent: window.FocusEvent,
+    })
+
+    try {
+      const page = new FakeCheckoutPage([], {
+        evaluateCallback: (callback, arg) => Promise.resolve(callback(arg)),
+      })
+
+      await fillChatGPTCheckoutBillingAddress(
+        page as never,
+        {
+          name: DEFAULT_CHATGPT_TEAM_TRIAL_BILLING_NAME,
+          country: 'US',
+          line1: '1 Market Street',
+          city: 'San Francisco',
+          state: 'CA',
+          postalCode: '94105',
+        },
+        { fillCountry: false },
+      )
+
+      expect(
+        (
+          window.document.querySelector(
+            'select[name="billingCountry"]',
+          ) as HTMLSelectElement
+        ).value,
+      ).toBe('US')
+      expect(
+        (
+          window.document.querySelector(
+            'select[name="billingAdministrativeArea"]',
+          ) as HTMLSelectElement
+        ).value,
+      ).toBe('CA')
+      expect(
+        (
+          window.document.querySelector(
+            'input[name="billingLocality"]',
+          ) as HTMLInputElement
+        ).value,
+      ).toBe('San Francisco')
     } finally {
       Object.assign(globalThis, {
         window: previousWindow,
@@ -2716,6 +2842,39 @@ describe('checkout payment method selection', () => {
         timeoutMs: 1000,
       }),
     ).rejects.toThrow('ChatGPT checkout payment was not approved: 付款未获批准')
+
+    expect(subscribeButton.clicks).toBe(1)
+  })
+
+  it('aborts checkout when hosted checkout cannot calculate address tax', async () => {
+    let paymentErrorMessage: string | undefined
+    const subscribeButton = new FakeCheckoutLocator(true, () => {
+      paymentErrorMessage = '我们无法计算该地址的税额。'
+    })
+    const page = new FakeCheckoutPage(
+      [
+        new FakeCheckoutFrame(
+          new FakeCheckoutLocator(true),
+          'https://js.stripe.com/v3/elements-inner-payment-test.html',
+          {
+            gopaySelected: () => true,
+          },
+        ),
+      ],
+      {
+        subscribeButton,
+        paymentErrorMessage: () => paymentErrorMessage,
+      },
+    )
+
+    await expect(
+      clickChatGPTCheckoutSubscribeAndCapturePaymentLink(page as never, {
+        paymentMethod: 'gopay',
+        timeoutMs: 1000,
+      }),
+    ).rejects.toThrow(
+      'ChatGPT checkout payment was not approved: 我们无法计算该地址的税额。',
+    )
 
     expect(subscribeButton.clicks).toBe(1)
   })
