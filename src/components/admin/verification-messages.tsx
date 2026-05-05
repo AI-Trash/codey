@@ -17,6 +17,8 @@ import {
   FileCodeIcon,
   LoaderCircleIcon,
   MailIcon,
+  MessageCircleIcon,
+  MessageSquareTextIcon,
   RefreshCcwIcon,
   RefreshCwIcon,
   RefreshCwOffIcon,
@@ -92,15 +94,21 @@ import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 import { getLocale } from '#/paraglide/runtime'
 
-export type AdminMailInboxEmail = {
+export type AdminVerificationMessage = {
   id: string
   cursor: string
+  source: 'EMAIL' | 'WHATSAPP_NOTIFICATION'
   messageId: string | null
   recipient: string
+  manualCodeEmail: string | null
   subject: string | null
   textBody: string | null
   htmlBody: string | null
   rawPayload: string | null
+  sender: string | null
+  chatName: string | null
+  deviceId: string | null
+  packageName: string | null
   receivedAt: string
   createdAt: string
   reservationId: string | null
@@ -116,8 +124,8 @@ export type AdminMailInboxEmail = {
   latestCodeReceivedAt: string | null
 }
 
-export type AdminMailInboxPageData = {
-  emails: AdminMailInboxEmail[]
+export type AdminVerificationMessagesPageData = {
+  messages: AdminVerificationMessage[]
   page: number
   pageSize: number
   totalCount: number
@@ -136,19 +144,21 @@ type ResolvedEmailContent = {
   textSource: string | null
 }
 
-const adminMailInboxQueryBaseKey = ['admin-mail-inbox'] as const
+const adminVerificationMessagesQueryBaseKey = [
+  'admin-verification-messages',
+] as const
 
-function adminMailInboxQueryKey(params: {
+function adminVerificationMessagesQueryKey(params: {
   page: number
   pageSize: number
   search: string
   filters: string
 }) {
-  return [...adminMailInboxQueryBaseKey, params] as const
+  return [...adminVerificationMessagesQueryBaseKey, params] as const
 }
 
-export function AdminMailInbox(props: {
-  initialPage: AdminMailInboxPageData
+export function AdminVerificationMessages(props: {
+  initialPage: AdminVerificationMessagesPageData
   initialCursor: string
 }) {
   const queryClient = useQueryClient()
@@ -156,29 +166,43 @@ export function AdminMailInbox(props: {
   const [pageSize, setPageSize] = useState(props.initialPage.pageSize)
   const [search, setSearch] = useState(props.initialPage.search)
   const [filters, setFilters] = useState<FiltersState>([])
-  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(
-    props.initialPage.emails[0]?.id ?? null,
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
+    props.initialPage.messages[0]?.id ?? null,
   )
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting')
   const [streamError, setStreamError] = useState<string | null>(null)
   const deferredSearch = useDeferredValue(search.trim())
   const locale = getLocale()
-  const dtf = createColumnConfigHelper<AdminMailInboxEmail>()
+  const dtf = createColumnConfigHelper<AdminVerificationMessage>()
   const columnsConfig = useMemo(
     () =>
       [
         dtf
           .date()
           .id('receivedAt')
-          .accessor((email) => normalizeDate(email.receivedAt))
+          .accessor((message) => normalizeDate(message.receivedAt))
           .displayName(m.mail_inbox_table_received())
-          .icon(MailIcon)
+          .icon(MessageSquareTextIcon)
+          .build(),
+        dtf
+          .option()
+          .id('source')
+          .accessor((message) => message.source)
+          .displayName(m.mail_inbox_table_source())
+          .icon(MessageCircleIcon)
+          .options([
+            { label: m.mail_inbox_source_email(), value: 'EMAIL' },
+            {
+              label: m.mail_inbox_source_whatsapp(),
+              value: 'WHATSAPP_NOTIFICATION',
+            },
+          ])
           .build(),
         dtf
           .option()
           .id('delivery')
-          .accessor((email) => (email.latestCode ? 'ready' : 'received'))
+          .accessor((message) => (message.latestCode ? 'ready' : 'received'))
           .displayName(m.mail_inbox_table_delivery())
           .icon(WifiIcon)
           .options([
@@ -196,7 +220,7 @@ export function AdminMailInbox(props: {
 
   const queryKey = useMemo(
     () =>
-      adminMailInboxQueryKey({
+      adminVerificationMessagesQueryKey({
         page,
         pageSize,
         search: deferredSearch,
@@ -208,7 +232,7 @@ export function AdminMailInbox(props: {
   const query = useQuery({
     queryKey,
     queryFn: () =>
-      fetchAdminMailInboxPage({
+      fetchAdminVerificationMessagesPage({
         page,
         pageSize,
         search: deferredSearch,
@@ -227,14 +251,14 @@ export function AdminMailInbox(props: {
   const data = query.data ?? props.initialPage
   const filterTable = useAdminDataTableFilters({
     strategy: 'server',
-    data: data.emails,
+    data: data.messages,
     columnsConfig,
     filters,
     onFiltersChange: setFilters,
   })
   const selection = useAdminTableSelection({
-    rows: data.emails,
-    getRowId: (email) => email.id,
+    rows: data.messages,
+    getRowId: (message) => message.id,
   })
 
   useEffect(() => {
@@ -249,29 +273,29 @@ export function AdminMailInbox(props: {
   }, [data.page, page, query.isPlaceholderData])
 
   useEffect(() => {
-    setSelectedEmailId((current) => {
-      if (current && data.emails.some((email) => email.id === current)) {
+    setSelectedMessageId((current) => {
+      if (current && data.messages.some((message) => message.id === current)) {
         return current
       }
 
-      return data.emails[0]?.id ?? null
+      return data.messages[0]?.id ?? null
     })
-  }, [data.emails])
+  }, [data.messages])
 
   useEffect(() => {
     setPage(1)
   }, [serializedFilters])
 
-  const activeEmail =
-    data.emails.find((email) => email.id === selectedEmailId) ||
-    data.emails[0] ||
+  const activeMessage =
+    data.messages.find((message) => message.id === selectedMessageId) ||
+    data.messages[0] ||
     null
 
   useEffect(() => {
-    if (!activeEmail && detailsOpen) {
+    if (!activeMessage && detailsOpen) {
       setDetailsOpen(false)
     }
-  }, [activeEmail, detailsOpen])
+  }, [activeMessage, detailsOpen])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -285,13 +309,13 @@ export function AdminMailInbox(props: {
     }
 
     const eventSource = new window.EventSource(
-      `/api/admin/emails/events?after=${encodeURIComponent(props.initialCursor)}`,
+      `/api/admin/verification-messages/events?after=${encodeURIComponent(props.initialCursor)}`,
     )
 
-    const handleEmail = () => {
+    const handleMessage = () => {
       startTransition(() => {
         void queryClient.invalidateQueries({
-          queryKey: adminMailInboxQueryBaseKey,
+          queryKey: adminVerificationMessagesQueryBaseKey,
         })
       })
       setLiveStatus('live')
@@ -308,7 +332,7 @@ export function AdminMailInbox(props: {
       setStreamError(m.mail_inbox_error_stream_reconnecting())
     }
 
-    eventSource.addEventListener('email', handleEmail)
+    eventSource.addEventListener('message', handleMessage)
     eventSource.addEventListener('timeout', () => {
       setLiveStatus('reconnecting')
     })
@@ -321,12 +345,12 @@ export function AdminMailInbox(props: {
   const hasActiveFilters = Boolean(deferredSearch || filters.length > 0)
   const invalidateInboxQueries = async () => {
     await queryClient.invalidateQueries({
-      queryKey: adminMailInboxQueryBaseKey,
+      queryKey: adminVerificationMessagesQueryBaseKey,
     })
   }
 
-  function openEmailDetails(emailId: string) {
-    setSelectedEmailId(emailId)
+  function openMessageDetails(messageId: string) {
+    setSelectedMessageId(messageId)
     setDetailsOpen(true)
   }
 
@@ -365,7 +389,7 @@ export function AdminMailInbox(props: {
             </div>
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {data.emails.length ? (
+              {data.messages.length ? (
                 <AdminTableSelectionToolbar selection={selection} />
               ) : null}
               <NativeSelect
@@ -442,17 +466,18 @@ export function AdminMailInbox(props: {
         </CardHeader>
 
         <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-          {data.emails.length > 0 ? (
+          {data.messages.length > 0 ? (
             <div className="flex min-h-0 flex-1 flex-col gap-4">
               <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
-                <Table className="min-w-[1120px]">
+                <Table className="min-w-[1260px]">
                   <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-card [&_th]:shadow-[0_1px_0_hsl(var(--border))]">
                     <TableRow>
                       <AdminTableSelectionHead
-                        rows={data.emails}
+                        rows={data.messages}
                         selection={selection}
                       />
                       <TableHead>{m.mail_inbox_table_received()}</TableHead>
+                      <TableHead>{m.mail_inbox_table_source()}</TableHead>
                       <TableHead>{m.mail_inbox_table_recipient()}</TableHead>
                       <TableHead>{m.mail_inbox_table_subject()}</TableHead>
                       <TableHead>{m.mail_inbox_table_delivery()}</TableHead>
@@ -463,48 +488,53 @@ export function AdminMailInbox(props: {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.emails.map((email) => (
+                    {data.messages.map((message) => (
                       <TableRow
-                        key={email.id}
-                        data-selected={selection.isSelected(email) || undefined}
+                        key={message.id}
+                        data-selected={
+                          selection.isSelected(message) || undefined
+                        }
                         className={cn(
-                          activeEmail?.id === email.id && 'bg-muted/40',
+                          activeMessage?.id === message.id && 'bg-muted/40',
                         )}
                       >
                         <AdminTableSelectionCell
-                          row={email}
+                          row={message}
                           selection={selection}
                         />
                         <TableCell className="align-top text-sm text-muted-foreground">
-                          {formatAdminDate(email.receivedAt) ||
+                          {formatAdminDate(message.receivedAt) ||
                             m.mail_inbox_timestamp_unavailable()}
+                        </TableCell>
+                        <TableCell className="align-top">
+                          <MessageSourceBadge source={message.source} />
                         </TableCell>
                         <TableCell className="align-top">
                           <div className="space-y-1">
                             <div className="font-medium text-foreground">
-                              {email.recipient}
+                              {message.recipient}
                             </div>
                             <p className="text-xs text-muted-foreground">
-                              {email.reservationMailbox ||
-                                m.mail_inbox_app_alias()}
+                              {getMessageTargetMeta(message)}
                             </p>
                           </div>
                         </TableCell>
                         <TableCell className="max-w-[360px] whitespace-normal align-top">
                           <div className="font-medium text-foreground">
-                            {email.subject || m.mail_inbox_no_subject()}
+                            {message.subject ||
+                              message.textBody ||
+                              m.mail_inbox_no_subject()}
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
                           <StatusBadge
-                            value={email.latestCode ? 'ready' : 'received'}
-                            tone={email.latestCode ? 'good' : 'warning'}
+                            value={message.latestCode ? 'ready' : 'received'}
+                            tone={message.latestCode ? 'good' : 'warning'}
                           />
                         </TableCell>
                         <TableCell className="align-top">
-                          <ManualVerificationCodeForm
-                            email={email.recipient}
-                            initialCode={email.latestCode}
+                          <VerificationCodeControl
+                            message={message}
                             onUpdated={invalidateInboxQueries}
                             compact
                           />
@@ -513,8 +543,8 @@ export function AdminMailInbox(props: {
                           <TooltipProvider>
                             <div className="flex flex-wrap justify-end gap-2">
                               <ArchiveManagedIdentityButton
-                                identityId={email.managedIdentityId}
-                                identityStatus={email.managedIdentityStatus}
+                                identityId={message.managedIdentityId}
+                                identityStatus={message.managedIdentityStatus}
                                 onUpdated={invalidateInboxQueries}
                                 compact
                               />
@@ -527,10 +557,14 @@ export function AdminMailInbox(props: {
                                     aria-label={m.mail_inbox_open_button()}
                                     title={m.mail_inbox_open_button()}
                                     onClick={() => {
-                                      openEmailDetails(email.id)
+                                      openMessageDetails(message.id)
                                     }}
                                   >
-                                    <MailIcon />
+                                    {message.source === 'EMAIL' ? (
+                                      <MailIcon />
+                                    ) : (
+                                      <MessageCircleIcon />
+                                    )}
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent sideOffset={6}>
@@ -601,7 +635,7 @@ export function AdminMailInbox(props: {
       </Card>
 
       <MessageDetailsDialog
-        email={activeEmail}
+        message={activeMessage}
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         onCodeUpdated={invalidateInboxQueries}
@@ -612,22 +646,22 @@ export function AdminMailInbox(props: {
 }
 
 function MessageDetailsDialog(props: {
-  email: AdminMailInboxEmail | null
+  message: AdminVerificationMessage | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onCodeUpdated?: () => Promise<void> | void
   onIdentityUpdated?: () => Promise<void> | void
 }) {
-  const email = props.email
-  const isOpen = props.open && Boolean(email)
+  const message = props.message
+  const isOpen = props.open && Boolean(message)
   const resolvedContent = useMemo(
-    () => (email ? resolveEmailContent(email) : null),
-    [email],
+    () => (message ? resolveEmailContent(message) : null),
+    [message],
   )
 
   return (
     <Dialog open={isOpen} onOpenChange={props.onOpenChange}>
-      {email ? (
+      {message ? (
         <DialogContent
           className="grid h-[min(92vh,980px)] max-w-[calc(100%-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[min(1400px,calc(100%-2rem))]"
           onOpenAutoFocus={(event) => {
@@ -643,24 +677,35 @@ function MessageDetailsDialog(props: {
             <DialogDescription>{m.mail_detail_kicker()}</DialogDescription>
             <div className="flex items-start gap-2">
               <DialogTitle className="flex items-center gap-2 text-xl">
-                <MailIcon className="size-5" />
-                {email.subject || m.mail_inbox_no_subject()}
+                {message.source === 'EMAIL' ? (
+                  <MailIcon className="size-5" />
+                ) : (
+                  <MessageCircleIcon className="size-5" />
+                )}
+                {message.subject ||
+                  message.textBody ||
+                  m.mail_inbox_no_subject()}
               </DialogTitle>
               <InfoTooltip
                 content={m.mail_detail_description()}
-                label={email.subject || m.mail_inbox_no_subject()}
+                label={
+                  message.subject ||
+                  message.textBody ||
+                  m.mail_inbox_no_subject()
+                }
                 className="mt-0.5"
               />
             </div>
             <div className="flex flex-wrap gap-2">
+              <MessageSourceBadge source={message.source} />
               <StatusBadge
-                value={email.latestCode ? 'ready' : 'received'}
-                tone={email.latestCode ? 'good' : 'warning'}
+                value={message.latestCode ? 'ready' : 'received'}
+                tone={message.latestCode ? 'good' : 'warning'}
               />
-              {email.latestCode ? (
+              {message.latestCode ? (
                 <Badge variant="outline">
-                  {email.latestCodeSource || m.mail_detail_code_source()} ·{' '}
-                  {email.latestCode}
+                  {message.latestCodeSource || m.mail_detail_code_source()} ·{' '}
+                  {message.latestCode}
                 </Badge>
               ) : null}
               {resolvedContent?.htmlPreview ? (
@@ -682,44 +727,88 @@ function MessageDetailsDialog(props: {
                   <dl className="grid gap-3 text-sm">
                     <DetailItem
                       label={m.mail_detail_label_recipient()}
-                      value={email.recipient}
-                      copyValue={email.recipient}
+                      value={message.recipient}
+                      copyValue={message.recipient}
                       code
+                    />
+                    <DetailItem
+                      label={m.mail_detail_label_source()}
+                      value={getMessageSourceLabel(message.source)}
+                    />
+                    {message.sender ? (
+                      <DetailItem
+                        label={m.mail_detail_label_sender()}
+                        value={message.sender}
+                        copyValue={message.sender}
+                        code
+                      />
+                    ) : null}
+                    {message.chatName ? (
+                      <DetailItem
+                        label={m.mail_detail_label_chat()}
+                        value={message.chatName}
+                        copyValue={message.chatName}
+                      />
+                    ) : null}
+                    {message.deviceId ? (
+                      <DetailItem
+                        label={m.mail_detail_label_device()}
+                        value={message.deviceId}
+                        copyValue={message.deviceId}
+                        code
+                      />
+                    ) : null}
+                    {message.packageName ? (
+                      <DetailItem
+                        label={m.mail_detail_label_package()}
+                        value={message.packageName}
+                        copyValue={message.packageName}
+                        code
+                      />
+                    ) : null}
+                    <DetailItem
+                      label={m.mail_detail_label_manual_target()}
+                      value={
+                        message.manualCodeEmail ||
+                        m.mail_manual_code_unavailable()
+                      }
+                      copyValue={message.manualCodeEmail}
+                      code={Boolean(message.manualCodeEmail)}
                     />
                     <DetailItem
                       label={m.mail_detail_label_received()}
                       value={
-                        formatAdminDate(email.receivedAt) ||
+                        formatAdminDate(message.receivedAt) ||
                         m.mail_inbox_timestamp_unavailable()
                       }
                     />
                     <DetailItem
                       label={m.mail_detail_label_message_id()}
-                      value={email.messageId || m.mail_detail_not_captured()}
-                      copyValue={email.messageId}
+                      value={message.messageId || m.mail_detail_not_captured()}
+                      copyValue={message.messageId}
                       code
                     />
                     <DetailItem
                       label={m.mail_detail_label_mailbox()}
                       value={
-                        email.reservationMailbox ||
+                        message.reservationMailbox ||
                         m.mail_detail_not_configured()
                       }
-                      copyValue={email.reservationMailbox}
+                      copyValue={message.reservationMailbox}
                       code
                     />
                     <DetailItem
                       label={m.mail_detail_label_reservation()}
                       value={
-                        email.reservationEmail || m.mail_detail_not_linked()
+                        message.reservationEmail || m.mail_detail_not_linked()
                       }
-                      copyValue={email.reservationEmail}
+                      copyValue={message.reservationEmail}
                       code
                     />
                     <DetailItem
                       label={m.mail_detail_label_expires()}
                       value={
-                        formatAdminDate(email.reservationExpiresAt) ||
+                        formatAdminDate(message.reservationExpiresAt) ||
                         m.device_value_not_available()
                       }
                     />
@@ -731,26 +820,26 @@ function MessageDetailsDialog(props: {
                         {m.mail_detail_label_identity()}
                       </div>
                       <p className="text-xs leading-5 text-muted-foreground">
-                        {email.managedIdentityId
-                          ? email.managedIdentityAccount ||
-                            email.managedIdentityId
+                        {message.managedIdentityId
+                          ? message.managedIdentityAccount ||
+                            message.managedIdentityId
                           : m.mail_detail_not_linked()}
                       </p>
                     </div>
 
-                    {email.managedIdentityId ? (
+                    {message.managedIdentityId ? (
                       <div className="space-y-3">
                         <div className="space-y-2">
                           <div className="font-medium text-foreground">
-                            {email.managedIdentityLabel ||
-                              email.managedIdentityAccount ||
-                              email.managedIdentityId}
+                            {message.managedIdentityLabel ||
+                              message.managedIdentityAccount ||
+                              message.managedIdentityId}
                           </div>
-                          {email.managedIdentityAccount &&
-                          email.managedIdentityLabel !==
-                            email.managedIdentityAccount ? (
+                          {message.managedIdentityAccount &&
+                          message.managedIdentityLabel !==
+                            message.managedIdentityAccount ? (
                             <CopyableValue
-                              value={email.managedIdentityAccount}
+                              value={message.managedIdentityAccount}
                               title={m.clipboard_copy_value({
                                 label: m.admin_dashboard_account_email_label(),
                               })}
@@ -759,7 +848,7 @@ function MessageDetailsDialog(props: {
                             />
                           ) : null}
                           <CopyableValue
-                            value={email.managedIdentityId}
+                            value={message.managedIdentityId}
                             code
                             title={m.clipboard_copy_value({
                               label: m.admin_dashboard_identity_id_label(),
@@ -767,14 +856,16 @@ function MessageDetailsDialog(props: {
                             className="max-w-full text-sm text-muted-foreground"
                             contentClassName="break-all"
                           />
-                          {email.managedIdentityStatus ? (
-                            <StatusBadge value={email.managedIdentityStatus} />
+                          {message.managedIdentityStatus ? (
+                            <StatusBadge
+                              value={message.managedIdentityStatus}
+                            />
                           ) : null}
                         </div>
 
                         <ArchiveManagedIdentityButton
-                          identityId={email.managedIdentityId}
-                          identityStatus={email.managedIdentityStatus}
+                          identityId={message.managedIdentityId}
+                          identityStatus={message.managedIdentityStatus}
                           onUpdated={props.onIdentityUpdated}
                         />
                       </div>
@@ -794,15 +885,14 @@ function MessageDetailsDialog(props: {
                         {m.mail_manual_code_description()}
                       </p>
                     </div>
-                    <ManualVerificationCodeForm
-                      email={email.recipient}
-                      initialCode={email.latestCode}
+                    <VerificationCodeControl
+                      message={message}
                       onUpdated={props.onCodeUpdated}
                     />
                   </div>
 
                   <Tabs
-                    key={email.id}
+                    key={message.id}
                     defaultValue={getInitialContentTab(resolvedContent)}
                     className="gap-3"
                   >
@@ -820,21 +910,21 @@ function MessageDetailsDialog(props: {
 
                     <TabsContent value="text">
                       <EmailContentPanel
-                        value={resolvedContent?.textSource ?? email.textBody}
+                        value={resolvedContent?.textSource ?? message.textBody}
                         className="h-[320px] xl:h-[420px]"
                       />
                     </TabsContent>
 
                     <TabsContent value="html">
                       <EmailContentPanel
-                        value={resolvedContent?.htmlSource ?? email.htmlBody}
+                        value={resolvedContent?.htmlSource ?? message.htmlBody}
                         className="h-[320px] xl:h-[420px]"
                       />
                     </TabsContent>
 
                     <TabsContent value="raw">
                       <EmailContentPanel
-                        value={email.rawPayload}
+                        value={message.rawPayload}
                         className="h-[320px] xl:h-[420px]"
                       />
                     </TabsContent>
@@ -954,6 +1044,96 @@ function ArchiveManagedIdentityButton(
         </Tooltip>
       </div>
     </TooltipProvider>
+  )
+}
+
+function MessageSourceBadge(props: {
+  source: AdminVerificationMessage['source']
+}) {
+  const isWhatsApp = props.source === 'WHATSAPP_NOTIFICATION'
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'gap-1.5',
+        isWhatsApp
+          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+          : 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300',
+      )}
+    >
+      {isWhatsApp ? (
+        <MessageCircleIcon className="size-3.5" />
+      ) : (
+        <MailIcon className="size-3.5" />
+      )}
+      {getMessageSourceLabel(props.source)}
+    </Badge>
+  )
+}
+
+function getMessageSourceLabel(source: AdminVerificationMessage['source']) {
+  return source === 'WHATSAPP_NOTIFICATION'
+    ? m.mail_inbox_source_whatsapp()
+    : m.mail_inbox_source_email()
+}
+
+function getMessageTargetMeta(message: AdminVerificationMessage) {
+  return (
+    message.reservationMailbox ||
+    message.chatName ||
+    message.sender ||
+    message.packageName ||
+    m.mail_inbox_unmatched_notification()
+  )
+}
+
+function VerificationCodeControl(props: {
+  message: AdminVerificationMessage
+  onUpdated?: () => Promise<void> | void
+  compact?: boolean
+}) {
+  if (props.message.manualCodeEmail) {
+    return (
+      <ManualVerificationCodeForm
+        email={props.message.manualCodeEmail}
+        initialCode={props.message.latestCode}
+        onUpdated={props.onUpdated}
+        compact={props.compact}
+      />
+    )
+  }
+
+  return (
+    <div
+      className={cn(
+        'space-y-2',
+        props.compact ? 'max-w-[220px]' : 'w-full max-w-[280px]',
+      )}
+    >
+      <CopyableValue
+        value={props.message.latestCode || ''}
+        displayValue={
+          props.message.latestCode || m.admin_dashboard_code_input_placeholder()
+        }
+        disabled={!props.message.latestCode}
+        code
+        iconMode="overlay"
+        title={m.mail_manual_code_copy_button()}
+        className={cn(
+          'h-8 justify-center rounded-md border border-border/70 bg-muted/40 px-3 pr-8',
+          props.message.latestCode
+            ? 'text-foreground'
+            : 'text-muted-foreground',
+          props.compact ? 'w-[132px]' : 'w-full',
+        )}
+        contentClassName="w-full text-center font-mono tracking-[0.28em]"
+      />
+      {!props.compact ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          {m.mail_manual_code_unavailable()}
+        </p>
+      ) : null}
+    </div>
   )
 }
 
@@ -1264,12 +1444,12 @@ function EmailContentPanel(props: {
   )
 }
 
-async function fetchAdminMailInboxPage(params: {
+async function fetchAdminVerificationMessagesPage(params: {
   page: number
   pageSize: number
   search: string
   filters: FiltersState
-}): Promise<AdminMailInboxPageData> {
+}): Promise<AdminVerificationMessagesPageData> {
   const searchParams = new URLSearchParams({
     page: String(params.page),
     pageSize: String(params.pageSize),
@@ -1284,7 +1464,7 @@ async function fetchAdminMailInboxPage(params: {
   }
 
   const response = await fetch(
-    `/api/admin/emails/?${searchParams.toString()}`,
+    `/api/admin/verification-messages/?${searchParams.toString()}`,
     {
       headers: {
         accept: 'application/json',
@@ -1296,7 +1476,7 @@ async function fetchAdminMailInboxPage(params: {
     throw new Error(await response.text())
   }
 
-  return (await response.json()) as AdminMailInboxPageData
+  return (await response.json()) as AdminVerificationMessagesPageData
 }
 
 async function submitAdminVerificationCode(params: {
@@ -1421,7 +1601,9 @@ function buildHtmlPreviewDocument(html: string) {
 </html>`
 }
 
-function resolveEmailContent(email: AdminMailInboxEmail): ResolvedEmailContent {
+function resolveEmailContent(
+  email: AdminVerificationMessage,
+): ResolvedEmailContent {
   const parsedContent = extractEmailContentFromRaw(email)
   const storedHtml = normalizeEmailContent(email.htmlBody)
   const storedText = normalizeEmailContent(email.textBody)
@@ -1440,7 +1622,7 @@ function resolveEmailContent(email: AdminMailInboxEmail): ResolvedEmailContent {
 }
 
 function extractEmailContentFromRaw(
-  email: Pick<AdminMailInboxEmail, 'rawPayload' | 'textBody'>,
+  email: Pick<AdminVerificationMessage, 'rawPayload' | 'textBody'>,
 ) {
   const rawSource = getLikelyRawEmailSource(email)
   if (!rawSource) {
@@ -1459,7 +1641,7 @@ function extractEmailContentFromRaw(
 }
 
 function getLikelyRawEmailSource(
-  email: Pick<AdminMailInboxEmail, 'rawPayload' | 'textBody'>,
+  email: Pick<AdminVerificationMessage, 'rawPayload' | 'textBody'>,
 ) {
   if (isLikelyRawEmailSource(email.rawPayload)) {
     return email.rawPayload

@@ -822,14 +822,8 @@ class FakeGoPayTokenizationLocator extends FakeCheckoutLocator {
   async evaluate<T>(
     callback: (element: HTMLElement & { disabled?: boolean }) => T,
   ): Promise<T> {
-    const element = {
-      disabled: !this.page.isLocatorVisible(this.kind),
-      dispatchEvent: vi.fn(),
-      getAttribute: (name: string) =>
-        name === 'aria-disabled'
-          ? String(!this.page.isLocatorVisible(this.kind))
-          : null,
-    } as unknown as HTMLElement & { disabled?: boolean }
+    const element = this.page.createLocatorElement(this.kind)
+    element.dispatchEvent = vi.fn()
     return callback(element)
   }
 
@@ -859,8 +853,13 @@ class FakeGoPayTokenizationPage {
       payReadyAfterChecks?: number
       pinReady?: boolean
       showPayNowButton?: boolean
+      linkDisabledClassUntilPhoneFilled?: boolean
+      buttonDownButtonTargetsTokenizationLink?: boolean
+      selectedCountryCode?: string
     } = {},
-  ) {}
+  ) {
+    this.selectedCountryCode = options.selectedCountryCode ?? '1'
+  }
 
   async goto(url: string): Promise<void> {
     this.pageUrl = url
@@ -930,6 +929,12 @@ class FakeGoPayTokenizationPage {
     }
     if (normalizedSelector.includes('input[type="tel"]')) {
       return new FakeGoPayTokenizationLocator(this, 'phone')
+    }
+    if (
+      normalizedSelector.includes('button-down') &&
+      this.options.buttonDownButtonTargetsTokenizationLink
+    ) {
+      return new FakeGoPayTokenizationLocator(this, 'link')
     }
     if (normalizedSelector.includes('linking-cta')) {
       return new FakeGoPayTokenizationLocator(this, 'link')
@@ -1048,6 +1053,40 @@ class FakeGoPayTokenizationPage {
 
   private readonly responseResolvers: Array<() => void> = []
   private payVisibilityChecks = 0
+
+  createLocatorElement(
+    kind:
+      | 'body'
+      | 'phone'
+      | 'link'
+      | 'pay'
+      | 'country-trigger'
+      | 'country-search'
+      | 'country-option'
+      | 'phone-code',
+  ): HTMLElement & { disabled?: boolean } {
+    const visible = this.isLocatorVisible(kind)
+    const classNames =
+      kind === 'link' &&
+      this.options.linkDisabledClassUntilPhoneFilled &&
+      !this.phoneNumber
+        ? ['btn', 'full', 'disabled', 'inactive', 'inactive2']
+        : []
+
+    return {
+      disabled: !visible,
+      classList: {
+        [Symbol.iterator]: function* () {
+          yield* classNames
+        },
+      },
+      parentElement: null,
+      getAttribute(name: string): string | null {
+        return name === 'aria-disabled' ? String(!visible) : null
+      },
+      dispatchEvent: vi.fn(),
+    } as unknown as HTMLElement & { disabled?: boolean }
+  }
 }
 
 class FakePricingLocator {
@@ -1448,10 +1487,11 @@ describe('chatgpt team trial checkout defaults', () => {
     expect(resolveChatGPTTeamTrialGoPayUnlinkOptions()).toEqual({
       enabled: false,
       timeoutMs: 45000,
+      appiumFallback: false,
     })
   })
 
-  it('enables GoPay Appium unlink before authorization by default', () => {
+  it('enables GoPay CodeyApp unlink before authorization by default', () => {
     setRuntimeConfig({
       ...baseConfig,
       chatgptTeamTrial: {
@@ -1464,6 +1504,7 @@ describe('chatgpt team trial checkout defaults', () => {
     expect(resolveChatGPTTeamTrialGoPayUnlinkOptions()).toEqual({
       enabled: true,
       timeoutMs: undefined,
+      appiumFallback: false,
     })
   })
 })
@@ -3058,6 +3099,35 @@ describe('gopay payment redirect extraction', () => {
       expect(page.calls).toContain('click:country-trigger')
       expect(page.calls).toContain('click:country-option')
       expect(page.selectedCountryCode).toBe('86')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('fills the Midtrans GoPay phone form before clicking Link and pay when the CTA uses button-down classes', async () => {
+    vi.useFakeTimers()
+    const page = new FakeGoPayTokenizationPage({
+      buttonDownButtonTargetsTokenizationLink: true,
+      linkDisabledClassUntilPhoneFilled: true,
+      selectedCountryCode: '62',
+    })
+    const redirect = extractGoPayPaymentRedirectLink(
+      'https://app.midtrans.com/snap/v4/redirection/b46fbc69-c628-4ad7-abcf-b4ca1cbb23e1#/gopay-tokenization/linking',
+    )
+
+    try {
+      await expect(
+        continueGoPayPaymentFromRedirect(page as never, redirect!, {
+          countryCode: '+62',
+          phoneNumber: '+6281234567890',
+        }),
+      ).rejects.toThrow(
+        'GoPay tokenization did not return an activation link after submitting the phone number.',
+      )
+
+      expect(page.phoneNumber).toBe('6281234567890')
+      expect(page.calls).toContain('click:link')
+      expect(page.calls.indexOf('click:link')).toBeGreaterThan(0)
     } finally {
       vi.useRealTimers()
     }

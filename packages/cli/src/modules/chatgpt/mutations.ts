@@ -1446,13 +1446,7 @@ export async function continueGoPayPaymentFromRedirect(
 
   await throwIfMidtransGoPayExpired(page)
 
-  if (!(await isMidtransGoPayPaymentPageReady(page))) {
-    if (!(await isMidtransGoPayPhoneInputReady(page))) {
-      throw new Error(
-        'GoPay tokenization page did not show a phone-number form or a linked payment account.',
-      )
-    }
-
+  if (await isMidtransGoPayPhoneInputReady(page)) {
     if (!options.phoneNumber?.trim()) {
       throw new Error(
         'GoPay tokenization requires a phone number. Set CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER before running the GoPay trial flow.',
@@ -1499,6 +1493,10 @@ export async function continueGoPayPaymentFromRedirect(
       url: page.url(),
       activationLinkUrl,
     })
+  } else if (!(await isMidtransGoPayPaymentPageReady(page))) {
+    throw new Error(
+      'GoPay tokenization page did not show a phone-number form or a linked payment account.',
+    )
   }
 
   if (!(await isGoPayAuthorizationPinReady(page))) {
@@ -1911,7 +1909,7 @@ async function clickMidtransGoPayLinkAndPay(page: Page): Promise<void> {
       continue
     }
 
-    const enabled = await isLocatorEnabled(candidate).catch(() => true)
+    const enabled = await isMidtransGoPayActionButtonEnabled(candidate)
     if (!enabled) {
       continue
     }
@@ -1944,6 +1942,7 @@ async function waitForMidtransGoPayLinkButtonReady(
     getMidtransGoPayLinkButtonCandidates(page),
     timeoutMs,
   )
+  await waitForMidtransGoPayLinkButtonEnabledMutation(page, timeoutMs)
 
   return isMidtransGoPayLinkButtonReady(page)
 }
@@ -1954,7 +1953,7 @@ async function isMidtransGoPayLinkButtonReady(page: Page): Promise<boolean> {
     const visible = await candidate.isVisible().catch(() => false)
     if (!visible) continue
 
-    const enabled = await isLocatorEnabled(candidate).catch(() => true)
+    const enabled = await isMidtransGoPayActionButtonEnabled(candidate)
     if (enabled) return true
   }
 
@@ -1962,6 +1961,10 @@ async function isMidtransGoPayLinkButtonReady(page: Page): Promise<boolean> {
 }
 
 async function clickMidtransGoPayPayNow(page: Page): Promise<boolean> {
+  if (await isMidtransGoPayPhoneInputReady(page)) {
+    return false
+  }
+
   for (const locator of getMidtransGoPayPayNowButtonCandidates(page)) {
     const candidate = locator.first()
     const visible = await candidate.isVisible().catch(() => false)
@@ -1969,7 +1972,7 @@ async function clickMidtransGoPayPayNow(page: Page): Promise<boolean> {
       continue
     }
 
-    const enabled = await isLocatorEnabled(candidate).catch(() => true)
+    const enabled = await isMidtransGoPayActionButtonEnabled(candidate)
     if (!enabled) {
       continue
     }
@@ -1987,15 +1990,123 @@ function getMidtransGoPayPayNowButtonCandidates(page: Page): Locator[] {
   return [
     page.getByRole('button', { name: /pay now|bayar/i }),
     page.locator('button:has-text("Pay now")'),
+    page.locator('button:has-text("Bayar")'),
     page.locator('.button-down button.primary, .button-down button.btn'),
   ]
 }
 
 function getMidtransGoPayPaymentPageReadyLocators(page: Page): Locator[] {
   return [
-    ...getMidtransGoPayPayNowButtonCandidates(page),
+    page.getByRole('button', { name: /pay now|bayar/i }),
+    page.locator('button:has-text("Pay now")'),
+    page.locator('button:has-text("Bayar")'),
     page.locator('.gopay-tokenization-balance-content, .masked-phone'),
   ]
+}
+
+async function isMidtransGoPayActionButtonEnabled(
+  locator: Locator,
+): Promise<boolean> {
+  return locator
+    .evaluate((element) => {
+      const candidate = element as HTMLElement & { disabled?: boolean }
+      if (
+        candidate.disabled ||
+        candidate.getAttribute('aria-disabled') === 'true'
+      ) {
+        return false
+      }
+
+      let current: HTMLElement | null = candidate
+      for (let depth = 0; current && depth < 4; depth += 1) {
+        const disabledByClass = Array.from(current.classList).some(
+          (className) => /^(?:disabled|inactive\d*)$/i.test(className),
+        )
+        if (disabledByClass) return false
+        current = current.parentElement
+      }
+
+      return true
+    })
+    .catch(async () => isLocatorEnabled(locator).catch(() => false))
+}
+
+async function waitForMidtransGoPayLinkButtonEnabledMutation(
+  page: Page,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (timeoutMs <= 0 || typeof page.evaluate !== 'function') {
+    return false
+  }
+
+  return page
+    .evaluate(
+      (timeout) =>
+        new Promise<boolean>((resolve) => {
+          const isDisabledByClass = (element: HTMLElement): boolean => {
+            let current: HTMLElement | null = element
+            for (let depth = 0; current && depth < 4; depth += 1) {
+              const disabled = Array.from(current.classList).some(
+                (className) => /^(?:disabled|inactive\d*)$/i.test(className),
+              )
+              if (disabled) return true
+              current = current.parentElement
+            }
+
+            return false
+          }
+
+          const isEnabledButton = (element: Element): boolean => {
+            const button = element as HTMLButtonElement
+            return (
+              !button.disabled &&
+              button.getAttribute('aria-disabled') !== 'true' &&
+              !isDisabledByClass(button)
+            )
+          }
+
+          const getLinkButtons = (): HTMLButtonElement[] =>
+            Array.from(document.querySelectorAll('button')).filter((button) => {
+              const text = button.textContent || ''
+              return (
+                /link and pay/i.test(text) ||
+                Boolean(button.closest('.linking-cta'))
+              )
+            }) as HTMLButtonElement[]
+
+          const hasEnabledLinkButton = (): boolean =>
+            getLinkButtons().some((button) => isEnabledButton(button))
+
+          if (hasEnabledLinkButton()) {
+            resolve(true)
+            return
+          }
+
+          let observer: MutationObserver | undefined
+          let timer: number | undefined
+          let settled = false
+          const resolveOnce = (value: boolean): void => {
+            if (settled) return
+            settled = true
+            if (timer !== undefined) window.clearTimeout(timer)
+            observer?.disconnect()
+            resolve(value)
+          }
+
+          timer = window.setTimeout(() => resolveOnce(false), timeout)
+          observer = new MutationObserver(() => {
+            if (hasEnabledLinkButton()) resolveOnce(true)
+          })
+          observer.observe(document.documentElement, {
+            attributes: true,
+            childList: true,
+            characterData: true,
+            subtree: true,
+          })
+        }),
+      Math.max(1, timeoutMs),
+    )
+    .catch(() => false)
 }
 
 async function isMidtransGoPayPhoneInputReady(page: Page): Promise<boolean> {

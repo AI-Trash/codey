@@ -1,4 +1,4 @@
-package com.codey.forwarder;
+package com.codey.app;
 
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;

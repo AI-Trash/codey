@@ -1,4 +1,4 @@
-package com.codey.forwarder;
+package com.codey.app;
 
 import android.app.Notification;
 import android.os.Bundle;
@@ -56,7 +56,7 @@ final class ForwarderNotifier {
         ForwardedNotification notification
     ) throws Exception {
         JSONObject rawPayload = new JSONObject()
-            .put("source", "codey-forwarder")
+            .put("source", "codey-app")
             .put("packageName", notification.packageName)
             .put("notificationId", notification.notificationId)
             .put("postTime", notification.receivedAt);
@@ -70,7 +70,7 @@ final class ForwarderNotifier {
         );
 
         JSONObject payload = new JSONObject()
-            .put("source", "codey-forwarder")
+            .put("source", "codey-app")
             .put("deviceId", settings.deviceId)
             .put("packageName", notification.packageName)
             .put("notificationId", notification.notificationId)

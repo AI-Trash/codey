@@ -1,4 +1,4 @@
-package com.codey.forwarder;
+package com.codey.app;
 
 import android.Manifest;
 import android.app.Activity;
@@ -51,12 +51,12 @@ public class MainActivity extends Activity {
         root.setPadding(32, 32, 32, 32);
 
         TextView title = new TextView(this);
-        title.setText("Codey Forwarder");
+        title.setText("CodeyApp");
         title.setTextSize(26f);
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Listens for WhatsApp notifications and forwards them to Codey.");
+        subtitle.setText("Listens for WhatsApp notifications and runs Android automation.");
         subtitle.setTextSize(15f);
         root.addView(subtitle);
 
@@ -109,6 +109,20 @@ public class MainActivity extends Activity {
                 }
             }),
             button("Battery Settings", this::openBatterySettings)
+        ));
+
+        root.addView(buttonRow(
+            button("Shizuku Permission", () -> {
+                CodeyAutomatorLauncher.requestShizukuPermission();
+                ForwarderConfig.saveStatus(
+                    this,
+                    CodeyAutomatorLauncher.hasShizukuPermission()
+                        ? "Shizuku permission is already granted."
+                        : "Shizuku permission requested."
+                );
+                refreshStatus();
+            }),
+            button("Run GoPay Unlink", this::runGoPayUnlink)
         ));
 
         Button testButton = new Button(this);
@@ -171,6 +185,28 @@ public class MainActivity extends Activity {
             detail.append("\nLast body: ").append(status.body);
         }
         statusView.setText(detail.toString());
+    }
+
+    private void runGoPayUnlink() {
+        new Thread(() -> {
+            try {
+                CodeyAutomatorLauncher.AutomatorRunResult result =
+                    CodeyAutomatorLauncher.runGoPayUnlink(this, 60_000L);
+                String message = result.ok
+                    ? "GoPay unlink completed via " + result.mode + ": " +
+                        result.payload.optString("status", "ok")
+                    : "GoPay unlink failed via " + result.mode + ": " + result.error;
+                ForwarderConfig.saveStatus(this, message);
+            } catch (Exception error) {
+                ForwarderConfig.saveStatus(
+                    this,
+                    "GoPay unlink failed: " + (error.getMessage() != null
+                        ? error.getMessage()
+                        : error.getClass().getSimpleName())
+                );
+            }
+            mainHandler.post(this::refreshStatus);
+        }).start();
     }
 
     private void sendTestPayload() {

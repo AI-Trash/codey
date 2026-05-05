@@ -10,7 +10,7 @@ import {
   KeyRoundIcon,
   LanguagesIcon,
   LogOutIcon,
-  MailIcon,
+  MessageSquareTextIcon,
   NetworkIcon,
   SlidersHorizontalIcon,
   ShieldCheckIcon,
@@ -126,13 +126,13 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
     })
   }
 
-  if (hasAdminPermission(currentUser, 'MAIL_INBOX')) {
+  if (hasAdminPermission(currentUser, 'VERIFICATION_MESSAGES')) {
     navigation.push({
       label: m.admin_nav_mail_inbox(),
-      to: '/admin/emails',
-      icon: MailIcon,
+      to: '/admin/verification-messages',
+      icon: MessageSquareTextIcon,
       matches: (pathname: string) =>
-        pathname === '/admin' || pathname === '/admin/emails',
+        pathname === '/admin' || pathname === '/admin/verification-messages',
     })
   }
 
@@ -212,7 +212,7 @@ export function AdminShell(props: {
   const adminNavigation = getAdminNavigation(props.currentUser)
   const usesViewportShell =
     pathname === '/admin' ||
-    pathname === '/admin/emails' ||
+    pathname === '/admin/verification-messages' ||
     pathname === '/admin/identities' ||
     pathname === '/admin/workspaces' ||
     pathname === '/admin/sessions' ||
@@ -636,7 +636,7 @@ function getAdminPageLabel(pathname: string) {
     return m.admin_nav_app_registry()
   }
 
-  if (pathname === '/admin/emails') {
+  if (pathname === '/admin/verification-messages') {
     return m.admin_nav_mail_inbox()
   }
 

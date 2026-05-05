@@ -5,11 +5,11 @@ const mocks = vi.hoisted(() => ({
   deleteManagedWorkspace: vi.fn(),
   findAdminManagedWorkspaceSummaryByOwnerIdentity: vi.fn(),
   getDb: vi.fn(),
-  hasAdminInboxEmailSubscribers: vi.fn(() => false),
+  hasAdminVerificationMessageSubscribers: vi.fn(() => false),
   listAdminCliConnectionState: vi.fn(),
   removeDisabledSub2ApiAccountsForWorkspace: vi.fn(),
   sendAstrBotWorkspaceRemovalNotification: vi.fn(),
-  publishAdminInboxEmailEvent: vi.fn(),
+  publishAdminVerificationMessageEvent: vi.fn(),
   publishVerificationCodeEvent: vi.fn(),
   dispatchCliFlowTasks: vi.fn(),
 }))
@@ -23,8 +23,10 @@ vi.mock('./security', () => ({
 }))
 
 vi.mock('./admin-inbox-events', () => ({
-  hasAdminInboxEmailSubscribers: mocks.hasAdminInboxEmailSubscribers,
-  publishAdminInboxEmailEvent: mocks.publishAdminInboxEmailEvent,
+  hasAdminVerificationMessageSubscribers:
+    mocks.hasAdminVerificationMessageSubscribers,
+  publishAdminVerificationMessageEvent:
+    mocks.publishAdminVerificationMessageEvent,
 }))
 
 vi.mock('./verification-events', () => ({
@@ -251,7 +253,7 @@ describe('verification email reservations', () => {
 describe('ChatGPT Business trial-ended email handling', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.hasAdminInboxEmailSubscribers.mockReturnValue(false)
+    mocks.hasAdminVerificationMessageSubscribers.mockReturnValue(false)
   })
 
   it('matches ended ChatGPT Business trial subjects without matching warnings', () => {
@@ -517,7 +519,7 @@ describe('ChatGPT Business trial-ended email handling', () => {
 describe('ChatGPT Plus subscription email handling', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.hasAdminInboxEmailSubscribers.mockReturnValue(false)
+    mocks.hasAdminVerificationMessageSubscribers.mockReturnValue(false)
     mocks.createId.mockImplementation(() => 'generated-id')
   })
 
@@ -913,6 +915,91 @@ describe('WhatsApp notification ingest', () => {
         reservationId: reservation.id,
       },
     })
+  })
+
+  it('extracts WhatsApp fields and code from the raw notification payload', async () => {
+    const receivedAt = new Date('2026-04-30T00:00:00.000Z')
+    const reservation = {
+      id: 'reservation-raw',
+      email: 'raw@example.com',
+      prefix: null,
+      mailbox: 'raw@example.com',
+      identityId: null,
+      createdAt: receivedAt,
+      expiresAt: new Date('2026-04-30T00:15:00.000Z'),
+      updatedAt: receivedAt,
+    }
+    const notificationRecord = {
+      id: 'notification-record-1',
+      reservationId: reservation.id,
+      verificationCode: '811997',
+      receivedAt,
+    }
+    const codeRecord = {
+      id: 'code-record-1',
+      reservationId: reservation.id,
+      code: '811997',
+      source: 'WHATSAPP_NOTIFICATION',
+      messageId: notificationRecord.id,
+      receivedAt,
+    }
+    const notificationInsert = createInsertChain(notificationRecord)
+    const codeInsert = createInsertChain(codeRecord)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findFirst: vi.fn().mockResolvedValue(reservation),
+        },
+      },
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: notificationInsert.values })
+        .mockReturnValueOnce({ values: codeInsert.values }),
+    })
+
+    await expect(
+      ingestWhatsAppNotification({
+        reservationId: reservation.id,
+        rawPayload: {
+          source: 'codey-app',
+          deviceId: 'emulator-5554',
+          packageName: 'com.whatsapp',
+          notificationId: 'wa-raw-1',
+          title: 'GoPay',
+          body: '811997 is your verification code. For your security, do not share this code.',
+          receivedAt: receivedAt.getTime(),
+        },
+      }),
+    ).resolves.toMatchObject({
+      notificationRecord,
+      codeRecord,
+      match: {
+        status: 'matched',
+        strategy: 'reservation_id',
+        reservationId: reservation.id,
+      },
+    })
+
+    expect(notificationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'notification-record-1',
+        reservationId: reservation.id,
+        deviceId: 'emulator-5554',
+        notificationId: 'wa-raw-1',
+        packageName: 'com.whatsapp',
+        title: 'GoPay',
+        body: '811997 is your verification code. For your security, do not share this code.',
+        verificationCode: '811997',
+        receivedAt,
+      }),
+    )
+    expect(codeInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: '811997',
+        receivedAt,
+      }),
+    )
   })
 
   it('keeps an ambiguous WhatsApp code unmatched when multiple reservations are active', async () => {

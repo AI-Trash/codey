@@ -565,7 +565,7 @@ function PermissionCheckboxRow(props: {
 }
 
 function getPermissionLabel(permission: AdminPermission) {
-  if (permission === 'MAIL_INBOX') {
+  if (permission === 'VERIFICATION_MESSAGES') {
     return m.admin_users_permission_mail_inbox()
   }
 
@@ -597,7 +597,7 @@ function getPermissionLabel(permission: AdminPermission) {
 }
 
 function getPermissionDescription(permission: AdminPermission) {
-  if (permission === 'MAIL_INBOX') {
+  if (permission === 'VERIFICATION_MESSAGES') {
     return m.admin_users_permission_mail_inbox_description()
   }
 

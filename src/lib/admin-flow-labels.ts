@@ -75,6 +75,8 @@ const optionDisplayNameMap: Record<
   androidAppPackage: () => m.admin_cli_option_android_app_package_name(),
   androidAppActivity: () => m.admin_cli_option_android_app_activity_name(),
   androidNoReset: () => m.admin_cli_option_android_no_reset_name(),
+  codeyAndroidAppPackage: () =>
+    m.admin_cli_option_codey_android_app_package_name(),
 }
 
 const optionDescriptionMap: Record<
@@ -128,6 +130,8 @@ const optionDescriptionMap: Record<
   androidAppActivity: () =>
     m.admin_cli_option_android_app_activity_description(),
   androidNoReset: () => m.admin_cli_option_android_no_reset_description(),
+  codeyAndroidAppPackage: () =>
+    m.admin_cli_option_codey_android_app_package_description(),
 }
 
 export function resolveFlowDisplayName(

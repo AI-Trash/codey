@@ -7,6 +7,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="rikka.shizuku.permission.API_V23" />
+
+    <queries>
+        <package android:name="com.gojek.gopay" />
+    </queries>
+
+    <instrumentation
+        android:name=".CodeyAutomatorInstrumentation"
+        android:exported="true"
+        android:targetPackage="${applicationId}" />
 
     <application
         android:allowBackup="true"
@@ -44,6 +54,15 @@
             android:name=".KeepAliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"
+            tools:ignore="ExportedContentProvider" />
     </application>
 
 </manifest>

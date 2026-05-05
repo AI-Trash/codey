@@ -12,7 +12,7 @@ import type {
 export const DEFAULT_WHATSAPP_PACKAGE_NAME = 'com.whatsapp'
 export const DEFAULT_WHATSAPP_WEBHOOK_HOST = '127.0.0.1'
 export const DEFAULT_WHATSAPP_WEBHOOK_PORT = 3001
-export const DEFAULT_WHATSAPP_WEBHOOK_PATH = '/webhooks/forwarder/whatsapp'
+export const DEFAULT_WHATSAPP_WEBHOOK_PATH = '/webhooks/codey-app/whatsapp'
 
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 
@@ -405,29 +405,6 @@ function normalizePort(value: number | undefined): number {
     : DEFAULT_WHATSAPP_WEBHOOK_PORT
 }
 
-export function extractVerificationCodeFromNotificationText(
-  value: string | undefined,
-): string | undefined {
-  if (!value) {
-    return undefined
-  }
-
-  const patterns = [
-    /(?:verification\s*code|one[-\s]*time\s*code|otp|code|验证码|驗證碼|安全码|安全碼)[^\d]{0,32}(\d{4,8})/i,
-    /\b(\d{6})\b/,
-    /\b(\d{4,8})\b/,
-  ]
-
-  for (const pattern of patterns) {
-    const match = pattern.exec(value)
-    if (match?.[1]) {
-      return match[1]
-    }
-  }
-
-  return undefined
-}
-
 export function normalizeForwarderWhatsAppNotificationPayload(
   payload: Record<string, unknown>,
 ): WhatsAppNotificationEvent {
@@ -514,8 +491,6 @@ export function buildWhatsAppNotificationIngestPayload(
     deviceId?: string
   } = {},
 ): AppWhatsAppNotificationIngestInput {
-  const text = [event.title, event.body].filter(Boolean).join('\n')
-
   return {
     reservationId: options.reservationId,
     email: options.email,
@@ -527,7 +502,6 @@ export function buildWhatsAppNotificationIngestPayload(
     title: event.title,
     body: event.body,
     rawPayload: event.rawPayload,
-    extractedCode: extractVerificationCodeFromNotificationText(text),
     receivedAt: event.receivedAt,
   }
 }
@@ -751,7 +725,6 @@ export function startWhatsAppNotificationWebhookServer(
         await options.onNotification?.(notification, ingestPayload, result)
         writeJson(response, 200, {
           ok: true,
-          extractedCode: ingestPayload.extractedCode,
           notificationRecordId: result?.notificationRecordId,
           codeRecordId: result?.codeRecordId,
           match: result?.match,

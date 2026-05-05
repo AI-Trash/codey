@@ -973,6 +973,7 @@ function createChatGPTTeamTrialGoPayOtpCodeProvider(
 export interface ChatGPTTeamTrialGoPayUnlinkOptions {
   enabled: boolean
   timeoutMs?: number
+  appiumFallback?: boolean
 }
 
 export function resolveChatGPTTeamTrialGoPayUnlinkOptions(): ChatGPTTeamTrialGoPayUnlinkOptions {
@@ -981,6 +982,7 @@ export function resolveChatGPTTeamTrialGoPayUnlinkOptions(): ChatGPTTeamTrialGoP
   return {
     enabled: config?.unlinkBeforeLink ?? true,
     timeoutMs: config?.unlinkTimeoutMs,
+    appiumFallback: config?.unlinkAppiumFallback ?? false,
   }
 }
 

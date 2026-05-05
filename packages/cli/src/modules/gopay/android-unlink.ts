@@ -1,6 +1,8 @@
 import type { AndroidDriver, AndroidSession } from '../../core/android'
 import { newAndroidSession } from '../../core/android'
+import { getRuntimeConfig } from '../../config'
 import { sleep } from '../../utils/wait'
+import { runCodeyAppGoPayUnlink } from './codey-app-automator'
 
 export const GOPAY_APP_PACKAGE = 'com.gojek.gopay'
 export const GOPAY_MAIN_ACTIVITY = '.MainActivity'
@@ -980,8 +982,25 @@ export async function unlinkGoPayLinkedAppsInSession(
 export async function unlinkGoPayLinkedApps(
   options: GoPayAndroidUnlinkOptions = {},
 ): Promise<GoPayAndroidUnlinkResult> {
-  const session = await newAndroidSession()
+  const appiumFallback =
+    getRuntimeConfig().chatgptTeamTrial?.gopay?.unlinkAppiumFallback === true
+  try {
+    return await runCodeyAppGoPayUnlink(options)
+  } catch (error) {
+    if (!appiumFallback) {
+      throw error
+    }
 
+    await reportProgress(options, {
+      step: 'session-opened',
+      message:
+        error instanceof Error
+          ? `CodeyApp GoPay unlink failed, falling back to Appium: ${error.message}`
+          : 'CodeyApp GoPay unlink failed, falling back to Appium',
+    })
+  }
+
+  const session = await newAndroidSession()
   try {
     await reportProgress(options, {
       step: 'session-opened',

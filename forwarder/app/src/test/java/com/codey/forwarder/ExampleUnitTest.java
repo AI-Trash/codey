@@ -1,4 +1,4 @@
-package com.codey.forwarder;
+package com.codey.app;
 
 import static org.junit.Assert.assertEquals;
 

@@ -9,21 +9,16 @@ import type {
 import {
   and,
   asc,
-  count,
   desc,
   eq,
-  exists,
   gt,
   gte,
-  ilike,
   inArray,
   isNotNull,
   isNull,
-  lt,
-  lte,
-  notExists,
   or,
   sql,
+  type SQL,
 } from 'drizzle-orm'
 import { getAppEnv } from './env'
 import {
@@ -35,10 +30,11 @@ import {
   whatsappNotificationIngestRecords,
   type EmailIngestRecordRow,
   type VerificationEmailReservationRow,
+  type WhatsAppNotificationIngestRecordRow,
 } from './db/schema'
 import {
-  hasAdminInboxEmailSubscribers,
-  publishAdminInboxEmailEvent,
+  hasAdminVerificationMessageSubscribers,
+  publishAdminVerificationMessageEvent,
 } from './admin-inbox-events'
 import { sendAstrBotWorkspaceRemovalNotification } from './astrbot'
 import { publishVerificationCodeEvent } from './verification-events'
@@ -81,15 +77,25 @@ export interface WhatsAppNotificationPayload {
   receivedAt?: string | null
 }
 
-export interface AdminInboxEmail {
+type JsonRecord = Record<string, unknown>
+
+export type AdminVerificationMessageSource = 'EMAIL' | 'WHATSAPP_NOTIFICATION'
+
+export interface AdminVerificationMessage {
   id: string
   cursor: string
+  source: AdminVerificationMessageSource
   messageId: string | null
   recipient: string
+  manualCodeEmail: string | null
   subject: string | null
   textBody: string | null
   htmlBody: string | null
   rawPayload: string | null
+  sender: string | null
+  chatName: string | null
+  deviceId: string | null
+  packageName: string | null
   receivedAt: string
   createdAt: string
   reservationId: string | null
@@ -105,8 +111,8 @@ export interface AdminInboxEmail {
   latestCodeReceivedAt: string | null
 }
 
-export interface AdminInboxPage {
-  emails: AdminInboxEmail[]
+export interface AdminVerificationMessagesPage {
+  messages: AdminVerificationMessage[]
   page: number
   pageSize: number
   totalCount: number
@@ -147,6 +153,14 @@ type AdminInboxManagedIdentitySummary = {
   label: string | null
   email: string
   status: string
+}
+
+type AdminInboxReservationSummary = {
+  id: string
+  email: string
+  mailbox: string | null
+  identityId: string | null
+  expiresAt: Date
 }
 
 type ParsedEmailContent = {
@@ -233,7 +247,7 @@ const RESERVATION_MAILBOX_NOUNS = [
   'wind',
 ] as const
 
-function normalizeAdminInboxPageParams(params?: {
+function normalizeAdminVerificationMessagesPageParams(params?: {
   page?: number
   pageSize?: number
   search?: string | null
@@ -259,24 +273,12 @@ function normalizeAdminInboxPageParams(params?: {
   }
 }
 
-function buildAdminInboxSearchFilter(search: string) {
-  if (!search) {
-    return undefined
-  }
-
-  const pattern = `%${search}%`
-  return or(
-    ilike(emailIngestRecords.recipient, pattern),
-    ilike(emailIngestRecords.subject, pattern),
-    ilike(emailIngestRecords.textBody, pattern),
-    ilike(emailIngestRecords.htmlBody, pattern),
-    ilike(emailIngestRecords.rawPayload, pattern),
-    ilike(emailIngestRecords.messageId, pattern),
+function combineConditions(
+  conditions: Array<SQL | undefined>,
+): SQL | undefined {
+  const active = conditions.filter((condition): condition is SQL =>
+    Boolean(condition),
   )
-}
-
-function combineConditions(conditions: Array<unknown>) {
-  const active = conditions.filter(Boolean)
 
   if (active.length === 0) {
     return undefined
@@ -289,10 +291,7 @@ function combineConditions(conditions: Array<unknown>) {
   return and(...active)
 }
 
-function buildAdminInboxDeliveryFilter(
-  db: ReturnType<typeof getDb>,
-  filter: FilterModel<'option'>,
-) {
+function normalizeAdminInboxDeliveryFilter(filter: FilterModel<'option'>) {
   const values = Array.from(
     new Set(
       filter.values.filter(
@@ -306,22 +305,6 @@ function buildAdminInboxDeliveryFilter(
     return undefined
   }
 
-  const reservationHasCode = exists(
-    db
-      .select({ id: verificationCodes.id })
-      .from(verificationCodes)
-      .where(
-        eq(verificationCodes.reservationId, emailIngestRecords.reservationId),
-      ),
-  )
-  const reservationHasNoCode = notExists(
-    db
-      .select({ id: verificationCodes.id })
-      .from(verificationCodes)
-      .where(
-        eq(verificationCodes.reservationId, emailIngestRecords.reservationId),
-      ),
-  )
   const positiveOperator =
     filter.operator === 'is' || filter.operator === 'is any of'
   const includeReady = values.includes('ready')
@@ -333,93 +316,206 @@ function buildAdminInboxDeliveryFilter(
     }
 
     if (includeReady) {
-      return reservationHasCode
+      return 'ready'
     }
 
     if (includeReceived) {
-      return reservationHasNoCode
+      return 'received'
     }
 
     return undefined
   }
 
   if (includeReady && includeReceived) {
-    return eq(emailIngestRecords.id, '__no_admin_inbox_match__')
+    return 'none'
   }
 
   if (includeReady) {
-    return reservationHasNoCode
+    return 'received'
   }
 
   if (includeReceived) {
-    return reservationHasCode
+    return 'ready'
   }
 
   return undefined
 }
 
-function buildAdminInboxReceivedAtFilter(filter: FilterModel<'date'>) {
+function matchesAdminInboxSourceFilter(
+  message: AdminVerificationMessage,
+  filter: FilterModel<'option'>,
+) {
+  const values = Array.from(
+    new Set(
+      filter.values.filter(
+        (value): value is AdminVerificationMessageSource =>
+          value === 'EMAIL' || value === 'WHATSAPP_NOTIFICATION',
+      ),
+    ),
+  )
+
+  if (values.length === 0) {
+    return true
+  }
+
+  const matched = values.includes(message.source)
+  return filter.operator === 'is' || filter.operator === 'is any of'
+    ? matched
+    : !matched
+}
+
+function matchesAdminInboxReceivedAtFilter(
+  message: AdminVerificationMessage,
+  filter: FilterModel<'date'>,
+) {
   const start = filter.values[0]
   if (!start) {
-    return undefined
+    return true
   }
 
   const startDate = startOfDay(start)
   const endDate = endOfDay(filter.values[1] ?? start)
+  const receivedAt = new Date(message.receivedAt)
+  if (Number.isNaN(receivedAt.getTime())) {
+    return false
+  }
 
   switch (filter.operator) {
     case 'is':
-      return and(
-        gte(emailIngestRecords.receivedAt, startDate),
-        lte(emailIngestRecords.receivedAt, endDate),
-      )
+      return receivedAt >= startDate && receivedAt <= endDate
     case 'is not':
-      return or(
-        lt(emailIngestRecords.receivedAt, startDate),
-        gt(emailIngestRecords.receivedAt, endDate),
-      )
+      return receivedAt < startDate || receivedAt > endDate
     case 'is before':
-      return lt(emailIngestRecords.receivedAt, startDate)
+      return receivedAt < startDate
     case 'is on or after':
-      return gte(emailIngestRecords.receivedAt, startDate)
+      return receivedAt >= startDate
     case 'is after':
-      return gt(emailIngestRecords.receivedAt, startDate)
+      return receivedAt > startDate
     case 'is on or before':
-      return lte(emailIngestRecords.receivedAt, endDate)
+      return receivedAt <= endDate
     case 'is between':
-      return and(
-        gte(emailIngestRecords.receivedAt, startDate),
-        lte(emailIngestRecords.receivedAt, endDate),
-      )
+      return receivedAt >= startDate && receivedAt <= endDate
     case 'is not between':
-      return or(
-        lt(emailIngestRecords.receivedAt, startDate),
-        gt(emailIngestRecords.receivedAt, endDate),
-      )
+      return receivedAt < startDate || receivedAt > endDate
     default:
-      return undefined
+      return true
   }
 }
 
-function buildAdminInboxFilters(
-  db: ReturnType<typeof getDb>,
+function messageMatchesAdminInboxFilters(
+  message: AdminVerificationMessage,
   filters: FiltersState,
 ) {
-  return combineConditions(
-    filters.map((filter) => {
-      switch (filter.columnId) {
-        case 'delivery':
-          return buildAdminInboxDeliveryFilter(
-            db,
-            filter as FilterModel<'option'>,
-          )
-        case 'receivedAt':
-          return buildAdminInboxReceivedAtFilter(filter as FilterModel<'date'>)
-        default:
-          return undefined
+  return filters.every((filter) => {
+    switch (filter.columnId) {
+      case 'delivery': {
+        const delivery = normalizeAdminInboxDeliveryFilter(
+          filter as FilterModel<'option'>,
+        )
+        if (!delivery) {
+          return true
+        }
+        if (delivery === 'none') {
+          return false
+        }
+        return delivery === 'ready'
+          ? Boolean(message.latestCode)
+          : !message.latestCode
       }
-    }),
+      case 'source':
+        return matchesAdminInboxSourceFilter(
+          message,
+          filter as FilterModel<'option'>,
+        )
+      case 'receivedAt':
+        return matchesAdminInboxReceivedAtFilter(
+          message,
+          filter as FilterModel<'date'>,
+        )
+      default:
+        return true
+    }
+  })
+}
+
+function messageMatchesAdminInboxSearch(
+  message: AdminVerificationMessage,
+  search: string,
+) {
+  if (!search) {
+    return true
+  }
+
+  const normalizedSearch = search.toLowerCase()
+  return [
+    message.source,
+    message.messageId,
+    message.recipient,
+    message.manualCodeEmail,
+    message.subject,
+    message.textBody,
+    message.htmlBody,
+    message.rawPayload,
+    message.sender,
+    message.chatName,
+    message.deviceId,
+    message.packageName,
+    message.reservationId,
+    message.reservationEmail,
+    message.reservationMailbox,
+    message.managedIdentityId,
+    message.managedIdentityLabel,
+    message.managedIdentityAccount,
+    message.latestCode,
+    message.latestCodeSource,
+  ].some((value) => value?.toLowerCase().includes(normalizedSearch))
+}
+
+function messageMatchesAdminInboxParams(
+  message: AdminVerificationMessage,
+  params: ReturnType<typeof normalizeAdminVerificationMessagesPageParams>,
+) {
+  return (
+    messageMatchesAdminInboxSearch(message, params.search) &&
+    messageMatchesAdminInboxFilters(message, params.filters)
   )
+}
+
+function buildAdminInboxEmailCursorFilter(cursor: AdminInboxCursor | null) {
+  return cursor
+    ? or(
+        gt(emailIngestRecords.createdAt, cursor.createdAt),
+        and(
+          eq(emailIngestRecords.createdAt, cursor.createdAt),
+          gt(emailIngestRecords.id, cursor.id),
+        ),
+      )
+    : undefined
+}
+
+function buildAdminInboxWhatsAppCursorFilter(cursor: AdminInboxCursor | null) {
+  return cursor
+    ? or(
+        gt(whatsappNotificationIngestRecords.createdAt, cursor.createdAt),
+        and(
+          eq(whatsappNotificationIngestRecords.createdAt, cursor.createdAt),
+          gt(whatsappNotificationIngestRecords.id, cursor.id),
+        ),
+      )
+    : undefined
+}
+
+function compareAdminInboxMessages(
+  left: AdminVerificationMessage,
+  right: AdminVerificationMessage,
+) {
+  const createdAtDelta =
+    new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  if (createdAtDelta) {
+    return createdAtDelta
+  }
+
+  return right.id.localeCompare(left.id)
 }
 
 export function encodeAdminInboxCursor(params: {
@@ -521,44 +617,115 @@ async function getManagedIdentitySummaryByIdentityId(
   )
 }
 
-function serializeAdminInboxEmail(
+function serializeJsonPayload(
+  value: Record<string, unknown> | null | undefined,
+) {
+  if (!value) {
+    return null
+  }
+
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function serializeAdminVerificationMessage(
   email: EmailIngestRecordRow & {
-    reservation?: {
-      id: string
-      email: string
-      mailbox: string | null
-      identityId: string | null
-      expiresAt: Date
-    } | null
+    reservation?: AdminInboxReservationSummary | null
   },
   latestCode?: AdminInboxCodeSummary,
   managedIdentity?: AdminInboxManagedIdentitySummary,
-): AdminInboxEmail {
+): AdminVerificationMessage {
   return {
     id: email.id,
     cursor: encodeAdminInboxCursor({
       createdAt: email.createdAt,
       id: email.id,
     }),
+    source: 'EMAIL',
     messageId: email.messageId,
     recipient: email.recipient,
+    manualCodeEmail: email.reservation?.email || email.recipient,
     subject: email.subject,
     textBody: email.textBody,
     htmlBody: email.htmlBody,
     rawPayload: email.rawPayload,
+    sender: null,
+    chatName: null,
+    deviceId: null,
+    packageName: null,
     receivedAt: email.receivedAt.toISOString(),
     createdAt: email.createdAt.toISOString(),
     reservationId: email.reservationId,
     reservationEmail: email.reservation?.email || null,
     reservationMailbox: email.reservation?.mailbox || null,
     reservationExpiresAt: email.reservation?.expiresAt.toISOString() || null,
-    managedIdentityId: managedIdentity?.identityId || null,
+    managedIdentityId:
+      managedIdentity?.identityId || email.reservation?.identityId || null,
     managedIdentityLabel: managedIdentity?.label || null,
     managedIdentityAccount: managedIdentity?.email || null,
     managedIdentityStatus: managedIdentity?.status || null,
     latestCode: latestCode?.code || null,
     latestCodeSource: latestCode?.source || null,
     latestCodeReceivedAt: latestCode?.receivedAt || null,
+  }
+}
+
+function serializeAdminInboxWhatsAppNotification(
+  notification: WhatsAppNotificationIngestRecordRow & {
+    reservation?: AdminInboxReservationSummary | null
+  },
+  latestCode?: AdminInboxCodeSummary,
+  managedIdentity?: AdminInboxManagedIdentitySummary,
+): AdminVerificationMessage {
+  return {
+    id: notification.id,
+    cursor: encodeAdminInboxCursor({
+      createdAt: notification.createdAt,
+      id: notification.id,
+    }),
+    source: 'WHATSAPP_NOTIFICATION',
+    messageId: notification.notificationId,
+    recipient:
+      notification.reservation?.email ||
+      notification.chatName ||
+      notification.sender ||
+      notification.packageName ||
+      'WhatsApp notification',
+    manualCodeEmail: notification.reservation?.email || null,
+    subject: notification.title || notification.chatName || notification.sender,
+    textBody: notification.body,
+    htmlBody: null,
+    rawPayload: serializeJsonPayload(notification.rawPayload),
+    sender: notification.sender,
+    chatName: notification.chatName,
+    deviceId: notification.deviceId,
+    packageName: notification.packageName,
+    receivedAt: notification.receivedAt.toISOString(),
+    createdAt: notification.createdAt.toISOString(),
+    reservationId: notification.reservationId,
+    reservationEmail: notification.reservation?.email || null,
+    reservationMailbox: notification.reservation?.mailbox || null,
+    reservationExpiresAt:
+      notification.reservation?.expiresAt.toISOString() || null,
+    managedIdentityId:
+      managedIdentity?.identityId ||
+      notification.reservation?.identityId ||
+      null,
+    managedIdentityLabel: managedIdentity?.label || null,
+    managedIdentityAccount: managedIdentity?.email || null,
+    managedIdentityStatus: managedIdentity?.status || null,
+    latestCode: latestCode?.code || notification.verificationCode || null,
+    latestCodeSource:
+      latestCode?.source ||
+      (notification.verificationCode ? 'WHATSAPP_NOTIFICATION' : null),
+    latestCodeReceivedAt:
+      latestCode?.receivedAt ||
+      (notification.verificationCode
+        ? notification.receivedAt.toISOString()
+        : null),
   }
 }
 
@@ -676,6 +843,19 @@ function normalizeOptionalString(value: string | null | undefined) {
   return normalized || undefined
 }
 
+function readOptionalJsonString(value: unknown) {
+  if (typeof value === 'string') {
+    return normalizeOptionalString(value)
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+  return undefined
+}
+
 function normalizeOptionalEmail(value: string | null | undefined) {
   return normalizeOptionalString(value)?.toLowerCase()
 }
@@ -715,6 +895,191 @@ function normalizeJsonPayload(
   }
 }
 
+function readJsonPath(value: JsonRecord, path: string) {
+  const parts = path.split('.')
+  let current: unknown = value
+
+  for (const part of parts) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      return undefined
+    }
+    current = (current as JsonRecord)[part]
+  }
+
+  return current
+}
+
+function collectJsonPayloadCandidates(
+  value: JsonRecord | null | undefined,
+): JsonRecord[] {
+  if (!value) {
+    return []
+  }
+
+  const candidates = [value]
+  for (const key of ['data', 'notification', 'rawPayload', 'extra', 'extras']) {
+    const candidate = value[key]
+    if (
+      candidate &&
+      typeof candidate === 'object' &&
+      !Array.isArray(candidate)
+    ) {
+      candidates.push(candidate as JsonRecord)
+    }
+  }
+
+  return candidates
+}
+
+function readStringFromJsonPayloadCandidates(
+  candidates: JsonRecord[],
+  keys: string[],
+) {
+  for (const candidate of candidates) {
+    for (const key of keys) {
+      const value = readOptionalJsonString(
+        key.includes('.') ? readJsonPath(candidate, key) : candidate[key],
+      )
+      if (value) {
+        return value
+      }
+    }
+  }
+
+  return undefined
+}
+
+function normalizeWhatsAppReceivedAt(value: string | null | undefined) {
+  const normalized = normalizeOptionalString(value)
+  if (!normalized) {
+    return new Date()
+  }
+
+  const numeric = Number(normalized)
+  if (Number.isFinite(numeric)) {
+    const timestampMs = numeric < 10_000_000_000 ? numeric * 1000 : numeric
+    const date = new Date(timestampMs)
+    if (!Number.isNaN(date.getTime())) {
+      return date
+    }
+  }
+
+  const date = new Date(normalized)
+  return Number.isNaN(date.getTime()) ? new Date() : date
+}
+
+function normalizeWhatsAppPackageName(value: string | null | undefined) {
+  const normalized = normalizeOptionalString(value)
+  if (!normalized) {
+    return undefined
+  }
+  if (/^com\.whatsapp(?:\.w4b)?$/i.test(normalized)) {
+    return normalized.toLowerCase()
+  }
+  if (/whats\s*app/i.test(normalized)) {
+    return /business|w4b/i.test(normalized)
+      ? 'com.whatsapp.w4b'
+      : 'com.whatsapp'
+  }
+  return normalized
+}
+
+function resolveWhatsAppNotificationFields(
+  params: WhatsAppNotificationPayload,
+) {
+  const rawPayload = normalizeJsonPayload(params.rawPayload)
+  const candidates = collectJsonPayloadCandidates(rawPayload)
+
+  return {
+    rawPayload,
+    deviceId:
+      normalizeOptionalString(params.deviceId) ||
+      readStringFromJsonPayloadCandidates(candidates, [
+        'deviceId',
+        'device_id',
+      ]),
+    notificationId:
+      normalizeOptionalString(params.notificationId) ||
+      readStringFromJsonPayloadCandidates(candidates, [
+        'notificationId',
+        'notification_id',
+        'key',
+        'id',
+      ]),
+    packageName: normalizeWhatsAppPackageName(
+      normalizeOptionalString(params.packageName) ||
+        readStringFromJsonPayloadCandidates(candidates, [
+          'packageName',
+          'package',
+          'package_name',
+          'appPackage',
+          'app_package',
+          'pkg',
+          'app',
+          'appName',
+          'app_name',
+        ]),
+    ),
+    sender:
+      normalizeOptionalString(params.sender) ||
+      readStringFromJsonPayloadCandidates(candidates, [
+        'sender',
+        'senderPhone',
+        'from',
+        'phone',
+        'address',
+        'contact',
+        'title',
+        'android.title',
+      ]),
+    chatName:
+      normalizeOptionalString(params.chatName) ||
+      readStringFromJsonPayloadCandidates(candidates, [
+        'chatName',
+        'conversation',
+        'conversationTitle',
+        'android.conversationTitle',
+        'group',
+        'thread',
+      ]),
+    title:
+      normalizeOptionalString(params.title) ||
+      readStringFromJsonPayloadCandidates(candidates, [
+        'title',
+        'notificationTitle',
+        'android.title',
+        'conversationTitle',
+        'subject',
+      ]),
+    body:
+      normalizeOptionalString(params.body) ||
+      readStringFromJsonPayloadCandidates(candidates, [
+        'body',
+        'content',
+        'text',
+        'message',
+        'notificationContent',
+        'notificationText',
+        'android.text',
+        'android.bigText',
+        'bigText',
+        'tickerText',
+        'summary',
+      ]),
+    receivedAt: normalizeWhatsAppReceivedAt(
+      params.receivedAt ||
+        readStringFromJsonPayloadCandidates(candidates, [
+          'receivedAt',
+          'received_at',
+          'timestamp',
+          'time',
+          'date',
+          'postTime',
+        ]),
+    ),
+  }
+}
+
 function stringifyJsonPayloadForExtraction(
   value: Record<string, unknown> | null | undefined,
 ) {
@@ -751,9 +1116,9 @@ function parseEmailContentFromRawPayload(
   try {
     const parsedMail = extractLetterMail(rawSource)
     return {
-      subject: normalizeStoredEmailContent(parsedMail.subject),
-      htmlBody: normalizeStoredEmailContent(parsedMail.html),
-      textBody: normalizeStoredEmailContent(parsedMail.text),
+      subject: normalizeStoredEmailContent(parsedMail.subject) ?? null,
+      htmlBody: normalizeStoredEmailContent(parsedMail.html) ?? null,
+      textBody: normalizeStoredEmailContent(parsedMail.text) ?? null,
     }
   } catch {
     return null
@@ -1579,19 +1944,11 @@ export async function ingestWhatsAppNotification(
   })
   const reservation =
     reservationMatch.status === 'matched' ? reservationMatch.reservation : null
-  const receivedAt = params.receivedAt
-    ? new Date(params.receivedAt)
-    : new Date()
-  const normalizedReceivedAt = Number.isNaN(receivedAt.getTime())
-    ? new Date()
-    : receivedAt
-  const title = normalizeOptionalString(params.title)
-  const body = normalizeOptionalString(params.body)
-  const rawPayload = normalizeJsonPayload(params.rawPayload)
+  const fields = resolveWhatsAppNotificationFields(params)
   const extractedCode = extractWhatsAppNotificationCode({
-    title,
-    body,
-    rawPayload,
+    title: fields.title,
+    body: fields.body,
+    rawPayload: fields.rawPayload,
     extractedCode: params.extractedCode,
   })
 
@@ -1600,16 +1957,16 @@ export async function ingestWhatsAppNotification(
     .values({
       id: createId(),
       reservationId: reservation?.id,
-      deviceId: normalizeOptionalString(params.deviceId),
-      notificationId: normalizeOptionalString(params.notificationId),
-      packageName: normalizeOptionalString(params.packageName),
-      sender: normalizeOptionalString(params.sender),
-      chatName: normalizeOptionalString(params.chatName),
-      title,
-      body,
-      rawPayload,
+      deviceId: fields.deviceId,
+      notificationId: fields.notificationId,
+      packageName: fields.packageName,
+      sender: fields.sender,
+      chatName: fields.chatName,
+      title: fields.title,
+      body: fields.body,
+      rawPayload: fields.rawPayload,
       verificationCode: extractedCode,
-      receivedAt: normalizedReceivedAt,
+      receivedAt: fields.receivedAt,
     })
     .returning()
 
@@ -1623,7 +1980,7 @@ export async function ingestWhatsAppNotification(
         code: extractedCode,
         source: 'WHATSAPP_NOTIFICATION',
         messageId: notificationRecord.id,
-        receivedAt: normalizedReceivedAt,
+        receivedAt: fields.receivedAt,
       })
       .onConflictDoNothing({
         target: [
@@ -1647,6 +2004,30 @@ export async function ingestWhatsAppNotification(
         source: codeRecord.source,
         receivedAt: codeRecord.receivedAt,
       }),
+    )
+  }
+
+  if (hasAdminVerificationMessageSubscribers()) {
+    const latestCode = reservation?.id
+      ? (await getLatestCodeByReservationId([reservation.id])).get(
+          reservation.id,
+        )
+      : undefined
+    const managedIdentity = reservation?.identityId
+      ? (
+          await getManagedIdentitySummaryByIdentityId([reservation.identityId])
+        ).get(reservation.identityId)
+      : undefined
+
+    publishAdminVerificationMessageEvent(
+      serializeAdminInboxWhatsAppNotification(
+        {
+          ...notificationRecord,
+          reservation,
+        },
+        latestCode,
+        managedIdentity,
+      ),
     )
   }
 
@@ -1769,7 +2150,7 @@ export async function ingestCloudflareEmail(params: {
     )
   }
 
-  if (hasAdminInboxEmailSubscribers()) {
+  if (hasAdminVerificationMessageSubscribers()) {
     const latestCode = reservation?.id
       ? (await getLatestCodeByReservationId([reservation.id])).get(
           reservation.id,
@@ -1781,8 +2162,8 @@ export async function ingestCloudflareEmail(params: {
         ).get(reservation.identityId)
       : undefined
 
-    publishAdminInboxEmailEvent(
-      serializeAdminInboxEmail(
+    publishAdminVerificationMessageEvent(
+      serializeAdminVerificationMessage(
         {
           ...emailRecord,
           reservation,
@@ -1801,76 +2182,41 @@ export async function ingestCloudflareEmail(params: {
   }
 }
 
-export async function listAdminInboxEmails(options?: { limit?: number }) {
+export async function listAdminVerificationMessages(options?: {
+  limit?: number
+}) {
   return (
-    await listAdminInboxEmailsPage({
+    await listAdminVerificationMessagesPage({
       page: 1,
       pageSize: options?.limit ?? 100,
     })
-  ).emails
+  ).messages
 }
 
-export async function listAdminInboxEmailsPage(options?: {
+export async function listAdminVerificationMessagesPage(options?: {
   page?: number
   pageSize?: number
   search?: string | null
   filters?: FiltersState
-}): Promise<AdminInboxPage> {
-  const params = normalizeAdminInboxPageParams(options)
-  const db = getDb()
-  const filter = combineConditions([
-    buildAdminInboxSearchFilter(params.search),
-    buildAdminInboxFilters(db, params.filters),
+}): Promise<AdminVerificationMessagesPage> {
+  const params = normalizeAdminVerificationMessagesPageParams(options)
+  const candidateLimit = Math.max(params.page * params.pageSize * 4, 250)
+  const candidates = await hydrateAdminInboxMessages([
+    ...(await listSerializedEmailMessages({ limit: candidateLimit })),
+    ...(await listSerializedWhatsAppMessages({ limit: candidateLimit })),
   ])
+  const filteredMessages = candidates
+    .filter((message) => messageMatchesAdminInboxParams(message, params))
+    .sort(compareAdminInboxMessages)
 
-  const totalCountResult = filter
-    ? await db.select({ count: count() }).from(emailIngestRecords).where(filter)
-    : await db.select({ count: count() }).from(emailIngestRecords)
-  const totalCount = Number(totalCountResult[0]?.count ?? 0)
+  const totalCount = filteredMessages.length
   const pageCount = totalCount ? Math.ceil(totalCount / params.pageSize) : 0
   const page = Math.min(params.page, Math.max(1, pageCount || 1))
   const offset = (page - 1) * params.pageSize
-
-  const emails = await db.query.emailIngestRecords.findMany({
-    with: {
-      reservation: true,
-    },
-    where: filter,
-    orderBy: [desc(emailIngestRecords.createdAt), desc(emailIngestRecords.id)],
-    limit: params.pageSize,
-    offset,
-  })
-
-  const reservationIds = Array.from(
-    new Set(
-      emails
-        .map((email) => email.reservationId)
-        .filter((reservationId): reservationId is string =>
-          Boolean(reservationId),
-        ),
-    ),
-  )
-  const latestCodes = await getLatestCodeByReservationId(reservationIds)
-  const identityIds = Array.from(
-    new Set(
-      emails
-        .map((email) => email.reservation?.identityId)
-        .filter((identityId): identityId is string => Boolean(identityId)),
-    ),
-  )
-  const managedIdentityById =
-    await getManagedIdentitySummaryByIdentityId(identityIds)
+  const messages = filteredMessages.slice(offset, offset + params.pageSize)
 
   return {
-    emails: emails.map((email) =>
-      serializeAdminInboxEmail(
-        email,
-        email.reservationId ? latestCodes.get(email.reservationId) : undefined,
-        email.reservation?.identityId
-          ? managedIdentityById.get(email.reservation.identityId)
-          : undefined,
-      ),
-    ),
+    messages,
     page,
     pageSize: params.pageSize,
     totalCount,
@@ -1881,32 +2227,34 @@ export async function listAdminInboxEmailsPage(options?: {
   }
 }
 
-export async function listAdminInboxEmailsAfterCursor(options?: {
+export async function listAdminVerificationMessagesAfterCursor(options?: {
   cursor?: string | null
   limit?: number
 }) {
   const cursor = decodeAdminInboxCursor(options?.cursor)
-  const emails = await getDb().query.emailIngestRecords.findMany({
-    with: {
-      reservation: true,
-    },
-    where: cursor
-      ? or(
-          gt(emailIngestRecords.createdAt, cursor.createdAt),
-          and(
-            eq(emailIngestRecords.createdAt, cursor.createdAt),
-            gt(emailIngestRecords.id, cursor.id),
-          ),
-        )
-      : undefined,
-    orderBy: [asc(emailIngestRecords.createdAt), asc(emailIngestRecords.id)],
-    limit: options?.limit ?? 20,
-  })
+  const limit = options?.limit ?? 20
+  const messages = await hydrateAdminInboxMessages([
+    ...(await listSerializedEmailMessages({ cursor, limit, order: 'asc' })),
+    ...(await listSerializedWhatsAppMessages({ cursor, limit, order: 'asc' })),
+  ])
 
+  return messages
+    .filter(
+      (message) =>
+        !cursor ||
+        message.cursor.localeCompare(encodeAdminInboxCursor(cursor)) > 0,
+    )
+    .sort((left, right) => -compareAdminInboxMessages(left, right))
+    .slice(0, limit)
+}
+
+async function hydrateAdminInboxMessages(
+  messages: AdminVerificationMessage[],
+): Promise<AdminVerificationMessage[]> {
   const reservationIds = Array.from(
     new Set(
-      emails
-        .map((email) => email.reservationId)
+      messages
+        .map((message) => message.reservationId)
         .filter((reservationId): reservationId is string =>
           Boolean(reservationId),
         ),
@@ -1915,22 +2263,89 @@ export async function listAdminInboxEmailsAfterCursor(options?: {
   const latestCodes = await getLatestCodeByReservationId(reservationIds)
   const identityIds = Array.from(
     new Set(
-      emails
-        .map((email) => email.reservation?.identityId)
+      messages
+        .map((message) => message.managedIdentityId)
         .filter((identityId): identityId is string => Boolean(identityId)),
     ),
   )
   const managedIdentityById =
     await getManagedIdentitySummaryByIdentityId(identityIds)
 
-  return emails.map((email) =>
-    serializeAdminInboxEmail(
-      email,
-      email.reservationId ? latestCodes.get(email.reservationId) : undefined,
-      email.reservation?.identityId
-        ? managedIdentityById.get(email.reservation.identityId)
-        : undefined,
-    ),
+  return messages.map((message) => {
+    const latestCode = message.reservationId
+      ? latestCodes.get(message.reservationId)
+      : undefined
+    const managedIdentity = message.managedIdentityId
+      ? managedIdentityById.get(message.managedIdentityId)
+      : undefined
+
+    return {
+      ...message,
+      managedIdentityId:
+        managedIdentity?.identityId || message.managedIdentityId,
+      managedIdentityLabel:
+        managedIdentity?.label || message.managedIdentityLabel,
+      managedIdentityAccount:
+        managedIdentity?.email || message.managedIdentityAccount,
+      managedIdentityStatus:
+        managedIdentity?.status || message.managedIdentityStatus,
+      latestCode: latestCode?.code || message.latestCode,
+      latestCodeSource: latestCode?.source || message.latestCodeSource,
+      latestCodeReceivedAt:
+        latestCode?.receivedAt || message.latestCodeReceivedAt,
+    }
+  })
+}
+
+async function listSerializedEmailMessages(options?: {
+  cursor?: AdminInboxCursor | null
+  limit?: number
+  order?: 'asc' | 'desc'
+}) {
+  const order = options?.order === 'asc' ? asc : desc
+  const rows = await getDb().query.emailIngestRecords.findMany({
+    with: {
+      reservation: true,
+    },
+    where: buildAdminInboxEmailCursorFilter(options?.cursor ?? null),
+    orderBy: [
+      order(emailIngestRecords.createdAt),
+      order(emailIngestRecords.id),
+    ],
+    limit: options?.limit,
+  })
+
+  return rows.map((email) =>
+    serializeAdminVerificationMessage({
+      ...email,
+      reservation: email.reservation,
+    }),
+  )
+}
+
+async function listSerializedWhatsAppMessages(options?: {
+  cursor?: AdminInboxCursor | null
+  limit?: number
+  order?: 'asc' | 'desc'
+}) {
+  const order = options?.order === 'asc' ? asc : desc
+  const rows = await getDb().query.whatsappNotificationIngestRecords.findMany({
+    with: {
+      reservation: true,
+    },
+    where: buildAdminInboxWhatsAppCursorFilter(options?.cursor ?? null),
+    orderBy: [
+      order(whatsappNotificationIngestRecords.createdAt),
+      order(whatsappNotificationIngestRecords.id),
+    ],
+    limit: options?.limit,
+  })
+
+  return rows.map((notification) =>
+    serializeAdminInboxWhatsAppNotification({
+      ...notification,
+      reservation: notification.reservation,
+    }),
   )
 }
 

@@ -1,5 +1,5 @@
 export const adminPermissionValues = [
-  'MAIL_INBOX',
+  'VERIFICATION_MESSAGES',
   'MANAGED_IDENTITIES',
   'CLI_OPERATIONS',
   'MANAGED_SESSIONS',
@@ -14,7 +14,7 @@ export type AdminPermission = (typeof adminPermissionValues)[number]
 const legacyAdminPermissionAliases: Record<string, readonly AdminPermission[]> =
   {
     OPERATIONS: [
-      'MAIL_INBOX',
+      'VERIFICATION_MESSAGES',
       'MANAGED_IDENTITIES',
       'CLI_OPERATIONS',
       'MANAGED_SESSIONS',
@@ -26,7 +26,7 @@ const legacyAdminPermissionAliases: Record<string, readonly AdminPermission[]> =
 const adminPermissionSet = new Set<string>(adminPermissionValues)
 
 export const defaultAdminRouteByPermission: Record<AdminPermission, string> = {
-  MAIL_INBOX: '/admin/emails',
+  VERIFICATION_MESSAGES: '/admin/verification-messages',
   MANAGED_IDENTITIES: '/admin/identities',
   CLI_OPERATIONS: '/admin/cli',
   MANAGED_SESSIONS: '/admin/sessions',

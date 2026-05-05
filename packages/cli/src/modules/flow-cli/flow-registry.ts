@@ -81,6 +81,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'androidAppPackage'
   | 'androidAppActivity'
   | 'androidNoReset'
+  | 'codeyAndroidAppPackage'
 
 export type CliFlowConfigFieldDescriptionKey =
   | 'chromeDefaultProfile'
@@ -120,6 +121,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'androidAppPackage'
   | 'androidAppActivity'
   | 'androidNoReset'
+  | 'codeyAndroidAppPackage'
 
 export type CliFlowConfigFieldKey =
   | 'chromeDefaultProfile'
@@ -159,6 +161,7 @@ export type CliFlowConfigFieldKey =
   | 'androidAppPackage'
   | 'androidAppActivity'
   | 'androidNoReset'
+  | 'codeyAndroidAppPackage'
 
 export interface CliFlowConfigFieldDefinition {
   key: CliFlowConfigFieldKey
@@ -266,6 +269,11 @@ export interface AndroidCommonFlowConfig {
    * Preserve app/device state between runs.
    */
   androidNoReset?: boolean
+
+  /**
+   * Installed CodeyApp package used by Android UiAutomator flows.
+   */
+  codeyAndroidAppPackage?: string
 }
 
 export interface ChatGPTTeamTrialBillingFlowConfig {
@@ -817,6 +825,13 @@ export const cliFlowConfigFieldDefinitions = [
     displayNameKey: 'androidNoReset',
     descriptionKey: 'androidNoReset',
   },
+  {
+    key: 'codeyAndroidAppPackage',
+    cliFlag: '--codeyAndroidAppPackage',
+    type: 'string',
+    displayNameKey: 'codeyAndroidAppPackage',
+    descriptionKey: 'codeyAndroidAppPackage',
+  },
 ] as const satisfies readonly CliFlowConfigFieldDefinition[]
 
 export const cliFlowDefinitions = [
@@ -870,7 +885,12 @@ export const cliFlowDefinitions = [
     runtime: 'browser',
     displayNameKey: 'chatgptTeamTrialGoPay',
     descriptionKey: 'chatgptTeamTrialGoPay',
-    configKeys: ['paymentRedirectUrl', 'pollIntervalMs'],
+    configKeys: [
+      'paymentRedirectUrl',
+      'pollIntervalMs',
+      'androidUdid',
+      'codeyAndroidAppPackage',
+    ],
   },
   {
     id: 'chatgpt-invite',
@@ -916,6 +936,7 @@ export const cliFlowDefinitions = [
       'androidAppPackage',
       'androidAppActivity',
       'androidNoReset',
+      'codeyAndroidAppPackage',
     ],
   },
   {

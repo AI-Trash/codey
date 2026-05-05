@@ -98,7 +98,12 @@ describe('flow registry', () => {
 
     expect(getCliFlowDefinition('chatgpt-team-trial-gopay')).toMatchObject({
       id: 'chatgpt-team-trial-gopay',
-      configKeys: ['paymentRedirectUrl', 'pollIntervalMs'],
+      configKeys: [
+        'paymentRedirectUrl',
+        'pollIntervalMs',
+        'androidUdid',
+        'codeyAndroidAppPackage',
+      ],
     })
     expect(
       normalizeCliFlowTaskPayload({
@@ -108,6 +113,8 @@ describe('flow registry', () => {
           paymentRedirectUrl:
             ' https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking ',
           pollIntervalMs: '5000',
+          androidUdid: ' emulator-5554 ',
+          codeyAndroidAppPackage: ' com.codey.app ',
           proxyTag: ' singapore ',
           email: 'ignored@example.com',
         },
@@ -119,6 +126,8 @@ describe('flow registry', () => {
         paymentRedirectUrl:
           'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking',
         pollIntervalMs: 5000,
+        androidUdid: 'emulator-5554',
+        codeyAndroidAppPackage: 'com.codey.app',
         proxyTag: 'singapore',
       },
     })
@@ -257,6 +266,7 @@ describe('flow registry', () => {
         'androidAppPackage',
         'androidAppActivity',
         'androidNoReset',
+        'codeyAndroidAppPackage',
       ],
     })
 

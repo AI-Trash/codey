@@ -1,5 +1,3 @@
-import { extractVerificationCodeFromText } from '../../../src/lib/shared/verification-code'
-
 export interface Env {
   CODEY_INGEST_URL: string
   CODEY_WEBHOOK_SECRET: string
@@ -37,7 +35,6 @@ export default {
       rawPayload: raw,
       messageId: message.headers.get('message-id') || undefined,
       receivedAt: timestamp,
-      extractedCode: extractVerificationCodeFromText(raw),
     })
     const signature = await hmacSha256(
       env.CODEY_WEBHOOK_SECRET,

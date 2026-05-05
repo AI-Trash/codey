@@ -1363,9 +1363,9 @@ function startCliWhatsAppNotificationWebhook(
     },
     onNotification(event, payload, ingestResult) {
       writeCliStderrLine(
-        `[${command}:whatsapp-webhook] ${event.packageName} notification${
-          payload.extractedCode ? ` code=${payload.extractedCode}` : ''
-        }${formatWhatsAppIngestMatchSuffix(ingestResult)}`,
+        `[${command}:whatsapp-webhook] ${event.packageName} notification${formatWhatsAppIngestMatchSuffix(
+          ingestResult,
+        )}`,
       )
     },
   })

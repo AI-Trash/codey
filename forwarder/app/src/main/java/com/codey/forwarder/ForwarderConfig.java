@@ -1,4 +1,4 @@
-package com.codey.forwarder;
+package com.codey.app;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -8,9 +8,9 @@ import org.json.JSONObject;
 
 final class ForwarderConfig {
     static final String DEFAULT_WEBHOOK_URL =
-        "http://10.0.2.2:3001/webhooks/forwarder/whatsapp";
+        "http://10.0.2.2:3001/webhooks/codey-app/whatsapp";
 
-    private static final String PREFS_NAME = "codey_forwarder";
+    private static final String PREFS_NAME = "codey_app";
     private static final String KEY_WEBHOOK_URL = "webhook_url";
     private static final String KEY_DEVICE_ID = "device_id";
     private static final String KEY_FORWARD_ENABLED = "forward_enabled";

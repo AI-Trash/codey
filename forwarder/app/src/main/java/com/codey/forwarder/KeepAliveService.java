@@ -1,4 +1,4 @@
-package com.codey.forwarder;
+package com.codey.app;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -9,7 +9,7 @@ import android.os.Build;
 import android.os.IBinder;
 
 public class KeepAliveService extends Service {
-    private static final String KEEP_ALIVE_CHANNEL_ID = "codey_forwarder_keep_alive";
+    private static final String KEEP_ALIVE_CHANNEL_ID = "codey_app_keep_alive";
     private static final int KEEP_ALIVE_NOTIFICATION_ID = 1001;
 
     @Override
@@ -36,11 +36,11 @@ public class KeepAliveService extends Service {
 
         NotificationChannel channel = new NotificationChannel(
             KEEP_ALIVE_CHANNEL_ID,
-            "Codey Forwarder",
+            "CodeyApp",
             NotificationManager.IMPORTANCE_LOW
         );
         channel.setDescription(
-            "Keeps Codey Forwarder visible while it listens for WhatsApp notifications."
+            "Keeps CodeyApp visible while it listens for WhatsApp notifications."
         );
         getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
@@ -52,7 +52,7 @@ public class KeepAliveService extends Service {
 
         return builder
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Codey Forwarder is ready")
+            .setContentTitle("CodeyApp is ready")
             .setContentText("Listening for WhatsApp verification notifications.")
             .setOngoing(true)
             .build();

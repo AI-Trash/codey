@@ -182,7 +182,7 @@ describe('resolveConfig Android Appium config', () => {
       enabled: true,
       host: '127.0.0.1',
       port: 3001,
-      path: '/webhooks/forwarder/whatsapp',
+      path: '/webhooks/codey-app/whatsapp',
       deviceId: undefined,
     })
     expect(config.singBox).toEqual({
@@ -235,6 +235,7 @@ describe('resolveConfig Android Appium config', () => {
       androidAppPackage: 'com.example.app',
       androidAppActivity: '.MainActivity',
       androidNoReset: false,
+      codeyAndroidAppPackage: 'com.example.codey',
     }
     const config = buildRuntimeConfig('flow:android-healthcheck', options)
 
@@ -247,6 +248,7 @@ describe('resolveConfig Android Appium config', () => {
       appPackage: 'com.example.app',
       appActivity: '.MainActivity',
       noReset: false,
+      codeyAppPackage: 'com.example.codey',
     })
   })
 })

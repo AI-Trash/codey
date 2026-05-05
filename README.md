@@ -206,7 +206,7 @@ environment variables.
 
 Pass `--recordPageContent true` on any flow to save the final settled `page.content()` HTML under `artifacts/` as a `*-page-content.html` file. This is intended for developing new page branches after upstream UI changes.
 
-Android automation flows use Appium through WebdriverIO. Configure the Appium
+Standalone Android healthcheck flows use Appium through WebdriverIO. Configure the Appium
 endpoint with `APPIUM_SERVER_URL` or `--appiumServerUrl`; device and app
 capabilities can be provided with `ANDROID_UDID`, `ANDROID_DEVICE_NAME`,
 `ANDROID_PLATFORM_VERSION`, `ANDROID_APP_PACKAGE`, `ANDROID_APP_ACTIVITY`, or
@@ -214,12 +214,22 @@ the matching `--android*` CLI flags. `codey android-healthcheck` is a minimal
 session lifecycle check that opens an Android session and reports the connected
 device details.
 
-When the CLI remote worker starts, Codey also starts a local Forwarder webhook
+GoPay unlink automation uses the installed CodeyApp by default instead of
+Appium. Install `forwarder/` as `com.codey.app`; the CLI starts CodeyApp's
+AndroidX UiAutomator instrumentation through
+`adb shell su -c am instrument ...`, so the target device must allow root for
+the CLI path. The Android app itself also has a root fastpath and a Shizuku
+fallback from its **Run GoPay Unlink** button.
+Set `CODEY_ANDROID_APP_PACKAGE` when using a custom app id. Set
+`CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_APPIUM_FALLBACK=true` only if you want the CLI
+to fall back to the old Appium GoPay unlink path when CodeyApp automation fails.
+
+When the CLI remote worker starts, Codey also starts a local CodeyApp webhook
 endpoint for WhatsApp verification notifications. The Android app lives in
 `forwarder/` and defaults to the emulator URL:
 
 ```text
-http://10.0.2.2:3001/webhooks/forwarder/whatsapp
+http://10.0.2.2:3001/webhooks/codey-app/whatsapp
 ```
 
 The endpoint accepts JSON, form-encoded, or plain-text webhook bodies and
@@ -231,14 +241,15 @@ Optional overrides:
 ```env
 FORWARDER_WEBHOOK_HOST=127.0.0.1
 FORWARDER_WEBHOOK_PORT=3001
-FORWARDER_WEBHOOK_PATH=/webhooks/forwarder/whatsapp
+FORWARDER_WEBHOOK_PATH=/webhooks/codey-app/whatsapp
 FORWARDER_DEVICE_ID=emulator-5554
+CODEY_ANDROID_APP_PACKAGE=com.codey.app
 ```
 
 For a real Android phone, either set `FORWARDER_WEBHOOK_HOST=0.0.0.0` and use
-`http://<computer-lan-ip>:3001/webhooks/forwarder/whatsapp` in the app, or keep
+`http://<computer-lan-ip>:3001/webhooks/codey-app/whatsapp` in the app, or keep
 the loopback host and run `adb reverse tcp:3001 tcp:3001`, then use
-`http://127.0.0.1:3001/webhooks/forwarder/whatsapp` on the phone.
+`http://127.0.0.1:3001/webhooks/codey-app/whatsapp` on the phone.
 
 ### CLI logs
 
@@ -366,10 +377,10 @@ The workflow syncs `CODEY_INGEST_URL` and `CODEY_WEBHOOK_SECRET` into the Worker
 
 ## WhatsApp notification ingest
 
-The CLI remote worker exposes a local Forwarder endpoint by default:
+The CLI remote worker exposes a local CodeyApp endpoint by default:
 
 ```text
-POST http://127.0.0.1:3001/webhooks/forwarder/whatsapp
+POST http://127.0.0.1:3001/webhooks/codey-app/whatsapp
 ```
 
 The Android app in `forwarder/` sends WhatsApp notification payloads to that
@@ -403,7 +414,7 @@ Recommended payload:
 
 `reservationId` is preferred. `email`, `targetEmail`, or `reservationEmail` can also bind the notification to an existing email reservation. If no hint is provided, Codey only auto-attaches the code when exactly one unexpired generated verification reservation exists; otherwise it stores the WhatsApp notification without publishing a code to any waiting flow.
 
-### Android Forwarder setup
+### Android CodeyApp setup
 
 Build or install the Android app from `forwarder/`. For an emulator, the app's
 default webhook URL already points at the host machine through `10.0.2.2`. For a
@@ -413,14 +424,14 @@ tcp:3001` and keep the phone URL on `127.0.0.1`.
 
 After installing the app:
 
-1. Open Codey Forwarder and tap **Notification Access**.
-2. Enable notification access for Codey Forwarder.
+1. Open CodeyApp and tap **Notification Access**.
+2. Enable notification access for CodeyApp.
 3. Return to the app and tap **Start Keep Alive**.
 4. Tap **Battery Settings** and allow unrestricted/background battery usage for
-   Codey Forwarder. On Xiaomi/OPPO/Vivo/Huawei-style ROMs, also enable
-   autostart/locked app/no background cleanup for Codey Forwarder.
+   CodeyApp. On Xiaomi/OPPO/Vivo/Huawei-style ROMs, also enable
+   autostart/locked app/no background cleanup for CodeyApp.
 5. Tap **Send Test Payload** while `pnpm codey` is running; the CLI should log a
-   Forwarder WhatsApp webhook event with code `123456`.
+   CodeyApp WhatsApp webhook event with code `123456`.
 
 ## Build and validation
 

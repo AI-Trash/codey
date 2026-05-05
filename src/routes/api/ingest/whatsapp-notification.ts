@@ -55,6 +55,7 @@ export const Route = createFileRoute('/api/ingest/whatsapp-notification')({
         }
 
         const body = payload as WhatsAppNotificationIngestPayload
+        const rawPayload = getRawPayload(body)
         const result = await ingestWhatsAppNotification({
           reservationId: body.reservationId,
           email: body.email || body.targetEmail || body.reservationEmail,
@@ -65,8 +66,11 @@ export const Route = createFileRoute('/api/ingest/whatsapp-notification')({
           chatName: body.chatName,
           title: body.title || body.notificationTitle,
           body: body.body || body.text || body.message,
-          rawPayload: getRawPayload(body),
-          extractedCode: body.extractedCode,
+          rawPayload,
+          extractedCode:
+            typeof body.extractedCode === 'string'
+              ? body.extractedCode
+              : undefined,
           receivedAt: body.receivedAt,
         })
 

@@ -1,4 +1,4 @@
-package com.codey.forwarder;
+package com.codey.app;
 
 final class ForwarderStatus {
     final String message;

@@ -249,6 +249,7 @@ export function buildRuntimeConfig(
     androidAppPackage?: string
     androidAppActivity?: string
     androidNoReset?: string | boolean
+    codeyAndroidAppPackage?: string
   }
   const androidRuntimeOverrides: Partial<
     NonNullable<CliRuntimeConfig['android']>
@@ -277,6 +278,9 @@ export function buildRuntimeConfig(
       : {}),
     ...(androidOptions.androidNoReset !== undefined
       ? { noReset: parseBooleanFlag(androidOptions.androidNoReset) }
+      : {}),
+    ...(androidOptions.codeyAndroidAppPackage !== undefined
+      ? { codeyAppPackage: androidOptions.codeyAndroidAppPackage }
       : {}),
   }
 

@@ -28,6 +28,7 @@ export interface AndroidCliConfig {
   appPackage?: string
   appActivity?: string
   noReset?: boolean
+  codeyAppPackage?: string
 }
 
 export interface ForwarderWebhookConfig {
@@ -157,6 +158,7 @@ export interface ChatGPTTeamTrialGoPayConfig {
   authorizationTimeoutMs?: number
   unlinkBeforeLink?: boolean
   unlinkTimeoutMs?: number
+  unlinkAppiumFallback?: boolean
 }
 
 export interface ChatGPTTeamTrialConfig {
@@ -391,6 +393,7 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
     'CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS',
     'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK',
     'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS',
+    'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_APPIUM_FALLBACK',
   ]
 
   if (!hasAnyDefinedEnv(relevantEnvNames)) {
@@ -426,6 +429,7 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
       'CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS',
       'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK',
       'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS',
+      'CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_APPIUM_FALLBACK',
     ])
       ? {
           gopay: {
@@ -446,6 +450,14 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
             unlinkTimeoutMs: parseOptionalNumber(
               process.env.CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS,
             ),
+            unlinkAppiumFallback: hasEnvValue(
+              process.env.CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_APPIUM_FALLBACK,
+            )
+              ? parseBoolean(
+                  process.env.CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_APPIUM_FALLBACK,
+                  false,
+                )
+              : undefined,
           },
         }
       : {}),
@@ -459,7 +471,7 @@ function buildForwarderWebhookConfig(): ForwarderWebhookConfig {
       : true,
     host: process.env.FORWARDER_WEBHOOK_HOST || '127.0.0.1',
     port: parseNumber(process.env.FORWARDER_WEBHOOK_PORT, 3001),
-    path: process.env.FORWARDER_WEBHOOK_PATH || '/webhooks/forwarder/whatsapp',
+    path: process.env.FORWARDER_WEBHOOK_PATH || '/webhooks/codey-app/whatsapp',
     deviceId: process.env.FORWARDER_DEVICE_ID,
   }
 }
@@ -580,6 +592,7 @@ function buildDefaultConfig(): AppConfig {
       noReset: hasEnvValue(process.env.ANDROID_NO_RESET)
         ? parseBoolean(process.env.ANDROID_NO_RESET, true)
         : true,
+      codeyAppPackage: process.env.CODEY_ANDROID_APP_PACKAGE || 'com.codey.app',
     },
     openai: {
       baseUrl: process.env.OPENAI_BASE_URL || 'https://openai.com',

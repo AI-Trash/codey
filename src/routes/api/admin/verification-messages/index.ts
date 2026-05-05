@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { deserializeDataTableFilters } from '../../../../lib/data-table-filters'
 import { requireAdminPermission } from '../../../../lib/server/auth'
 import { json, text } from '../../../../lib/server/http'
-import { listAdminInboxEmailsPage } from '../../../../lib/server/verification'
+import { listAdminVerificationMessagesPage } from '../../../../lib/server/verification'
 
 function readPositiveNumber(value: string | null) {
   if (!value) {
@@ -18,12 +18,12 @@ function readPositiveNumber(value: string | null) {
   return parsed
 }
 
-export const Route = createFileRoute('/api/admin/emails/')({
+export const Route = createFileRoute('/api/admin/verification-messages/')({
   server: {
     handlers: {
       GET: async ({ request }) => {
         try {
-          await requireAdminPermission(request, 'MAIL_INBOX')
+          await requireAdminPermission(request, 'VERIFICATION_MESSAGES')
         } catch (error) {
           return text(
             error instanceof Error ? error.message : 'Unauthorized',
@@ -40,7 +40,7 @@ export const Route = createFileRoute('/api/admin/emails/')({
         )
 
         return json(
-          await listAdminInboxEmailsPage({
+          await listAdminVerificationMessagesPage({
             page,
             pageSize,
             search,

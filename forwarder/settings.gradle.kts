@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Codey Forwarder"
+rootProject.name = "CodeyApp"
 include(":app")

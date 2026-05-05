@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.codey.forwarder"
+    namespace = "com.codey.app"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -11,7 +11,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.codey.forwarder"
+        applicationId = "com.codey.app"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -36,7 +36,15 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.annotation)
+    implementation(libs.androidx.test.uiautomator)
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+}
+
+configurations.configureEach {
+    resolutionStrategy.force("androidx.annotation:annotation:1.9.1")
 }

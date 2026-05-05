@@ -1,4 +1,4 @@
-package com.codey.forwarder;
+package com.codey.app;
 
 import static org.junit.Assert.assertEquals;
 
@@ -15,6 +15,6 @@ public class ExampleInstrumentedTest {
     @Test
     public void useAppContext() {
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
-        assertEquals("com.codey.forwarder", appContext.getPackageName());
+        assertEquals("com.codey.app", appContext.getPackageName());
     }
 }

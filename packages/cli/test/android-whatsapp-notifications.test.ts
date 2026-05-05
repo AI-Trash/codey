@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildWhatsAppNotificationIngestPayload,
   createWhatsAppNotificationDeduper,
-  extractVerificationCodeFromNotificationText,
   normalizeForwarderWhatsAppNotificationPayload,
   startWhatsAppNotificationWebhookServer,
 } from '../src/modules/android/whatsapp-notifications'
@@ -88,7 +87,7 @@ describe('Forwarder WhatsApp notification helpers', () => {
   it('normalizes Forwarder notification payloads', () => {
     expect(
       normalizeForwarderWhatsAppNotificationPayload({
-        source: 'codey-forwarder',
+        source: 'codey-app',
         packageName: 'com.whatsapp',
         title: 'OpenAI',
         body: 'Your verification code is 123456.',
@@ -99,7 +98,7 @@ describe('Forwarder WhatsApp notification helpers', () => {
       title: 'OpenAI',
       body: 'Your verification code is 123456.',
       rawPayload: {
-        source: 'codey-forwarder',
+        source: 'codey-app',
         packageName: 'com.whatsapp',
         title: 'OpenAI',
         body: 'Your verification code is 123456.',
@@ -107,12 +106,6 @@ describe('Forwarder WhatsApp notification helpers', () => {
       },
       receivedAt: '2026-04-30T17:50:00.000Z',
     })
-  })
-
-  it('extracts verification codes from localized notification text', () => {
-    expect(
-      extractVerificationCodeFromNotificationText('验证码：654321，请勿泄露'),
-    ).toBe('654321')
   })
 
   it('builds Codey ingest payloads with reservation hints', () => {
@@ -137,7 +130,7 @@ describe('Forwarder WhatsApp notification helpers', () => {
       deviceId: 'emulator-5554',
       notificationId: 'wa-1',
       packageName: 'com.whatsapp',
-      extractedCode: '246810',
+      body: 'Use code 246810 to continue.',
     })
   })
 
@@ -195,7 +188,7 @@ describe('Forwarder WhatsApp notification helpers', () => {
     const { url } = await handle.ready
 
     const response = await postJson(url, {
-      source: 'codey-forwarder',
+      source: 'codey-app',
       packageName: 'com.whatsapp',
       title: 'OpenAI',
       body: 'Your verification code is 135790.',
@@ -204,7 +197,6 @@ describe('Forwarder WhatsApp notification helpers', () => {
     expect(response.statusCode).toBe(200)
     expect(response.body).toMatchObject({
       ok: true,
-      extractedCode: '135790',
       notificationRecordId: 'notification-1',
       codeRecordId: 'code-1',
     })
@@ -214,7 +206,10 @@ describe('Forwarder WhatsApp notification helpers', () => {
         packageName: 'com.whatsapp',
         title: 'OpenAI',
         body: 'Your verification code is 135790.',
-        extractedCode: '135790',
+        rawPayload: expect.objectContaining({
+          source: 'codey-app',
+          body: 'Your verification code is 135790.',
+        }),
       }),
     )
   })
@@ -235,21 +230,22 @@ describe('Forwarder WhatsApp notification helpers', () => {
     openHandles.push(handle)
     const { url } = await handle.ready
     const rawBody =
-      '{"source":"codey-forwarder","packageName":"com.whatsapp","title":"GoPay","body":"Your code is\n135790"}'
+      '{"source":"codey-app","packageName":"com.whatsapp","title":"GoPay","body":"Your code is\n135790"}'
 
     const response = await postRaw(url, rawBody)
 
     expect(response.statusCode).toBe(200)
     expect(response.body).toMatchObject({
       ok: true,
-      extractedCode: '135790',
     })
     expect(ingestNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         packageName: 'com.whatsapp',
         title: 'GoPay',
         body: 'Your code is\n135790',
-        extractedCode: '135790',
+        rawPayload: expect.objectContaining({
+          body: 'Your code is\n135790',
+        }),
       }),
     )
   })
@@ -270,7 +266,7 @@ describe('Forwarder WhatsApp notification helpers', () => {
     openHandles.push(handle)
     const { url } = await handle.ready
     const rawBody = `{
-  "source": "codey-forwarder",
+  "source": "codey-app",
   "packageName": "com.whatsapp",
   "title": "GoPay\t",
   "body": "811997 is your verification code. For your security, do not share this code.",
@@ -282,14 +278,15 @@ describe('Forwarder WhatsApp notification helpers', () => {
     expect(response.statusCode).toBe(200)
     expect(response.body).toMatchObject({
       ok: true,
-      extractedCode: '811997',
     })
     expect(ingestNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         packageName: 'com.whatsapp',
         title: 'GoPay',
         body: '811997 is your verification code. For your security, do not share this code.',
-        extractedCode: '811997',
+        rawPayload: expect.objectContaining({
+          body: '811997 is your verification code. For your security, do not share this code.',
+        }),
       }),
     )
   })
@@ -304,7 +301,7 @@ describe('Forwarder WhatsApp notification helpers', () => {
     openHandles.push(handle)
     const { url } = await handle.ready
     const rawBody =
-      '{"source":"codey-forwarder","packageName":"com.whatsapp","body":"Your code is 135790"'
+      '{"source":"codey-app","packageName":"com.whatsapp","body":"Your code is 135790"'
 
     const response = await postRaw(url, rawBody)
 
