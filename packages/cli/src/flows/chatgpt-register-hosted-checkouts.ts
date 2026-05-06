@@ -35,6 +35,47 @@ import { getRuntimeConfig } from '../config'
 import { writeFileAtomic } from '../utils/fs'
 
 const HOSTED_CHECKOUT_DEFAULT_CURRENCY = 'USD'
+const HOSTED_CHECKOUT_SUPPORTED_CURRENCIES = [
+  'USD',
+  'AUD',
+  'CAD',
+  'GBP',
+  'EUR',
+  'CLP',
+  'JPY',
+  'INR',
+  'IDR',
+  'PKR',
+  'THB',
+  'MYR',
+  'TWD',
+  'VND',
+  'PHP',
+  'NGN',
+  'ZAR',
+  'KZT',
+  'TZS',
+  'EGP',
+  'BRL',
+  'SEK',
+  'CZK',
+  'PLN',
+  'DKK',
+  'NOK',
+  'KRW',
+  'COP',
+  'MXN',
+  'PEN',
+  'HUF',
+  'QAR',
+  'RON',
+  'ILS',
+  'AED',
+  'SGD',
+  'NZD',
+  'CHF',
+  'SAR',
+] as const
 const CHECKOUT_PAGE_SETTLE_TIMEOUT_MS = 30000
 
 export const CHATGPT_HOSTED_CHECKOUT_COUNTRIES = [
@@ -278,6 +319,8 @@ const HOSTED_CHECKOUT_COUNTRY_ALIASES = {
   US2: 'US',
   EU: 'IE',
 } as const satisfies Partial<Record<string, string>>
+const HOSTED_CHECKOUT_COUNTRY_ALIAS_MAP: Partial<Record<string, string>> =
+  HOSTED_CHECKOUT_COUNTRY_ALIASES
 
 const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   AE: 'AED',
@@ -396,6 +439,8 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   ZA: 'ZAR',
   ZM: 'ZMW',
 } as const satisfies Partial<Record<string, string>>
+const HOSTED_CHECKOUT_COUNTRY_CURRENCY_MAP: Partial<Record<string, string>> =
+  HOSTED_CHECKOUT_COUNTRY_CURRENCIES
 
 export type ChatGPTRegisterHostedCheckoutsFlowKind =
   'chatgpt-register-hosted-checkouts'
@@ -419,6 +464,7 @@ export type ChatGPTRegisterHostedCheckoutsFlowEvent =
   | 'chatgpt.coupon.selected'
   | 'chatgpt.checkout_link.creating'
   | 'chatgpt.checkout_link.created'
+  | 'chatgpt.checkout_link.skipped'
   | 'chatgpt.checkout_page.opened'
   | 'chatgpt.checkout_page.closed'
   | 'chatgpt.retry.requested'
@@ -438,6 +484,14 @@ export interface ChatGPTHostedCheckoutCountryLink {
   createdAt: string
 }
 
+export interface ChatGPTHostedCheckoutCountrySkip {
+  requestedCountry: string
+  billingCountry: string
+  billingCurrency: string
+  reason: string
+  skippedAt: string
+}
+
 export interface ChatGPTRegisterHostedCheckoutsContext<Result = unknown> {
   kind: ChatGPTRegisterHostedCheckoutsFlowKind
   url?: string
@@ -450,6 +504,7 @@ export interface ChatGPTRegisterHostedCheckoutsContext<Result = unknown> {
   currentIndex?: number
   totalCountries?: number
   checkoutLinks?: ChatGPTHostedCheckoutCountryLink[]
+  skippedCheckouts?: ChatGPTHostedCheckoutCountrySkip[]
   checkoutLinksPath?: string
   retryCount?: number
   retryReason?: string
@@ -483,6 +538,7 @@ export interface ChatGPTRegisterHostedCheckoutsResult {
   coupon: ChatGPTTrialPromoCoupon
   plan: ChatGPTTrialPromoPlan
   checkoutLinks: ChatGPTHostedCheckoutCountryLink[]
+  skippedCheckouts: ChatGPTHostedCheckoutCountrySkip[]
   checkoutLinksPath: string
   machine: ChatGPTRegisterHostedCheckoutsSnapshot<ChatGPTRegisterHostedCheckoutsResult>
 }
@@ -512,6 +568,7 @@ const chatgptRegisterHostedCheckoutsEventTargets = {
   'chatgpt.coupon.selected': 'checkout-link-creating',
   'chatgpt.checkout_link.creating': 'checkout-link-creating',
   'chatgpt.checkout_link.created': 'checkout-page-open',
+  'chatgpt.checkout_link.skipped': 'checkout-link-creating',
   'chatgpt.checkout_page.opened': 'waiting-page-close',
   'chatgpt.checkout_page.closed': 'checkout-link-creating',
   'chatgpt.completed': 'completed',
@@ -543,17 +600,21 @@ function assignHostedCheckoutPatch() {
 
 export function normalizeHostedCheckoutCountryCode(value: string): string {
   const normalized = value.trim().toUpperCase()
-  return HOSTED_CHECKOUT_COUNTRY_ALIASES[normalized] || normalized
+  return HOSTED_CHECKOUT_COUNTRY_ALIAS_MAP[normalized] || normalized
 }
 
 export function getHostedCheckoutCurrencyForCountry(value: string): string {
   const normalized = value.trim().toUpperCase()
   const country = normalizeHostedCheckoutCountryCode(normalized)
-  return (
-    HOSTED_CHECKOUT_COUNTRY_CURRENCIES[normalized] ||
-    HOSTED_CHECKOUT_COUNTRY_CURRENCIES[country] ||
+  const currency =
+    HOSTED_CHECKOUT_COUNTRY_CURRENCY_MAP[normalized] ||
+    HOSTED_CHECKOUT_COUNTRY_CURRENCY_MAP[country] ||
     HOSTED_CHECKOUT_DEFAULT_CURRENCY
+  return HOSTED_CHECKOUT_SUPPORTED_CURRENCIES.includes(
+    currency as (typeof HOSTED_CHECKOUT_SUPPORTED_CURRENCIES)[number],
   )
+    ? currency
+    : HOSTED_CHECKOUT_DEFAULT_CURRENCY
 }
 
 export function resolveHostedCheckoutCountrySpecs(
@@ -598,6 +659,7 @@ export function createChatGPTRegisterHostedCheckoutsMachine(): ChatGPTRegisterHo
         initialContext: {
           kind: 'chatgpt-register-hosted-checkouts',
           checkoutLinks: [],
+          skippedCheckouts: [],
         },
         historyLimit: 300,
         states,
@@ -663,6 +725,26 @@ function toHostedCheckoutLink(
       : {}),
     createdAt: new Date().toISOString(),
   }
+}
+
+function toSkippedHostedCheckout(
+  spec: ChatGPTHostedCheckoutCountrySpec,
+  error: unknown,
+): ChatGPTHostedCheckoutCountrySkip {
+  return {
+    requestedCountry: spec.requestedCountry,
+    billingCountry: spec.billingCountry,
+    billingCurrency: spec.billingCurrency,
+    reason: sanitizeErrorForOutput(error).message,
+    skippedAt: new Date().toISOString(),
+  }
+}
+
+export function isRecoverableHostedCheckoutCountryError(
+  error: unknown,
+): boolean {
+  const message = sanitizeErrorForOutput(error).message
+  return /HTTP 400/i.test(message) && /invalid billing details/i.test(message)
 }
 
 async function chooseHostedCheckoutCoupon(
@@ -766,12 +848,14 @@ async function generateAndReviewHostedCheckoutLinks(input: {
   page: Page
   options: FlowOptions
   machine: ChatGPTRegisterHostedCheckoutsMachine<ChatGPTRegisterHostedCheckoutsResult>
+  backendApiHeadersCapture: ChatGPTBackendApiHeadersCapture
   email: string
   coupon: ChatGPTTrialPromoCoupon
   plan: ChatGPTTrialPromoPlan
 }): Promise<ChatGPTHostedCheckoutCountryLink[]> {
   const countrySpecs = resolveHostedCheckoutCountrySpecs()
   const links: ChatGPTHostedCheckoutCountryLink[] = []
+  const skippedCheckouts: ChatGPTHostedCheckoutCountrySkip[] = []
 
   for (let index = 0; index < countrySpecs.length; index += 1) {
     const spec = countrySpecs[index]
@@ -803,16 +887,45 @@ async function generateAndReviewHostedCheckoutLinks(input: {
       },
     )
 
-    const checkout = await createChatGPTTrialCheckoutLink(
-      input.page,
-      input.coupon,
-      {
-        paymentMethod: 'gopay',
-        checkoutUiMode: 'hosted',
-        billingCountry: spec.billingCountry,
-        billingCurrency: spec.billingCurrency,
-      },
-    )
+    let checkout: ChatGPTTrialCheckoutLink
+    try {
+      checkout = await createChatGPTTrialCheckoutLink(
+        input.page,
+        input.coupon,
+        {
+          paymentMethod: 'gopay',
+          checkoutUiMode: 'hosted',
+          billingCountry: spec.billingCountry,
+          billingCurrency: spec.billingCurrency,
+          requestHeaders: input.backendApiHeadersCapture.get()?.headers,
+        },
+      )
+    } catch (error) {
+      if (!isRecoverableHostedCheckoutCountryError(error)) {
+        throw error
+      }
+
+      const skipped = toSkippedHostedCheckout(spec, error)
+      skippedCheckouts.push(skipped)
+      input.options.progressReporter?.({
+        message: `Skipping hosted checkout ${index + 1}/${countrySpecs.length} for ${spec.requestedCountry}: ${skipped.reason}`,
+      })
+      await sendHostedCheckoutsMachine(
+        input.machine,
+        'chatgpt.checkout_link.skipped',
+        {
+          email: input.email,
+          currentCountry: spec.requestedCountry,
+          currentIndex: index + 1,
+          totalCountries: countrySpecs.length,
+          checkoutLinks: links,
+          skippedCheckouts,
+          url: input.page.url(),
+          lastMessage: `Skipped hosted checkout ${index + 1}/${countrySpecs.length} for ${spec.requestedCountry}: ${skipped.reason}`,
+        },
+      )
+      continue
+    }
     await applyChatGPTTeamTrialStateProxyConfig('checkout-ready', {
       options: input.options,
       paymentMethod: 'gopay',
@@ -838,6 +951,7 @@ async function generateAndReviewHostedCheckoutLinks(input: {
         currentIndex: index + 1,
         totalCountries: countrySpecs.length,
         checkoutLinks: links,
+        skippedCheckouts,
         url: checkout.url,
         lastMessage: `Hosted checkout link ${index + 1}/${countrySpecs.length} created for ${spec.requestedCountry}`,
       },
@@ -852,6 +966,7 @@ async function generateAndReviewHostedCheckoutLinks(input: {
         currentIndex: index + 1,
         totalCountries: countrySpecs.length,
         checkoutLinks: links,
+        skippedCheckouts,
         url: checkout.url,
         lastMessage: `Waiting for operator to close hosted checkout ${index + 1}/${countrySpecs.length} (${spec.requestedCountry})`,
       },
@@ -873,6 +988,7 @@ async function generateAndReviewHostedCheckoutLinks(input: {
           currentIndex: index + 1,
           totalCountries: countrySpecs.length,
           checkoutLinks: links,
+          skippedCheckouts,
           url: input.page.url(),
           lastMessage: `Hosted checkout ${index + 1}/${countrySpecs.length} closed`,
         },
@@ -884,6 +1000,7 @@ async function generateAndReviewHostedCheckoutLinks(input: {
         currentIndex: index + 1,
         totalCountries: countrySpecs.length,
         checkoutLinks: links,
+        skippedCheckouts,
         url: input.page.url(),
         lastMessage: `Hosted checkout ${index + 1}/${countrySpecs.length} closed`,
       })
@@ -908,6 +1025,7 @@ export async function registerChatGPTAndReviewHostedCheckouts(
     machine.start(
       {
         checkoutLinks: [],
+        skippedCheckouts: [],
         totalCountries: CHATGPT_HOSTED_CHECKOUT_COUNTRIES.length,
       },
       {
@@ -959,11 +1077,13 @@ export async function registerChatGPTAndReviewHostedCheckouts(
       page,
       options,
       machine,
+      backendApiHeadersCapture,
       email: registration.email,
       coupon,
       plan,
     })
     const checkoutLinksPath = saveHostedCheckoutLinks(checkoutLinks)
+    const skippedCheckouts = machine.getSnapshot().context.skippedCheckouts ?? []
     const result = {
       pageName: 'chatgpt-register-hosted-checkouts' as const,
       url: page.url(),
@@ -974,6 +1094,7 @@ export async function registerChatGPTAndReviewHostedCheckouts(
       coupon,
       plan,
       checkoutLinks,
+      skippedCheckouts,
       checkoutLinksPath,
       machine:
         undefined as unknown as ChatGPTRegisterHostedCheckoutsSnapshot<ChatGPTRegisterHostedCheckoutsResult>,
@@ -986,6 +1107,7 @@ export async function registerChatGPTAndReviewHostedCheckouts(
         plan,
         registration,
         checkoutLinks,
+        skippedCheckouts,
         checkoutLinksPath,
         result,
         url: result.url,

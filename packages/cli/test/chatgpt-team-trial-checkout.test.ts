@@ -2512,6 +2512,61 @@ describe('trial coupon pricing helpers', () => {
     )
   })
 
+  it('creates direct checkout links with captured backend authorization when the session token endpoint is unavailable', async () => {
+    const requests: Array<{
+      url: string
+      init?: RequestInit
+    }> = []
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      requests.push({ url: String(url), init })
+      if (String(url) === '/api/auth/session') {
+        return {
+          ok: false,
+          status: 403,
+          url: 'https://chatgpt.com/api/auth/session',
+          text: async () => JSON.stringify({ detail: 'Forbidden' }),
+        }
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        url: String(url),
+        text: async () =>
+          JSON.stringify({
+            checkout_session_id: 'cs_live_456',
+            processor_entity: 'openai_llc',
+          }),
+      }
+    })
+    const page = {
+      async evaluate<T, Arg>(
+        callback: (arg: Arg) => Promise<T>,
+        arg: Arg,
+      ): Promise<T> {
+        return callback(arg)
+      },
+    }
+
+    const link = await createChatGPTTrialCheckoutLink(
+      page as never,
+      'plus-1-month-free',
+      {
+        paymentMethod: 'gopay',
+        requestHeaders: {
+          authorization: 'Bearer captured-access-token',
+        },
+      },
+    )
+
+    expect(link.url).toBe(
+      'https://chatgpt.com/checkout/openai_llc/cs_live_456',
+    )
+    expect(requests[1]?.init?.headers).toMatchObject({
+      Authorization: 'Bearer captured-access-token',
+    })
+  })
+
   it('switches Plus pricing to Personal before claiming the free trial', async () => {
     let personalSelected = false
     const clickOrder: string[] = []

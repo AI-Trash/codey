@@ -461,10 +461,14 @@ export function formatFlowCompletionSummary(
     const checkoutLinks = Array.isArray(record.checkoutLinks)
       ? record.checkoutLinks
       : []
+    const skippedCheckouts = Array.isArray(record.skippedCheckouts)
+      ? record.skippedCheckouts
+      : []
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'verified', asBoolean(record.verified))
     appendSummaryLine(lines, 'trial', record.plan || record.coupon)
     appendSummaryLine(lines, 'hosted checkouts', checkoutLinks.length)
+    appendSummaryLine(lines, 'skipped checkouts', skippedCheckouts.length)
     appendSummaryLine(lines, 'hosted checkouts file', record.checkoutLinksPath)
     appendSummaryLine(lines, 'page', record.url)
     appendArtifactSummaryLines(lines, record)

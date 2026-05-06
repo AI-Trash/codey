@@ -471,6 +471,11 @@ export interface ChatGPTTrialCheckoutLink {
   payload: ChatGPTTrialCheckoutPayload
 }
 
+export interface ChatGPTTrialCheckoutLinkOptions
+  extends ChatGPTTrialCheckoutPayloadOptions {
+  requestHeaders?: Record<string, string>
+}
+
 interface ChatGPTTrialCheckoutApiResult {
   ok: boolean
   status: number
@@ -483,11 +488,11 @@ interface ChatGPTTrialCheckoutApiResult {
 export async function createChatGPTTrialCheckoutLink(
   page: Page,
   coupon: ChatGPTTrialPromoCoupon,
-  options: ChatGPTTrialCheckoutPayloadOptions = {},
+  options: ChatGPTTrialCheckoutLinkOptions = {},
 ): Promise<ChatGPTTrialCheckoutLink> {
   const payload = buildChatGPTTrialCheckoutPayload(coupon, options)
   const result = await page.evaluate(
-    async ({ checkoutUrl, payload }) => {
+    async ({ checkoutUrl, payload, requestHeaders }) => {
       function parseJson(text: string): unknown {
         try {
           return text ? JSON.parse(text) : undefined
@@ -505,6 +510,14 @@ export async function createChatGPTTrialCheckoutLink(
         return typeof field === 'string' ? field : undefined
       }
 
+      function getBearerTokenFromHeaders(
+        headers: Record<string, string>,
+      ): string | undefined {
+        const authorization = headers.Authorization || headers.authorization
+        const match = authorization?.match(/^Bearer\s+(.+)$/i)
+        return match?.[1]?.trim() || undefined
+      }
+
       try {
         const sessionResponse = await fetch('/api/auth/session', {
           credentials: 'include',
@@ -512,8 +525,11 @@ export async function createChatGPTTrialCheckoutLink(
         })
         const sessionText = await sessionResponse.text()
         const sessionData = parseJson(sessionText)
-        const accessToken = getStringField(sessionData, 'accessToken')
-        if (!sessionResponse.ok || !accessToken) {
+        const accessToken =
+          getStringField(sessionData, 'accessToken') ||
+          getStringField(sessionData, 'access_token') ||
+          getBearerTokenFromHeaders(requestHeaders)
+        if (!accessToken) {
           return {
             ok: false,
             status: sessionResponse.status,
@@ -555,6 +571,7 @@ export async function createChatGPTTrialCheckoutLink(
     {
       checkoutUrl: CHATGPT_TRIAL_CHECKOUT_URL,
       payload,
+      requestHeaders: options.requestHeaders || {},
     },
   )
   const checkoutSessionId = getCheckoutSessionId(result.data)
