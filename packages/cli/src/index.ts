@@ -2,6 +2,7 @@ export { launchBrowser, newSession } from './core/browser'
 export { newAndroidSession } from './core/android'
 export {
   registerChatGPT,
+  registerChatGPTAndReviewHostedCheckouts,
   loginChatGPT,
   inviteChatGPTWorkspaceMembers,
   loginChatGPTAndInviteMembers,
@@ -42,6 +43,7 @@ export {
   resolveStoredChatGPTIdentity,
 } from './modules/credentials'
 export type * from './flows/chatgpt-register'
+export type * from './flows/chatgpt-register-hosted-checkouts'
 export type * from './flows/chatgpt-login'
 export type * from './flows/chatgpt-invite'
 export type * from './flows/codex-oauth'

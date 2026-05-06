@@ -457,6 +457,20 @@ export function formatFlowCompletionSummary(
     return lines.join('\n')
   }
 
+  if (pageName === 'chatgpt-register-hosted-checkouts') {
+    const checkoutLinks = Array.isArray(record.checkoutLinks)
+      ? record.checkoutLinks
+      : []
+    appendSummaryLine(lines, 'email', record.email)
+    appendSummaryLine(lines, 'verified', asBoolean(record.verified))
+    appendSummaryLine(lines, 'trial', record.plan || record.coupon)
+    appendSummaryLine(lines, 'hosted checkouts', checkoutLinks.length)
+    appendSummaryLine(lines, 'hosted checkouts file', record.checkoutLinksPath)
+    appendSummaryLine(lines, 'page', record.url)
+    appendArtifactSummaryLines(lines, record)
+    return lines.join('\n')
+  }
+
   if (pageName === 'chatgpt-login') {
     appendSummaryLine(lines, 'email', record.email)
     appendSummaryLine(lines, 'authenticated', asBoolean(record.authenticated))

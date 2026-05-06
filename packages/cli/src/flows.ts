@@ -2,6 +2,10 @@ export {
   registerChatGPT,
   createChatGPTRegistrationMachine,
 } from './flows/chatgpt-register'
+export {
+  registerChatGPTAndReviewHostedCheckouts,
+  createChatGPTRegisterHostedCheckoutsMachine,
+} from './flows/chatgpt-register-hosted-checkouts'
 export { loginChatGPT, createChatGPTLoginMachine } from './flows/chatgpt-login'
 export {
   inviteChatGPTWorkspaceMembers,
@@ -20,6 +24,7 @@ export { runCodexOAuthFlow } from './flows/codex-oauth'
 export { runAndroidHealthcheck } from './flows/android-healthcheck'
 export { openNoopFlow } from './flows/noop'
 export type * from './flows/chatgpt-register'
+export type * from './flows/chatgpt-register-hosted-checkouts'
 export type * from './flows/chatgpt-login'
 export type * from './flows/chatgpt-invite'
 export type * from './flows/chatgpt-team-trial'

@@ -447,6 +447,8 @@
   "admin_cli_dispatch_submitting": "下发中",
   "admin_cli_flow_chatgpt_register_name": "ChatGPT 注册",
   "admin_cli_flow_chatgpt_register_description": "创建新的 ChatGPT 账号，并等待邮箱验证码完成注册。",
+  "admin_cli_flow_chatgpt_register_hosted_checkouts_name": "ChatGPT hosted checkout 查看",
+  "admin_cli_flow_chatgpt_register_hosted_checkouts_description": "创建新的 ChatGPT 账号，为配置的国家/地区生成 hosted GoPay checkout 链接，并逐个打开供人工查看。",
   "admin_cli_flow_chatgpt_login_name": "ChatGPT 登录",
   "admin_cli_flow_chatgpt_login_description": "使用已共享的 ChatGPT 身份执行登录。",
   "admin_cli_flow_chatgpt_team_trial_name": "ChatGPT 试用",

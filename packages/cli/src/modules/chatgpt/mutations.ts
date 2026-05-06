@@ -48,6 +48,7 @@ import {
   SIGNUP_ENTRY_SELECTORS,
   CHATGPT_HOME_URL,
   type ChatGPTTrialCheckoutPayload,
+  type ChatGPTTrialCheckoutPayloadOptions,
   type ChatGPTTrialPromoCoupon,
   type ChatGPTTrialPaymentMethod,
 } from './common'
@@ -482,13 +483,9 @@ interface ChatGPTTrialCheckoutApiResult {
 export async function createChatGPTTrialCheckoutLink(
   page: Page,
   coupon: ChatGPTTrialPromoCoupon,
-  options: {
-    paymentMethod?: ChatGPTTrialPaymentMethod
-  } = {},
+  options: ChatGPTTrialCheckoutPayloadOptions = {},
 ): Promise<ChatGPTTrialCheckoutLink> {
-  const payload = buildChatGPTTrialCheckoutPayload(coupon, {
-    paymentMethod: options.paymentMethod,
-  })
+  const payload = buildChatGPTTrialCheckoutPayload(coupon, options)
   const result = await page.evaluate(
     async ({ checkoutUrl, payload }) => {
       function parseJson(text: string): unknown {
@@ -4173,18 +4170,28 @@ async function waitForPaymentMethodSelectionStateMutation(
     .evaluate(
       ({ selectors, timeout }) =>
         new Promise<boolean>((resolve) => {
+          let settled = false
+          let timer: number | undefined
+          let observer: MutationObserver | undefined
+
           const resolveOnce = (value: boolean): void => {
-            clearTimeout(timer)
-            observer.disconnect()
+            if (settled) {
+              return
+            }
+            settled = true
+            if (timer !== undefined) {
+              clearTimeout(timer)
+            }
+            observer?.disconnect()
             resolve(value)
           }
-          const timer = window.setTimeout(() => resolveOnce(false), timeout)
-          const observer = new MutationObserver(() => resolveOnce(true))
+          observer = new MutationObserver(() => resolveOnce(true))
           observer.observe(document.documentElement, {
             attributes: true,
             childList: true,
             subtree: true,
           })
+          timer = window.setTimeout(() => resolveOnce(false), timeout)
           for (const selector of selectors) {
             try {
               if (document.querySelector(selector)) {

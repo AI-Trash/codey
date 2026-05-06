@@ -363,30 +363,56 @@ export type ChatGPTTrialCheckoutPayload =
   | ChatGPTTrialCustomCheckoutPayload
   | ChatGPTTrialHostedCheckoutPayload
 
+export interface ChatGPTTrialCheckoutPayloadOptions {
+  paymentMethod?: ChatGPTTrialPaymentMethod
+  checkoutUiMode?: 'custom' | 'hosted'
+  billingCountry?: string
+  billingCurrency?: string
+}
+
+function normalizeCheckoutBillingField(
+  value: string | undefined,
+  fallback: string,
+): string {
+  const normalized = value?.trim().toUpperCase()
+  return normalized || fallback
+}
+
 export function buildChatGPTTrialCheckoutPayload(
   coupon: ChatGPTTrialPromoCoupon,
-  options: {
-    paymentMethod?: ChatGPTTrialPaymentMethod
-  } = {},
+  options: ChatGPTTrialCheckoutPayloadOptions = {},
 ): ChatGPTTrialCheckoutPayload {
+  const checkoutUiMode =
+    options.checkoutUiMode ||
+    (options.paymentMethod === 'gopay' ? 'hosted' : 'custom')
   const billingDetails =
     CHATGPT_TRIAL_CHECKOUT_BILLING_DETAILS[
       options.paymentMethod || DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD
     ]
+  const resolvedBillingDetails = {
+    country: normalizeCheckoutBillingField(
+      options.billingCountry,
+      billingDetails.country,
+    ),
+    currency: normalizeCheckoutBillingField(
+      options.billingCurrency,
+      billingDetails.currency,
+    ),
+  }
   const planName =
     coupon === CHATGPT_PLUS_TRIAL_PROMO_COUPON
       ? CHATGPT_PLUS_TRIAL_CHECKOUT_PLAN_NAME
       : CHATGPT_TEAM_TRIAL_CHECKOUT_PLAN_NAME
   const basePayload = {
     plan_name: planName,
-    billing_details: { ...billingDetails },
+    billing_details: resolvedBillingDetails,
     promo_campaign: {
       promo_campaign_id: coupon,
       is_coupon_from_query_param: false,
     },
   } as const
 
-  if (options.paymentMethod === 'gopay') {
+  if (checkoutUiMode === 'hosted') {
     return {
       ...basePayload,
       cancel_url: CHATGPT_TRIAL_CHECKOUT_CANCEL_URL,

@@ -1,5 +1,6 @@
 export type CliFlowCommandId =
   | 'chatgpt-register'
+  | 'chatgpt-register-hosted-checkouts'
   | 'chatgpt-login'
   | 'chatgpt-team-trial'
   | 'chatgpt-team-trial-gopay'
@@ -25,6 +26,7 @@ export const DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD: ChatGPTTrialClaimMetho
 
 export type CliFlowDisplayNameKey =
   | 'chatgptRegister'
+  | 'chatgptRegisterHostedCheckouts'
   | 'chatgptLogin'
   | 'chatgptTeamTrial'
   | 'chatgptTeamTrialGoPay'
@@ -35,6 +37,7 @@ export type CliFlowDisplayNameKey =
 
 export type CliFlowDescriptionKey =
   | 'chatgptRegister'
+  | 'chatgptRegisterHostedCheckouts'
   | 'chatgptLogin'
   | 'chatgptTeamTrial'
   | 'chatgptTeamTrialGoPay'
@@ -344,6 +347,27 @@ export interface ChatGPTRegisterFlowConfig
 }
 
 /**
+ * Configuration for creating a ChatGPT account and reviewing hosted checkout
+ * links for the built-in country list.
+ */
+export interface ChatGPTRegisterHostedCheckoutsFlowConfig extends CommonFlowConfig {
+  /**
+   * Override the generated password for the new identity.
+   */
+  password?: string
+
+  /**
+   * Maximum time to wait for the verification email, in milliseconds.
+   */
+  verificationTimeoutMs?: number
+
+  /**
+   * Poll interval for verification email updates, in milliseconds.
+   */
+  pollIntervalMs?: number
+}
+
+/**
  * Configuration for signing in with a shared ChatGPT identity.
  */
 export interface ChatGPTLoginFlowConfig extends CommonFlowConfig {
@@ -478,6 +502,7 @@ export interface AndroidHealthcheckFlowConfig extends AndroidCommonFlowConfig {}
 
 export interface CliFlowConfigById {
   'chatgpt-register': ChatGPTRegisterFlowConfig
+  'chatgpt-register-hosted-checkouts': ChatGPTRegisterHostedCheckoutsFlowConfig
   'chatgpt-login': ChatGPTLoginFlowConfig
   'chatgpt-team-trial': ChatGPTTeamTrialFlowConfig
   'chatgpt-team-trial-gopay': ChatGPTTeamTrialGoPayFlowConfig
@@ -869,6 +894,13 @@ export const cliFlowDefinitions = [
       'billingState',
       'billingPostalCode',
     ],
+  },
+  {
+    id: 'chatgpt-register-hosted-checkouts',
+    runtime: 'browser',
+    displayNameKey: 'chatgptRegisterHostedCheckouts',
+    descriptionKey: 'chatgptRegisterHostedCheckouts',
+    configKeys: ['password', 'verificationTimeoutMs', 'pollIntervalMs'],
   },
   {
     id: 'chatgpt-login',

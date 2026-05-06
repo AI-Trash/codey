@@ -102,6 +102,24 @@ describe('flow cli helpers', () => {
     })
   })
 
+  it('parses hosted checkout registration options without trial overrides', () => {
+    expect(
+      parseFlowCliArgsForCommand('chatgpt-register-hosted-checkouts', [
+        '--password',
+        'secret-password',
+        '--claimTrial',
+        'gopay',
+        '--billingCountry',
+        'NL',
+        '--verificationTimeoutMs',
+        '5000',
+      ]),
+    ).toMatchObject({
+      password: 'secret-password',
+      verificationTimeoutMs: 5000,
+    })
+  })
+
   it('parses Android healthcheck options', () => {
     expect(
       parseFlowCliArgsForCommand('android-healthcheck', [
@@ -194,6 +212,46 @@ describe('flow cli helpers', () => {
     expect(summary).toContain(`payment url: ${paypalUrl}`)
     expect(summary).toContain('payment url file: C:/tmp/paypal-link.txt')
     expect(summary).not.toContain('machine')
+  })
+
+  it('renders the hosted checkout registration summary', () => {
+    const summary = formatFlowCompletionSummary(
+      'flow:chatgpt-register-hosted-checkouts',
+      {
+        pageName: 'chatgpt-register-hosted-checkouts',
+        url: 'https://chatgpt.com/',
+        email: 'person@example.com',
+        verified: true,
+        plan: 'team',
+        checkoutLinks: [
+          {
+            requestedCountry: 'US',
+            billingCountry: 'US',
+            billingCurrency: 'USD',
+            url: 'https://chatgpt.com/checkout/openai_llc/cs_us',
+          },
+          {
+            requestedCountry: 'JP',
+            billingCountry: 'JP',
+            billingCurrency: 'JPY',
+            url: 'https://chatgpt.com/checkout/openai_llc/cs_jp',
+          },
+        ],
+        checkoutLinksPath: 'C:/tmp/chatgpt-hosted-checkouts.json',
+      },
+    )
+
+    expect(summary).toContain(
+      'flow:chatgpt-register-hosted-checkouts completed',
+    )
+    expect(summary).toContain('email: person@example.com')
+    expect(summary).toContain('verified: yes')
+    expect(summary).toContain('trial: team')
+    expect(summary).toContain('hosted checkouts: 2')
+    expect(summary).toContain(
+      'hosted checkouts file: C:/tmp/chatgpt-hosted-checkouts.json',
+    )
+    expect(summary).not.toContain('cs_us')
   })
 
   it('renders compact invite and oauth summaries without artifact payloads', () => {

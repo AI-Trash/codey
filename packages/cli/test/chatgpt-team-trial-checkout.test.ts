@@ -1587,6 +1587,26 @@ describe('trial coupon pricing helpers', () => {
     ).not.toHaveProperty('entry_point')
   })
 
+  it('builds hosted checkout payloads with explicit country and currency overrides', () => {
+    const payload = buildChatGPTTrialCheckoutPayload('team-1-month-free', {
+      paymentMethod: 'gopay',
+      checkoutUiMode: 'hosted',
+      billingCountry: ' nl ',
+      billingCurrency: ' eur ',
+    })
+
+    expect(payload).toMatchObject({
+      plan_name: 'chatgptteamplan',
+      billing_details: {
+        country: 'NL',
+        currency: 'EUR',
+      },
+      checkout_ui_mode: 'hosted',
+      cancel_url: 'https://chatgpt.com/#pricing',
+    })
+    expect(payload).not.toHaveProperty('entry_point')
+  })
+
   it('uses the actual selected coupon when building Plus direct checkout payloads', () => {
     expect(
       buildChatGPTTrialCheckoutPayload('plus-1-month-free', {

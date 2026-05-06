@@ -10,6 +10,8 @@ import { m } from '#/paraglide/messages'
 
 const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
   chatgptRegister: () => m.admin_cli_flow_chatgpt_register_name(),
+  chatgptRegisterHostedCheckouts: () =>
+    m.admin_cli_flow_chatgpt_register_hosted_checkouts_name(),
   chatgptLogin: () => m.admin_cli_flow_chatgpt_login_name(),
   chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_name(),
   chatgptTeamTrialGoPay: () => m.admin_cli_flow_chatgpt_team_trial_gopay_name(),
@@ -21,6 +23,8 @@ const flowDisplayNameMap: Record<CliFlowDisplayNameKey, () => string> = {
 
 const flowDescriptionMap: Record<CliFlowDescriptionKey, () => string> = {
   chatgptRegister: () => m.admin_cli_flow_chatgpt_register_description(),
+  chatgptRegisterHostedCheckouts: () =>
+    m.admin_cli_flow_chatgpt_register_hosted_checkouts_description(),
   chatgptLogin: () => m.admin_cli_flow_chatgpt_login_description(),
   chatgptTeamTrial: () => m.admin_cli_flow_chatgpt_team_trial_description(),
   chatgptTeamTrialGoPay: () =>

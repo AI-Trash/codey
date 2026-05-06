@@ -1,9 +1,12 @@
 import type { AndroidSession } from '../../core/android'
 import type { Session } from '../../types'
 import { runAndroidHealthcheck } from '../../flows/android-healthcheck'
+import {
+  registerChatGPT,
+  registerChatGPTAndReviewHostedCheckouts,
+} from '../../flows'
 import { inviteChatGPTWorkspaceMembers } from '../../flows/chatgpt-invite'
 import { loginChatGPT } from '../../flows/chatgpt-login'
-import { registerChatGPT } from '../../flows/chatgpt-register'
 import {
   runChatGPTTeamTrial,
   runChatGPTTeamTrialGoPay,
@@ -42,6 +45,9 @@ function androidFlow(run: AndroidCliFlowRunner['run']): AndroidCliFlowRunner {
 export const cliFlowRunners = {
   'chatgpt-register': browserFlow((session, options) =>
     registerChatGPT(session.page, options),
+  ),
+  'chatgpt-register-hosted-checkouts': browserFlow((session, options) =>
+    registerChatGPTAndReviewHostedCheckouts(session.page, options),
   ),
   'chatgpt-login': browserFlow((session, options) =>
     loginChatGPT(session.page, options),

@@ -447,6 +447,8 @@
   "admin_cli_dispatch_submitting": "Dispatching",
   "admin_cli_flow_chatgpt_register_name": "ChatGPT registration",
   "admin_cli_flow_chatgpt_register_description": "Create a new ChatGPT account and wait for email verification.",
+  "admin_cli_flow_chatgpt_register_hosted_checkouts_name": "ChatGPT hosted checkout review",
+  "admin_cli_flow_chatgpt_register_hosted_checkouts_description": "Create a new ChatGPT account, generate hosted GoPay checkout links for the configured countries, and open them one at a time for manual review.",
   "admin_cli_flow_chatgpt_login_name": "ChatGPT login",
   "admin_cli_flow_chatgpt_login_description": "Sign in with a previously shared ChatGPT identity.",
   "admin_cli_flow_chatgpt_team_trial_name": "ChatGPT trial",

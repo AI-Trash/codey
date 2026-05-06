@@ -25,7 +25,10 @@ function assertChatGPTRegisterCompletion(
 
   const storedIdentity = isRecord(result.storedIdentity)
     ? result.storedIdentity
-    : null
+    : isRecord(result.registration) &&
+        isRecord(result.registration.storedIdentity)
+      ? result.registration.storedIdentity
+      : null
   if (!storedIdentity) {
     throw new Error(
       'ChatGPT registration completed without persisting a shared identity.',
@@ -49,7 +52,10 @@ export function assertFlowTaskExecutionSucceeded(
     throw new Error(`Flow ${flowId} did not report a passed execution status.`)
   }
 
-  if (flowId === 'chatgpt-register') {
+  if (
+    flowId === 'chatgpt-register' ||
+    flowId === 'chatgpt-register-hosted-checkouts'
+  ) {
     assertChatGPTRegisterCompletion(execution)
   }
 }

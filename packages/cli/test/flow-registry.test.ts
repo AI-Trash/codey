@@ -66,6 +66,39 @@ describe('flow registry', () => {
     })
   })
 
+  it('registers the hosted checkout review flow without trial billing options', () => {
+    expect(listCliFlowCommandIds()).toContain(
+      'chatgpt-register-hosted-checkouts',
+    )
+    expect(
+      getCliFlowDefinition('chatgpt-register-hosted-checkouts'),
+    ).toMatchObject({
+      id: 'chatgpt-register-hosted-checkouts',
+      runtime: 'browser',
+      configKeys: ['password', 'verificationTimeoutMs', 'pollIntervalMs'],
+    })
+
+    expect(
+      normalizeCliFlowTaskPayload({
+        kind: 'flow_task',
+        flowId: 'chatgpt-register-hosted-checkouts',
+        config: {
+          password: ' pass ',
+          claimTrial: 'gopay',
+          billingCountry: 'NL',
+          verificationTimeoutMs: '5000',
+        },
+      }),
+    ).toEqual({
+      kind: 'flow_task',
+      flowId: 'chatgpt-register-hosted-checkouts',
+      config: {
+        password: 'pass',
+        verificationTimeoutMs: 5000,
+      },
+    })
+  })
+
   it('registers the ChatGPT trial flow for app dispatch', () => {
     const flowIds = listCliFlowCommandIds()
     const payload = createCliFlowTaskPayload('chatgpt-team-trial', {

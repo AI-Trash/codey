@@ -148,6 +148,7 @@ export function normalizeFlowCliArgs(
   return {
     ...normalizeCommonCliArgs(input),
     ...normalizeCliFlowConfig('chatgpt-register', input),
+    ...normalizeCliFlowConfig('chatgpt-register-hosted-checkouts', input),
     ...normalizeCliFlowConfig('chatgpt-invite', input),
     ...normalizeCliFlowConfig('codex-oauth', input),
   }

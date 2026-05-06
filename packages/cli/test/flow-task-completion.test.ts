@@ -26,6 +26,22 @@ describe('flow task completion assertions', () => {
     ).toThrow(/shared identity/i)
   })
 
+  it('accepts hosted checkout registration results with nested stored identity', () => {
+    expect(() =>
+      assertFlowTaskExecutionSucceeded('chatgpt-register-hosted-checkouts', {
+        status: 'passed',
+        result: {
+          registration: {
+            storedIdentity: {
+              id: 'identity-1',
+              email: 'person@example.com',
+            },
+          },
+        },
+      }),
+    ).not.toThrow()
+  })
+
   it('leaves non-registration flows unchanged', () => {
     expect(() =>
       assertFlowTaskExecutionSucceeded('chatgpt-login', {

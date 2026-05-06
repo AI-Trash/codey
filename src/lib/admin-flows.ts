@@ -6,7 +6,13 @@ export function buildAdminFlowTaskHref(taskId: string) {
 }
 
 export function getFlowDisplayName(flowType: string) {
-  if (flowType === 'chatgpt-register') {
+  if (
+    flowType === 'chatgpt-register' ||
+    flowType === 'chatgpt-register-hosted-checkouts'
+  ) {
+    if (flowType === 'chatgpt-register-hosted-checkouts') {
+      return m.admin_cli_flow_chatgpt_register_hosted_checkouts_name()
+    }
     return m.admin_cli_flow_chatgpt_register_name()
   }
 
