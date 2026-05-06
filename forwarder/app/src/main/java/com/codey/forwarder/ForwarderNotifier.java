@@ -91,6 +91,14 @@ final class ForwarderNotifier {
 
     static HttpResult postNotificationPayload(String webhookUrl, JSONObject payload)
         throws Exception {
+        return postNotificationPayload(webhookUrl, payload, null);
+    }
+
+    static HttpResult postNotificationPayload(
+        String webhookUrl,
+        JSONObject payload,
+        String bearerToken
+    ) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(webhookUrl).openConnection();
         connection.setRequestMethod("POST");
         connection.setConnectTimeout(10_000);
@@ -98,6 +106,9 @@ final class ForwarderNotifier {
         connection.setDoOutput(true);
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
         connection.setRequestProperty("Accept", "application/json");
+        if (bearerToken != null && !bearerToken.trim().isEmpty()) {
+            connection.setRequestProperty("Authorization", "Bearer " + bearerToken.trim());
+        }
 
         try (OutputStreamWriter writer = new OutputStreamWriter(
             connection.getOutputStream(),
@@ -113,6 +124,23 @@ final class ForwarderNotifier {
         String responseBody = readStream(stream);
         connection.disconnect();
         return new HttpResult(statusCode, responseBody);
+    }
+
+    static String buildCodeyWebIngestUrl(ForwarderSettings settings) {
+        String baseUrl = settings.codeyBaseUrl == null ? "" : settings.codeyBaseUrl.trim();
+        if (baseUrl.isEmpty()) {
+            return settings.webhookUrl;
+        }
+        while (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        return baseUrl + "/api/ingest/whatsapp-notification";
+    }
+
+    static String resolveNotificationWebhookUrl(ForwarderSettings settings) {
+        return settings.deviceToken == null || settings.deviceToken.trim().isEmpty()
+            ? settings.webhookUrl
+            : buildCodeyWebIngestUrl(settings);
     }
 
     private static String readStream(InputStream stream) throws Exception {

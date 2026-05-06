@@ -132,6 +132,24 @@ function DevicePage() {
                 label={m.device_info_cli()}
                 value={challenge.cliName || m.device_value_not_available()}
               />
+              {challenge.status === 'PENDING' ? (
+                <div className="flex flex-wrap gap-2 sm:col-span-2">
+                  <form
+                    method="post"
+                    action={`/api/admin/device/${encodeURIComponent(challenge.deviceCode)}/approve`}
+                  >
+                    <Button type="submit">{m.admin_dashboard_approve()}</Button>
+                  </form>
+                  <form
+                    method="post"
+                    action={`/api/admin/device/${encodeURIComponent(challenge.deviceCode)}/deny`}
+                  >
+                    <Button type="submit" variant="outline">
+                      {m.admin_dashboard_deny()}
+                    </Button>
+                  </form>
+                </div>
+              ) : null}
               <div className="sm:col-span-2">
                 <p className="text-sm leading-6 text-muted-foreground">
                   {m.device_challenge_hint_prefix()}{' '}

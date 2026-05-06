@@ -100,6 +100,7 @@ describe('flow registry', () => {
       id: 'chatgpt-team-trial-gopay',
       configKeys: [
         'paymentRedirectUrl',
+        'unlinkBeforeLink',
         'pollIntervalMs',
         'androidUdid',
         'codeyAndroidAppPackage',
@@ -112,6 +113,7 @@ describe('flow registry', () => {
         config: {
           paymentRedirectUrl:
             ' https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking ',
+          unlinkBeforeLink: 'false',
           pollIntervalMs: '5000',
           androidUdid: ' emulator-5554 ',
           codeyAndroidAppPackage: ' com.codey.app ',
@@ -125,6 +127,7 @@ describe('flow registry', () => {
       config: {
         paymentRedirectUrl:
           'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking',
+        unlinkBeforeLink: false,
         pollIntervalMs: 5000,
         androidUdid: 'emulator-5554',
         codeyAndroidAppPackage: 'com.codey.app',

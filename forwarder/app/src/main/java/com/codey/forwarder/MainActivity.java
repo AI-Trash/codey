@@ -24,11 +24,15 @@ import android.widget.TextView;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
+    private EditText codeyBaseUrlInput;
     private EditText webhookUrlInput;
     private EditText deviceIdInput;
+    private EditText whatsappPhoneInput;
+    private EditText gopayPhoneInput;
     private CheckBox enabledInput;
     private CheckBox businessInput;
     private TextView statusView;
+    private String pendingPairingDeviceCode;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -65,8 +69,13 @@ public class MainActivity extends Activity {
         statusView.setPadding(0, 24, 0, 12);
         root.addView(statusView);
 
+        codeyBaseUrlInput = new EditText(this);
+        codeyBaseUrlInput.setHint("Codey Web URL");
+        codeyBaseUrlInput.setSingleLine(true);
+        root.addView(codeyBaseUrlInput, matchWidth());
+
         webhookUrlInput = new EditText(this);
-        webhookUrlInput.setHint("Webhook URL");
+        webhookUrlInput.setHint("Legacy CLI webhook URL");
         webhookUrlInput.setMinLines(2);
         root.addView(webhookUrlInput, matchWidth());
 
@@ -74,6 +83,16 @@ public class MainActivity extends Activity {
         deviceIdInput.setHint("Device ID");
         deviceIdInput.setSingleLine(true);
         root.addView(deviceIdInput, matchWidth());
+
+        whatsappPhoneInput = new EditText(this);
+        whatsappPhoneInput.setHint("WhatsApp phone number");
+        whatsappPhoneInput.setSingleLine(true);
+        root.addView(whatsappPhoneInput, matchWidth());
+
+        gopayPhoneInput = new EditText(this);
+        gopayPhoneInput.setHint("GoPay phone number");
+        gopayPhoneInput.setSingleLine(true);
+        root.addView(gopayPhoneInput, matchWidth());
 
         enabledInput = new CheckBox(this);
         enabledInput.setText("Forward WhatsApp notifications");
@@ -96,6 +115,11 @@ public class MainActivity extends Activity {
             button("Notification Access", () ->
                 startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))),
             button("Refresh", this::refreshStatus)
+        ));
+
+        root.addView(buttonRow(
+            button("Start Pairing", this::startPairing),
+            button("Complete Pairing", this::completePairing)
         ));
 
         root.addView(buttonRow(
@@ -150,8 +174,11 @@ public class MainActivity extends Activity {
 
     private void loadSettings() {
         ForwarderSettings settings = ForwarderConfig.readSettings(this);
+        codeyBaseUrlInput.setText(settings.codeyBaseUrl);
         webhookUrlInput.setText(settings.webhookUrl);
         deviceIdInput.setText(settings.deviceId);
+        whatsappPhoneInput.setText(settings.whatsappPhoneNumber);
+        gopayPhoneInput.setText(settings.gopayPhoneNumber);
         enabledInput.setChecked(settings.forwardEnabled);
         businessInput.setChecked(settings.forwardBusiness);
     }
@@ -160,8 +187,12 @@ public class MainActivity extends Activity {
         ForwarderConfig.saveSettings(
             this,
             new ForwarderSettings(
+                codeyBaseUrlInput.getText().toString(),
                 webhookUrlInput.getText().toString(),
                 deviceIdInput.getText().toString(),
+                ForwarderConfig.readSettings(this).deviceToken,
+                whatsappPhoneInput.getText().toString(),
+                gopayPhoneInput.getText().toString(),
                 enabledInput.isChecked(),
                 businessInput.isChecked()
             )
@@ -177,6 +208,10 @@ public class MainActivity extends Activity {
         detail.append("Battery optimization: ");
         detail.append(isIgnoringBatteryOptimizations() ? "ignored" : "may stop background work");
         detail.append('\n');
+        ForwarderSettings settings = ForwarderConfig.readSettings(this);
+        detail.append("Codey Web pairing: ");
+        detail.append(settings.deviceToken.trim().isEmpty() ? "not paired" : "paired");
+        detail.append('\n');
         detail.append(status.message);
         if (status.title != null && !status.title.trim().isEmpty()) {
             detail.append("\nLast title: ").append(status.title);
@@ -185,6 +220,66 @@ public class MainActivity extends Activity {
             detail.append("\nLast body: ").append(status.body);
         }
         statusView.setText(detail.toString());
+    }
+
+    private void startPairing() {
+        saveSettings();
+        new Thread(() -> {
+            try {
+                ForwarderSettings settings = ForwarderConfig.readSettings(this);
+                CodeyDevicePairingClient.PairingChallenge challenge =
+                    CodeyDevicePairingClient.startPairing(settings);
+                pendingPairingDeviceCode = challenge.deviceCode;
+                String verificationUrl = challenge.verificationUriComplete.trim().isEmpty()
+                    ? challenge.verificationUri
+                    : challenge.verificationUriComplete;
+                ForwarderConfig.saveStatus(
+                    this,
+                    "Pairing started. Approve user code " + challenge.userCode +
+                        " at " + verificationUrl
+                );
+            } catch (Exception error) {
+                ForwarderConfig.saveStatus(
+                    this,
+                    "Pairing start failed: " + (error.getMessage() != null
+                        ? error.getMessage()
+                        : error.getClass().getSimpleName())
+                );
+            }
+            mainHandler.post(this::refreshStatus);
+        }).start();
+    }
+
+    private void completePairing() {
+        saveSettings();
+        new Thread(() -> {
+            try {
+                if (pendingPairingDeviceCode == null || pendingPairingDeviceCode.trim().isEmpty()) {
+                    throw new Exception("Start pairing first.");
+                }
+                ForwarderSettings settings = ForwarderConfig.readSettings(this);
+                CodeyDevicePairingClient.PairingResult result =
+                    CodeyDevicePairingClient.completePairing(
+                        settings,
+                        pendingPairingDeviceCode
+                    );
+                ForwarderConfig.saveDeviceToken(this, result.deviceToken);
+                pendingPairingDeviceCode = null;
+                ForwarderConfig.saveStatus(
+                    this,
+                    "Paired with Codey Web as " + result.deviceId +
+                        " (" + result.mobileDeviceId + ")."
+                );
+            } catch (Exception error) {
+                ForwarderConfig.saveStatus(
+                    this,
+                    "Pairing completion failed: " + (error.getMessage() != null
+                        ? error.getMessage()
+                        : error.getClass().getSimpleName())
+                );
+            }
+            mainHandler.post(this::refreshStatus);
+        }).start();
     }
 
     private void runGoPayUnlink() {
@@ -227,7 +322,11 @@ public class MainActivity extends Activity {
             try {
                 JSONObject payload = ForwarderNotifier.buildForwarderPayload(settings, sample);
                 ForwarderNotifier.HttpResult result =
-                    ForwarderNotifier.postNotificationPayload(settings.webhookUrl, payload);
+                    ForwarderNotifier.postNotificationPayload(
+                        ForwarderNotifier.resolveNotificationWebhookUrl(settings),
+                        payload,
+                        settings.deviceToken
+                    );
                 String message = result.statusCode >= 200 && result.statusCode <= 299
                     ? "Test forwarded: HTTP " + result.statusCode
                     : "Test failed: HTTP " + result.statusCode + " " +

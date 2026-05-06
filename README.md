@@ -225,15 +225,21 @@ Set `CODEY_ANDROID_APP_PACKAGE` when using a custom app id. Set
 `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_APPIUM_FALLBACK=true` only if you want the CLI
 to fall back to the old Appium GoPay unlink path when CodeyApp automation fails.
 
+CodeyApp can now pair directly with Codey Web through the same device-code style
+approval surface used by terminal clients. After pairing, the Android app stores
+a revocable per-device token and posts WhatsApp notifications straight to
+Codey Web's `/api/ingest/whatsapp-notification` endpoint. The legacy CLI local
+webhook remains available as a fallback when the app has not been paired.
+
 When the CLI remote worker starts, Codey also starts a local CodeyApp webhook
-endpoint for WhatsApp verification notifications. The Android app lives in
-`forwarder/` and defaults to the emulator URL:
+endpoint for legacy WhatsApp verification notifications. The Android app lives
+in `forwarder/` and still defaults that fallback URL to the emulator address:
 
 ```text
 http://10.0.2.2:3001/webhooks/codey-app/whatsapp
 ```
 
-The endpoint accepts JSON, form-encoded, or plain-text webhook bodies and
+The legacy endpoint accepts JSON, form-encoded, or plain-text webhook bodies and
 forwards the original notification payload to Codey Web's
 `/api/ingest/whatsapp-notification` endpoint. Disable auto-start with
 `FORWARDER_WEBHOOK_ENABLED=false` or `pnpm codey --forwarderWebhook false`.
@@ -418,21 +424,30 @@ Recommended payload:
 ### Android CodeyApp setup
 
 Build or install the Android app from `forwarder/`. For an emulator, the app's
-default webhook URL already points at the host machine through `10.0.2.2`. For a
-physical phone, set the webhook URL to either the computer LAN address with
+default Codey Web URL points at the host machine through `10.0.2.2:3000`. For a
+physical phone, set **Codey Web URL** to the computer LAN address or public
+deployment URL. The legacy webhook URL is only used when the app is not paired;
+for that fallback, set the webhook URL to either the computer LAN address with
 `FORWARDER_WEBHOOK_HOST=0.0.0.0` on the CLI, or use `adb reverse tcp:3001
-tcp:3001` and keep the phone URL on `127.0.0.1`.
+tcp:3001` and keep the legacy webhook URL on `127.0.0.1`.
 
 After installing the app:
 
-1. Open CodeyApp and tap **Notification Access**.
-2. Enable notification access for CodeyApp.
-3. Return to the app and tap **Start Keep Alive**.
-4. Tap **Battery Settings** and allow unrestricted/background battery usage for
+1. Open CodeyApp and confirm **Codey Web URL**, **Device ID**, and optional
+   WhatsApp / GoPay phone numbers.
+2. Tap **Start Pairing**. CodeyApp shows a user code and approval URL.
+3. Open the approval URL, sign in as an admin if needed, and approve the
+   pending mobile pairing request.
+4. Return to CodeyApp and tap **Complete Pairing**. The status should show that
+   the app is paired.
+5. Tap **Notification Access** and enable notification access for CodeyApp.
+6. Return to the app and tap **Start Keep Alive**.
+7. Tap **Battery Settings** and allow unrestricted/background battery usage for
    CodeyApp. On Xiaomi/OPPO/Vivo/Huawei-style ROMs, also enable
    autostart/locked app/no background cleanup for CodeyApp.
-5. Tap **Send Test Payload** while `pnpm codey` is running; the CLI should log a
-   CodeyApp WhatsApp webhook event with code `123456`.
+8. Tap **Send Test Payload**. When paired, Codey Web should receive a
+   WhatsApp notification with code `123456` even when the CLI is not running.
+   When unpaired, keep `pnpm codey` running and use the legacy local webhook.
 
 ## Build and validation
 

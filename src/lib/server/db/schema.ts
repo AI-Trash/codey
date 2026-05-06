@@ -59,10 +59,19 @@ export const managedIdentitySessionStatusEnum = pgEnum(
   'managed_identity_session_status',
   ['ACTIVE', 'REVOKED'],
 )
+export const mobileDeviceStatusEnum = pgEnum('mobile_device_status', [
+  'ACTIVE',
+  'REVOKED',
+])
+export const mobilePhoneBindingPurposeEnum = pgEnum(
+  'mobile_phone_binding_purpose',
+  ['WHATSAPP', 'GOPAY', 'BOTH'],
+)
 export const oauthClientAuthMethodEnum = pgEnum('oauth_client_auth_method', [
   'client_secret_basic',
   'client_secret_post',
 ])
+export type DeviceChallengeKind = 'CLI' | 'MOBILE'
 export type ManagedWorkspaceMemberInviteStatus =
   | 'NOT_INVITED'
   | 'PENDING'
@@ -271,6 +280,10 @@ export const whatsappNotificationIngestRecords = pgTable(
       () => verificationEmailReservations.id,
       { onDelete: 'set null' },
     ),
+    mobileDeviceId: text('mobile_device_id').references(
+      () => mobileDevices.id,
+      { onDelete: 'set null' },
+    ),
     deviceId: text('device_id'),
     notificationId: text('notification_id'),
     packageName: text('package_name'),
@@ -312,6 +325,7 @@ export const deviceChallenges = pgTable(
     id: text('id').primaryKey(),
     deviceCode: text('device_code').notNull(),
     userCode: text('user_code').notNull(),
+    kind: text('kind').$type<DeviceChallengeKind>().default('CLI').notNull(),
     status: deviceChallengeStatusEnum('status').default('PENDING').notNull(),
     scope: text('scope'),
     flowType: text('flow_type'),
@@ -352,6 +366,105 @@ export const deviceChallenges = pgTable(
   (table) => [
     uniqueIndex('device_challenges_device_code_unique').on(table.deviceCode),
     uniqueIndex('device_challenges_user_code_unique').on(table.userCode),
+  ],
+)
+
+export const mobileDevices = pgTable(
+  'mobile_devices',
+  {
+    id: text('id').primaryKey(),
+    deviceId: text('device_id').notNull(),
+    label: text('label'),
+    status: mobileDeviceStatusEnum('status').default('ACTIVE').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    capabilities: text('capabilities')
+      .array()
+      .$type<string[]>()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
+    pairedByUserId: text('paired_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    deviceChallengeId: text('device_challenge_id').references(
+      () => deviceChallenges.id,
+      { onDelete: 'set null' },
+    ),
+    userAgent: text('user_agent'),
+    lastSeenAt: timestamp('last_seen_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    revokedAt: timestamp('revoked_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('mobile_devices_device_id_unique').on(table.deviceId),
+    uniqueIndex('mobile_devices_token_hash_unique').on(table.tokenHash),
+    index('mobile_devices_status_last_seen_at_idx').on(
+      table.status,
+      table.lastSeenAt,
+    ),
+    index('mobile_devices_paired_by_user_idx').on(table.pairedByUserId),
+  ],
+)
+
+export const mobilePhoneBindings = pgTable(
+  'mobile_phone_bindings',
+  {
+    id: text('id').primaryKey(),
+    mobileDeviceId: text('mobile_device_id')
+      .notNull()
+      .references(() => mobileDevices.id, { onDelete: 'cascade' }),
+    phoneNumber: text('phone_number').notNull(),
+    countryCode: text('country_code'),
+    purpose: mobilePhoneBindingPurposeEnum('purpose')
+      .default('WHATSAPP')
+      .notNull(),
+    label: text('label'),
+    isDefault: boolean('is_default').default(false).notNull(),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('mobile_phone_bindings_device_phone_purpose_unique').on(
+      table.mobileDeviceId,
+      table.phoneNumber,
+      table.purpose,
+    ),
+    index('mobile_phone_bindings_device_purpose_idx').on(
+      table.mobileDeviceId,
+      table.purpose,
+    ),
+    index('mobile_phone_bindings_phone_purpose_idx').on(
+      table.phoneNumber,
+      table.purpose,
+    ),
   ],
 )
 
@@ -1160,6 +1273,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   sessions: many(sessions),
   deviceChallenges: many(deviceChallenges),
   cliConnections: many(cliConnections),
+  mobileDevices: many(mobileDevices),
 }))
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -1205,15 +1319,46 @@ export const whatsappNotificationIngestRecordsRelations = relations(
       fields: [whatsappNotificationIngestRecords.reservationId],
       references: [verificationEmailReservations.id],
     }),
+    mobileDevice: one(mobileDevices, {
+      fields: [whatsappNotificationIngestRecords.mobileDeviceId],
+      references: [mobileDevices.id],
+    }),
   }),
 )
 
 export const deviceChallengesRelations = relations(
   deviceChallenges,
-  ({ one }) => ({
+  ({ many, one }) => ({
     user: one(users, {
       fields: [deviceChallenges.userId],
       references: [users.id],
+    }),
+    mobileDevices: many(mobileDevices),
+  }),
+)
+
+export const mobileDevicesRelations = relations(
+  mobileDevices,
+  ({ many, one }) => ({
+    pairedByUser: one(users, {
+      fields: [mobileDevices.pairedByUserId],
+      references: [users.id],
+    }),
+    deviceChallenge: one(deviceChallenges, {
+      fields: [mobileDevices.deviceChallengeId],
+      references: [deviceChallenges.id],
+    }),
+    phoneBindings: many(mobilePhoneBindings),
+    whatsappNotifications: many(whatsappNotificationIngestRecords),
+  }),
+)
+
+export const mobilePhoneBindingsRelations = relations(
+  mobilePhoneBindings,
+  ({ one }) => ({
+    mobileDevice: one(mobileDevices, {
+      fields: [mobilePhoneBindings.mobileDeviceId],
+      references: [mobileDevices.id],
     }),
   }),
 )
@@ -1320,6 +1465,9 @@ export type ManagedIdentityStatus =
   (typeof managedIdentityStatusEnum.enumValues)[number]
 export type ManagedIdentitySessionStatus =
   (typeof managedIdentitySessionStatusEnum.enumValues)[number]
+export type MobileDeviceStatus = (typeof mobileDeviceStatusEnum.enumValues)[number]
+export type MobilePhoneBindingPurpose =
+  (typeof mobilePhoneBindingPurposeEnum.enumValues)[number]
 export type OAuthClientAuthMethod =
   (typeof oauthClientAuthMethodEnum.enumValues)[number]
 export type ExternalServiceKind =
@@ -1337,6 +1485,8 @@ export type EmailIngestRecordRow = typeof emailIngestRecords.$inferSelect
 export type WhatsAppNotificationIngestRecordRow =
   typeof whatsappNotificationIngestRecords.$inferSelect
 export type DeviceChallengeRow = typeof deviceChallenges.$inferSelect
+export type MobileDeviceRow = typeof mobileDevices.$inferSelect
+export type MobilePhoneBindingRow = typeof mobilePhoneBindings.$inferSelect
 export type AdminNotificationRow = typeof adminNotifications.$inferSelect
 export type FlowTaskRow = typeof flowTasks.$inferSelect
 export type FlowTaskEventRow = typeof flowTaskEvents.$inferSelect

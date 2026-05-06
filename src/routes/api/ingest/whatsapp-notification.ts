@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { json, text } from '../../../lib/server/http'
 import { VERIFICATION_INGEST_SCOPE } from '../../../lib/server/oauth-scopes'
 import { authorizeVerificationAccess } from '../../../lib/server/request'
+import { authenticateMobileDevice } from '../../../lib/server/mobile-devices'
 import { ingestWhatsAppNotification } from '../../../lib/server/verification'
 
 interface WhatsAppNotificationIngestPayload {
@@ -38,10 +39,13 @@ export const Route = createFileRoute('/api/ingest/whatsapp-notification')({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const authResult = await authorizeVerificationAccess(request, [
-          VERIFICATION_INGEST_SCOPE,
-        ])
-        if (authResult instanceof Response) return authResult
+        const mobileDevice = await authenticateMobileDevice(request)
+        if (!mobileDevice) {
+          const authResult = await authorizeVerificationAccess(request, [
+            VERIFICATION_INGEST_SCOPE,
+          ])
+          if (authResult instanceof Response) return authResult
+        }
 
         let payload: unknown
         try {
@@ -59,7 +63,8 @@ export const Route = createFileRoute('/api/ingest/whatsapp-notification')({
         const result = await ingestWhatsAppNotification({
           reservationId: body.reservationId,
           email: body.email || body.targetEmail || body.reservationEmail,
-          deviceId: body.deviceId,
+          mobileDeviceId: mobileDevice?.id,
+          deviceId: mobileDevice?.deviceId || body.deviceId,
           notificationId: body.notificationId,
           packageName: body.packageName,
           sender: body.sender || body.senderPhone,
@@ -77,6 +82,7 @@ export const Route = createFileRoute('/api/ingest/whatsapp-notification')({
         return json({
           ok: true,
           notificationRecordId: result.notificationRecord.id,
+          mobileDeviceId: result.notificationRecord.mobileDeviceId,
           codeRecordId: result.codeRecord?.id,
           match: result.match,
         })

@@ -2,10 +2,12 @@ import '@tanstack/react-start/server-only'
 import { desc, eq } from 'drizzle-orm'
 import { getAppEnv } from './env'
 import { getDb } from './db/client'
-import { deviceChallenges, sessions } from './db/schema'
+import { deviceChallenges, sessions, type DeviceChallengeKind } from './db/schema'
+import { pairMobileDevice } from './mobile-devices'
 import { createId, randomToken, randomUserCode, sha256 } from './security'
 
 export async function createDeviceChallenge(input: {
+  kind?: DeviceChallengeKind | string
   scope?: string
   flowType?: string
   cliName?: string
@@ -24,6 +26,7 @@ export async function createDeviceChallenge(input: {
       id: createId(),
       deviceCode,
       userCode,
+      kind: input.kind === 'MOBILE' ? 'MOBILE' : 'CLI',
       scope: input.scope,
       flowType: input.flowType,
       cliName: input.cliName,
@@ -119,6 +122,10 @@ export async function consumeApprovedDeviceChallenge(deviceCode: string) {
       throw new Error('Device challenge expired')
     }
 
+    if (challenge.kind !== 'CLI') {
+      throw new Error('Device challenge is not for CLI authentication')
+    }
+
     if (
       challenge.status !== 'APPROVED' ||
       !challenge.userId ||
@@ -149,6 +156,75 @@ export async function consumeApprovedDeviceChallenge(deviceCode: string) {
       user: challenge.user,
     }
   })
+}
+
+export async function consumeApprovedMobileDeviceChallenge(params: {
+  deviceCode: string
+  deviceId: string
+  label?: string | null
+  userAgent?: string | null
+  capabilities?: string[]
+  phoneBindings?: Array<{
+    phoneNumber: string
+    countryCode?: string | null
+    purpose?: string | null
+    label?: string | null
+    isDefault?: boolean | null
+  }>
+}) {
+  const challenge = await getDb().query.deviceChallenges.findFirst({
+    where: eq(deviceChallenges.deviceCode, params.deviceCode),
+    with: { user: true },
+  })
+
+  if (!challenge) {
+    throw new Error('Device challenge not found')
+  }
+
+  if (challenge.kind !== 'MOBILE') {
+    throw new Error('Device challenge is not for mobile pairing')
+  }
+
+  if (challenge.expiresAt.getTime() <= Date.now()) {
+    await getDb()
+      .update(deviceChallenges)
+      .set({ status: 'EXPIRED' })
+      .where(eq(deviceChallenges.id, challenge.id))
+    throw new Error('Device challenge expired')
+  }
+
+  if (
+    challenge.status !== 'APPROVED' ||
+    !challenge.userId ||
+    !challenge.user
+  ) {
+    throw new Error('Device challenge is not approved yet')
+  }
+
+  const result = await pairMobileDevice({
+    deviceId: params.deviceId,
+    label: params.label,
+    userId: challenge.userId,
+    deviceChallengeId: challenge.id,
+    userAgent: params.userAgent,
+    capabilities: params.capabilities,
+    phoneBindings: params.phoneBindings,
+  })
+
+  await getDb()
+    .update(deviceChallenges)
+    .set({
+      status: 'CONSUMED',
+      consumedAt: new Date(),
+      lastPolledAt: new Date(),
+    })
+    .where(eq(deviceChallenges.id, challenge.id))
+
+  return {
+    deviceToken: result.token,
+    device: result.device,
+    user: challenge.user,
+  }
 }
 
 export async function pollDeviceChallenge(deviceCode: string) {

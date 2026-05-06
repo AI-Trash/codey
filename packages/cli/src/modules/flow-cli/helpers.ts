@@ -41,6 +41,7 @@ export interface FlowOptions extends CommonOptions {
   verificationTimeoutMs?: number
   pollIntervalMs?: number
   paymentRedirectUrl?: string
+  unlinkBeforeLink?: string | boolean
   authorizeUrlOnly?: boolean
   password?: string
   claimTrial?: string | boolean

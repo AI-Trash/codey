@@ -5,6 +5,7 @@ import { and, asc, eq, gt, lt, or, sql } from 'drizzle-orm'
 import {
   createCliFlowTaskPayload,
   type CliFlowTaskMetadata,
+  normalizeCliFlowTaskPayload,
 } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
 import { sanitizeSummaryString } from '../../../packages/cli/src/utils/redaction'
 import {
@@ -152,6 +153,28 @@ function readTaskMetadata(
   return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
     ? (metadata as CliFlowTaskMetadata)
     : undefined
+}
+
+function buildPatchedFlowTaskPayload(
+  task: Pick<FlowTaskRow, 'payload'>,
+  configPatch?: Record<string, unknown> | null,
+): Record<string, unknown> | undefined {
+  if (!configPatch) {
+    return undefined
+  }
+
+  const payload = normalizeCliFlowTaskPayload(task.payload)
+  if (!payload) {
+    return undefined
+  }
+
+  return normalizeCliFlowTaskPayload({
+    ...payload,
+    config: {
+      ...payload.config,
+      ...configPatch,
+    },
+  })
 }
 
 async function queueGoPayContinuationFromFlowTask(input: {
@@ -520,6 +543,7 @@ async function requeueActiveFlowTask(input: {
   retryReason: string
   retryMessage?: string | null
   maxAttempts: FlowTaskRetryMaxAttempts
+  configPatch?: Record<string, unknown> | null
 }): Promise<FlowTaskRow | null> {
   const now = new Date()
   const workerId = getCliConnectionTaskWorkerId(input.connection)
@@ -534,11 +558,13 @@ async function requeueActiveFlowTask(input: {
       nextAttempt,
       maxAttempts: input.maxAttempts,
     })
+  const payload = buildPatchedFlowTaskPayload(input.current, input.configPatch)
 
   const [updated] = await getDb()
     .update(flowTasks)
     .set({
       status: 'QUEUED',
+      ...(payload ? { payload } : {}),
       cliConnectionId: null,
       leaseClaimedAt: null,
       leaseExpiresAt: null,
@@ -576,6 +602,7 @@ async function requeueActiveFlowTask(input: {
         previousAttempt: input.current.attemptCount,
         nextAttempt,
         maxAttempts: input.maxAttempts,
+        ...(payload ? { configPatch: input.configPatch || {} } : {}),
         ...(normalizedError ? { error: normalizedError } : {}),
       },
     },
@@ -794,6 +821,7 @@ export async function retryFlowTask(input: {
   retryReason: string
   retryMessage?: string | null
   maxAttempts?: number | null
+  configPatch?: Record<string, unknown> | null
 }): Promise<FlowTaskRow | null> {
   const connection = await getCliConnectionRow(input.connectionId)
   if (!connection) {
@@ -828,6 +856,7 @@ export async function retryFlowTask(input: {
     retryReason: input.retryReason,
     retryMessage: input.retryMessage,
     maxAttempts,
+    configPatch: input.configPatch,
   })
 }
 

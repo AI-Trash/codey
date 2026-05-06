@@ -26,6 +26,7 @@ export interface FlowTaskRetryRequest {
   reason: string
   message?: string | null
   maxAttempts?: number
+  configPatch?: Record<string, unknown>
 }
 
 interface FlowTaskStatusPayload {

@@ -58,6 +58,7 @@ import { getRuntimeConfig } from '../config'
 import type { FlowOptions } from '../modules/flow-cli/helpers'
 import {
   attachStateMachineProgressReporter,
+  parseBooleanFlag,
   parseNumberFlag,
   sanitizeErrorForOutput,
 } from '../modules/flow-cli/helpers'
@@ -986,6 +987,21 @@ export function resolveChatGPTTeamTrialGoPayUnlinkOptions(): ChatGPTTeamTrialGoP
   }
 }
 
+function resolveChatGPTTeamTrialGoPayUnlinkOptionsForFlow(
+  options: FlowOptions = {},
+): ChatGPTTeamTrialGoPayUnlinkOptions {
+  const resolved = resolveChatGPTTeamTrialGoPayUnlinkOptions()
+  if (options.unlinkBeforeLink === undefined) {
+    return resolved
+  }
+
+  return {
+    ...resolved,
+    enabled:
+      parseBooleanFlag(options.unlinkBeforeLink, resolved.enabled) ?? true,
+  }
+}
+
 type GoPayUnlinkTaskOutcome =
   | {
       ok: true
@@ -1001,7 +1017,8 @@ type GoPayUnlinkTaskStatus = 'pending' | 'resolved' | 'failed'
 export function startChatGPTTeamTrialGoPayUnlinkTask(
   options: FlowOptions = {},
 ): ChatGPTTeamTrialGoPayUnlinkTask | undefined {
-  const unlinkOptions = resolveChatGPTTeamTrialGoPayUnlinkOptions()
+  const unlinkOptions =
+    resolveChatGPTTeamTrialGoPayUnlinkOptionsForFlow(options)
   if (!unlinkOptions.enabled) {
     options.progressReporter?.({
       message: 'GoPay unlink task is disabled',

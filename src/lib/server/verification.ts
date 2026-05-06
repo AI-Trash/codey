@@ -65,6 +65,7 @@ export interface VerificationEmailPayload {
 export interface WhatsAppNotificationPayload {
   reservationId?: string | null
   email?: string | null
+  mobileDeviceId?: string | null
   deviceId?: string | null
   notificationId?: string | null
   packageName?: string | null
@@ -1957,6 +1958,7 @@ export async function ingestWhatsAppNotification(
     .values({
       id: createId(),
       reservationId: reservation?.id,
+      mobileDeviceId: normalizeOptionalString(params.mobileDeviceId),
       deviceId: fields.deviceId,
       notificationId: fields.notificationId,
       packageName: fields.packageName,

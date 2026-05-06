@@ -36,6 +36,7 @@ export const Route = createFileRoute('/api/device/$deviceCode/events')({
               data: {
                 status: challenge.status,
                 userCode: challenge.userCode,
+                kind: challenge.kind,
                 approvalMessage: challenge.approvalMessage,
               },
             }

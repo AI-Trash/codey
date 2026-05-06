@@ -35,6 +35,7 @@ import {
   completeFlowTask,
   requestFlowTaskStop,
   requeueFlowTask,
+  retryFlowTask,
 } from './flow-tasks'
 import {
   flowTaskEvents,
@@ -301,6 +302,87 @@ describe('flow task completion', () => {
       type: 'FAILED',
       status: 'FAILED',
       message: 'Login failed',
+    })
+  })
+
+  it('re-queues GoPay continuation retries with unlink disabled when requested', async () => {
+    const gopayUrl =
+      'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking'
+    const task = createTask({
+      flowType: 'chatgpt-team-trial-gopay',
+      attemptCount: 1,
+      payload: {
+        kind: 'flow_task',
+        flowId: 'chatgpt-team-trial-gopay',
+        config: {
+          chromeDefaultProfile: true,
+          paymentRedirectUrl: gopayUrl,
+        },
+      },
+    })
+    const { insertedEvents, updatePatches } = createDbMock({
+      connection: createConnection({
+        registeredFlows: ['chatgpt-team-trial-gopay'],
+      }),
+      currentTask: task,
+    })
+
+    await expect(
+      retryFlowTask({
+        connectionId: 'connection-1',
+        taskId: 'task-1',
+        error: 'GoPay tokenization linking failed: HTTP 429',
+        retryReason: 'chatgpt-team-trial-gopay:gopay-tokenization-rate-limited',
+        retryMessage:
+          'GoPay tokenization was rate-limited by Midtrans; Codey Web is re-queuing the continuation without unlinking GoPay again.',
+        maxAttempts: 2,
+        configPatch: {
+          unlinkBeforeLink: false,
+        },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: 'task-1',
+        status: 'QUEUED',
+        payload: expect.objectContaining({
+          flowId: 'chatgpt-team-trial-gopay',
+          config: expect.objectContaining({
+            paymentRedirectUrl: gopayUrl,
+            unlinkBeforeLink: false,
+          }),
+        }),
+      }),
+    )
+
+    expect(updatePatches[0]).toMatchObject({
+      status: 'QUEUED',
+      payload: {
+        kind: 'flow_task',
+        flowId: 'chatgpt-team-trial-gopay',
+        config: {
+          chromeDefaultProfile: true,
+          paymentRedirectUrl: gopayUrl,
+          unlinkBeforeLink: false,
+        },
+      },
+    })
+    expect(insertedEvents[0]).toMatchObject({
+      taskId: 'task-1',
+      type: 'QUEUED',
+      status: 'QUEUED',
+      payload: {
+        retry: {
+          reason: 'chatgpt-team-trial-gopay:gopay-tokenization-rate-limited',
+          previousStatus: 'RUNNING',
+          previousAttempt: 1,
+          nextAttempt: 2,
+          maxAttempts: 2,
+          configPatch: {
+            unlinkBeforeLink: false,
+          },
+          error: 'GoPay tokenization linking failed: HTTP 429',
+        },
+      },
     })
   })
 

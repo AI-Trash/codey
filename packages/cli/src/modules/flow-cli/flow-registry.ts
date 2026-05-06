@@ -57,6 +57,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'paymentRedirectUrl'
+  | 'unlinkBeforeLink'
   | 'identityId'
   | 'email'
   | 'billingName'
@@ -97,6 +98,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'paymentRedirectUrl'
+  | 'unlinkBeforeLink'
   | 'identityId'
   | 'email'
   | 'billingName'
@@ -137,6 +139,7 @@ export type CliFlowConfigFieldKey =
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'paymentRedirectUrl'
+  | 'unlinkBeforeLink'
   | 'identityId'
   | 'email'
   | 'billingName'
@@ -379,6 +382,12 @@ export interface ChatGPTTeamTrialGoPayFlowConfig extends CommonFlowConfig {
    * Midtrans GoPay tokenization URL captured by the checkout handoff flow.
    */
   paymentRedirectUrl?: string
+
+  /**
+   * Unlink the GoPay linked app before clicking the Midtrans Link and pay
+   * button. Retried tokenization runs can disable this after the first unlink.
+   */
+  unlinkBeforeLink?: boolean
 
   /**
    * Poll interval for WhatsApp OTP updates, in milliseconds.
@@ -651,6 +660,13 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'paymentRedirectUrl',
   },
   {
+    key: 'unlinkBeforeLink',
+    cliFlag: '--unlinkBeforeLink',
+    type: 'boolean',
+    displayNameKey: 'unlinkBeforeLink',
+    descriptionKey: 'unlinkBeforeLink',
+  },
+  {
     key: 'identityId',
     cliFlag: '--identityId',
     type: 'string',
@@ -887,6 +903,7 @@ export const cliFlowDefinitions = [
     descriptionKey: 'chatgptTeamTrialGoPay',
     configKeys: [
       'paymentRedirectUrl',
+      'unlinkBeforeLink',
       'pollIntervalMs',
       'androidUdid',
       'codeyAndroidAppPackage',

@@ -30,7 +30,11 @@ public class ForwarderNotificationListenerService extends NotificationListenerSe
         try {
             JSONObject payload = ForwarderNotifier.buildForwarderPayload(settings, notification);
             ForwarderNotifier.HttpResult result =
-                ForwarderNotifier.postNotificationPayload(settings.webhookUrl, payload);
+                ForwarderNotifier.postNotificationPayload(
+                    ForwarderNotifier.resolveNotificationWebhookUrl(settings),
+                    payload,
+                    settings.deviceToken
+                );
             String message = result.statusCode >= 200 && result.statusCode <= 299
                 ? "Forwarded WhatsApp notification: HTTP " + result.statusCode
                 : "Forward failed: HTTP " + result.statusCode + " " + take(result.responseBody, 160);

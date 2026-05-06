@@ -6,6 +6,7 @@ import {
   resolveChatGPTTeamTrialBillingAddress,
   resolveChatGPTTeamTrialGoPayAccount,
   resolveChatGPTTeamTrialGoPayUnlinkOptions,
+  startChatGPTTeamTrialGoPayUnlinkTask,
 } from '../src/flows/chatgpt-team-trial'
 import {
   buildChatGPTTrialCheckoutPayload,
@@ -1506,6 +1507,30 @@ describe('chatgpt team trial checkout defaults', () => {
       timeoutMs: undefined,
       appiumFallback: false,
     })
+  })
+
+  it('lets GoPay continuation task options disable unlink for a retry', () => {
+    setRuntimeConfig({
+      ...baseConfig,
+      chatgptTeamTrial: {
+        gopay: {
+          phoneNumber: '18400000000',
+        },
+      },
+    })
+    const progress: string[] = []
+
+    const task = startChatGPTTeamTrialGoPayUnlinkTask({
+      unlinkBeforeLink: false,
+      progressReporter(update) {
+        if (update.message) {
+          progress.push(update.message)
+        }
+      },
+    })
+
+    expect(task).toBeUndefined()
+    expect(progress).toContain('GoPay unlink task is disabled')
   })
 })
 

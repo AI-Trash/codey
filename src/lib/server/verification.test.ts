@@ -838,6 +838,7 @@ describe('WhatsApp notification ingest', () => {
       expect.objectContaining({
         id: 'notification-record-1',
         reservationId: reservation.id,
+        mobileDeviceId: undefined,
         packageName: 'com.whatsapp',
         verificationCode: '123456',
       }),
@@ -1041,5 +1042,53 @@ describe('WhatsApp notification ingest', () => {
     })
 
     expect(mocks.publishVerificationCodeEvent).not.toHaveBeenCalled()
+  })
+
+  it('stores the authenticated mobile device id on WhatsApp notifications', async () => {
+    const receivedAt = new Date('2026-04-30T00:00:00.000Z')
+    const notificationRecord = {
+      id: 'notification-record-1',
+      reservationId: null,
+      mobileDeviceId: 'mobile-device-1',
+      deviceId: 'android-abc',
+      verificationCode: '424242',
+      receivedAt,
+    }
+    const notificationInsert = createInsertChain(notificationRecord)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      },
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: notificationInsert.values }),
+    })
+
+    await expect(
+      ingestWhatsAppNotification({
+        mobileDeviceId: 'mobile-device-1',
+        deviceId: 'android-abc',
+        body: 'Use 424242 to verify your account',
+        receivedAt: receivedAt.toISOString(),
+      }),
+    ).resolves.toMatchObject({
+      notificationRecord,
+      codeRecord: null,
+      match: {
+        status: 'unmatched',
+        reason: 'no_active_reservation',
+      },
+    })
+
+    expect(notificationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mobileDeviceId: 'mobile-device-1',
+        deviceId: 'android-abc',
+        verificationCode: '424242',
+      }),
+    )
   })
 })

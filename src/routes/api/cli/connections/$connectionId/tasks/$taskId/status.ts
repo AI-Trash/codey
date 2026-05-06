@@ -53,11 +53,22 @@ function parseOptionalPositiveInteger(value: unknown): number | undefined {
   return value
 }
 
+function parseOptionalConfigPatch(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  if (value === undefined || value === null) {
+    return undefined
+  }
+
+  return parseOptionalRecord(value) || undefined
+}
+
 function parseOptionalRetryRequest(value: unknown):
   | {
       reason: string
       message?: string | null
       maxAttempts?: number
+      configPatch?: Record<string, unknown>
     }
   | null
   | undefined {
@@ -85,10 +96,16 @@ function parseOptionalRetryRequest(value: unknown):
     return undefined
   }
 
+  const configPatch = parseOptionalConfigPatch(retry.configPatch)
+  if ('configPatch' in retry && configPatch === undefined) {
+    return undefined
+  }
+
   return {
     reason,
     ...(message !== undefined ? { message } : {}),
     ...(maxAttempts !== undefined ? { maxAttempts } : {}),
+    ...(configPatch !== undefined ? { configPatch } : {}),
   }
 }
 
@@ -175,7 +192,7 @@ export const Route = createFileRoute(
         const retry = parseOptionalRetryRequest(body?.retry)
         if ('retry' in (body || {}) && retry === undefined) {
           return text(
-            'retry must include reason and optional message/maxAttempts',
+            'retry must include reason and optional message/maxAttempts/configPatch',
             400,
           )
         }
@@ -213,6 +230,7 @@ export const Route = createFileRoute(
                 retryReason: retry.reason,
                 retryMessage: retry.message,
                 maxAttempts: retry.maxAttempts,
+                configPatch: retry.configPatch,
               })
             : await completeFlowTask({
                 connectionId: params.connectionId,

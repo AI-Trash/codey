@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  GOPAY_LINKING_RATE_LIMIT_RETRY_MAX_ATTEMPTS,
   getFlowTaskFullRetryDecision,
   OPENAI_ADD_PHONE_FULL_RETRY_MAX_ATTEMPTS,
 } from '../src/modules/flow-cli/task-retry'
@@ -34,6 +35,23 @@ describe('flow task retry decisions', () => {
     })
   })
 
+  it('requests a GoPay continuation retry without unlinking after Midtrans rate limiting', () => {
+    expect(
+      getFlowTaskFullRetryDecision({
+        flowId: 'chatgpt-team-trial-gopay',
+        error: new Error('GoPay tokenization linking failed: HTTP 429'),
+      }),
+    ).toEqual({
+      reason: 'chatgpt-team-trial-gopay:gopay-tokenization-rate-limited',
+      message:
+        'GoPay tokenization was rate-limited by Midtrans; Codey Web is re-queuing the continuation without unlinking GoPay again.',
+      maxAttempts: GOPAY_LINKING_RATE_LIMIT_RETRY_MAX_ATTEMPTS,
+      configPatch: {
+        unlinkBeforeLink: false,
+      },
+    })
+  })
+
   it('does not retry unsupported flows or unrelated failures', () => {
     expect(
       getFlowTaskFullRetryDecision({
@@ -45,6 +63,12 @@ describe('flow task retry decisions', () => {
       getFlowTaskFullRetryDecision({
         flowId: 'codex-oauth',
         error: new Error('ChatGPT account was deactivated by OpenAI.'),
+      }),
+    ).toBeUndefined()
+    expect(
+      getFlowTaskFullRetryDecision({
+        flowId: 'chatgpt-team-trial-gopay',
+        error: new Error('GoPay authorization failed: HTTP 429'),
       }),
     ).toBeUndefined()
   })

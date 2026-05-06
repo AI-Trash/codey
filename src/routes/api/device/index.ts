@@ -4,6 +4,7 @@ import { json } from '../../../lib/server/http'
 import { readJsonBody } from '../../../lib/server/request'
 
 interface DeviceChallengeRequest {
+  kind?: string
   scope?: string
   flowType?: string
   cliName?: string
@@ -20,6 +21,7 @@ export const Route = createFileRoute('/api/device/')({
           {
             deviceCode: challenge.deviceCode,
             userCode: challenge.userCode,
+            kind: challenge.kind,
             status: challenge.status,
             expiresAt: challenge.expiresAt.toISOString(),
             verificationUri: '/device',

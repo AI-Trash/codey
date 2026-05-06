@@ -46,6 +46,7 @@ const optionDisplayNameMap: Record<
   password: () => m.admin_cli_option_password_name(),
   claimTrial: () => m.admin_cli_option_claim_trial_name(),
   paymentRedirectUrl: () => m.admin_cli_option_payment_redirect_url_name(),
+  unlinkBeforeLink: () => m.admin_cli_option_unlink_before_link_name(),
   verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_name(),
   identityId: () => m.admin_cli_option_identity_id_name(),
@@ -97,6 +98,7 @@ const optionDescriptionMap: Record<
   claimTrial: () => m.admin_cli_option_claim_trial_description(),
   paymentRedirectUrl: () =>
     m.admin_cli_option_payment_redirect_url_description(),
+  unlinkBeforeLink: () => m.admin_cli_option_unlink_before_link_description(),
   verificationTimeoutMs: () =>
     m.admin_cli_option_verification_timeout_description(),
   pollIntervalMs: () => m.admin_cli_option_poll_interval_description(),

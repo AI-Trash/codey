@@ -7,12 +7,17 @@ import android.provider.Settings;
 import org.json.JSONObject;
 
 final class ForwarderConfig {
+    static final String DEFAULT_CODEY_BASE_URL = "http://10.0.2.2:3000";
     static final String DEFAULT_WEBHOOK_URL =
         "http://10.0.2.2:3001/webhooks/codey-app/whatsapp";
 
     private static final String PREFS_NAME = "codey_app";
+    private static final String KEY_CODEY_BASE_URL = "codey_base_url";
     private static final String KEY_WEBHOOK_URL = "webhook_url";
     private static final String KEY_DEVICE_ID = "device_id";
+    private static final String KEY_DEVICE_TOKEN = "device_token";
+    private static final String KEY_WHATSAPP_PHONE_NUMBER = "whatsapp_phone_number";
+    private static final String KEY_GOPAY_PHONE_NUMBER = "gopay_phone_number";
     private static final String KEY_FORWARD_ENABLED = "forward_enabled";
     private static final String KEY_FORWARD_BUSINESS = "forward_business";
     private static final String KEY_LAST_STATUS = "last_status";
@@ -25,8 +30,12 @@ final class ForwarderConfig {
     static ForwarderSettings readSettings(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         return new ForwarderSettings(
+            readString(prefs, KEY_CODEY_BASE_URL, DEFAULT_CODEY_BASE_URL),
             readString(prefs, KEY_WEBHOOK_URL, DEFAULT_WEBHOOK_URL),
             readString(prefs, KEY_DEVICE_ID, defaultDeviceId(context)),
+            readString(prefs, KEY_DEVICE_TOKEN, ""),
+            readString(prefs, KEY_WHATSAPP_PHONE_NUMBER, ""),
+            readString(prefs, KEY_GOPAY_PHONE_NUMBER, ""),
             prefs.getBoolean(KEY_FORWARD_ENABLED, true),
             prefs.getBoolean(KEY_FORWARD_BUSINESS, true)
         );
@@ -35,10 +44,21 @@ final class ForwarderConfig {
     static void saveSettings(Context context, ForwarderSettings settings) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
+            .putString(KEY_CODEY_BASE_URL, trim(settings.codeyBaseUrl))
             .putString(KEY_WEBHOOK_URL, trim(settings.webhookUrl))
             .putString(KEY_DEVICE_ID, trim(settings.deviceId))
+            .putString(KEY_DEVICE_TOKEN, trim(settings.deviceToken))
+            .putString(KEY_WHATSAPP_PHONE_NUMBER, trim(settings.whatsappPhoneNumber))
+            .putString(KEY_GOPAY_PHONE_NUMBER, trim(settings.gopayPhoneNumber))
             .putBoolean(KEY_FORWARD_ENABLED, settings.forwardEnabled)
             .putBoolean(KEY_FORWARD_BUSINESS, settings.forwardBusiness)
+            .apply();
+    }
+
+    static void saveDeviceToken(Context context, String deviceToken) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_DEVICE_TOKEN, trim(deviceToken))
             .apply();
     }
 
