@@ -262,5 +262,4 @@ describe('flow task scheduler', () => {
     await first
     await scheduler.waitForIdle()
   })
-
 })

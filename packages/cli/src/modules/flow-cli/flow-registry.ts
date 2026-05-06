@@ -1347,9 +1347,7 @@ function normalizeCliFlowTaskMetadata(
     ? normalizeCliFlowTaskWorkspaceMetadata(workspace)
     : undefined
 
-  return {
-    ...(normalizedWorkspace ? { workspace: normalizedWorkspace } : {}),
-  }
+  return normalizedWorkspace ? { workspace: normalizedWorkspace } : {}
 }
 
 function normalizeCliFlowTaskWorkspaceMetadata(

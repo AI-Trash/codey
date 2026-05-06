@@ -2,10 +2,7 @@ export {
   registerChatGPT,
   createChatGPTRegistrationMachine,
 } from './flows/chatgpt-register'
-export {
-  loginChatGPT,
-  createChatGPTLoginMachine,
-} from './flows/chatgpt-login'
+export { loginChatGPT, createChatGPTLoginMachine } from './flows/chatgpt-login'
 export {
   inviteChatGPTWorkspaceMembers,
   loginChatGPTAndInviteMembers,

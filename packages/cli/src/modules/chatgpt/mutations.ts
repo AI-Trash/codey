@@ -2046,8 +2046,8 @@ async function waitForMidtransGoPayLinkButtonEnabledMutation(
           const isDisabledByClass = (element: HTMLElement): boolean => {
             let current: HTMLElement | null = element
             for (let depth = 0; current && depth < 4; depth += 1) {
-              const disabled = Array.from(current.classList).some(
-                (className) => /^(?:disabled|inactive\d*)$/i.test(className),
+              const disabled = Array.from(current.classList).some((className) =>
+                /^(?:disabled|inactive\d*)$/i.test(className),
               )
               if (disabled) return true
               current = current.parentElement
