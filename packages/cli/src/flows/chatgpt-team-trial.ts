@@ -1861,7 +1861,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
       {
         ...gopayAccount,
         waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
-        async beforePhoneSubmit() {
+        async beforeLinkButtonClick() {
           if (!gopayUnlinkTask) {
             return
           }
@@ -1904,7 +1904,7 @@ export async function completeChatGPTTeamTrialAfterAuthenticatedSession<
                 paymentRedirectUrlPath,
                 gopayUnlinkStatus: 'waiting',
                 lastMessage:
-                  'Waiting for GoPay unlink task before submitting GoPay linking',
+                  'Waiting for GoPay unlink task before clicking GoPay Link and pay',
               },
             )
           }
@@ -2094,7 +2094,7 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
   const gopayPayment = await continueGoPayPaymentFromRedirect(page, redirect, {
     ...resolveChatGPTTeamTrialGoPayAccount(),
     waitForOtpCode: createChatGPTTeamTrialGoPayOtpCodeProvider(options),
-    async beforePhoneSubmit() {
+    async beforeLinkButtonClick() {
       if (!gopayUnlinkTask) {
         return
       }
@@ -2119,7 +2119,7 @@ async function continueChatGPTTeamTrialGoPayPayment<Result>(
         paypalApprovalUrl: redirect.url,
         gopayUnlinkStatus: 'waiting',
         lastMessage:
-          'Waiting for GoPay unlink task before submitting GoPay linking',
+          'Waiting for GoPay unlink task before clicking GoPay Link and pay',
       })
 
       try {

@@ -3067,7 +3067,7 @@ describe('gopay payment redirect extraction', () => {
     }
   })
 
-  it('waits for GoPay unlink before submitting the tokenization phone number', async () => {
+  it('waits for GoPay unlink after filling the phone form and before clicking Link and pay', async () => {
     vi.useFakeTimers()
     const page = new FakeGoPayTokenizationPage({
       countryOptionVisibleAfterChecks: 12,
@@ -3082,18 +3082,20 @@ describe('gopay payment redirect extraction', () => {
         continueGoPayPaymentFromRedirect(page as never, redirect!, {
           countryCode: '+86',
           phoneNumber: '18400000000',
-          async beforePhoneSubmit() {
-            events.push('beforePhoneSubmit')
-            page.calls.push('beforePhoneSubmit')
+          async beforeLinkButtonClick() {
+            events.push('beforeLinkButtonClick')
+            page.calls.push('beforeLinkButtonClick')
             expect(page.calls).not.toContain('click:link')
+            expect(page.calls).toContain('click:country-option')
+            expect(page.phoneNumber).toBe('18400000000')
           },
         }),
       ).rejects.toThrow(
         'GoPay tokenization did not return an activation link after submitting the phone number.',
       )
 
-      expect(events).toEqual(['beforePhoneSubmit'])
-      expect(page.calls.indexOf('beforePhoneSubmit')).toBeLessThan(
+      expect(events).toEqual(['beforeLinkButtonClick'])
+      expect(page.calls.indexOf('beforeLinkButtonClick')).toBeLessThan(
         page.calls.indexOf('click:link'),
       )
       expect(page.calls).toContain('click:country-trigger')

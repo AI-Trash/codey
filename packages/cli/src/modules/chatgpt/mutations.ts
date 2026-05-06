@@ -333,10 +333,12 @@ export interface GoPayAuthorizationOpenInput {
   statusCode?: string
 }
 
-export interface GoPayPhoneSubmitInput {
+export interface GoPayLinkButtonClickInput {
   redirectUrl: string
   url: string
 }
+
+export type GoPayPhoneSubmitInput = GoPayLinkButtonClickInput
 
 export interface GoPayAuthorizationOtpCodeInput {
   redirectUrl: string
@@ -355,6 +357,9 @@ export interface GoPayAccountLinkingOptions {
   pin?: string
   authorizationTimeoutMs?: number
   beforePhoneSubmit?: (input: GoPayPhoneSubmitInput) => Promise<void> | void
+  beforeLinkButtonClick?: (
+    input: GoPayLinkButtonClickInput,
+  ) => Promise<void> | void
   beforeAuthorizationOpen?: (
     input: GoPayAuthorizationOpenInput,
   ) => Promise<void> | void
@@ -1453,14 +1458,17 @@ export async function continueGoPayPaymentFromRedirect(
       )
     }
 
-    await options.beforePhoneSubmit?.({
-      redirectUrl: redirect.url,
-      url: page.url(),
-    })
-
     const linking = await submitMidtransGoPayLinking(page, {
       countryCode: options.countryCode,
       phoneNumber: options.phoneNumber,
+      async beforeLinkButtonClick() {
+        const input = {
+          redirectUrl: redirect.url,
+          url: page.url(),
+        }
+        await options.beforeLinkButtonClick?.(input)
+        await options.beforePhoneSubmit?.(input)
+      },
     })
     activationLinkUrl = linking.activationLinkUrl
     accountStatus = linking.accountStatus
@@ -1642,7 +1650,9 @@ export async function continueGoPayPaymentFromRedirect(
 
 async function submitMidtransGoPayLinking(
   page: Page,
-  account: Pick<GoPayAccountLinkingOptions, 'countryCode' | 'phoneNumber'>,
+  account: Pick<GoPayAccountLinkingOptions, 'countryCode' | 'phoneNumber'> & {
+    beforeLinkButtonClick?: () => Promise<void> | void
+  },
 ): Promise<{
   activationLinkUrl?: string
   accountStatus?: string
@@ -1661,6 +1671,7 @@ async function submitMidtransGoPayLinking(
   }
 
   await fillMidtransGoPayPhoneNumber(page, account.phoneNumber || '')
+  await account.beforeLinkButtonClick?.()
   const responsePromise = page
     .waitForResponse(
       (response) => {
