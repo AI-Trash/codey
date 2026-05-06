@@ -359,13 +359,19 @@ export interface ChatGPTTrialHostedCheckoutPayload extends ChatGPTTrialCheckoutB
   checkout_ui_mode: 'hosted'
 }
 
+export interface ChatGPTTrialEmbeddedCheckoutPayload extends ChatGPTTrialCheckoutBasePayload {
+  entry_point: 'all_plans_pricing_modal'
+  checkout_ui_mode: 'embedded'
+}
+
 export type ChatGPTTrialCheckoutPayload =
   | ChatGPTTrialCustomCheckoutPayload
   | ChatGPTTrialHostedCheckoutPayload
+  | ChatGPTTrialEmbeddedCheckoutPayload
 
 export interface ChatGPTTrialCheckoutPayloadOptions {
   paymentMethod?: ChatGPTTrialPaymentMethod
-  checkoutUiMode?: 'custom' | 'hosted'
+  checkoutUiMode?: 'custom' | 'embedded' | 'hosted'
   billingCountry?: string
   billingCurrency?: string
 }
@@ -417,6 +423,14 @@ export function buildChatGPTTrialCheckoutPayload(
       ...basePayload,
       cancel_url: CHATGPT_TRIAL_CHECKOUT_CANCEL_URL,
       checkout_ui_mode: 'hosted',
+    }
+  }
+
+  if (checkoutUiMode === 'embedded') {
+    return {
+      ...basePayload,
+      entry_point: 'all_plans_pricing_modal',
+      checkout_ui_mode: 'embedded',
     }
   }
 

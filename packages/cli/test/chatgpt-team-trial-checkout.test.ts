@@ -1607,6 +1607,23 @@ describe('trial coupon pricing helpers', () => {
     expect(payload).not.toHaveProperty('entry_point')
   })
 
+  it('builds embedded checkout payloads when requested explicitly', () => {
+    const payload = buildChatGPTTrialCheckoutPayload('team-1-month-free', {
+      checkoutUiMode: 'embedded',
+    })
+
+    expect(payload).toMatchObject({
+      plan_name: 'chatgptteamplan',
+      promo_campaign: {
+        promo_campaign_id: 'team-1-month-free',
+        is_coupon_from_query_param: false,
+      },
+      entry_point: 'all_plans_pricing_modal',
+      checkout_ui_mode: 'embedded',
+    })
+    expect(payload).not.toHaveProperty('cancel_url')
+  })
+
   it('uses the actual selected coupon when building Plus direct checkout payloads', () => {
     expect(
       buildChatGPTTrialCheckoutPayload('plus-1-month-free', {
