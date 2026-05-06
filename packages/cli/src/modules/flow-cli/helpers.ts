@@ -55,6 +55,8 @@ export interface FlowOptions extends CommonOptions {
   billingCity?: string
   billingState?: string
   billingPostalCode?: string
+  hostedCheckoutCountry?: string[]
+  hostedCheckoutReview?: string | boolean
   preserveCheckoutBillingCountry?: boolean
   workspaceId?: string
   workspaceIndex?: number

@@ -62,6 +62,9 @@ const optionDisplayNameMap: Record<
   billingCity: () => m.admin_cli_option_billing_city_name(),
   billingState: () => m.admin_cli_option_billing_state_name(),
   billingPostalCode: () => m.admin_cli_option_billing_postal_code_name(),
+  hostedCheckoutCountry: () =>
+    m.admin_cli_option_hosted_checkout_country_name(),
+  hostedCheckoutReview: () => m.admin_cli_option_hosted_checkout_review_name(),
   inviteEmail: () => m.admin_cli_option_invite_email_name(),
   inviteFile: () => m.admin_cli_option_invite_file_name(),
   pruneUnmanagedWorkspaceMembers: () =>
@@ -117,6 +120,10 @@ const optionDescriptionMap: Record<
   billingCity: () => m.admin_cli_option_billing_city_description(),
   billingState: () => m.admin_cli_option_billing_state_description(),
   billingPostalCode: () => m.admin_cli_option_billing_postal_code_description(),
+  hostedCheckoutCountry: () =>
+    m.admin_cli_option_hosted_checkout_country_description(),
+  hostedCheckoutReview: () =>
+    m.admin_cli_option_hosted_checkout_review_description(),
   inviteEmail: () => m.admin_cli_option_invite_email_description(),
   inviteFile: () => m.admin_cli_option_invite_file_description(),
   pruneUnmanagedWorkspaceMembers: () =>

@@ -2,7 +2,11 @@ import '@tanstack/react-start/server-only'
 import { desc, eq } from 'drizzle-orm'
 import { getAppEnv } from './env'
 import { getDb } from './db/client'
-import { deviceChallenges, sessions, type DeviceChallengeKind } from './db/schema'
+import {
+  deviceChallenges,
+  sessions,
+  type DeviceChallengeKind,
+} from './db/schema'
 import { pairMobileDevice } from './mobile-devices'
 import { createId, randomToken, randomUserCode, sha256 } from './security'
 
@@ -193,11 +197,7 @@ export async function consumeApprovedMobileDeviceChallenge(params: {
     throw new Error('Device challenge expired')
   }
 
-  if (
-    challenge.status !== 'APPROVED' ||
-    !challenge.userId ||
-    !challenge.user
-  ) {
+  if (challenge.status !== 'APPROVED' || !challenge.userId || !challenge.user) {
     throw new Error('Device challenge is not approved yet')
   }
 

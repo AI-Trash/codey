@@ -75,7 +75,13 @@ describe('flow registry', () => {
     ).toMatchObject({
       id: 'chatgpt-register-hosted-checkouts',
       runtime: 'browser',
-      configKeys: ['password', 'verificationTimeoutMs', 'pollIntervalMs'],
+      configKeys: [
+        'password',
+        'hostedCheckoutCountry',
+        'hostedCheckoutReview',
+        'verificationTimeoutMs',
+        'pollIntervalMs',
+      ],
     })
 
     expect(

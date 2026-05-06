@@ -471,8 +471,7 @@ export interface ChatGPTTrialCheckoutLink {
   payload: ChatGPTTrialCheckoutPayload
 }
 
-export interface ChatGPTTrialCheckoutLinkOptions
-  extends ChatGPTTrialCheckoutPayloadOptions {
+export interface ChatGPTTrialCheckoutLinkOptions extends ChatGPTTrialCheckoutPayloadOptions {
   requestHeaders?: Record<string, string>
 }
 

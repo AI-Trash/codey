@@ -70,6 +70,8 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'billingCity'
   | 'billingState'
   | 'billingPostalCode'
+  | 'hostedCheckoutCountry'
+  | 'hostedCheckoutReview'
   | 'inviteEmail'
   | 'inviteFile'
   | 'pruneUnmanagedWorkspaceMembers'
@@ -111,6 +113,8 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'billingCity'
   | 'billingState'
   | 'billingPostalCode'
+  | 'hostedCheckoutCountry'
+  | 'hostedCheckoutReview'
   | 'inviteEmail'
   | 'inviteFile'
   | 'pruneUnmanagedWorkspaceMembers'
@@ -152,6 +156,8 @@ export type CliFlowConfigFieldKey =
   | 'billingCity'
   | 'billingState'
   | 'billingPostalCode'
+  | 'hostedCheckoutCountry'
+  | 'hostedCheckoutReview'
   | 'inviteEmail'
   | 'inviteFile'
   | 'pruneUnmanagedWorkspaceMembers'
@@ -355,6 +361,18 @@ export interface ChatGPTRegisterHostedCheckoutsFlowConfig extends CommonFlowConf
    * Override the generated password for the new identity.
    */
   password?: string
+
+  /**
+   * Limit hosted checkout link generation to one or more requested country
+   * codes. When omitted, the flow uses the built-in country list.
+   */
+  hostedCheckoutCountry?: string[]
+
+  /**
+   * Open each generated hosted checkout page for manual review. Disable this
+   * for link-generation-only reruns.
+   */
+  hostedCheckoutReview?: boolean
 
   /**
    * Maximum time to wait for the verification email, in milliseconds.
@@ -755,6 +773,20 @@ export const cliFlowConfigFieldDefinitions = [
     descriptionKey: 'billingPostalCode',
   },
   {
+    key: 'hostedCheckoutCountry',
+    cliFlag: '--hostedCheckoutCountry',
+    type: 'stringList',
+    displayNameKey: 'hostedCheckoutCountry',
+    descriptionKey: 'hostedCheckoutCountry',
+  },
+  {
+    key: 'hostedCheckoutReview',
+    cliFlag: '--hostedCheckoutReview',
+    type: 'boolean',
+    displayNameKey: 'hostedCheckoutReview',
+    descriptionKey: 'hostedCheckoutReview',
+  },
+  {
     key: 'restoreStorageState',
     cliFlag: '--restoreStorageState',
     type: 'boolean',
@@ -900,7 +932,13 @@ export const cliFlowDefinitions = [
     runtime: 'browser',
     displayNameKey: 'chatgptRegisterHostedCheckouts',
     descriptionKey: 'chatgptRegisterHostedCheckouts',
-    configKeys: ['password', 'verificationTimeoutMs', 'pollIntervalMs'],
+    configKeys: [
+      'password',
+      'hostedCheckoutCountry',
+      'hostedCheckoutReview',
+      'verificationTimeoutMs',
+      'pollIntervalMs',
+    ],
   },
   {
     id: 'chatgpt-login',
@@ -1121,11 +1159,16 @@ function normalizeSelect(
 }
 
 function normalizeStringList(value: unknown): string[] | undefined {
+  const splitListEntry = (entry: string): string[] =>
+    entry
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+
   if (Array.isArray(value)) {
     const normalized = value
       .filter((entry): entry is string => typeof entry === 'string')
-      .map((entry) => entry.trim())
-      .filter(Boolean)
+      .flatMap(splitListEntry)
     return normalized.length ? normalized : undefined
   }
 
@@ -1133,10 +1176,7 @@ function normalizeStringList(value: unknown): string[] | undefined {
     return undefined
   }
 
-  const normalized = value
-    .split(/[\n,]/)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
+  const normalized = splitListEntry(value)
 
   return normalized.length ? normalized : undefined
 }

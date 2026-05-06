@@ -35,30 +35,27 @@ function readMobileConsumeBody(value: unknown): MobileDeviceConsumeRequest {
     label: typeof value.label === 'string' ? value.label : undefined,
     capabilities: Array.isArray(value.capabilities)
       ? value.capabilities.filter(
-          (capability): capability is string =>
-            typeof capability === 'string',
+          (capability): capability is string => typeof capability === 'string',
         )
       : undefined,
     phoneBindings: Array.isArray(value.phoneBindings)
-      ? value.phoneBindings
-          .filter(isObject)
-          .map((binding) => ({
-            phoneNumber:
-              typeof binding.phoneNumber === 'string'
-                ? binding.phoneNumber
-                : undefined,
-            countryCode:
-              typeof binding.countryCode === 'string'
-                ? binding.countryCode
-                : undefined,
-            purpose:
-              typeof binding.purpose === 'string' ? binding.purpose : undefined,
-            label: typeof binding.label === 'string' ? binding.label : undefined,
-            isDefault:
-              typeof binding.isDefault === 'boolean'
-                ? binding.isDefault
-                : undefined,
-          }))
+      ? value.phoneBindings.filter(isObject).map((binding) => ({
+          phoneNumber:
+            typeof binding.phoneNumber === 'string'
+              ? binding.phoneNumber
+              : undefined,
+          countryCode:
+            typeof binding.countryCode === 'string'
+              ? binding.countryCode
+              : undefined,
+          purpose:
+            typeof binding.purpose === 'string' ? binding.purpose : undefined,
+          label: typeof binding.label === 'string' ? binding.label : undefined,
+          isDefault:
+            typeof binding.isDefault === 'boolean'
+              ? binding.isDefault
+              : undefined,
+        }))
       : undefined,
   }
 }

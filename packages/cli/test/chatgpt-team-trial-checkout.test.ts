@@ -2559,9 +2559,7 @@ describe('trial coupon pricing helpers', () => {
       },
     )
 
-    expect(link.url).toBe(
-      'https://chatgpt.com/checkout/openai_llc/cs_live_456',
-    )
+    expect(link.url).toBe('https://chatgpt.com/checkout/openai_llc/cs_live_456')
     expect(requests[1]?.init?.headers).toMatchObject({
       Authorization: 'Bearer captured-access-token',
     })

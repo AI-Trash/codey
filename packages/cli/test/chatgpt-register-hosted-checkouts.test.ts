@@ -9,7 +9,15 @@ import {
 describe('chatgpt register hosted checkouts flow', () => {
   it('normalizes hosted checkout country aliases and currencies', () => {
     expect(
-      resolveHostedCheckoutCountrySpecs([' us2 ', 'EU', 'JP', 'MA', 'ZZ']),
+      resolveHostedCheckoutCountrySpecs([
+        ' us2 ',
+        'EU',
+        'JP',
+        'MA',
+        'IE',
+        'GP',
+        'ZZ',
+      ]),
     ).toEqual([
       {
         requestedCountry: 'US2',
@@ -30,6 +38,16 @@ describe('chatgpt register hosted checkouts flow', () => {
         requestedCountry: 'MA',
         billingCountry: 'MA',
         billingCurrency: 'USD',
+      },
+      {
+        requestedCountry: 'IE',
+        billingCountry: 'IE',
+        billingCurrency: 'EUR',
+      },
+      {
+        requestedCountry: 'GP',
+        billingCountry: 'FR',
+        billingCurrency: 'EUR',
       },
       {
         requestedCountry: 'ZZ',

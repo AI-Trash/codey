@@ -1465,7 +1465,8 @@ export type ManagedIdentityStatus =
   (typeof managedIdentityStatusEnum.enumValues)[number]
 export type ManagedIdentitySessionStatus =
   (typeof managedIdentitySessionStatusEnum.enumValues)[number]
-export type MobileDeviceStatus = (typeof mobileDeviceStatusEnum.enumValues)[number]
+export type MobileDeviceStatus =
+  (typeof mobileDeviceStatusEnum.enumValues)[number]
 export type MobilePhoneBindingPurpose =
   (typeof mobilePhoneBindingPurposeEnum.enumValues)[number]
 export type OAuthClientAuthMethod =

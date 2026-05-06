@@ -28,6 +28,7 @@ import {
 } from '../modules/chatgpt/shared'
 import {
   attachStateMachineProgressReporter,
+  parseBooleanFlag,
   sanitizeErrorForOutput,
   type FlowOptions,
 } from '../modules/flow-cli/helpers'
@@ -318,6 +319,18 @@ export const CHATGPT_HOSTED_CHECKOUT_COUNTRIES = [
 const HOSTED_CHECKOUT_COUNTRY_ALIASES = {
   US2: 'US',
   EU: 'IE',
+  GF: 'FR',
+  GG: 'GB',
+  GP: 'FR',
+  IM: 'GB',
+  JE: 'GB',
+  MC: 'FR',
+  MF: 'FR',
+  MQ: 'FR',
+  PF: 'FR',
+  RE: 'FR',
+  VA: 'IT',
+  YT: 'FR',
 } as const satisfies Partial<Record<string, string>>
 const HOSTED_CHECKOUT_COUNTRY_ALIAS_MAP: Partial<Record<string, string>> =
   HOSTED_CHECKOUT_COUNTRY_ALIASES
@@ -332,7 +345,6 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   AZ: 'AZN',
   BA: 'BAM',
   BD: 'BDT',
-  BG: 'BGN',
   BH: 'BHD',
   BM: 'BMD',
   BN: 'BND',
@@ -350,6 +362,14 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   DK: 'DKK',
   DO: 'DOP',
   DZ: 'DZD',
+  AD: 'EUR',
+  AT: 'EUR',
+  AX: 'EUR',
+  BE: 'EUR',
+  BG: 'EUR',
+  CY: 'EUR',
+  DE: 'EUR',
+  EE: 'EUR',
   EC: 'USD',
   EG: 'EGP',
   ES: 'EUR',
@@ -362,8 +382,9 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   GB: 'GBP',
   GE: 'GEL',
   GH: 'GHS',
-  GI: 'GIP',
+  GI: 'GBP',
   GM: 'GMD',
+  GR: 'EUR',
   GT: 'GTQ',
   GY: 'GYD',
   HK: 'HKD',
@@ -371,9 +392,12 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   HR: 'EUR',
   HU: 'HUF',
   ID: 'IDR',
+  IE: 'EUR',
   IL: 'ILS',
   IN: 'INR',
-  IS: 'ISK',
+  IS: 'EUR',
+  IT: 'EUR',
+  JE: 'GBP',
   JM: 'JMD',
   JO: 'JOD',
   JP: 'JPY',
@@ -385,10 +409,17 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   KZ: 'KZT',
   LA: 'LAK',
   LB: 'LBP',
+  LI: 'CHF',
   LK: 'LKR',
+  LT: 'EUR',
+  LU: 'EUR',
+  LV: 'EUR',
   MA: 'MAD',
+  MC: 'EUR',
   MD: 'MDL',
+  ME: 'EUR',
   MK: 'MKD',
+  MT: 'EUR',
   MM: 'MMK',
   MN: 'MNT',
   MO: 'MOP',
@@ -400,6 +431,7 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   NA: 'NAD',
   NG: 'NGN',
   NI: 'NIO',
+  NL: 'EUR',
   NO: 'NOK',
   NP: 'NPR',
   NZ: 'NZD',
@@ -411,16 +443,20 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   PK: 'PKR',
   PL: 'PLN',
   PR: 'USD',
+  PT: 'EUR',
   PY: 'PYG',
   QA: 'QAR',
   RO: 'RON',
-  RS: 'RSD',
+  RS: 'EUR',
   RW: 'RWF',
   SA: 'SAR',
   SB: 'SBD',
   SC: 'SCR',
   SE: 'SEK',
   SG: 'SGD',
+  SI: 'EUR',
+  SK: 'EUR',
+  SM: 'EUR',
   TH: 'THB',
   TJ: 'TJS',
   TN: 'TND',
@@ -436,6 +472,7 @@ const HOSTED_CHECKOUT_COUNTRY_CURRENCIES = {
   UZ: 'UZS',
   VN: 'VND',
   WS: 'WST',
+  XK: 'EUR',
   ZA: 'ZAR',
   ZM: 'ZMW',
 } as const satisfies Partial<Record<string, string>>
@@ -628,6 +665,18 @@ export function resolveHostedCheckoutCountrySpecs(
       billingCountry: normalizeHostedCheckoutCountryCode(requestedCountry),
       billingCurrency: getHostedCheckoutCurrencyForCountry(requestedCountry),
     }))
+}
+
+function getHostedCheckoutCountriesFromOptions(
+  options: FlowOptions,
+): readonly string[] {
+  return options.hostedCheckoutCountry?.length
+    ? options.hostedCheckoutCountry
+    : CHATGPT_HOSTED_CHECKOUT_COUNTRIES
+}
+
+function shouldReviewHostedCheckoutPages(options: FlowOptions): boolean {
+  return parseBooleanFlag(options.hostedCheckoutReview, true) ?? true
 }
 
 export function createChatGPTRegisterHostedCheckoutsMachine(): ChatGPTRegisterHostedCheckoutsMachine<ChatGPTRegisterHostedCheckoutsResult> {
@@ -853,7 +902,9 @@ async function generateAndReviewHostedCheckoutLinks(input: {
   coupon: ChatGPTTrialPromoCoupon
   plan: ChatGPTTrialPromoPlan
 }): Promise<ChatGPTHostedCheckoutCountryLink[]> {
-  const countrySpecs = resolveHostedCheckoutCountrySpecs()
+  const countrySpecs = resolveHostedCheckoutCountrySpecs(
+    getHostedCheckoutCountriesFromOptions(input.options),
+  )
   const links: ChatGPTHostedCheckoutCountryLink[] = []
   const skippedCheckouts: ChatGPTHostedCheckoutCountrySkip[] = []
 
@@ -971,13 +1022,19 @@ async function generateAndReviewHostedCheckoutLinks(input: {
         lastMessage: `Waiting for operator to close hosted checkout ${index + 1}/${countrySpecs.length} (${spec.requestedCountry})`,
       },
     )
-    await openHostedCheckoutForReview({
-      sourcePage: input.page,
-      link,
-      index,
-      total: countrySpecs.length,
-      options: input.options,
-    })
+    if (shouldReviewHostedCheckoutPages(input.options)) {
+      await openHostedCheckoutForReview({
+        sourcePage: input.page,
+        link,
+        index,
+        total: countrySpecs.length,
+        options: input.options,
+      })
+    } else {
+      input.options.progressReporter?.({
+        message: `Review disabled for hosted checkout ${index + 1}/${countrySpecs.length} (${spec.requestedCountry})`,
+      })
+    }
     if (index < countrySpecs.length - 1) {
       await sendHostedCheckoutsMachine(
         input.machine,
@@ -1026,7 +1083,7 @@ export async function registerChatGPTAndReviewHostedCheckouts(
       {
         checkoutLinks: [],
         skippedCheckouts: [],
-        totalCountries: CHATGPT_HOSTED_CHECKOUT_COUNTRIES.length,
+        totalCountries: getHostedCheckoutCountriesFromOptions(options).length,
       },
       {
         source: 'registerChatGPTAndReviewHostedCheckouts',
@@ -1083,7 +1140,8 @@ export async function registerChatGPTAndReviewHostedCheckouts(
       plan,
     })
     const checkoutLinksPath = saveHostedCheckoutLinks(checkoutLinks)
-    const skippedCheckouts = machine.getSnapshot().context.skippedCheckouts ?? []
+    const skippedCheckouts =
+      machine.getSnapshot().context.skippedCheckouts ?? []
     const result = {
       pageName: 'chatgpt-register-hosted-checkouts' as const,
       url: page.url(),

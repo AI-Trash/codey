@@ -107,6 +107,12 @@ describe('flow cli helpers', () => {
       parseFlowCliArgsForCommand('chatgpt-register-hosted-checkouts', [
         '--password',
         'secret-password',
+        '--hostedCheckoutCountry',
+        'IE,GP',
+        '--hostedCheckoutCountry',
+        'XK',
+        '--hostedCheckoutReview',
+        'false',
         '--claimTrial',
         'gopay',
         '--billingCountry',
@@ -116,6 +122,8 @@ describe('flow cli helpers', () => {
       ]),
     ).toMatchObject({
       password: 'secret-password',
+      hostedCheckoutCountry: ['IE', 'GP', 'XK'],
+      hostedCheckoutReview: false,
       verificationTimeoutMs: 5000,
     })
   })
@@ -238,6 +246,15 @@ describe('flow cli helpers', () => {
           },
         ],
         checkoutLinksPath: 'C:/tmp/chatgpt-hosted-checkouts.json',
+        skippedCheckouts: [
+          {
+            requestedCountry: 'XK',
+            billingCountry: 'XK',
+            billingCurrency: 'USD',
+            reason:
+              'ChatGPT trial checkout link could not be generated (HTTP 400): invalid billing details provided',
+          },
+        ],
       },
     )
 
@@ -248,6 +265,7 @@ describe('flow cli helpers', () => {
     expect(summary).toContain('verified: yes')
     expect(summary).toContain('trial: team')
     expect(summary).toContain('hosted checkouts: 2')
+    expect(summary).toContain('skipped checkouts: 1')
     expect(summary).toContain(
       'hosted checkouts file: C:/tmp/chatgpt-hosted-checkouts.json',
     )
