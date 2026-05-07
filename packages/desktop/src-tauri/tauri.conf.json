@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm run build:host && pnpm run dev:web",
     "beforeBuildCommand": "pnpm run build:host && pnpm run build:runtime && pnpm run build:web",
-    "devUrl": "http://127.0.0.1:1420",
+    "devUrl": "http://127.0.0.1:11420",
     "frontendDist": "../dist"
   },
   "app": {
