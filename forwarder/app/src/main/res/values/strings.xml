@@ -1,3 +1,46 @@
 <resources>
     <string name="app_name">CodeyApp</string>
+    <string name="app_subtitle">WhatsApp notification forwarding and Android automation</string>
+    <string name="section_status">Status</string>
+    <string name="section_connection">Connection</string>
+    <string name="section_forwarding">Forwarding</string>
+    <string name="section_pairing">Pairing</string>
+    <string name="section_device">Device</string>
+    <string name="label_codey_web_url">Codey Web URL</string>
+    <string name="label_legacy_webhook_url">Legacy CLI webhook URL</string>
+    <string name="label_device_id">Device ID</string>
+    <string name="label_whatsapp_phone_number">WhatsApp phone number</string>
+    <string name="label_gopay_phone_number">GoPay phone number</string>
+    <string name="option_forward_whatsapp">Forward WhatsApp notifications</string>
+    <string name="option_include_business">Include WhatsApp Business</string>
+    <string name="action_save_settings">Save Settings</string>
+    <string name="action_notification_access">Notification Access</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_start_pairing">Start Pairing</string>
+    <string name="action_complete_pairing">Complete Pairing</string>
+    <string name="action_scan_web_qr">Scan Web QR</string>
+    <string name="action_open_pairing_link">Open Pairing Link</string>
+    <string name="action_copy_pairing_link">Copy Pairing Link</string>
+    <string name="action_copy_user_code">Copy User Code</string>
+    <string name="action_start_keep_alive">Start Keep Alive</string>
+    <string name="action_battery_settings">Battery Settings</string>
+    <string name="action_shizuku_permission">Shizuku Permission</string>
+    <string name="action_run_gopay_unlink">Run GoPay Unlink</string>
+    <string name="action_send_test_payload">Send Test Payload</string>
+    <string name="status_notification_access">Notification access: %1$s</string>
+    <string name="status_notification_enabled">enabled</string>
+    <string name="status_notification_disabled">not enabled</string>
+    <string name="status_battery_optimization">Battery optimization: %1$s</string>
+    <string name="status_battery_ignored">ignored</string>
+    <string name="status_battery_may_stop">may stop background work</string>
+    <string name="status_pairing">Codey Web pairing: %1$s</string>
+    <string name="status_pairing_paired">paired</string>
+    <string name="status_pairing_not_paired">not paired</string>
+    <string name="status_last_title">Last title: %1$s</string>
+    <string name="status_last_body">Last body: %1$s</string>
+    <string name="pairing_pending_user_code">Pending pairing user code: %1$s</string>
+    <string name="pairing_unknown">(unknown)</string>
+    <string name="pairing_approval_url">Approval URL: %1$s</string>
+    <string name="pairing_none">No pending pairing request.</string>
+    <string name="hint_network">Emulator: keep 10.0.2.2. Physical phone: use the computer LAN IP with FORWARDER_WEBHOOK_HOST=0.0.0.0, or run adb reverse tcp:3001 tcp:3001 and use 127.0.0.1.</string>
 </resources>

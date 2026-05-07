@@ -1,8 +1,11 @@
 [versions]
 agp = "9.2.0"
+activityCompose = "1.8.2"
+composeBom = "2026.02.01"
 junit = "4.13.2"
 junitVersion = "1.1.5"
 espressoCore = "3.5.1"
+kotlin = "2.2.10"
 shizuku = "13.1.5"
 androidxAnnotation = "1.9.1"
 uiautomator = "2.3.0"
@@ -10,6 +13,12 @@ zxingAndroidEmbedded = "4.3.0"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
@@ -20,3 +29,4 @@ zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embe
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
