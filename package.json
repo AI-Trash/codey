@@ -10,6 +10,8 @@
   "scripts": {
     "dev": "vite dev --port 3000",
     "build": "vite build",
+    "desktop": "pnpm --filter @codey/desktop dev",
+    "desktop:build": "pnpm --filter @codey/desktop build",
     "preview": "vite preview",
     "codey": "pnpm --filter ./packages/cli run build && pnpm --filter ./packages/cli start",
     "db:generate": "drizzle-kit generate",

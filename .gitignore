@@ -5,6 +5,8 @@ artifacts/
 .env
 npm-debug.log*
 packages/*/dist/
+packages/*/dist-host/
+packages/*/dist-runtime/
 packages/*/*.tsbuildinfo
 .codey/
 packages/*/.dev.vars

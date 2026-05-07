@@ -1,0 +1,42 @@
+{
+  "name": "@codey/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Codey Desktop task manager built with Tauri",
+  "license": "ISC",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:web": "vite --host 127.0.0.1 --port 1420",
+    "build:host": "esbuild src-host/automation-host.ts --bundle --platform=node --format=esm --target=node22 --sourcemap --outfile=dist-host/automation-host.js --alias:@codey/state-machine=../state-machine/src/index.ts --alias:playwright-core/lib/zipBundle=patchright-core/lib/zipBundle --alias:chromium-bidi/lib/cjs/bidiMapper/BidiMapper=./src-host/chromium-bidi-stub.ts --alias:chromium-bidi/lib/cjs/cdp/CdpConnection=./src-host/chromium-bidi-stub.ts --banner:js=\"import { createRequire as __codeyCreateRequire } from 'node:module';import { fileURLToPath as __codeyFileURLToPath } from 'node:url';import { dirname as __codeyDirname } from 'node:path';const require = __codeyCreateRequire(import.meta.url);const __filename = __codeyFileURLToPath(import.meta.url);const __dirname = __codeyDirname(__filename);\"",
+    "build:runtime": "node scripts/prepare-node-runtime.mjs",
+    "build": "tauri build",
+    "build:web": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --config ../../.oxlintrc.json src vite.config.ts"
+  },
+  "dependencies": {
+    "@faker-js/faker": "catalog:",
+    "@microsoft/microsoft-graph-client": "catalog:",
+    "@tauri-apps/api": "catalog:",
+    "@tauri-apps/plugin-updater": "catalog:",
+    "dotenv": "catalog:",
+    "lucide-react": "catalog:",
+    "patchright": "catalog:",
+    "pino": "catalog:",
+    "pino-pretty": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "webdriverio": "catalog:",
+    "xstate": "catalog:"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "esbuild": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}
