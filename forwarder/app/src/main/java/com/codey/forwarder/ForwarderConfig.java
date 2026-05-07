@@ -20,6 +20,12 @@ final class ForwarderConfig {
     private static final String KEY_GOPAY_PHONE_NUMBER = "gopay_phone_number";
     private static final String KEY_FORWARD_ENABLED = "forward_enabled";
     private static final String KEY_FORWARD_BUSINESS = "forward_business";
+    private static final String KEY_PENDING_PAIRING_DEVICE_CODE =
+        "pending_pairing_device_code";
+    private static final String KEY_PENDING_PAIRING_USER_CODE =
+        "pending_pairing_user_code";
+    private static final String KEY_PENDING_PAIRING_APPROVAL_URL =
+        "pending_pairing_approval_url";
     private static final String KEY_LAST_STATUS = "last_status";
     private static final String KEY_LAST_TITLE = "last_title";
     private static final String KEY_LAST_BODY = "last_body";
@@ -59,6 +65,41 @@ final class ForwarderConfig {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_DEVICE_TOKEN, trim(deviceToken))
+            .remove(KEY_PENDING_PAIRING_DEVICE_CODE)
+            .remove(KEY_PENDING_PAIRING_USER_CODE)
+            .remove(KEY_PENDING_PAIRING_APPROVAL_URL)
+            .apply();
+    }
+
+    static PairingState readPairingState(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return new PairingState(
+            readString(prefs, KEY_PENDING_PAIRING_DEVICE_CODE, ""),
+            readString(prefs, KEY_PENDING_PAIRING_USER_CODE, ""),
+            readString(prefs, KEY_PENDING_PAIRING_APPROVAL_URL, "")
+        );
+    }
+
+    static void savePairingState(
+        Context context,
+        String deviceCode,
+        String userCode,
+        String approvalUrl
+    ) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PENDING_PAIRING_DEVICE_CODE, trim(deviceCode))
+            .putString(KEY_PENDING_PAIRING_USER_CODE, trim(userCode))
+            .putString(KEY_PENDING_PAIRING_APPROVAL_URL, trim(approvalUrl))
+            .apply();
+    }
+
+    static void clearPairingState(Context context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_PENDING_PAIRING_DEVICE_CODE)
+            .remove(KEY_PENDING_PAIRING_USER_CODE)
+            .remove(KEY_PENDING_PAIRING_APPROVAL_URL)
             .apply();
     }
 
@@ -122,5 +163,21 @@ final class ForwarderConfig {
 
     private static String trim(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    static final class PairingState {
+        final String deviceCode;
+        final String userCode;
+        final String approvalUrl;
+
+        PairingState(String deviceCode, String userCode, String approvalUrl) {
+            this.deviceCode = deviceCode;
+            this.userCode = userCode;
+            this.approvalUrl = approvalUrl;
+        }
+
+        boolean hasPendingChallenge() {
+            return !deviceCode.trim().isEmpty();
+        }
     }
 }

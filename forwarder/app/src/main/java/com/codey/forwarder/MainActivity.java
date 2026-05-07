@@ -2,7 +2,10 @@ package com.codey.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -21,6 +24,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
+
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
@@ -32,7 +38,7 @@ public class MainActivity extends Activity {
     private CheckBox enabledInput;
     private CheckBox businessInput;
     private TextView statusView;
-    private String pendingPairingDeviceCode;
+    private TextView pairingView;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -40,6 +46,15 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(buildContentView());
         loadSettings();
+        handleIncomingPairingIntent(getIntent());
+        refreshStatus();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIncomingPairingIntent(intent);
         refreshStatus();
     }
 
@@ -68,6 +83,11 @@ public class MainActivity extends Activity {
         statusView.setTextSize(14f);
         statusView.setPadding(0, 24, 0, 12);
         root.addView(statusView);
+
+        pairingView = new TextView(this);
+        pairingView.setTextSize(14f);
+        pairingView.setPadding(0, 8, 0, 12);
+        root.addView(pairingView);
 
         codeyBaseUrlInput = new EditText(this);
         codeyBaseUrlInput.setHint("Codey Web URL");
@@ -120,6 +140,16 @@ public class MainActivity extends Activity {
         root.addView(buttonRow(
             button("Start Pairing", this::startPairing),
             button("Complete Pairing", this::completePairing)
+        ));
+
+        root.addView(buttonRow(
+            button("Scan Web QR", this::scanPairingQr),
+            button("Open Pairing Link", this::openPairingLink)
+        ));
+
+        root.addView(buttonRow(
+            button("Copy Pairing Link", this::copyPairingLink),
+            button("Copy User Code", this::copyPairingUserCode)
         ));
 
         root.addView(buttonRow(
@@ -220,6 +250,20 @@ public class MainActivity extends Activity {
             detail.append("\nLast body: ").append(status.body);
         }
         statusView.setText(detail.toString());
+
+        ForwarderConfig.PairingState pairing = ForwarderConfig.readPairingState(this);
+        if (pairing.hasPendingChallenge()) {
+            StringBuilder pairingDetail = new StringBuilder();
+            pairingDetail.append("Pending pairing user code: ");
+            pairingDetail.append(pairing.userCode.trim().isEmpty() ? "(unknown)" : pairing.userCode);
+            if (!pairing.approvalUrl.trim().isEmpty()) {
+                pairingDetail.append('\n');
+                pairingDetail.append("Approval URL: ").append(pairing.approvalUrl);
+            }
+            pairingView.setText(pairingDetail.toString());
+        } else {
+            pairingView.setText("No pending pairing request.");
+        }
     }
 
     private void startPairing() {
@@ -229,10 +273,15 @@ public class MainActivity extends Activity {
                 ForwarderSettings settings = ForwarderConfig.readSettings(this);
                 CodeyDevicePairingClient.PairingChallenge challenge =
                     CodeyDevicePairingClient.startPairing(settings);
-                pendingPairingDeviceCode = challenge.deviceCode;
                 String verificationUrl = challenge.verificationUriComplete.trim().isEmpty()
                     ? challenge.verificationUri
                     : challenge.verificationUriComplete;
+                ForwarderConfig.savePairingState(
+                    this,
+                    challenge.deviceCode,
+                    challenge.userCode,
+                    verificationUrl
+                );
                 ForwarderConfig.saveStatus(
                     this,
                     "Pairing started. Approve user code " + challenge.userCode +
@@ -254,17 +303,17 @@ public class MainActivity extends Activity {
         saveSettings();
         new Thread(() -> {
             try {
-                if (pendingPairingDeviceCode == null || pendingPairingDeviceCode.trim().isEmpty()) {
+                ForwarderConfig.PairingState pairing = ForwarderConfig.readPairingState(this);
+                if (!pairing.hasPendingChallenge()) {
                     throw new Exception("Start pairing first.");
                 }
                 ForwarderSettings settings = ForwarderConfig.readSettings(this);
                 CodeyDevicePairingClient.PairingResult result =
                     CodeyDevicePairingClient.completePairing(
                         settings,
-                        pendingPairingDeviceCode
+                        pairing.deviceCode
                     );
                 ForwarderConfig.saveDeviceToken(this, result.deviceToken);
-                pendingPairingDeviceCode = null;
                 ForwarderConfig.saveStatus(
                     this,
                     "Paired with Codey Web as " + result.deviceId +
@@ -280,6 +329,126 @@ public class MainActivity extends Activity {
             }
             mainHandler.post(this::refreshStatus);
         }).start();
+    }
+
+    private void scanPairingQr() {
+        IntentIntegrator integrator = new IntentIntegrator(this);
+        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
+        integrator.setPrompt("Scan the Codey Web mobile pairing QR code");
+        integrator.setBeepEnabled(false);
+        integrator.setOrientationLocked(false);
+        integrator.initiateScan();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        IntentResult result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
+        if (result != null) {
+            if (result.getContents() == null) {
+                ForwarderConfig.saveStatus(this, "Pairing QR scan canceled.");
+            } else {
+                applyPairingLink(result.getContents());
+            }
+            refreshStatus();
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private void handleIncomingPairingIntent(Intent intent) {
+        if (
+            intent == null ||
+                intent.getData() == null ||
+                !Intent.ACTION_VIEW.equals(intent.getAction())
+        ) {
+            return;
+        }
+
+        applyPairingLink(intent.getData().toString());
+    }
+
+    private void applyPairingLink(String rawLink) {
+        try {
+            saveSettings();
+            CodeyPairingLink link = CodeyPairingLink.parse(rawLink);
+            ForwarderSettings current = ForwarderConfig.readSettings(this);
+            ForwarderConfig.saveSettings(
+                this,
+                new ForwarderSettings(
+                    link.baseUrl,
+                    current.webhookUrl,
+                    current.deviceId,
+                    current.deviceToken,
+                    current.whatsappPhoneNumber,
+                    current.gopayPhoneNumber,
+                    current.forwardEnabled,
+                    current.forwardBusiness
+                )
+            );
+            ForwarderConfig.savePairingState(
+                this,
+                link.deviceCode,
+                link.userCode,
+                link.approvalUrl()
+            );
+            mainHandler.post(this::loadSettings);
+            ForwarderConfig.saveStatus(
+                this,
+                "Pairing QR loaded. Approve user code " + link.userCode +
+                    " in Codey Web, then tap Complete Pairing."
+            );
+        } catch (Exception error) {
+            ForwarderConfig.saveStatus(
+                this,
+                "Pairing QR rejected: " + (error.getMessage() != null
+                    ? error.getMessage()
+                    : error.getClass().getSimpleName())
+            );
+        }
+    }
+
+    private void openPairingLink() {
+        ForwarderConfig.PairingState pairing = ForwarderConfig.readPairingState(this);
+        if (pairing.approvalUrl.trim().isEmpty()) {
+            ForwarderConfig.saveStatus(this, "No pairing approval link available.");
+            refreshStatus();
+            return;
+        }
+
+        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(pairing.approvalUrl)));
+    }
+
+    private void copyPairingLink() {
+        ForwarderConfig.PairingState pairing = ForwarderConfig.readPairingState(this);
+        if (pairing.approvalUrl.trim().isEmpty()) {
+            ForwarderConfig.saveStatus(this, "No pairing approval link available.");
+            refreshStatus();
+            return;
+        }
+
+        copyToClipboard("Codey pairing link", pairing.approvalUrl);
+        ForwarderConfig.saveStatus(this, "Pairing approval link copied.");
+        refreshStatus();
+    }
+
+    private void copyPairingUserCode() {
+        ForwarderConfig.PairingState pairing = ForwarderConfig.readPairingState(this);
+        if (pairing.userCode.trim().isEmpty()) {
+            ForwarderConfig.saveStatus(this, "No pairing user code available.");
+            refreshStatus();
+            return;
+        }
+
+        copyToClipboard("Codey pairing user code", pairing.userCode);
+        ForwarderConfig.saveStatus(this, "Pairing user code copied.");
+        refreshStatus();
+    }
+
+    private void copyToClipboard(String label, String value) {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText(label, value));
+        }
     }
 
     private void runGoPayUnlink() {

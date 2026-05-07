@@ -198,7 +198,6 @@ async function queueGoPayContinuationFromFlowTask(input: {
       payload: createCliFlowTaskPayload(
         flowId,
         {
-          chromeDefaultProfile: true,
           paymentRedirectUrl: input.paymentRedirectUrl,
         },
         undefined,

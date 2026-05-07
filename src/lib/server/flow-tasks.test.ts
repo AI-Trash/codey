@@ -449,7 +449,6 @@ describe('flow task completion', () => {
           kind: 'flow_task',
           flowId: 'chatgpt-team-trial-gopay',
           config: {
-            chromeDefaultProfile: true,
             paymentRedirectUrl: gopayUrl,
           },
           metadata: {
@@ -459,6 +458,9 @@ describe('flow task completion', () => {
           },
         },
       })
+      expect(insertedFlowTasks[0]?.payload.config).not.toHaveProperty(
+        'chromeDefaultProfile',
+      )
       expect(insertedEvents).toEqual(
         expect.arrayContaining([
           expect.objectContaining({

@@ -5,7 +5,7 @@ import {
   getAdminCliConnectionSummaryById,
   isCliConnectionOwnedByActor,
 } from '../../../../../../lib/server/cli-connections'
-import { claimNextFlowTaskForConnection } from '../../../../../../lib/server/flow-tasks'
+import { claimCliFlowTaskForRpc } from '../../../../../../lib/server/cli-rpc'
 import { json, text } from '../../../../../../lib/server/http'
 import { NOTIFICATIONS_READ_SCOPE } from '../../../../../../lib/server/oauth-scopes'
 import { getBearerTokenContext } from '../../../../../../lib/server/oauth-resource'
@@ -51,26 +51,7 @@ export const Route = createFileRoute(
         }
 
         try {
-          const claimResult = await claimNextFlowTaskForConnection({
-            connectionId: params.connectionId,
-          })
-          const task = claimResult.task
-
-          return json({
-            ok: true,
-            browserLimit: connection.browserLimit,
-            task: task
-              ? {
-                  id: task.id,
-                  title: task.title,
-                  body: task.body,
-                  flowType: task.flowType,
-                  target: task.target,
-                  payload: task.payload,
-                  createdAt: task.createdAt.toISOString(),
-                }
-              : null,
-          })
+          return json(await claimCliFlowTaskForRpc(params.connectionId))
         } catch (error) {
           return text(
             error instanceof Error

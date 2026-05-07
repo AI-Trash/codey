@@ -40,6 +40,7 @@ dependencies {
     implementation(libs.androidx.test.uiautomator)
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    implementation(libs.zxing.android.embedded)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

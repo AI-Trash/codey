@@ -312,6 +312,7 @@ describe('app auth OIDC helpers', () => {
         CODEY_APP_RESERVE_EMAIL_PATH: '/api/custom/reservations',
         CODEY_APP_CODE_PATH: '/api/custom/codes',
         CODEY_APP_EVENTS_PATH: '/api/custom/events',
+        CODEY_APP_CLI_WS_PATH: '/api/custom/cli-ws',
         CODEY_APP_CLI_EVENTS_PATH: '/api/custom/cli-events',
       },
       async () => {
@@ -327,6 +328,7 @@ describe('app auth OIDC helpers', () => {
         expect(config.verification?.app?.verificationEventsPath).toBe(
           '/api/custom/events',
         )
+        expect(config.app?.cliWebSocketPath).toBe('/api/custom/cli-ws')
         expect(config.app?.cliEventsPath).toBe('/api/custom/cli-events')
       },
     )
@@ -346,6 +348,7 @@ describe('app auth OIDC helpers', () => {
         CODEY_APP_RESERVE_EMAIL_PATH: '',
         CODEY_APP_CODE_PATH: '',
         CODEY_APP_EVENTS_PATH: '',
+        CODEY_APP_CLI_WS_PATH: '',
         CODEY_APP_CLI_EVENTS_PATH: '',
       },
       async () => {

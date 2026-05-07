@@ -15,7 +15,7 @@ export interface CliConnectionRuntimeState {
   storageStateEmails?: string[] | null
 }
 
-async function postCliConnectionRuntimeState(input: {
+export async function postCliConnectionRuntimeState(input: {
   connectionId: string
   authState: CliNotificationsAuthState
   state: CliConnectionRuntimeState
@@ -53,11 +53,22 @@ async function postCliConnectionRuntimeState(input: {
   }
 }
 
+export interface CliConnectionRuntimeTransport {
+  updateRuntimeState(input: {
+    connectionId: string
+    authState: CliNotificationsAuthState
+    state: CliConnectionRuntimeState
+  }): Promise<{
+    browserLimit?: number
+  }>
+}
+
 export class CliConnectionRuntimeReporter {
   private connectionId?: string
   private readonly authState: CliNotificationsAuthState
   private readonly onError?: (error: Error) => void
   private readonly onBrowserLimit?: (browserLimit: number) => void
+  private transport?: CliConnectionRuntimeTransport
   private pendingState?: CliConnectionRuntimeState
   private inFlight = false
   private lastSerializedState?: string
@@ -65,12 +76,19 @@ export class CliConnectionRuntimeReporter {
 
   constructor(input: {
     authState: CliNotificationsAuthState
+    transport?: CliConnectionRuntimeTransport
     onError?: (error: Error) => void
     onBrowserLimit?: (browserLimit: number) => void
   }) {
     this.authState = input.authState
+    this.transport = input.transport
     this.onError = input.onError
     this.onBrowserLimit = input.onBrowserLimit
+  }
+
+  setTransport(transport: CliConnectionRuntimeTransport | undefined): void {
+    this.transport = transport
+    void this.drain()
   }
 
   setConnectionId(connectionId: string | undefined): void {
@@ -126,7 +144,9 @@ export class CliConnectionRuntimeReporter {
     this.inFlight = true
 
     try {
-      const result = await postCliConnectionRuntimeState({
+      const result = await (
+        this.transport?.updateRuntimeState || postCliConnectionRuntimeState
+      )({
         connectionId: this.connectionId,
         authState: this.authState,
         state: nextState,

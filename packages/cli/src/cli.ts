@@ -15,14 +15,18 @@ import {
   type CliNotificationsAuthState,
 } from './modules/app-auth/device-login'
 import { CliConnectionRuntimeReporter } from './modules/app-auth/cli-connection'
+import { postCliConnectionRuntimeState } from './modules/app-auth/cli-connection'
 import {
   claimCliFlowTask,
   CliFlowTaskLeaseReporter,
+  updateCliFlowTaskStatus,
+  type CliWorkerTransport,
 } from './modules/app-auth/flow-tasks'
 import {
   fetchCodeyProxyNodes,
   type CodeyProxyNode,
 } from './modules/app-auth/proxy-nodes'
+import { CliWebSocketConnection } from './modules/app-auth/cli-websocket'
 import { deriveCliTargetFromAuthState } from './modules/app-auth/target'
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
 import { DEFAULT_CODEY_APP_BASE_URL } from './modules/app-auth/http'
@@ -704,8 +708,45 @@ async function runRemoteWorker(
         target,
       })
       const taskScheduler = new FlowTaskScheduler<void>()
+      let cliWebSocket: CliWebSocketConnection | undefined
+      const cliTransport: CliWorkerTransport = {
+        claimTask: async (input) => {
+          if (cliWebSocket) {
+            try {
+              return await cliWebSocket.claimTask(input)
+            } catch {
+              // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
+            }
+          }
+
+          return claimCliFlowTask(input)
+        },
+        updateTaskStatus: async (input) => {
+          if (cliWebSocket) {
+            try {
+              return await cliWebSocket.updateTaskStatus(input)
+            } catch {
+              // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
+            }
+          }
+
+          return updateCliFlowTaskStatus(input)
+        },
+        updateRuntimeState: async (input) => {
+          if (cliWebSocket) {
+            try {
+              return await cliWebSocket.updateRuntimeState(input)
+            } catch {
+              // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
+            }
+          }
+
+          return postCliConnectionRuntimeState(input)
+        },
+      }
       const runtimeReporter = new CliConnectionRuntimeReporter({
         authState,
+        transport: cliTransport,
         onError: (error) => {
           writeCliStderrLine(
             JSON.stringify(
@@ -1071,6 +1112,7 @@ async function runRemoteWorker(
             const claimResult = await claimCliFlowTask({
               connectionId,
               authState,
+              transport: cliTransport,
             })
             if (claimResult.browserLimit !== undefined) {
               taskScheduler.setBrowserLimit(claimResult.browserLimit)
@@ -1085,6 +1127,7 @@ async function runRemoteWorker(
               connectionId,
               taskId: claimedTask.id,
               authState,
+              transport: cliTransport,
               onError: (error) => {
                 logTaskLeaseError(claimedTask.id, error)
               },
@@ -1218,65 +1261,133 @@ async function runRemoteWorker(
       announced = true
 
       try {
-        for await (const notification of streamCliNotifications(
-          {
-            cliName,
-            target,
-            workerId,
-          },
+        cliWebSocket = new CliWebSocketConnection({
+          cliName,
+          target,
+          workerId,
           authState,
-          {
-            onConnection: (connection) => {
-              connectionId = connection.connectionId
-              if (connection.browserLimit !== undefined) {
-                taskScheduler.setBrowserLimit(connection.browserLimit)
-              }
-              runtimeReporter.setConnectionId(connection.connectionId)
-              if (claimInterval) {
-                clearInterval(claimInterval)
-              }
-              claimInterval = setInterval(() => {
-                void tryClaimTasks()
-              }, 2000)
+          onConnection: (connection) => {
+            connectionId = connection.connectionId
+            if (connection.browserLimit !== undefined) {
+              taskScheduler.setBrowserLimit(connection.browserLimit)
+            }
+            runtimeReporter.setConnectionId(connection.connectionId)
+            if (claimInterval) {
+              clearInterval(claimInterval)
+            }
+            claimInterval = setInterval(() => {
               void tryClaimTasks()
-              writeCliStdoutLine(
-                JSON.stringify(
-                  {
-                    command: 'cli:connected',
-                    connection,
-                  },
-                  null,
-                  2,
-                ),
-              )
-            },
+            }, 2000)
+            void tryClaimTasks()
+            writeCliStdoutLine(
+              JSON.stringify(
+                {
+                  command: 'cli:connected',
+                  transport: 'websocket',
+                  connection,
+                },
+                null,
+                2,
+              ),
+            )
           },
-        )) {
-          writeCliStdoutLine(
-            JSON.stringify(
-              {
-                command: 'cli:event',
-                notification,
-              },
-              null,
-              2,
-            ),
-          )
-        }
+          onNotification: (notification) => {
+            writeCliStdoutLine(
+              JSON.stringify(
+                {
+                  command: 'cli:event',
+                  notification,
+                },
+                null,
+                2,
+              ),
+            )
+          },
+        })
+        await cliWebSocket.run()
       } catch (error) {
         writeCliStderrLine(
           JSON.stringify(
             {
-              command: 'cli:stream:error',
+              command: 'cli:websocket:error',
               error: sanitizeErrorForOutput(error).message,
             },
             null,
             2,
           ),
         )
+
+        cliWebSocket = undefined
+        connectionId = undefined
+        if (claimInterval) {
+          clearInterval(claimInterval)
+          claimInterval = undefined
+        }
+
+        try {
+          for await (const notification of streamCliNotifications(
+            {
+              cliName,
+              target,
+              workerId,
+            },
+            authState,
+            {
+              onConnection: (connection) => {
+                connectionId = connection.connectionId
+                if (connection.browserLimit !== undefined) {
+                  taskScheduler.setBrowserLimit(connection.browserLimit)
+                }
+                runtimeReporter.setConnectionId(connection.connectionId)
+                if (claimInterval) {
+                  clearInterval(claimInterval)
+                }
+                claimInterval = setInterval(() => {
+                  void tryClaimTasks()
+                }, 2000)
+                void tryClaimTasks()
+                writeCliStdoutLine(
+                  JSON.stringify(
+                    {
+                      command: 'cli:connected',
+                      transport: 'sse',
+                      connection,
+                    },
+                    null,
+                    2,
+                  ),
+                )
+              },
+            },
+          )) {
+            writeCliStdoutLine(
+              JSON.stringify(
+                {
+                  command: 'cli:event',
+                  notification,
+                },
+                null,
+                2,
+              ),
+            )
+          }
+        } catch (fallbackError) {
+          writeCliStderrLine(
+            JSON.stringify(
+              {
+                command: 'cli:stream:error',
+                error: sanitizeErrorForOutput(fallbackError).message,
+              },
+              null,
+              2,
+            ),
+          )
+        }
       }
 
       connectionId = undefined
+      cliWebSocket?.close()
+      cliWebSocket = undefined
       if (claimInterval) {
         clearInterval(claimInterval)
         claimInterval = undefined

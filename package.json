@@ -52,6 +52,7 @@
     "nitro": "catalog:",
     "oidc-provider": "catalog:",
     "postgres": "catalog:",
+    "qrcode.react": "catalog:",
     "radix-ui": "catalog:",
     "react": "catalog:",
     "react-day-picker": "catalog:",

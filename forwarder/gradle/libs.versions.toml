@@ -6,6 +6,7 @@ espressoCore = "3.5.1"
 shizuku = "13.1.5"
 androidxAnnotation = "1.9.1"
 uiautomator = "2.3.0"
+zxingAndroidEmbedded = "4.3.0"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -15,6 +16,7 @@ androidx-annotation = { group = "androidx.annotation", name = "annotation", vers
 androidx-test-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
 shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
+zxing-android-embedded = { group = "com.journeyapps", name = "zxing-android-embedded", version.ref = "zxingAndroidEmbedded" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

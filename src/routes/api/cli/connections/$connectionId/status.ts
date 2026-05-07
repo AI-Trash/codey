@@ -3,58 +3,14 @@ import { getCliSessionUser } from '../../../../../lib/server/auth'
 import {
   getAdminCliConnectionSummaryById,
   isCliConnectionOwnedByActor,
-  updateCliConnectionRuntimeState,
 } from '../../../../../lib/server/cli-connections'
+import {
+  CliRpcError,
+  updateCliConnectionRuntimeStateForRpc,
+} from '../../../../../lib/server/cli-rpc'
 import { json, text } from '../../../../../lib/server/http'
 import { NOTIFICATIONS_READ_SCOPE } from '../../../../../lib/server/oauth-scopes'
 import { getBearerTokenContext } from '../../../../../lib/server/oauth-resource'
-
-function parseOptionalString(value: unknown): string | null | undefined {
-  if (value === null) {
-    return null
-  }
-
-  if (typeof value !== 'string') {
-    return undefined
-  }
-
-  const normalized = value.trim()
-  return normalized || null
-}
-
-function parseOptionalTimestamp(value: unknown): string | null | undefined {
-  if (value === null) {
-    return null
-  }
-
-  if (typeof value !== 'string') {
-    return undefined
-  }
-
-  const normalized = value.trim()
-  if (!normalized) {
-    return null
-  }
-
-  return Number.isNaN(Date.parse(normalized)) ? undefined : normalized
-}
-
-function parseOptionalStringArray(value: unknown): string[] | null | undefined {
-  if (value === null) {
-    return null
-  }
-
-  if (!Array.isArray(value)) {
-    return undefined
-  }
-
-  const normalized = value
-    .filter((entry): entry is string => typeof entry === 'string')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-
-  return Array.from(new Set(normalized))
-}
 
 export const Route = createFileRoute(
   '/api/cli/connections/$connectionId/status',
@@ -107,99 +63,22 @@ export const Route = createFileRoute(
           return text('Invalid JSON body', 400)
         }
 
-        const runtimeFlowStatus = parseOptionalString(body?.runtimeFlowStatus)
-        if (
-          'runtimeFlowStatus' in (body || {}) &&
-          runtimeFlowStatus === undefined
-        ) {
-          return text('runtimeFlowStatus must be a string or null', 400)
-        }
-
-        const runtimeFlowId = parseOptionalString(body?.runtimeFlowId)
-        if ('runtimeFlowId' in (body || {}) && runtimeFlowId === undefined) {
-          return text('runtimeFlowId must be a string or null', 400)
-        }
-
-        const runtimeTaskId = parseOptionalString(body?.runtimeTaskId)
-        if ('runtimeTaskId' in (body || {}) && runtimeTaskId === undefined) {
-          return text('runtimeTaskId must be a string or null', 400)
-        }
-
-        const runtimeFlowMessage = parseOptionalString(body?.runtimeFlowMessage)
-        if (
-          'runtimeFlowMessage' in (body || {}) &&
-          runtimeFlowMessage === undefined
-        ) {
-          return text('runtimeFlowMessage must be a string or null', 400)
-        }
-
-        const runtimeFlowStartedAt = parseOptionalTimestamp(
-          body?.runtimeFlowStartedAt,
-        )
-        if (
-          'runtimeFlowStartedAt' in (body || {}) &&
-          runtimeFlowStartedAt === undefined
-        ) {
+        try {
+          return json(
+            await updateCliConnectionRuntimeStateForRpc({
+              connectionId: params.connectionId,
+              body,
+              fallbackBrowserLimit: connection.browserLimit,
+            }),
+          )
+        } catch (error) {
           return text(
-            'runtimeFlowStartedAt must be an ISO timestamp or null',
-            400,
+            error instanceof Error
+              ? error.message
+              : 'Unable to update CLI runtime state',
+            error instanceof CliRpcError ? error.status : 400,
           )
         }
-
-        const runtimeFlowCompletedAt = parseOptionalTimestamp(
-          body?.runtimeFlowCompletedAt,
-        )
-        if (
-          'runtimeFlowCompletedAt' in (body || {}) &&
-          runtimeFlowCompletedAt === undefined
-        ) {
-          return text(
-            'runtimeFlowCompletedAt must be an ISO timestamp or null',
-            400,
-          )
-        }
-
-        const storageStateIdentityIds = parseOptionalStringArray(
-          body?.storageStateIdentityIds,
-        )
-        if (
-          'storageStateIdentityIds' in (body || {}) &&
-          storageStateIdentityIds === undefined
-        ) {
-          return text(
-            'storageStateIdentityIds must be a string array or null',
-            400,
-          )
-        }
-
-        const storageStateEmails = parseOptionalStringArray(
-          body?.storageStateEmails,
-        )
-        if (
-          'storageStateEmails' in (body || {}) &&
-          storageStateEmails === undefined
-        ) {
-          return text('storageStateEmails must be a string array or null', 400)
-        }
-
-        const result = await updateCliConnectionRuntimeState(
-          params.connectionId,
-          {
-            runtimeFlowId,
-            runtimeTaskId,
-            runtimeFlowStatus,
-            runtimeFlowMessage,
-            runtimeFlowStartedAt,
-            runtimeFlowCompletedAt,
-            storageStateIdentityIds,
-            storageStateEmails,
-          },
-        )
-
-        return json({
-          ok: true,
-          browserLimit: result?.browserLimit ?? connection.browserLimit,
-        })
       },
     },
   },

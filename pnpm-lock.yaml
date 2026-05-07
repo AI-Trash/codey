@@ -153,6 +153,9 @@ catalogs:
     postgres:
       specifier: ^3.4.7
       version: 3.4.7
+    qrcode.react:
+      specifier: ^4.2.0
+      version: 4.2.0
     radix-ui:
       specifier: ^1.4.3
       version: 1.4.3
@@ -305,6 +308,9 @@ importers:
       postgres:
         specifier: 'catalog:'
         version: 3.4.7
+      qrcode.react:
+        specifier: 'catalog:'
+        version: 4.2.0(react@19.2.5)
       radix-ui:
         specifier: 'catalog:'
         version: 1.4.3(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -5247,6 +5253,11 @@ packages:
 
   pure-rand@6.1.0:
     resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
+
+  qrcode.react@4.2.0:
+    resolution: {integrity: sha512-QpgqWi8rD9DsS9EP3z7BT+5lY5SFhsqGjpgW5DY/i3mK4M9DTBNz3ErMi8BWYEfI3L0d8GIbGmcdFAS1uIRGjA==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   query-selector-shadow-dom@1.0.1:
     resolution: {integrity: sha512-lT5yCqEBgfoMYpf3F2xQRK7zEr1rhIIZuceDK6+xRkJQ4NMbHTwXqk4NkwDwQMNqXgG9r9fyHnzwNVs6zV5KRw==}
@@ -10726,6 +10737,10 @@ snapshots:
 
   pure-rand@6.1.0:
     optional: true
+
+  qrcode.react@4.2.0(react@19.2.5):
+    dependencies:
+      react: 19.2.5
 
   query-selector-shadow-dom@1.0.1: {}
 

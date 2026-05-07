@@ -92,6 +92,7 @@ export type VerificationProviderConfigKind = 'exchange' | 'app'
 
 export interface CodeyAppConfig extends OidcEndpointConfig {
   baseUrl?: string
+  cliWebSocketPath?: string
   cliEventsPath?: string
   deviceStartPath?: string
   deviceStatusPath?: string
@@ -273,6 +274,7 @@ function buildCodeyAppConfig(): CodeyAppConfig | undefined {
     'CODEY_APP_CLIENT_SECRET',
     'CODEY_APP_RESOURCE',
     'CODEY_APP_TOKEN_ENDPOINT_AUTH_METHOD',
+    'CODEY_APP_CLI_WS_PATH',
     'CODEY_APP_CLI_EVENTS_PATH',
     'CODEY_APP_DEVICE_START_PATH',
     'CODEY_APP_DEVICE_STATUS_PATH',
@@ -297,6 +299,7 @@ function buildCodeyAppConfig(): CodeyAppConfig | undefined {
     tokenEndpointAuthMethod: parseOidcTokenEndpointAuthMethod(
       process.env.CODEY_APP_TOKEN_ENDPOINT_AUTH_METHOD,
     ),
+    cliWebSocketPath: process.env.CODEY_APP_CLI_WS_PATH,
     cliEventsPath: process.env.CODEY_APP_CLI_EVENTS_PATH,
     deviceStartPath: process.env.CODEY_APP_DEVICE_START_PATH,
     deviceStatusPath: process.env.CODEY_APP_DEVICE_STATUS_PATH,

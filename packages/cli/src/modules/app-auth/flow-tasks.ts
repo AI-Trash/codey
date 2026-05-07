@@ -1,5 +1,6 @@
 import { sanitizeErrorForOutput } from '../flow-cli/helpers'
 import type { CliNotificationsAuthState } from './device-login'
+import type { CliConnectionRuntimeState } from './cli-connection'
 import { ensureJson, resolveAppUrl } from './http'
 
 export interface ClaimedCliFlowTask {
@@ -43,6 +44,33 @@ export interface FlowTaskStatusResponse {
   stopReason?: string | null
 }
 
+export interface CliFlowTaskTransport {
+  claimTask(input: {
+    connectionId: string
+    authState: CliNotificationsAuthState
+  }): Promise<ClaimCliFlowTaskResult>
+  updateTaskStatus(input: {
+    connectionId: string
+    taskId: string
+    authState: CliNotificationsAuthState
+    status: FlowTaskLeaseStatus | FinalFlowTaskStatus
+    error?: string | null
+    message?: string | null
+    result?: Record<string, unknown> | null
+    retry?: FlowTaskRetryRequest | null
+  }): Promise<FlowTaskStatusResponse>
+}
+
+export interface CliWorkerTransport extends CliFlowTaskTransport {
+  updateRuntimeState(input: {
+    connectionId: string
+    authState: CliNotificationsAuthState
+    state: CliConnectionRuntimeState
+  }): Promise<{
+    browserLimit?: number
+  }>
+}
+
 async function postJson<T>(input: {
   authState: CliNotificationsAuthState
   path: string
@@ -64,7 +92,12 @@ async function postJson<T>(input: {
 export async function claimCliFlowTask(input: {
   connectionId: string
   authState: CliNotificationsAuthState
+  transport?: Pick<CliFlowTaskTransport, 'claimTask'>
 }): Promise<ClaimCliFlowTaskResult> {
+  if (input.transport) {
+    return input.transport.claimTask(input)
+  }
+
   const result = await postJson<{
     ok: boolean
     task?: ClaimedCliFlowTask | null
@@ -108,6 +141,7 @@ export class CliFlowTaskLeaseReporter {
   private readonly connectionId: string
   private readonly taskId: string
   private readonly authState: CliNotificationsAuthState
+  private readonly transport?: Pick<CliFlowTaskTransport, 'updateTaskStatus'>
   private readonly onError?: (error: Error) => void
   private readonly onStopRequested?: (reason?: string | null) => void
   private heartbeat?: ReturnType<typeof setInterval>
@@ -120,12 +154,14 @@ export class CliFlowTaskLeaseReporter {
     connectionId: string
     taskId: string
     authState: CliNotificationsAuthState
+    transport?: Pick<CliFlowTaskTransport, 'updateTaskStatus'>
     onError?: (error: Error) => void
     onStopRequested?: (reason?: string | null) => void
   }) {
     this.connectionId = input.connectionId
     this.taskId = input.taskId
     this.authState = input.authState
+    this.transport = input.transport
     this.onError = input.onError
     this.onStopRequested = input.onStopRequested
   }
@@ -227,7 +263,9 @@ export class CliFlowTaskLeaseReporter {
       .catch(() => undefined)
       .then(async () => {
         try {
-          const result = await updateCliFlowTaskStatus({
+          const result = await (
+            this.transport?.updateTaskStatus || updateCliFlowTaskStatus
+          )({
             connectionId: this.connectionId,
             taskId: this.taskId,
             authState: this.authState,

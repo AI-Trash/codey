@@ -12,6 +12,7 @@ import {
   LogOutIcon,
   MessageSquareTextIcon,
   NetworkIcon,
+  ScanQrCodeIcon,
   SlidersHorizontalIcon,
   ShieldCheckIcon,
   SunMoonIcon,
@@ -111,6 +112,12 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
   }
 
   if (hasAdminPermission(currentUser, 'CLI_OPERATIONS')) {
+    navigation.push({
+      label: m.admin_nav_mobile_pairing(),
+      to: '/admin/mobile-pairing',
+      icon: ScanQrCodeIcon,
+      matches: (pathname: string) => pathname === '/admin/mobile-pairing',
+    })
     navigation.push({
       label: m.admin_nav_flows(),
       to: '/admin/flows',
@@ -658,6 +665,10 @@ function getAdminPageLabel(pathname: string) {
 
   if (pathname === '/admin/cli') {
     return m.admin_nav_cli_connections()
+  }
+
+  if (pathname === '/admin/mobile-pairing') {
+    return m.admin_nav_mobile_pairing()
   }
 
   if (pathname === '/admin/flows') {

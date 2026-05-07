@@ -22,6 +22,7 @@ It preserves the original Exchange mailbox verification path, adds a pluggable v
   - `POST /api/device`
   - `GET|POST /api/device/{deviceCode}`
   - `GET /api/device/{deviceCode}/events`
+  - `GET /api/cli/ws`
   - `GET /api/cli/events`
   - `GET /api/admin/cli-connections`
 - browser admin routes:
@@ -76,6 +77,7 @@ CLOUDFLARE_EMAIL_WEBHOOK_SECRET=replace-with-a-long-random-secret
 CODEY_APP_BASE_URL=http://localhost:3000
 CODEY_APP_CLIENT_ID=your-codey-client-id
 CODEY_APP_CLIENT_SECRET=your-codey-client-secret
+CODEY_APP_CLI_WS_PATH=/api/cli/ws
 CODEY_APP_CLI_EVENTS_PATH=/api/cli/events
 CODEY_APP_DEVICE_START_PATH=/api/device
 CODEY_APP_DEVICE_STATUS_PATH=/api/device/{deviceCode}
@@ -301,7 +303,7 @@ pnpm codey --target octocat
 ```
 
 The default `pnpm codey` entry connects to the Codey web app at `http://localhost:3000` unless `CODEY_APP_BASE_URL` is configured.
-The CLI keeps an SSE connection to `/api/cli/events`, waits for tasks dispatched from `/admin/cli`, and reports its current flow back to the web app so the admin page can show what is running.
+The CLI keeps a single WebSocket connection to `/api/cli/ws`, waits for tasks dispatched from `/admin/cli`, claims work, and reports its current flow back to the web app on that same connection so the admin page can show what is running. `/api/cli/events` remains available as a legacy fallback. Codey Web browser pages still use their existing SSE endpoints for frontend-to-backend updates.
 When `CODEY_APP_CLIENT_SECRET` is configured, the CLI authenticates with `client_credentials`.
 Otherwise it reuses the stored session from `pnpm codey --auth login`.
 There is no interactive prompt shell: start local work with explicit command-line flow arguments, and use the web app for remote dispatch.
@@ -438,17 +440,24 @@ After installing the app:
 
 1. Open CodeyApp and confirm **Codey Web URL**, **Device ID**, and optional
    WhatsApp / GoPay phone numbers.
-2. Tap **Start Pairing**. CodeyApp shows a user code and approval URL.
-3. Open the approval URL, sign in as an admin if needed, and approve the
+2. For QR pairing, open **Admin -> Mobile pairing** in Codey Web, click
+   **Generate QR code**, then tap **Scan Web QR** in CodeyApp and scan the
+   displayed QR code. CodeyApp stores the Codey Web URL, user code, approval
+   URL, and pending device code from the QR payload.
+3. If camera scanning is unavailable, tap **Start Pairing** in CodeyApp.
+   CodeyApp shows a user code and approval URL; **Copy Pairing Link**,
+   **Copy User Code**, and **Open Pairing Link** are available for the manual
+   path.
+4. Open the approval URL, sign in as an admin if needed, and approve the
    pending mobile pairing request.
-4. Return to CodeyApp and tap **Complete Pairing**. The status should show that
+5. Return to CodeyApp and tap **Complete Pairing**. The status should show that
    the app is paired.
-5. Tap **Notification Access** and enable notification access for CodeyApp.
-6. Return to the app and tap **Start Keep Alive**.
-7. Tap **Battery Settings** and allow unrestricted/background battery usage for
+6. Tap **Notification Access** and enable notification access for CodeyApp.
+7. Return to the app and tap **Start Keep Alive**.
+8. Tap **Battery Settings** and allow unrestricted/background battery usage for
    CodeyApp. On Xiaomi/OPPO/Vivo/Huawei-style ROMs, also enable
    autostart/locked app/no background cleanup for CodeyApp.
-8. Tap **Send Test Payload**. When paired, Codey Web should receive a
+9. Tap **Send Test Payload**. When paired, Codey Web should receive a
    WhatsApp notification with code `123456` even when the CLI is not running.
    When unpaired, keep `pnpm codey` running and use the legacy local webhook.
 

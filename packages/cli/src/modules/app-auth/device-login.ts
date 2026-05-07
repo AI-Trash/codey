@@ -62,6 +62,10 @@ function getCodeyAppConfig() {
     tokenEndpointAuthMethod:
       config.app?.tokenEndpointAuthMethod ??
       config.verification?.app?.tokenEndpointAuthMethod,
+    cliWebSocketPath:
+      config.app?.cliWebSocketPath ??
+      config.verification?.app?.cliWebSocketPath ??
+      '/api/cli/ws',
     cliEventsPath:
       config.app?.cliEventsPath ??
       config.verification?.app?.cliEventsPath ??

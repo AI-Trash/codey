@@ -18,6 +18,12 @@ export function resolveAppUrl(pathname: string): string {
   return new URL(pathname, normalizedBase).toString()
 }
 
+export function resolveAppWebSocketUrl(pathname: string): string {
+  const url = new URL(resolveAppUrl(pathname))
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
+
 export async function ensureJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.text().catch(() => '')

@@ -1399,6 +1399,7 @@ function buildOAuthClientEnv(input: {
     ['CODEY_APP_CLIENT_ID', input.clientId],
     ['CODEY_APP_CLIENT_SECRET', input.clientSecret],
     ['CODEY_APP_TOKEN_ENDPOINT_AUTH_METHOD', input.tokenEndpointAuthMethod],
+    ['CODEY_APP_CLI_WS_PATH', '/api/cli/ws'],
     ['CODEY_APP_CLI_EVENTS_PATH', '/api/cli/events'],
     ['CODEY_APP_DEVICE_START_PATH', '/api/device'],
     ['CODEY_APP_DEVICE_STATUS_PATH', '/api/device/{deviceCode}'],
