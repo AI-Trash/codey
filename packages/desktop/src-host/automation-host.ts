@@ -1,38 +1,15 @@
 #!/usr/bin/env node
-import { fileURLToPath } from 'node:url'
 import { readFile } from 'node:fs/promises'
 
-import { loadWorkspaceEnv } from '../../cli/src/utils/env'
-loadWorkspaceEnv()
-
-import { runWithRuntimeConfig } from '../../cli/src/config'
+import {
+  runWithRuntimeConfig,
+  type CliRuntimeConfig,
+} from '../../cli/src/config'
 import {
   fetchCodeyProxyNodes,
   type CodeyProxyNode,
 } from '../../cli/src/modules/app-auth/proxy-nodes'
 import { resolveCliNotificationsAuthState } from '../../cli/src/modules/app-auth/device-login'
-import {
-  attachFlowArtifactPaths,
-  formatFlowCompletionSummary,
-  formatFlowProgressMessage,
-  keepBrowserOpenForHarWhenUnspecified,
-  applyFlowOptionDefaults,
-  prepareRuntimeConfig,
-  redactForOutput,
-  sanitizeErrorForOutput,
-  shouldKeepFlowOpen,
-  shouldRecordPageContent,
-  type FlowOptions,
-  type FlowProgressUpdate,
-} from '../../cli/src/modules/flow-cli/helpers'
-import {
-  normalizeCliFlowConfig,
-  normalizeCliFlowCommandId,
-  type CliFlowTaskExternalServices,
-  type CliFlowTaskMetadata,
-  type CliFlowCommandId,
-} from '../../cli/src/modules/flow-cli/flow-registry'
-import { getCliFlowRunner } from '../../cli/src/modules/flow-cli/flow-runners'
 import { prepareFlowStorageState } from '../../cli/src/modules/flow-cli/storage-state'
 import { runWithAndroidSession } from '../../cli/src/modules/flow-cli/run-with-android-session'
 import {
@@ -44,20 +21,41 @@ import {
   startCodeySingBoxFlowProxy,
   type CodeySingBoxProxyRuntime,
 } from '../../cli/src/modules/proxy/sing-box'
-import { resolveWorkspaceRoot } from '../../cli/src/utils/workspace-root'
 import {
   setObservabilityRuntimeState,
   traceCliOperation,
   withObservabilityContext,
 } from '../../cli/src/utils/observability'
+import { loadDesktopFlowRunner } from './flow-loader'
+import {
+  attachFlowArtifactPaths,
+  formatFlowCompletionSummary,
+  formatFlowProgressMessage,
+  prepareDesktopRuntimeConfig,
+  redactForDesktopOutput,
+  resolveDesktopFlowOptions,
+  sanitizeErrorForDesktopOutput,
+  shouldKeepFlowOpen,
+  shouldRecordPageContent,
+  type FlowProgressUpdate,
+} from './host-utils'
+import {
+  isDesktopFlowCommandId,
+  type DesktopFlowCommandId,
+  type DesktopFlowOptions,
+  type DesktopFlowTaskExternalServices,
+  type DesktopFlowTaskMetadata,
+} from './types'
+
+type FlowStorageOptions = Parameters<typeof prepareFlowStorageState>[0]['options']
 
 interface AutomationTaskPayload {
   taskId: string
   flowId: string
   config?: Record<string, unknown>
   batch?: Record<string, unknown>
-  externalServices?: CliFlowTaskExternalServices
-  metadata?: CliFlowTaskMetadata
+  externalServices?: DesktopFlowTaskExternalServices
+  metadata?: DesktopFlowTaskMetadata
 }
 
 interface DesktopHostEvent {
@@ -71,6 +69,11 @@ interface DesktopHostEvent {
 
 const taskFileFlag = '--taskFile'
 
+function resolveDesktopHostWorkspaceRoot(): string {
+  const configured = process.env.CODEY_WORKSPACE_ROOT?.trim()
+  return configured || process.cwd()
+}
+
 function emit(event: Omit<DesktopHostEvent, 'kind'>): void {
   process.stdout.write(
     `${JSON.stringify({
@@ -82,7 +85,7 @@ function emit(event: Omit<DesktopHostEvent, 'kind'>): void {
 
 function emitProgress(
   taskId: string,
-  flowId: CliFlowCommandId,
+  flowId: DesktopFlowCommandId,
   update: FlowProgressUpdate,
 ): void {
   const message = formatFlowProgressMessage(update)
@@ -91,7 +94,7 @@ function emitProgress(
     flowId,
     event: 'flow.progress',
     message,
-    data: redactForOutput(update),
+    data: redactForDesktopOutput(update),
   })
 }
 
@@ -121,28 +124,10 @@ async function readTaskPayload(): Promise<AutomationTaskPayload> {
   return payload
 }
 
-function resolveFlowCommandOptions(
-  flowId: CliFlowCommandId,
-  options: FlowOptions,
-): FlowOptions {
-  if (flowId === 'codex-oauth' || flowId === 'chatgpt-team-trial-gopay') {
-    return keepBrowserOpenForHarWhenUnspecified(applyFlowOptionDefaults(options))
-  }
-
-  if (flowId === 'noop') {
-    return applyFlowOptionDefaults(options, {
-      har: true,
-      record: true,
-    })
-  }
-
-  return applyFlowOptionDefaults(options)
-}
-
 async function startFlowProxyOverride(input: {
-  config: ReturnType<typeof prepareRuntimeConfig>
-  flowId: CliFlowCommandId
-  options: Pick<FlowOptions, 'proxyTag'>
+  config: CliRuntimeConfig
+  flowId: DesktopFlowCommandId
+  options: Pick<DesktopFlowOptions, 'proxyTag'>
   taskId: string
   nodes?: CodeyProxyNode[]
 }): Promise<CodeySingBoxProxyRuntime | undefined> {
@@ -173,19 +158,19 @@ async function startFlowProxyOverride(input: {
 
 async function runFlowTask(input: {
   taskId: string
-  flowId: CliFlowCommandId
-  options: FlowOptions
+  flowId: DesktopFlowCommandId
+  options: DesktopFlowOptions
 }): Promise<unknown> {
-  let runtimeOptions: FlowOptions = {
+  let runtimeOptions: DesktopFlowOptions = {
     ...input.options,
     progressReporter: (update) =>
       emitProgress(input.taskId, input.flowId, update),
   }
   const preparedStorageState = await prepareFlowStorageState({
     flowId: input.flowId,
-    options: runtimeOptions,
+    options: runtimeOptions as FlowStorageOptions,
   })
-  runtimeOptions = preparedStorageState.options
+  runtimeOptions = preparedStorageState.options as DesktopFlowOptions
 
   if (preparedStorageState.storageState) {
     emit({
@@ -193,14 +178,14 @@ async function runFlowTask(input: {
       flowId: input.flowId,
       event: 'flow.storage_state_loaded',
       message: `Loaded local ChatGPT storage state for ${preparedStorageState.storageState.email}`,
-      data: redactForOutput(preparedStorageState.storageState),
+      data: redactForDesktopOutput(preparedStorageState.storageState),
     })
   }
 
   let result: unknown
   let browserHarPath: string | undefined
   let pageContentPath: string | undefined
-  const flowRunner = getCliFlowRunner(input.flowId)
+  const flowRunner = await loadDesktopFlowRunner(input.flowId)
 
   if (flowRunner.runtime === 'android') {
     await runWithAndroidSession(async (session) => {
@@ -237,22 +222,18 @@ async function runFlowTask(input: {
 }
 
 async function executeAutomationTask(payload: AutomationTaskPayload): Promise<void> {
-  const flowId = normalizeCliFlowCommandId(payload.flowId)
-  if (!flowId) {
+  if (!isDesktopFlowCommandId(payload.flowId)) {
     throw new Error(`Unsupported Codey flow: ${payload.flowId}`)
   }
 
-  const normalizedConfig = normalizeCliFlowConfig(
-    flowId,
-    payload.config || {},
-  ) as FlowOptions
-  const options = resolveFlowCommandOptions(flowId, {
-    ...normalizedConfig,
+  const flowId = payload.flowId
+  const options = resolveDesktopFlowOptions(flowId, {
+    ...((payload.config || {}) as DesktopFlowOptions),
     ...(payload.metadata ? { taskMetadata: payload.metadata } : {}),
   })
   const command = `desktop:${flowId}`
   const startedAt = new Date().toISOString()
-  const runtimeConfig = prepareRuntimeConfig(command, options)
+  const runtimeConfig = prepareDesktopRuntimeConfig(command, options)
   let ownedSingBoxProxy: CodeySingBoxProxyRuntime | undefined
 
   emit({
@@ -261,7 +242,7 @@ async function executeAutomationTask(payload: AutomationTaskPayload): Promise<vo
     event: 'flow.started',
     message: 'Flow started',
     data: {
-      config: redactForOutput(options),
+      config: redactForDesktopOutput(options),
     },
   })
 
@@ -323,10 +304,10 @@ async function executeAutomationTask(payload: AutomationTaskPayload): Promise<vo
       flowId,
       event: 'flow.completed',
       message: formatFlowCompletionSummary(command, result),
-      data: redactForOutput(result),
+      data: redactForDesktopOutput(result),
     })
   } catch (error) {
-    const sanitized = sanitizeErrorForOutput(error)
+    const sanitized = sanitizeErrorForDesktopOutput(error)
     setObservabilityRuntimeState({
       flowId,
       status: 'failed',
@@ -355,15 +336,13 @@ async function main(): Promise<void> {
     taskId: payload.taskId,
     flowId: payload.flowId,
     event: 'host.ready',
-    message: `Codey Desktop automation host running in ${resolveWorkspaceRoot(
-      fileURLToPath(import.meta.url),
-    )}`,
+    message: `Codey Desktop automation host running in ${resolveDesktopHostWorkspaceRoot()}`,
   })
   await executeAutomationTask(payload)
 }
 
 main().catch((error) => {
-  const sanitized = sanitizeErrorForOutput(error)
+  const sanitized = sanitizeErrorForDesktopOutput(error)
   process.stdout.write(
     `${JSON.stringify({
       kind: 'codey-desktop-event',

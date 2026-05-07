@@ -27,8 +27,7 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "../dist-host/automation-host.js": "automation-host/automation-host.js",
-      "../dist-host/automation-host.js.map": "automation-host/automation-host.js.map"
+      "../dist-host/": "automation-host/"
     },
     "icon": [
       "icons/32x32.png",
