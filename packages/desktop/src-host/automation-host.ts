@@ -28,6 +28,8 @@ import {
 import {
   normalizeCliFlowConfig,
   normalizeCliFlowCommandId,
+  type CliFlowTaskExternalServices,
+  type CliFlowTaskMetadata,
   type CliFlowCommandId,
 } from '../../cli/src/modules/flow-cli/flow-registry'
 import { getCliFlowRunner } from '../../cli/src/modules/flow-cli/flow-runners'
@@ -53,6 +55,9 @@ interface AutomationTaskPayload {
   taskId: string
   flowId: string
   config?: Record<string, unknown>
+  batch?: Record<string, unknown>
+  externalServices?: CliFlowTaskExternalServices
+  metadata?: CliFlowTaskMetadata
 }
 
 interface DesktopHostEvent {
@@ -241,7 +246,10 @@ async function executeAutomationTask(payload: AutomationTaskPayload): Promise<vo
     flowId,
     payload.config || {},
   ) as FlowOptions
-  const options = resolveFlowCommandOptions(flowId, normalizedConfig)
+  const options = resolveFlowCommandOptions(flowId, {
+    ...normalizedConfig,
+    ...(payload.metadata ? { taskMetadata: payload.metadata } : {}),
+  })
   const command = `desktop:${flowId}`
   const startedAt = new Date().toISOString()
   const runtimeConfig = prepareRuntimeConfig(command, options)

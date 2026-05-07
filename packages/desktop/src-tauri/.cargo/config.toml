@@ -1,0 +1,5 @@
+[env]
+# deno_crypto_provider pulls aws-lc-sys 0.26 through Deno's Node compatibility
+# layer. That AWS-LC release still has a CMake minimum below CMake 4's default
+# policy floor, so keep Desktop builds working with newer local CMake installs.
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"

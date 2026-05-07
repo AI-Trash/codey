@@ -157,7 +157,7 @@ button:disabled {
 
 .top-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.75fr) minmax(360px, 0.95fr);
   gap: 20px;
 }
 
@@ -227,6 +227,11 @@ button:disabled {
   border-radius: 8px;
 }
 
+.icon-button.danger {
+  color: #fff7f7;
+  background: #9f3030;
+}
+
 .primary-button,
 .icon-text-button {
   padding: 0 14px;
@@ -271,6 +276,42 @@ button:disabled {
 .runtime-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 18px;
+}
+
+.connection-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.connection-summary div {
+  min-width: 0;
+  padding: 9px 10px;
+  background: #f3f6f4;
+  border: 1px solid #dce5df;
+  border-radius: 8px;
+}
+
+.connection-summary span,
+.connection-summary strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-summary span {
+  color: #6a766f;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.connection-summary strong {
+  margin-top: 4px;
+  color: #20312d;
+  font-size: 0.78rem;
 }
 
 .field-label {

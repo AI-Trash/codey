@@ -5,6 +5,8 @@ import {
   CircleStop,
   Download,
   Layers,
+  Link,
+  Link2Off,
   Play,
   RefreshCcw,
   RotateCw,
@@ -18,6 +20,8 @@ import { t } from './i18n'
 import {
   cancelTask,
   clearFinishedTasks,
+  connectCodeyWeb,
+  disconnectCodeyWeb,
   enqueueFlowTask,
   getDesktopState,
   updateSettings,
@@ -26,6 +30,8 @@ import {
   type DesktopTask,
   type TaskLogLine,
   type TaskStatus,
+  type WebConnectionSnapshot,
+  type WebConnectionStatus,
 } from './tauri'
 
 type FormValue = string | number | boolean | string[]
@@ -36,6 +42,13 @@ const statusLabels: Record<TaskStatus, string> = {
   passed: t('passed'),
   failed: t('failed'),
   canceled: t('canceled'),
+}
+
+const webStatusLabels: Record<WebConnectionStatus, string> = {
+  disconnected: t('disconnected'),
+  connecting: t('connecting'),
+  connected: t('connected'),
+  error: t('failed'),
 }
 
 const terminalLineLimit = 500
@@ -125,6 +138,9 @@ interface UpdateStatus {
 
 function App() {
   const [snapshot, setSnapshot] = useState<DesktopSnapshot | null>(null)
+  const [webConnection, setWebConnection] = useState<WebConnectionSnapshot>({
+    status: 'disconnected',
+  })
   const [tasks, setTasks] = useState<DesktopTask[]>([])
   const [selectedFlowId, setSelectedFlowId] = useState(flowDefinitions[0]?.id || '')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
@@ -149,6 +165,7 @@ function App() {
   const loadState = useCallback(async () => {
     const next = await getDesktopState()
     setSnapshot(next)
+    setWebConnection(next.webConnection)
     setTasks(next.tasks)
     setSettingsDraft(next.settings)
     setSelectedTaskId((current) => current || next.tasks[0]?.id || null)
@@ -164,6 +181,17 @@ function App() {
       }),
       listen<TaskLogEvent>('task-log', (event) => {
         setTasks((current) => mergeTaskLog(current, event.payload))
+      }),
+      listen<WebConnectionSnapshot>('web-connection-changed', (event) => {
+        setWebConnection(event.payload)
+        setSnapshot((current) =>
+          current
+            ? {
+                ...current,
+                webConnection: event.payload,
+              }
+            : current,
+        )
       }),
     ]
 
@@ -228,8 +256,35 @@ function App() {
   async function handleClearFinished() {
     const next = await clearFinishedTasks()
     setSnapshot(next)
+    setWebConnection(next.webConnection)
     setTasks(next.tasks)
     setSelectedTaskId(next.tasks[0]?.id || null)
+  }
+
+  async function handleConnectWeb() {
+    const next = await connectCodeyWeb()
+    setWebConnection(next)
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            webConnection: next,
+          }
+        : current,
+    )
+  }
+
+  async function handleDisconnectWeb() {
+    const next = await disconnectCodeyWeb()
+    setWebConnection(next)
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            webConnection: next,
+          }
+        : current,
+    )
   }
 
   async function handleCheckUpdates() {
@@ -416,6 +471,162 @@ function App() {
               </label>
             </div>
           </section>
+
+          <section className="panel web-panel">
+            <div className="panel-title-row">
+              <div>
+                <p className="eyebrow">{t('webConnection')}</p>
+                <h2>{webStatusLabels[webConnection.status]}</h2>
+              </div>
+              <button
+                className={webConnection.status === 'connected' ? 'icon-button danger' : 'primary-button'}
+                disabled={webConnection.status === 'connecting'}
+                onClick={
+                  webConnection.status === 'connected'
+                    ? () => void handleDisconnectWeb()
+                    : () => void handleConnectWeb()
+                }
+                title={
+                  webConnection.status === 'connected'
+                    ? t('disconnectWeb')
+                    : t('connectWeb')
+                }
+                type="button"
+              >
+                {webConnection.status === 'connected' ? (
+                  <Link2Off size={17} />
+                ) : (
+                  <Link size={17} />
+                )}
+                {webConnection.status === 'connected'
+                  ? t('disconnectWeb')
+                  : t('connectWeb')}
+              </button>
+            </div>
+            <p className="panel-copy">
+              {webConnection.message || t('webConnectionHint')}
+            </p>
+            <div className="connection-summary">
+              <StatusMetric label={t('connectionId')} value={webConnection.connectionId} />
+              <StatusMetric label={t('workerId')} value={webConnection.workerId} />
+              <StatusMetric
+                label={t('browserLimit')}
+                value={webConnection.browserLimit?.toString()}
+              />
+              <StatusMetric label={t('connectedAt')} value={webConnection.connectedAt} />
+            </div>
+            <div className="runtime-grid">
+              <label className="field-label">
+                {t('cliName')}
+                <input
+                  value={settingsDraft.cliName || 'Codey Desktop'}
+                  onBlur={() => void saveSettings({ cliName: settingsDraft.cliName })}
+                  onChange={(event) =>
+                    setSettingsDraft((current) => ({
+                      ...current,
+                      cliName: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="field-label">
+                {t('tokenEndpointAuthMethod')}
+                <select
+                  value={settingsDraft.tokenEndpointAuthMethod || 'client_secret_basic'}
+                  title={t('tokenEndpointAuthMethod')}
+                  onChange={(event) => {
+                    const tokenEndpointAuthMethod = event.target
+                      .value as DesktopSettings['tokenEndpointAuthMethod']
+                    setSettingsDraft((current) => ({
+                      ...current,
+                      tokenEndpointAuthMethod,
+                    }))
+                    void saveSettings({ tokenEndpointAuthMethod })
+                  }}
+                >
+                  <option value="client_secret_basic">{t('clientSecretBasic')}</option>
+                  <option value="client_secret_post">{t('clientSecretPost')}</option>
+                </select>
+              </label>
+              <label className="field-label">
+                {t('appClientId')}
+                <input
+                  value={settingsDraft.appClientId || ''}
+                  onBlur={() => void saveSettings({ appClientId: settingsDraft.appClientId })}
+                  onChange={(event) =>
+                    setSettingsDraft((current) => ({
+                      ...current,
+                      appClientId: event.target.value,
+                    }))
+                  }
+                  placeholder={t('textPlaceholder')}
+                />
+              </label>
+              <label className="field-label">
+                {t('appClientSecret')}
+                <input
+                  type="password"
+                  value={settingsDraft.appClientSecret || ''}
+                  onBlur={() =>
+                    void saveSettings({
+                      appClientSecret: settingsDraft.appClientSecret,
+                    })
+                  }
+                  onChange={(event) =>
+                    setSettingsDraft((current) => ({
+                      ...current,
+                      appClientSecret: event.target.value,
+                    }))
+                  }
+                  placeholder={t('textPlaceholder')}
+                />
+              </label>
+              <label className="field-label">
+                {t('cliWebSocketPath')}
+                <input
+                  value={settingsDraft.cliWebSocketPath || '/api/cli/ws'}
+                  onBlur={() =>
+                    void saveSettings({
+                      cliWebSocketPath: settingsDraft.cliWebSocketPath,
+                    })
+                  }
+                  onChange={(event) =>
+                    setSettingsDraft((current) => ({
+                      ...current,
+                      cliWebSocketPath: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="field-label">
+                {t('oidcBasePath')}
+                <input
+                  value={settingsDraft.oidcBasePath || '/oidc'}
+                  onBlur={() => void saveSettings({ oidcBasePath: settingsDraft.oidcBasePath })}
+                  onChange={(event) =>
+                    setSettingsDraft((current) => ({
+                      ...current,
+                      oidcBasePath: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="field-label wide">
+                {t('oidcIssuer')}
+                <input
+                  value={settingsDraft.oidcIssuer || ''}
+                  onBlur={() => void saveSettings({ oidcIssuer: settingsDraft.oidcIssuer })}
+                  onChange={(event) =>
+                    setSettingsDraft((current) => ({
+                      ...current,
+                      oidcIssuer: event.target.value,
+                    }))
+                  }
+                  placeholder={t('textPlaceholder')}
+                />
+              </label>
+            </div>
+          </section>
         </div>
 
         <section className="tasks-layout">
@@ -540,6 +751,7 @@ function FlowFieldInput({ field, value, onChange }: FlowFieldInputProps) {
         {field.label}
         <select
           value={typeof value === 'string' ? value : ''}
+          title={field.label}
           onChange={(event) => onChange(event.target.value)}
         >
           <option value="">{t('selectPlaceholder')}</option>
@@ -569,6 +781,15 @@ function FlowFieldInput({ field, value, onChange }: FlowFieldInputProps) {
         }
       />
     </label>
+  )
+}
+
+function StatusMetric({ label, value }: { label: string; value?: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value || t('none')}</strong>
+    </div>
   )
 }
 

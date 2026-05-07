@@ -194,11 +194,11 @@ The automation host lives under `packages/desktop/src-host` and calls the flow
 modules directly. The existing CLI remains as a transitional entrypoint, but
 Desktop does not shell through `codey` or depend on CLI argv/error handling.
 During packaging, the host is bundled into `packages/desktop/dist-host` and a
-Node runtime is staged into `packages/desktop/dist-runtime`; both are included
-as Tauri resources so installed users do not need pnpm, Node modules, or a
-workspace checkout to run local automation tasks. Installed builds use the
-app data directory as the Codey runtime root; development builds keep using the
-workspace root unless `CODEY_DESKTOP_RUNTIME_ROOT` is set.
+Deno runtime with Node compatibility is embedded in the Tauri/Rust layer to
+execute that bundle directly. Installed users do not need pnpm, a Node sidecar,
+Node modules, or a workspace checkout to run local automation tasks. Installed
+builds use the app data directory as the Codey runtime root; development builds
+keep using the workspace root unless `CODEY_DESKTOP_RUNTIME_ROOT` is set.
 
 Run it during development with:
 

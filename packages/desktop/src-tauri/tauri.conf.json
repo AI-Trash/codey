@@ -5,7 +5,7 @@
   "identifier": "com.codey.desktop",
   "build": {
     "beforeDevCommand": "pnpm run build:host && pnpm run dev:web",
-    "beforeBuildCommand": "pnpm run build:host && pnpm run build:runtime && pnpm run build:web",
+    "beforeBuildCommand": "pnpm run build:host && pnpm run build:web",
     "devUrl": "http://127.0.0.1:11420",
     "frontendDist": "../dist"
   },
@@ -28,8 +28,7 @@
     "targets": "all",
     "resources": {
       "../dist-host/automation-host.js": "automation-host/automation-host.js",
-      "../dist-host/automation-host.js.map": "automation-host/automation-host.js.map",
-      "../dist-runtime/": "runtime/"
+      "../dist-host/automation-host.js.map": "automation-host/automation-host.js.map"
     },
     "icon": [
       "icons/32x32.png",
