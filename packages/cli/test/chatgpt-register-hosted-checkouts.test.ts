@@ -5,6 +5,7 @@ import {
   isRecoverableHostedCheckoutCountryError,
   resolveHostedCheckoutCountrySpecs,
 } from '../src/flows/chatgpt-register-hosted-checkouts'
+import { resolveChatGPTTeamTrialPromoCoupon } from '../src/flows/chatgpt-team-trial'
 
 describe('chatgpt register hosted checkouts flow', () => {
   it('normalizes hosted checkout country aliases and currencies', () => {
@@ -237,5 +238,9 @@ describe('chatgpt register hosted checkouts flow', () => {
         ),
       ),
     ).toBe(false)
+  })
+
+  it('defaults GoPay checkout coupon selection to Plus', () => {
+    expect(resolveChatGPTTeamTrialPromoCoupon()).toBe('plus-1-month-free')
   })
 })

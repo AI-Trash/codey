@@ -15,12 +15,14 @@ import {
   registerChatGPT,
   type ChatGPTRegistrationFlowResult,
 } from './chatgpt-register'
-import { applyChatGPTTeamTrialStateProxyConfig } from './chatgpt-team-trial'
+import {
+  applyChatGPTTeamTrialStateProxyConfig,
+  resolveChatGPTTeamTrialPromoCoupon,
+} from './chatgpt-team-trial'
 import {
   createChatGPTBackendApiHeadersCapture,
   createChatGPTTrialCheckoutLink,
   getChatGPTTrialPromoPlan,
-  selectEligibleChatGPTTrialPromoCoupon,
   type ChatGPTBackendApiHeadersCapture,
   type ChatGPTTrialCheckoutLink,
   type ChatGPTTrialPromoCoupon,
@@ -796,30 +798,13 @@ export function isRecoverableHostedCheckoutCountryError(
   return /HTTP 400/i.test(message) && /invalid billing details/i.test(message)
 }
 
-async function chooseHostedCheckoutCoupon(
-  page: Page,
+function chooseHostedCheckoutCoupon(
   options: FlowOptions,
-  backendApiHeadersCapture: ChatGPTBackendApiHeadersCapture,
-): Promise<{
+): {
   coupon: ChatGPTTrialPromoCoupon
   plan: ChatGPTTrialPromoPlan
-}> {
-  const couponSelection = await selectEligibleChatGPTTrialPromoCoupon(page, {
-    requestHeaders: backendApiHeadersCapture.get()?.headers,
-    observeSessionAccessToken: true,
-    sessionAccessTokenTimeoutMs: 10000,
-  })
-  const coupon = couponSelection.selected?.coupon
-  if (!coupon) {
-    throw new Error('No eligible ChatGPT trial coupon was found.')
-  }
-
-  if (couponSelection.sessionAccessToken?.available === false) {
-    options.progressReporter?.({
-      message:
-        'ChatGPT session access token was not observed before hosted checkout generation',
-    })
-  }
+} {
+  const coupon = resolveChatGPTTeamTrialPromoCoupon(options)
 
   return {
     coupon,
@@ -1115,13 +1100,9 @@ export async function registerChatGPTAndReviewHostedCheckouts(
     await sendHostedCheckoutsMachine(machine, 'chatgpt.coupon.checking', {
       email: registration.email,
       url: page.url(),
-      lastMessage: 'Checking ChatGPT trial coupon eligibility',
+      lastMessage: 'Selecting configured ChatGPT trial coupon',
     })
-    const { coupon, plan } = await chooseHostedCheckoutCoupon(
-      page,
-      options,
-      backendApiHeadersCapture,
-    )
+    const { coupon, plan } = chooseHostedCheckoutCoupon(options)
     await sendHostedCheckoutsMachine(machine, 'chatgpt.coupon.selected', {
       email: registration.email,
       coupon,

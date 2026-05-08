@@ -5,6 +5,10 @@ import { fileURLToPath } from 'url'
 import { loadWorkspaceEnv } from './utils/env'
 import { resolveProxyConfig, type ProxyConfig } from './utils/proxy'
 import { resolveWorkspaceRoot } from './utils/workspace-root'
+import {
+  normalizeChatGPTTrialPromoCoupon,
+  type ChatGPTTrialPromoCoupon,
+} from './modules/chatgpt/common'
 
 export interface BrowserCliConfig {
   headless: boolean
@@ -163,6 +167,7 @@ export interface ChatGPTTeamTrialGoPayConfig {
 }
 
 export interface ChatGPTTeamTrialConfig {
+  coupon?: ChatGPTTrialPromoCoupon
   billingAddress?: ChatGPTTeamTrialBillingAddressConfig
   gopay?: ChatGPTTeamTrialGoPayConfig
 }
@@ -383,6 +388,7 @@ function buildSub2ApiConfig(): Sub2ApiConfig | undefined {
 
 function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
   const relevantEnvNames = [
+    'CHATGPT_TEAM_TRIAL_COUPON',
     'CHATGPT_TEAM_TRIAL_BILLING_NAME',
     'CHATGPT_TEAM_TRIAL_BILLING_COUNTRY',
     'CHATGPT_TEAM_TRIAL_BILLING_ADDRESS_LINE1',
@@ -403,7 +409,12 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
     return undefined
   }
 
+  const coupon = normalizeChatGPTTrialPromoCoupon(
+    process.env.CHATGPT_TEAM_TRIAL_COUPON,
+  )
+
   return {
+    ...(coupon ? { coupon } : {}),
     ...(hasAnyDefinedEnv([
       'CHATGPT_TEAM_TRIAL_BILLING_NAME',
       'CHATGPT_TEAM_TRIAL_BILLING_COUNTRY',

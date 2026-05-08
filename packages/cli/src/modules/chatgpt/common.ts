@@ -12,6 +12,8 @@ export const CHATGPT_TRIAL_PROMO_COUPONS = [
 export type ChatGPTTrialPromoCoupon =
   (typeof CHATGPT_TRIAL_PROMO_COUPONS)[number]
 export type ChatGPTTrialPromoPlan = 'team' | 'plus'
+export const DEFAULT_CHATGPT_TRIAL_PROMO_COUPON =
+  CHATGPT_PLUS_TRIAL_PROMO_COUPON
 export const CHATGPT_TRIAL_PAYMENT_METHODS = ['paypal', 'gopay'] as const
 export type ChatGPTTrialPaymentMethod =
   (typeof CHATGPT_TRIAL_PAYMENT_METHODS)[number]
@@ -46,6 +48,30 @@ export const CHATGPT_TRIAL_PROMO_PLAN_BY_COUPON = {
   [CHATGPT_TEAM_TRIAL_PROMO_COUPON]: 'team',
   [CHATGPT_PLUS_TRIAL_PROMO_COUPON]: 'plus',
 } as const satisfies Record<ChatGPTTrialPromoCoupon, ChatGPTTrialPromoPlan>
+
+export function normalizeChatGPTTrialPromoCoupon(
+  value: unknown,
+): ChatGPTTrialPromoCoupon | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) {
+    return undefined
+  }
+
+  if (normalized === 'team') {
+    return CHATGPT_TEAM_TRIAL_PROMO_COUPON
+  }
+
+  if (normalized === 'plus') {
+    return CHATGPT_PLUS_TRIAL_PROMO_COUPON
+  }
+
+  return CHATGPT_TRIAL_PROMO_COUPONS.find((coupon) => coupon === normalized)
+}
+
 export function getChatGPTTrialPromoPlan(
   coupon: ChatGPTTrialPromoCoupon,
 ): ChatGPTTrialPromoPlan {

@@ -253,6 +253,19 @@ describe('resolveConfig Android Appium config', () => {
   })
 })
 
+describe('resolveConfig ChatGPT Team trial config', () => {
+  it('reads the configured trial coupon from env aliases', async () => {
+    const config = await withEnv(
+      {
+        CHATGPT_TEAM_TRIAL_COUPON: 'team',
+      },
+      () => resolveConfig(),
+    )
+
+    expect(config.chatgptTeamTrial?.coupon).toBe('team-1-month-free')
+  })
+})
+
 describe('resolveConfig sub2api sync config', () => {
   it('reads Sub2API API-key env vars into sync config', async () => {
     const config = await withEnv(

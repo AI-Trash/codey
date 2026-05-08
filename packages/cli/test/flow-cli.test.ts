@@ -113,6 +113,8 @@ describe('flow cli helpers', () => {
         'XK',
         '--hostedCheckoutReview',
         'false',
+        '--trialCoupon',
+        'plus',
         '--claimTrial',
         'gopay',
         '--billingCountry',
@@ -124,6 +126,7 @@ describe('flow cli helpers', () => {
       password: 'secret-password',
       hostedCheckoutCountry: ['IE', 'GP', 'XK'],
       hostedCheckoutReview: false,
+      trialCoupon: 'plus-1-month-free',
       verificationTimeoutMs: 5000,
     })
   })

@@ -24,6 +24,7 @@ import { createFlowLifecycleFragment } from './machine-fragments'
 import {
   CHATGPT_GOPAY_PRICING_REGION,
   CHATGPT_HOME_URL,
+  DEFAULT_CHATGPT_TRIAL_PROMO_COUPON,
   DEFAULT_CHATGPT_TRIAL_PAYMENT_METHOD,
   buildChatGPTTrialPricingPromoUrl,
   clickChatGPTCheckoutSubscribeAndCapturePaymentLink,
@@ -36,7 +37,9 @@ import {
   fillChatGPTCheckoutBillingAddress,
   getChatGPTTrialPromoPlan,
   gotoTrialPricingPromo,
+  normalizeChatGPTTrialPromoCoupon,
   normalizeChatGPTTrialPaymentMethod,
+  observeChatGPTSessionAccessToken,
   readChatGPTCheckoutBillingCountry,
   selectChatGPTCheckoutPaymentMethodIfPresent,
   selectChatGPTTrialPricingPlanIfPresent,
@@ -1088,6 +1091,18 @@ export function resolveChatGPTTeamTrialPaymentMethod(
   )
 }
 
+export function resolveChatGPTTeamTrialPromoCoupon(
+  options: FlowOptions = {},
+): ChatGPTTrialPromoCoupon {
+  return (
+    normalizeChatGPTTrialPromoCoupon(options.trialCoupon) ||
+    normalizeChatGPTTrialPromoCoupon(
+      getRuntimeConfig().chatgptTeamTrial?.coupon,
+    ) ||
+    DEFAULT_CHATGPT_TRIAL_PROMO_COUPON
+  )
+}
+
 function resolveGoPayPaymentRedirectFromOptions(
   options: FlowOptions = {},
 ): GoPayPaymentRedirectLink {
@@ -1231,35 +1246,45 @@ async function selectChatGPTTeamTrialCoupon<Result>(
         email: context.email,
         paymentMethod: context.paymentMethod,
         url: page.url(),
-        lastMessage: 'Checking ChatGPT trial coupon eligibility',
+        lastMessage:
+          context.paymentMethod === 'gopay'
+            ? 'Selecting configured ChatGPT trial coupon'
+            : 'Checking ChatGPT trial coupon eligibility',
       },
     })
   }
 
-  const couponSelection = await selectEligibleChatGPTTrialPromoCoupon(page, {
-    requestHeaders: input.backendApiHeadersCapture?.get()?.headers,
-    observeSessionAccessToken: context.paymentMethod === 'gopay',
-    sessionAccessTokenTimeoutMs: 10000,
-  })
-  const coupon = couponSelection.selected?.coupon
+  const isGoPay = context.paymentMethod === 'gopay'
+  const couponSelection = isGoPay
+    ? undefined
+    : await selectEligibleChatGPTTrialPromoCoupon(page, {
+        requestHeaders: input.backendApiHeadersCapture?.get()?.headers,
+      })
+  const coupon = isGoPay
+    ? resolveChatGPTTeamTrialPromoCoupon(context.options)
+    : couponSelection?.selected?.coupon
   if (!coupon) {
     throw new Error(
-      `No eligible ChatGPT trial coupon was found (${formatTrialCouponChecks(couponSelection.checked)}).`,
+      `No eligible ChatGPT trial coupon was found (${formatTrialCouponChecks(couponSelection?.checked ?? [])}).`,
     )
   }
 
   const plan = getChatGPTTrialPromoPlan(coupon)
-  const couponState = couponSelection.selected?.state
-  const sessionAccessToken = couponSelection.sessionAccessToken
+  const couponState = couponSelection?.selected?.state
+  const sessionAccessToken = isGoPay
+    ? await observeChatGPTSessionAccessToken(page, {
+        timeoutMs: 10000,
+      })
+    : undefined
   const pricingUrl = buildChatGPTTrialPricingPromoUrl(coupon)
   context.options.progressReporter?.({
     message: `Selected ChatGPT ${plan} trial coupon ${coupon}`,
   })
-  if (context.paymentMethod === 'gopay' && sessionAccessToken) {
+  if (isGoPay && sessionAccessToken) {
     context.options.progressReporter?.({
       message: sessionAccessToken.available
         ? 'ChatGPT session access token is available for direct trial checkout'
-        : 'ChatGPT session access token was not observed during coupon eligibility check',
+        : 'ChatGPT session access token was not observed before GoPay checkout selection',
     })
   }
 

@@ -24,6 +24,13 @@ export type ChatGPTTrialClaimMethod =
 export const DEFAULT_CHATGPT_REGISTER_TRIAL_CLAIM_METHOD: ChatGPTTrialClaimMethod =
   'gopay'
 
+export const CHATGPT_TRIAL_PROMO_COUPON_OPTIONS = [
+  'team-1-month-free',
+  'plus-1-month-free',
+] as const
+export type ChatGPTTrialPromoCoupon =
+  (typeof CHATGPT_TRIAL_PROMO_COUPON_OPTIONS)[number]
+
 export type CliFlowDisplayNameKey =
   | 'chatgptRegister'
   | 'chatgptRegisterHostedCheckouts'
@@ -57,6 +64,7 @@ export type CliFlowConfigFieldDisplayNameKey =
   | 'restoreStorageState'
   | 'password'
   | 'claimTrial'
+  | 'trialCoupon'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'paymentRedirectUrl'
@@ -100,6 +108,7 @@ export type CliFlowConfigFieldDescriptionKey =
   | 'restoreStorageState'
   | 'password'
   | 'claimTrial'
+  | 'trialCoupon'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'paymentRedirectUrl'
@@ -143,6 +152,7 @@ export type CliFlowConfigFieldKey =
   | 'restoreStorageState'
   | 'password'
   | 'claimTrial'
+  | 'trialCoupon'
   | 'verificationTimeoutMs'
   | 'pollIntervalMs'
   | 'paymentRedirectUrl'
@@ -342,6 +352,11 @@ export interface ChatGPTRegisterFlowConfig
   claimTrial?: ChatGPTTrialClaimMethod
 
   /**
+   * Trial promo coupon to use for GoPay trial checkout creation.
+   */
+  trialCoupon?: ChatGPTTrialPromoCoupon
+
+  /**
    * Maximum time to wait for the verification email, in milliseconds.
    */
   verificationTimeoutMs?: number
@@ -373,6 +388,11 @@ export interface ChatGPTRegisterHostedCheckoutsFlowConfig extends CommonFlowConf
    * for link-generation-only reruns.
    */
   hostedCheckoutReview?: boolean
+
+  /**
+   * Trial promo coupon to use for hosted GoPay checkout links.
+   */
+  trialCoupon?: ChatGPTTrialPromoCoupon
 
   /**
    * Maximum time to wait for the verification email, in milliseconds.
@@ -414,6 +434,11 @@ export interface ChatGPTTeamTrialFlowConfig
    * Select the checkout payment branch.
    */
   claimTrial?: ChatGPTTrialClaimMethod
+
+  /**
+   * Trial promo coupon to use for GoPay trial checkout creation.
+   */
+  trialCoupon?: ChatGPTTrialPromoCoupon
 }
 
 /**
@@ -682,6 +707,17 @@ export const cliFlowConfigFieldDefinitions = [
     ],
   },
   {
+    key: 'trialCoupon',
+    cliFlag: '--trialCoupon',
+    type: 'select',
+    displayNameKey: 'trialCoupon',
+    descriptionKey: 'trialCoupon',
+    options: [
+      { value: 'plus-1-month-free', label: 'Plus' },
+      { value: 'team-1-month-free', label: 'Team' },
+    ],
+  },
+  {
     key: 'verificationTimeoutMs',
     cliFlag: '--verificationTimeoutMs',
     type: 'number',
@@ -916,6 +952,7 @@ export const cliFlowDefinitions = [
     configKeys: [
       'password',
       'claimTrial',
+      'trialCoupon',
       'verificationTimeoutMs',
       'pollIntervalMs',
       'billingName',
@@ -936,6 +973,7 @@ export const cliFlowDefinitions = [
       'password',
       'hostedCheckoutCountry',
       'hostedCheckoutReview',
+      'trialCoupon',
       'verificationTimeoutMs',
       'pollIntervalMs',
     ],
@@ -957,6 +995,7 @@ export const cliFlowDefinitions = [
       'email',
       'restoreStorageState',
       'claimTrial',
+      'trialCoupon',
       'billingName',
       'billingCountry',
       'billingAddressLine1',
@@ -1140,12 +1179,39 @@ function normalizeClaimTrialMethod(value: unknown): string | undefined {
   return CHATGPT_TRIAL_CLAIM_METHODS.find((method) => method === normalized)
 }
 
+function normalizeTrialCoupon(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim().toLowerCase()
+  if (!normalized) {
+    return undefined
+  }
+
+  if (normalized === 'team') {
+    return 'team-1-month-free'
+  }
+
+  if (normalized === 'plus') {
+    return 'plus-1-month-free'
+  }
+
+  return CHATGPT_TRIAL_PROMO_COUPON_OPTIONS.find(
+    (coupon) => coupon === normalized,
+  )
+}
+
 function normalizeSelect(
   definition: CliFlowConfigFieldDefinition,
   value: unknown,
 ): string | undefined {
   if (definition.key === 'claimTrial') {
     return normalizeClaimTrialMethod(value)
+  }
+
+  if (definition.key === 'trialCoupon') {
+    return normalizeTrialCoupon(value)
   }
 
   const normalized = normalizeString(value)

@@ -49,6 +49,7 @@ const optionDisplayNameMap: Record<
   restoreStorageState: () => m.admin_cli_option_restore_storage_state_name(),
   password: () => m.admin_cli_option_password_name(),
   claimTrial: () => m.admin_cli_option_claim_trial_name(),
+  trialCoupon: () => m.admin_cli_option_trial_coupon_name(),
   paymentRedirectUrl: () => m.admin_cli_option_payment_redirect_url_name(),
   unlinkBeforeLink: () => m.admin_cli_option_unlink_before_link_name(),
   verificationTimeoutMs: () => m.admin_cli_option_verification_timeout_name(),
@@ -103,6 +104,7 @@ const optionDescriptionMap: Record<
     m.admin_cli_option_restore_storage_state_description(),
   password: () => m.admin_cli_option_password_description(),
   claimTrial: () => m.admin_cli_option_claim_trial_description(),
+  trialCoupon: () => m.admin_cli_option_trial_coupon_description(),
   paymentRedirectUrl: () =>
     m.admin_cli_option_payment_redirect_url_description(),
   unlinkBeforeLink: () => m.admin_cli_option_unlink_before_link_description(),

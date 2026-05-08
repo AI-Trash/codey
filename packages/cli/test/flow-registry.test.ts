@@ -15,6 +15,7 @@ describe('flow registry', () => {
       configKeys: [
         'password',
         'claimTrial',
+        'trialCoupon',
         'verificationTimeoutMs',
         'pollIntervalMs',
         'billingName',
@@ -33,6 +34,7 @@ describe('flow registry', () => {
         flowId: 'chatgpt-register',
         config: {
           claimTrial: 'true',
+          trialCoupon: ' plus ',
           proxyTag: ' Singapore ',
           billingCountry: ' NL ',
           billingPostalCode: ' 1187 ST ',
@@ -43,6 +45,7 @@ describe('flow registry', () => {
       flowId: 'chatgpt-register',
       config: {
         claimTrial: 'gopay',
+        trialCoupon: 'plus-1-month-free',
         proxyTag: 'Singapore',
         billingCountry: 'NL',
         billingPostalCode: '1187 ST',
@@ -79,6 +82,7 @@ describe('flow registry', () => {
         'password',
         'hostedCheckoutCountry',
         'hostedCheckoutReview',
+        'trialCoupon',
         'verificationTimeoutMs',
         'pollIntervalMs',
       ],
@@ -124,6 +128,7 @@ describe('flow registry', () => {
         'email',
         'restoreStorageState',
         'claimTrial',
+        'trialCoupon',
         'billingName',
         'billingCountry',
         'billingAddressLine1',
@@ -134,6 +139,24 @@ describe('flow registry', () => {
       ],
     })
     expect(normalizeCliFlowTaskPayload(payload)).toEqual(payload)
+
+    expect(
+      normalizeCliFlowTaskPayload({
+        kind: 'flow_task',
+        flowId: 'chatgpt-team-trial',
+        config: {
+          claimTrial: 'gopay',
+          trialCoupon: 'team',
+        },
+      }),
+    ).toEqual({
+      kind: 'flow_task',
+      flowId: 'chatgpt-team-trial',
+      config: {
+        claimTrial: 'gopay',
+        trialCoupon: 'team-1-month-free',
+      },
+    })
 
     expect(getCliFlowDefinition('chatgpt-team-trial-gopay')).toMatchObject({
       id: 'chatgpt-team-trial-gopay',

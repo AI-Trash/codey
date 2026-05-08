@@ -46,6 +46,7 @@ export interface FlowOptions extends CommonOptions {
   password?: string
   claimTrial?: string | boolean
   claimTeamTrial?: string | boolean
+  trialCoupon?: string
   identityId?: string
   email?: string
   billingName?: string

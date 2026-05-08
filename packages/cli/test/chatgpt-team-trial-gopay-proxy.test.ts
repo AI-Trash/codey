@@ -11,6 +11,7 @@ const {
   selectChatGPTTrialPricingPlanIfPresent,
   selectChatGPTCheckoutPaymentMethodIfPresent,
   selectEligibleChatGPTTrialPromoCoupon,
+  observeChatGPTSessionAccessToken,
   waitForTrialPricingFreeTrialReady,
   waitForChatGPTCheckoutReady,
   waitForAuthenticatedSession,
@@ -25,6 +26,7 @@ const {
   selectChatGPTTrialPricingPlanIfPresent: vi.fn(),
   selectChatGPTCheckoutPaymentMethodIfPresent: vi.fn(),
   selectEligibleChatGPTTrialPromoCoupon: vi.fn(),
+  observeChatGPTSessionAccessToken: vi.fn(),
   waitForTrialPricingFreeTrialReady: vi.fn(),
   waitForChatGPTCheckoutReady: vi.fn(),
   waitForAuthenticatedSession: vi.fn(),
@@ -62,6 +64,7 @@ vi.mock('../src/modules/chatgpt/shared', async () => {
     selectChatGPTTrialPricingPlanIfPresent,
     selectChatGPTCheckoutPaymentMethodIfPresent,
     selectEligibleChatGPTTrialPromoCoupon,
+    observeChatGPTSessionAccessToken,
     waitForTrialPricingFreeTrialReady,
     waitForChatGPTCheckoutReady,
     waitForAuthenticatedSession,
@@ -94,31 +97,21 @@ describe('ChatGPT Team trial GoPay proxy timing', () => {
     selectChatGPTCheckoutPaymentMethodIfPresent.mockResolvedValue(true)
     readChatGPTCheckoutBillingCountry.mockResolvedValue('ID')
     fillChatGPTCheckoutBillingAddress.mockResolvedValue(undefined)
+    observeChatGPTSessionAccessToken.mockResolvedValue({
+      available: true,
+      ok: true,
+      status: 200,
+      url: 'https://chatgpt.com/api/auth/session',
+    })
     clickChatGPTCheckoutSubscribeAndCapturePaymentLink.mockResolvedValue({
       url: 'https://app.midtrans.com/snap/v4/redirection/gopay-1#/gopay-tokenization/linking',
       paymentMethod: 'gopay',
       redirectId: 'gopay-1',
       capturedAt: new Date(0).toISOString(),
     })
-    selectEligibleChatGPTTrialPromoCoupon.mockResolvedValue({
-      selected: {
-        coupon: 'team-1-month-free',
-        state: 'eligible',
-      },
-      checked: [
-        {
-          coupon: 'team-1-month-free',
-          state: 'eligible',
-          status: 200,
-        },
-      ],
-      sessionAccessToken: {
-        available: true,
-        ok: true,
-        status: 200,
-        url: 'https://chatgpt.com/api/auth/session',
-      },
-    })
+    selectEligibleChatGPTTrialPromoCoupon.mockRejectedValue(
+      new Error('coupon eligibility should not be checked for GoPay'),
+    )
     createChatGPTTrialCheckoutLink.mockImplementation(async () => ({
       url: 'https://chatgpt.com/checkout/openai_llc/cs_test_123',
       checkoutSessionId: 'cs_test_123',
@@ -144,27 +137,22 @@ describe('ChatGPT Team trial GoPay proxy timing', () => {
     ).rejects.toThrow('stop after checkout link')
 
     expect(callOrder).toEqual(['createCheckout'])
+    expect(selectEligibleChatGPTTrialPromoCoupon).not.toHaveBeenCalled()
+    expect(createChatGPTTrialCheckoutLink).toHaveBeenCalledWith(
+      expect.anything(),
+      'plus-1-month-free',
+      expect.objectContaining({
+        paymentMethod: 'gopay',
+      }),
+    )
   })
 
   it('falls back to pricing checkout when the session access token is unavailable', async () => {
-    selectEligibleChatGPTTrialPromoCoupon.mockResolvedValueOnce({
-      selected: {
-        coupon: 'team-1-month-free',
-        state: 'eligible',
-      },
-      checked: [
-        {
-          coupon: 'team-1-month-free',
-          state: 'eligible',
-          status: 200,
-        },
-      ],
-      sessionAccessToken: {
-        available: false,
-        ok: true,
-        status: 200,
-        url: 'https://chatgpt.com/api/auth/session',
-      },
+    observeChatGPTSessionAccessToken.mockResolvedValueOnce({
+      available: false,
+      ok: true,
+      status: 200,
+      url: 'https://chatgpt.com/api/auth/session',
     })
 
     const { completeChatGPTTrialAfterAuthenticatedSession } =
@@ -178,11 +166,38 @@ describe('ChatGPT Team trial GoPay proxy timing', () => {
     expect(createChatGPTTrialCheckoutLink).not.toHaveBeenCalled()
     expect(gotoTrialPricingPromo).toHaveBeenCalledWith(
       expect.anything(),
-      'team-1-month-free',
+      'plus-1-month-free',
     )
     expect(clickTrialPricingFreeTrial).toHaveBeenCalledWith(
       expect.anything(),
+      'plus-1-month-free',
+    )
+  })
+
+  it('uses the configured GoPay trial coupon when provided', async () => {
+    createChatGPTTrialCheckoutLink.mockImplementationOnce(async () => {
+      throw new Error('stop after checkout link')
+    })
+
+    const { completeChatGPTTrialAfterAuthenticatedSession } =
+      await import('../src/flows/chatgpt-team-trial')
+
+    await expect(
+      completeChatGPTTrialAfterAuthenticatedSession(createPage() as never, {
+        email: 'person@example.com',
+        paymentMethod: 'gopay',
+        options: {
+          trialCoupon: 'team',
+        },
+      }),
+    ).rejects.toThrow('stop after checkout link')
+
+    expect(createChatGPTTrialCheckoutLink).toHaveBeenCalledWith(
+      expect.anything(),
       'team-1-month-free',
+      expect.objectContaining({
+        paymentMethod: 'gopay',
+      }),
     )
   })
 
@@ -204,11 +219,11 @@ describe('ChatGPT Team trial GoPay proxy timing', () => {
     expect(createChatGPTTrialCheckoutLink).toHaveBeenCalledTimes(1)
     expect(gotoTrialPricingPromo).toHaveBeenCalledWith(
       expect.anything(),
-      'team-1-month-free',
+      'plus-1-month-free',
     )
     expect(clickTrialPricingFreeTrial).toHaveBeenCalledWith(
       expect.anything(),
-      'team-1-month-free',
+      'plus-1-month-free',
     )
   })
 
