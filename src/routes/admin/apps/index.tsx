@@ -29,7 +29,7 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
     { listOAuthClients },
     { getAppEnv },
     { DEFAULT_OAUTH_SUPPORTED_SCOPES },
-    { listEnabledVerificationDomains },
+    { listRegistrationEnabledVerificationDomains },
   ] = await Promise.all([
     import('@tanstack/react-start/server'),
     import('../../../lib/server/auth'),
@@ -52,7 +52,7 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
         ? env.oauthSupportedScopes
         : DEFAULT_OAUTH_SUPPORTED_SCOPES,
       verificationDomains:
-        (await listEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
+        (await listRegistrationEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
       canManageDomains: hasAdminPermission(admin.user, 'VERIFICATION_DOMAINS'),
     }
   } catch {

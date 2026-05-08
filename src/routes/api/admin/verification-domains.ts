@@ -12,7 +12,7 @@ interface CreateVerificationDomainBody {
   mailboxType?: 'cloudflare' | 'outlook'
   mailboxPrefix?: string | null
   description?: string
-  enabled?: boolean
+  registrationEnabled?: boolean
   isDefault?: boolean
 }
 
@@ -56,8 +56,10 @@ export const Route = createFileRoute('/api/admin/verification-domains')({
                 ? body.mailboxPrefix
                 : undefined,
             description: String(body.description || '').trim() || undefined,
-            enabled:
-              typeof body.enabled === 'boolean' ? body.enabled : undefined,
+            registrationEnabled:
+              typeof body.registrationEnabled === 'boolean'
+                ? body.registrationEnabled
+                : undefined,
             isDefault:
               typeof body.isDefault === 'boolean' ? body.isDefault : undefined,
           })

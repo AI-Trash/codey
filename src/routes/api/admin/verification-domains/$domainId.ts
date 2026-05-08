@@ -9,7 +9,7 @@ interface UpdateVerificationDomainBody {
   mailboxType?: 'cloudflare' | 'outlook'
   mailboxPrefix?: string | null
   description?: string | null
-  enabled?: boolean
+  registrationEnabled?: boolean
   isDefault?: boolean
 }
 
@@ -47,8 +47,10 @@ export const Route = createFileRoute(
               typeof body.description === 'string' || body.description === null
                 ? body.description
                 : undefined,
-            enabled:
-              typeof body.enabled === 'boolean' ? body.enabled : undefined,
+            registrationEnabled:
+              typeof body.registrationEnabled === 'boolean'
+                ? body.registrationEnabled
+                : undefined,
             isDefault:
               typeof body.isDefault === 'boolean' ? body.isDefault : undefined,
           })

@@ -17,7 +17,7 @@ export interface VerificationDomainSummary {
   mailboxType: VerificationMailboxType
   mailboxPrefix: string | null
   description: string | null
-  enabled: boolean
+  registrationEnabled: boolean
   isDefault: boolean
   appCount: number
   createdAt: Date
@@ -36,7 +36,7 @@ export interface CreateVerificationDomainInput {
   mailboxType?: VerificationMailboxType
   mailboxPrefix?: string | null
   description?: string
-  enabled?: boolean
+  registrationEnabled?: boolean
   isDefault?: boolean
 }
 
@@ -45,7 +45,7 @@ export interface UpdateVerificationDomainInput {
   mailboxType?: VerificationMailboxType
   mailboxPrefix?: string | null
   description?: string | null
-  enabled?: boolean
+  registrationEnabled?: boolean
   isDefault?: boolean
 }
 
@@ -162,7 +162,7 @@ async function ensureLegacyVerificationDomainSeeded(): Promise<void> {
       mailboxType: 'cloudflare',
       mailboxPrefix: null,
       description: null,
-      enabled: true,
+      registrationEnabled: true,
       isDefault: true,
       createdAt: now,
       updatedAt: now,
@@ -186,7 +186,6 @@ async function setDefaultVerificationDomain(
   await tx
     .update(verificationDomains)
     .set({
-      enabled: true,
       isDefault: true,
       updatedAt: now,
     })
@@ -203,7 +202,7 @@ function toSummary(
     mailboxType: row.mailboxType,
     mailboxPrefix: row.mailboxPrefix,
     description: row.description,
-    enabled: row.enabled,
+    registrationEnabled: row.registrationEnabled,
     isDefault: row.isDefault,
     appCount,
     createdAt: row.createdAt,
@@ -241,21 +240,21 @@ export async function listVerificationDomains(): Promise<
         return left.isDefault ? -1 : 1
       }
 
-      if (left.enabled !== right.enabled) {
-        return left.enabled ? -1 : 1
+      if (left.registrationEnabled !== right.registrationEnabled) {
+        return left.registrationEnabled ? -1 : 1
       }
 
       return left.domain.localeCompare(right.domain)
     })
 }
 
-export async function listEnabledVerificationDomains(): Promise<
+export async function listRegistrationEnabledVerificationDomains(): Promise<
   VerificationDomainOption[]
 > {
   const rows = await listVerificationDomainRows()
 
   return rows
-    .filter((row) => row.enabled)
+    .filter((row) => row.registrationEnabled)
     .sort((left, right) => {
       if (left.isDefault !== right.isDefault) {
         return left.isDefault ? -1 : 1
@@ -284,12 +283,12 @@ async function getFallbackVerificationDomain(): Promise<VerificationDomainRow | 
   const defaultDomain = await getDb().query.verificationDomains.findFirst({
     where: eq(verificationDomains.isDefault, true),
   })
-  if (defaultDomain?.enabled) {
+  if (defaultDomain?.registrationEnabled) {
     return defaultDomain
   }
 
   return getDb().query.verificationDomains.findFirst({
-    where: eq(verificationDomains.enabled, true),
+    where: eq(verificationDomains.registrationEnabled, true),
     orderBy: [asc(verificationDomains.domain)],
   })
 }
@@ -307,8 +306,10 @@ export async function resolveVerificationDomainById(
     throw new Error('Verification mailbox not found')
   }
 
-  if (!row.enabled) {
-    throw new Error('Selected verification mailbox is disabled')
+  if (!row.registrationEnabled) {
+    throw new Error(
+      'Selected verification mailbox is not marked for new registrations',
+    )
   }
 
   return row
@@ -325,7 +326,7 @@ export async function resolveOAuthClientVerificationDomainId(
   const fallback = await getFallbackVerificationDomain()
   if (!fallback) {
     throw new Error(
-      'No verification mailboxes are configured. Add one from the admin mailbox settings page.',
+      'No verification mailboxes are marked for new registrations. Update one from the admin mailbox settings page.',
     )
   }
 
@@ -337,16 +338,16 @@ export async function resolveReservationVerificationDomain(options?: {
 }): Promise<VerificationDomainRow> {
   void options
 
-  const enabledDomains = (await listVerificationDomainRows()).filter(
-    (domain) => domain.enabled,
+  const registrationDomains = (await listVerificationDomainRows()).filter(
+    (domain) => domain.registrationEnabled,
   )
-  if (!enabledDomains.length) {
+  if (!registrationDomains.length) {
     throw new Error(
-      'No verification mailboxes are configured. Add one from the admin mailbox settings page.',
+      'No verification mailboxes are marked for new registrations. Update one from the admin mailbox settings page.',
     )
   }
 
-  return enabledDomains[crypto.randomInt(0, enabledDomains.length)]
+  return registrationDomains[crypto.randomInt(0, registrationDomains.length)]
 }
 
 export async function createVerificationDomain(
@@ -358,7 +359,7 @@ export async function createVerificationDomain(
   const domain = normalizeMailboxAddress(input.domain, mailboxType)
   const mailboxPrefix = normalizeMailboxPrefix(input.mailboxPrefix)
   const description = normalizeDescription(input.description)
-  const enabled = input.enabled ?? true
+  const registrationEnabled = input.registrationEnabled ?? true
   const now = new Date()
 
   const duplicate = await getDb().query.verificationDomains.findFirst({
@@ -373,10 +374,6 @@ export async function createVerificationDomain(
   })
   const shouldBeDefault = input.isDefault === true || !existingDefault
 
-  if (shouldBeDefault && !enabled) {
-    throw new Error('Default verification mailbox must be enabled')
-  }
-
   await getDb().transaction(async (tx) => {
     const [row] = await tx
       .insert(verificationDomains)
@@ -386,7 +383,7 @@ export async function createVerificationDomain(
         mailboxType,
         mailboxPrefix,
         description,
-        enabled,
+        registrationEnabled,
         isDefault: false,
         createdAt: now,
         updatedAt: now,
@@ -447,18 +444,8 @@ export async function updateVerificationDomain(
     input.description === undefined
       ? existing.description
       : normalizeDescription(input.description)
-  const enabled = input.enabled ?? existing.enabled
-  const shouldBeDefault = input.isDefault === true || existing.isDefault
-
-  if (existing.isDefault && !enabled) {
-    throw new Error(
-      'Set another mailbox as default before disabling the current default.',
-    )
-  }
-
-  if (shouldBeDefault && !enabled) {
-    throw new Error('Default verification mailbox must be enabled')
-  }
+  const registrationEnabled =
+    input.registrationEnabled ?? existing.registrationEnabled
 
   const duplicate = await getDb().query.verificationDomains.findFirst({
     where: eq(verificationDomains.domain, domain),
@@ -476,7 +463,7 @@ export async function updateVerificationDomain(
         mailboxType,
         mailboxPrefix,
         description,
-        enabled,
+        registrationEnabled,
         isDefault: existing.isDefault,
         updatedAt: now,
       })

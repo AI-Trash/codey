@@ -932,7 +932,9 @@ export const verificationDomains = pgTable(
       .notNull(),
     mailboxPrefix: text('mailbox_prefix'),
     description: text('description'),
-    enabled: boolean('enabled').default(true).notNull(),
+    registrationEnabled: boolean('registration_enabled')
+      .default(true)
+      .notNull(),
     isDefault: boolean('is_default').default(false).notNull(),
     createdAt: timestamp('created_at', {
       withTimezone: true,
@@ -950,8 +952,8 @@ export const verificationDomains = pgTable(
   (table) => [
     uniqueIndex('verification_domains_domain_unique').on(table.domain),
     index('verification_domains_default_idx').on(table.isDefault),
-    index('verification_domains_enabled_domain_idx').on(
-      table.enabled,
+    index('verification_domains_registration_enabled_domain_idx').on(
+      table.registrationEnabled,
       table.domain,
     ),
   ],

@@ -31,7 +31,7 @@ export type ManagedVerificationDomain = {
   mailboxType: VerificationMailboxType
   mailboxPrefix: string | null
   description: string | null
-  enabled: boolean
+  registrationEnabled: boolean
   isDefault: boolean
   appCount: number
   createdAt: string | Date
@@ -45,7 +45,7 @@ type VerificationDomainFormValues = {
   mailboxType: VerificationMailboxType
   mailboxPrefix: string
   description: string
-  enabled: boolean
+  registrationEnabled: boolean
   isDefault: boolean
 }
 
@@ -144,7 +144,7 @@ export function CreateVerificationDomainDialog({
           mailboxType: form.mailboxType,
           mailboxPrefix: form.mailboxPrefix.trim() || null,
           description: form.description.trim() || undefined,
-          enabled: form.enabled,
+          registrationEnabled: form.registrationEnabled,
           isDefault: form.isDefault,
         }),
       })
@@ -251,11 +251,14 @@ export function CreateVerificationDomainDialog({
           </Field>
 
           <CheckboxRow
-            checked={form.enabled}
-            label={m.domain_toggle_enabled_title()}
-            description={m.domain_toggle_enabled_description()}
+            checked={form.registrationEnabled}
+            label={m.domain_toggle_registration_enabled_title()}
+            description={m.domain_toggle_registration_enabled_description()}
             onCheckedChange={(checked) => {
-              setForm((current) => ({ ...current, enabled: checked }))
+              setForm((current) => ({
+                ...current,
+                registrationEnabled: checked,
+              }))
             }}
             disabled={creating}
           />
@@ -306,7 +309,8 @@ function VerificationDomainCard({
           (overrides?.mailboxPrefix ?? form.mailboxPrefix).trim() || null,
         description:
           (overrides?.description ?? form.description).trim() || undefined,
-        enabled: overrides?.enabled ?? form.enabled,
+        registrationEnabled:
+          overrides?.registrationEnabled ?? form.registrationEnabled,
         isDefault: overrides?.isDefault,
       }
 
@@ -365,7 +369,9 @@ function VerificationDomainCard({
                 <Badge>{m.domain_badge_default()}</Badge>
               ) : null}
               <Badge variant="outline">
-                {domain.enabled ? m.status_enabled() : m.status_disabled()}
+                {domain.registrationEnabled
+                  ? m.domain_badge_registration_enabled()
+                  : m.domain_badge_registration_excluded()}
               </Badge>
             </div>
             <CardDescription>
@@ -451,11 +457,14 @@ function VerificationDomainCard({
 
         <div className="grid gap-3 lg:grid-cols-2">
           <CheckboxRow
-            checked={form.enabled}
-            label={m.domain_toggle_enabled_title()}
-            description={m.domain_toggle_enabled_description()}
+            checked={form.registrationEnabled}
+            label={m.domain_toggle_registration_enabled_title()}
+            description={m.domain_toggle_registration_enabled_description()}
             onCheckedChange={(checked) => {
-              setForm((current) => ({ ...current, enabled: checked }))
+              setForm((current) => ({
+                ...current,
+                registrationEnabled: checked,
+              }))
             }}
           />
 
@@ -546,7 +555,7 @@ function toFormValues(
     mailboxType: domain.mailboxType,
     mailboxPrefix: domain.mailboxPrefix || '',
     description: domain.description || '',
-    enabled: domain.enabled,
+    registrationEnabled: domain.registrationEnabled,
     isDefault: domain.isDefault,
   }
 }
@@ -559,7 +568,7 @@ function createNewVerificationDomainFormValues(
     mailboxType: 'cloudflare',
     mailboxPrefix: '',
     description: '',
-    enabled: true,
+    registrationEnabled: true,
     isDefault: !hasExistingDomains,
   }
 }
@@ -592,8 +601,8 @@ function sortDomains(domains: ManagedVerificationDomain[]) {
       return left.isDefault ? -1 : 1
     }
 
-    if (left.enabled !== right.enabled) {
-      return left.enabled ? -1 : 1
+    if (left.registrationEnabled !== right.registrationEnabled) {
+      return left.registrationEnabled ? -1 : 1
     }
 
     return left.domain.localeCompare(right.domain)

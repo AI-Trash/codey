@@ -175,7 +175,7 @@ describe('verification email reservations', () => {
               id: 'domain-1',
               domain: 'example.com',
               mailboxPrefix: null,
-              enabled: true,
+              registrationEnabled: true,
               isDefault: true,
               createdAt: new Date('2026-05-03T00:00:00.000Z'),
             },
@@ -220,7 +220,7 @@ describe('verification email reservations', () => {
               id: 'domain-1',
               domain: 'example.com',
               mailboxPrefix: ' Codey ',
-              enabled: true,
+              registrationEnabled: true,
               isDefault: true,
               createdAt: new Date('2026-05-03T00:00:00.000Z'),
             },
@@ -249,7 +249,7 @@ describe('verification email reservations', () => {
     )
   })
 
-  it('uses plus-address aliases when the selected mailbox is outlook', async () => {
+  it('uses plus-address aliases when the selected registration mailbox is outlook', async () => {
     const reservation = {
       id: 'reservation-id',
       email: 'codey+qa-memorable-name@outlook.example.com',
@@ -265,11 +265,20 @@ describe('verification email reservations', () => {
           findFirst: vi.fn().mockResolvedValue(null),
           findMany: vi.fn().mockResolvedValue([
             {
+              id: 'mailbox-cloudflare',
+              domain: 'example.com',
+              mailboxType: 'cloudflare',
+              mailboxPrefix: null,
+              registrationEnabled: false,
+              isDefault: true,
+              createdAt: new Date('2026-05-03T00:00:00.000Z'),
+            },
+            {
               id: 'mailbox-1',
               domain: 'codey@outlook.example.com',
               mailboxType: 'outlook',
               mailboxPrefix: 'qa',
-              enabled: true,
+              registrationEnabled: true,
               isDefault: true,
               createdAt: new Date('2026-05-03T00:00:00.000Z'),
             },
