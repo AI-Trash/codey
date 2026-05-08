@@ -253,7 +253,9 @@ function toSingBoxOutbound(
     tls: {
       enabled: true,
       ...(node.tls?.serverName ? { server_name: node.tls.serverName } : {}),
-      ...(node.tls?.insecure ? { insecure: true } : {}),
+      ...(node.tls?.insecure !== undefined
+        ? { insecure: node.tls.insecure }
+        : {}),
     },
   }
 
@@ -321,8 +323,12 @@ function toSingBoxVmessTransport(
   return {
     type: transport.type,
     ...(transport.serviceName ? { service_name: transport.serviceName } : {}),
-    ...(transport.idleTimeout ? { idle_timeout: transport.idleTimeout } : {}),
-    ...(transport.pingTimeout ? { ping_timeout: transport.pingTimeout } : {}),
+    ...(transport.idleTimeout || transport.type === 'grpc'
+      ? { idle_timeout: transport.idleTimeout || '60s' }
+      : {}),
+    ...(transport.pingTimeout || transport.type === 'grpc'
+      ? { ping_timeout: transport.pingTimeout || '20s' }
+      : {}),
     ...(transport.permitWithoutStream !== undefined
       ? { permit_without_stream: transport.permitWithoutStream }
       : {}),

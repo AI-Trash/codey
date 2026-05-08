@@ -303,6 +303,55 @@ describe('managed sing-box auto install', () => {
     expect(outbound).not.toHaveProperty('password')
   })
 
+  it('emits vmess grpc timeout defaults and explicit tls insecure false', () => {
+    const { config } = buildSingBoxConfigForTest({
+      host: '127.0.0.1',
+      port: 2080,
+      nodes: [
+        {
+          id: 'node-1',
+          name: 'VMess 1',
+          tag: 'singapore',
+          protocol: 'vmess',
+          server: 'vmess.example.test',
+          serverPort: 11419,
+          uuid: '11111111-1111-4111-8111-111111111111',
+          vmess: {
+            security: 'auto',
+            alterId: 0,
+            transport: {
+              type: 'grpc',
+              serviceName: 'wedav',
+              permitWithoutStream: false,
+            },
+          },
+          tls: {
+            enabled: true,
+            serverName: 'vmess.example.test',
+            insecure: false,
+          },
+        },
+      ],
+    })
+
+    const outbound = config.outbounds.find((entry) => entry.type === 'vmess')
+
+    expect(outbound).toMatchObject({
+      tls: {
+        enabled: true,
+        server_name: 'vmess.example.test',
+        insecure: false,
+      },
+      transport: {
+        type: 'grpc',
+        service_name: 'wedav',
+        idle_timeout: '60s',
+        ping_timeout: '20s',
+        permit_without_stream: false,
+      },
+    })
+  })
+
   it('selects state proxy configs through the current flow runtime', async () => {
     const runtime = {
       runtimeId: 'flow-1',

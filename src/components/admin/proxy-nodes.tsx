@@ -856,8 +856,8 @@ function createNewProxyNodeFormValues(): ProxyNodeFormValues {
     vmessPacketEncoding: '',
     vmessTransportType: '',
     vmessGrpcServiceName: '',
-    vmessGrpcIdleTimeout: '',
-    vmessGrpcPingTimeout: '',
+    vmessGrpcIdleTimeout: '60s',
+    vmessGrpcPingTimeout: '20s',
     vmessGrpcPermitWithoutStream: false,
     tlsServerName: '',
     tlsInsecure: false,
@@ -912,11 +912,11 @@ function toVmessProtocolSettingsPayload(form: ProxyNodeFormValues) {
             ...(form.vmessTransportType === 'grpc' &&
             form.vmessGrpcIdleTimeout.trim()
               ? { idleTimeout: form.vmessGrpcIdleTimeout.trim() }
-              : {}),
+              : { idleTimeout: '60s' }),
             ...(form.vmessTransportType === 'grpc' &&
             form.vmessGrpcPingTimeout.trim()
               ? { pingTimeout: form.vmessGrpcPingTimeout.trim() }
-              : {}),
+              : { pingTimeout: '20s' }),
             ...(form.vmessTransportType === 'grpc'
               ? {
                   permitWithoutStream: form.vmessGrpcPermitWithoutStream,

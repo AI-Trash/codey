@@ -432,8 +432,12 @@ function normalizeVmessTransport(
   const transport: VmessTransportSettings = {
     type,
     ...(serviceName ? { serviceName } : {}),
-    ...(idleTimeout ? { idleTimeout } : {}),
-    ...(pingTimeout ? { pingTimeout } : {}),
+    ...(idleTimeout || type === 'grpc'
+      ? { idleTimeout: idleTimeout || '60s' }
+      : {}),
+    ...(pingTimeout || type === 'grpc'
+      ? { pingTimeout: pingTimeout || '20s' }
+      : {}),
     ...(typeof permitWithoutStream === 'boolean'
       ? { permitWithoutStream }
       : {}),
@@ -610,7 +614,7 @@ function toCliConfig(row: ProxyNodeRow): CliProxyNodeConfig {
           tls: {
             enabled: true as const,
             ...(row.tlsServerName ? { serverName: row.tlsServerName } : {}),
-            ...(row.tlsInsecure ? { insecure: true } : {}),
+            insecure: row.tlsInsecure,
           },
         }
       : {}),
