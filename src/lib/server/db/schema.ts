@@ -26,6 +26,7 @@ export const verificationCodeSourceEnum = pgEnum('verification_code_source', [
   'CLOUDFLARE_EMAIL',
   'WHATSAPP_NOTIFICATION',
 ])
+export type VerificationMailboxType = 'cloudflare' | 'outlook'
 export const flowAppRequestStatusEnum = pgEnum('flow_app_request_status', [
   'PENDING',
   'IN_REVIEW',
@@ -925,6 +926,10 @@ export const verificationDomains = pgTable(
   {
     id: text('id').primaryKey(),
     domain: text('domain').notNull(),
+    mailboxType: text('mailbox_type')
+      .$type<VerificationMailboxType>()
+      .default('cloudflare')
+      .notNull(),
     mailboxPrefix: text('mailbox_prefix'),
     description: text('description'),
     enabled: boolean('enabled').default(true).notNull(),

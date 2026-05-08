@@ -288,6 +288,13 @@
       "when": 1778169600000,
       "tag": "0040_proxy_node_protocol_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1778256000000,
+      "tag": "0041_verification_mailbox_type",
+      "breakpoints": true
     }
   ]
 }

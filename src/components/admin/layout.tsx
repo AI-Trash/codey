@@ -6,7 +6,7 @@ import {
   BotIcon,
   ChevronsUpDownIcon,
   FingerprintIcon,
-  GlobeIcon,
+  InboxIcon,
   KeyRoundIcon,
   LanguagesIcon,
   LogOutIcon,
@@ -182,9 +182,10 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
   if (hasAdminPermission(currentUser, 'VERIFICATION_DOMAINS')) {
     navigation.push({
       label: m.admin_nav_domains(),
-      to: '/admin/domains',
-      icon: GlobeIcon,
-      matches: (pathname: string) => pathname === '/admin/domains',
+      to: '/admin/mailboxes',
+      icon: InboxIcon,
+      matches: (pathname: string) =>
+        pathname === '/admin/mailboxes' || pathname === '/admin/domains',
     })
   }
 
@@ -687,7 +688,7 @@ function getAdminPageLabel(pathname: string) {
     return m.admin_nav_register_app()
   }
 
-  if (pathname === '/admin/domains') {
+  if (pathname === '/admin/mailboxes' || pathname === '/admin/domains') {
     return m.admin_nav_domains()
   }
 

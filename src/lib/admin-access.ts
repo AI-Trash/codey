@@ -31,7 +31,7 @@ export const defaultAdminRouteByPermission: Record<AdminPermission, string> = {
   CLI_OPERATIONS: '/admin/cli',
   MANAGED_SESSIONS: '/admin/sessions',
   OAUTH_CLIENTS: '/admin/apps',
-  VERIFICATION_DOMAINS: '/admin/domains',
+  VERIFICATION_DOMAINS: '/admin/mailboxes',
   PROXY_NODES: '/admin/proxy-nodes',
   USER_ACCESS: '/admin/users',
 }

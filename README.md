@@ -71,7 +71,7 @@ GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
 
 VERIFICATION_PROVIDER=app
-# Optional mailbox prefixes are configured per domain in /admin/domains
+# Optional mailbox prefixes are configured per mailbox in /admin/mailboxes
 CLOUDFLARE_EMAIL_WEBHOOK_SECRET=replace-with-a-long-random-secret
 
 CODEY_APP_BASE_URL=http://localhost:3000
@@ -118,7 +118,7 @@ CODEY_SINGBOX_MIXED_HOST=127.0.0.1
 CODEY_SINGBOX_MIXED_PORT=2080
 ```
 
-Verification mail domains are now managed in the admin console at `/admin/domains` and stored in Postgres. App-backed CLI registrations now randomly pick one enabled domain for each reserved mailbox instead of binding a domain to the OAuth client. Reserved mailboxes use the generated memorable mailbox name by default; a prefix such as `codey` is only prepended when that specific domain has an explicit mailbox prefix configured.
+Verification mailboxes are now managed in the admin console at `/admin/mailboxes` and stored in Postgres. App-backed CLI registrations now randomly pick one enabled mailbox route for each reserved address instead of binding a domain to the OAuth client. Cloudflare mailbox routes use a domain routed to the existing email worker. Outlook mailbox routes use plus-address aliases on the configured Outlook address and expect Outlook to forward received mail to that same worker. Reserved mailboxes use the generated memorable mailbox name by default; a prefix such as `codey` is only prepended when that specific mailbox route has an explicit mailbox prefix configured.
 
 If you are upgrading from the older single-domain setup, legacy `VERIFICATION_MAILBOX` or `VERIFICATION_DOMAIN` values are only used as a compatibility seed when the database does not have any registered domains yet.
 
@@ -181,7 +181,7 @@ Then open:
 - `http://localhost:3000/admin/login` to sign in with GitHub
 - `http://localhost:3000/admin` to inspect device challenges, notifications, reservations, and verification codes
 - `http://localhost:3000/admin/cli` to inspect which CLI terminals are currently connected and what flow each one is running
-- `http://localhost:3000/admin/domains` to register verification domains and choose defaults
+- `http://localhost:3000/admin/mailboxes` to register verification mailboxes and choose defaults
 - `http://localhost:3000/admin/external-services` to manage app-backed Sub2API sync settings for dispatched CLI tasks
 - `http://localhost:3000/admin/workspaces` to manage stored OpenAI workspace-to-account associations
 

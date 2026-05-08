@@ -248,6 +248,56 @@ describe('verification email reservations', () => {
       }),
     )
   })
+
+  it('uses plus-address aliases when the selected mailbox is outlook', async () => {
+    const reservation = {
+      id: 'reservation-id',
+      email: 'codey+qa-memorable-name@outlook.example.com',
+      prefix: 'qa',
+      mailbox: 'codey@outlook.example.com',
+      expiresAt: new Date('2026-05-03T00:15:00.000Z'),
+    }
+    const reservationInsert = createReservationInsertChain([reservation])
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationDomains: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'mailbox-1',
+              domain: 'codey@outlook.example.com',
+              mailboxType: 'outlook',
+              mailboxPrefix: 'qa',
+              enabled: true,
+              isDefault: true,
+              createdAt: new Date('2026-05-03T00:00:00.000Z'),
+            },
+          ]),
+        },
+      },
+      insert: vi.fn(() => ({
+        values: reservationInsert.values,
+      })),
+    })
+
+    await expect(reserveVerificationEmailTarget()).resolves.toMatchObject({
+      reservationId: 'reservation-id',
+      email: 'codey+qa-memorable-name@outlook.example.com',
+      prefix: 'qa',
+      mailbox: 'codey@outlook.example.com',
+    })
+
+    expect(reservationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: expect.stringMatching(
+          /^codey\+qa-[a-z]+-[a-z]+-\d+@outlook\.example\.com$/,
+        ),
+        prefix: 'qa',
+        mailbox: 'codey@outlook.example.com',
+      }),
+    )
+  })
 })
 
 describe('ChatGPT Business trial-ended email handling', () => {
@@ -513,6 +563,95 @@ describe('ChatGPT Business trial-ended email handling', () => {
       mocks.findAdminManagedWorkspaceSummaryByOwnerIdentity,
     ).not.toHaveBeenCalled()
     expect(mocks.deleteManagedWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('matches an outlook-forwarded message to the original reservation recipient', async () => {
+    const receivedAt = new Date('2026-04-28T00:00:00.000Z')
+    const emailRecord = {
+      id: 'email-record-outlook',
+      reservationId: 'reservation-outlook',
+      messageId: 'message-outlook',
+      recipient: 'codey+qa-solar-pine-42@outlook.example.com',
+      subject: 'Your verification code',
+      textBody: 'Your verification code is 123456',
+      htmlBody: null,
+      rawPayload: null,
+      verificationCode: '123456',
+      receivedAt,
+      createdAt: receivedAt,
+    }
+    const reservation = {
+      id: 'reservation-outlook',
+      email: 'codey+qa-solar-pine-42@outlook.example.com',
+      identityId: null,
+    }
+    const codeRecord = {
+      id: 'code-record-outlook',
+      reservationId: reservation.id,
+      code: '123456',
+      source: 'CLOUDFLARE_EMAIL',
+      messageId: 'message-outlook',
+      receivedAt,
+    }
+    const emailInsert = createEmailInsertChain(emailRecord)
+    const codeInsert = createInsertChain(codeRecord)
+    const findReservation = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(reservation)
+    const rawPayload = [
+      'From: OpenAI <noreply@tm.openai.com>',
+      'To: codey+qa-solar-pine-42@outlook.example.com',
+      'Subject: Your verification code',
+      'Message-Id: <message-outlook@example.com>',
+      '',
+      'Your verification code is 123456',
+    ].join('\r\n')
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findFirst: findReservation,
+        },
+      },
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: emailInsert.values })
+        .mockReturnValueOnce({ values: codeInsert.values }),
+    })
+
+    await expect(
+      ingestCloudflareEmail({
+        recipient: 'codey@outlook.example.com',
+        rawPayload,
+        messageId: 'message-outlook',
+        receivedAt: receivedAt.toISOString(),
+      }),
+    ).resolves.toMatchObject({
+      emailRecord,
+      codeRecord,
+    })
+
+    expect(findReservation).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.anything(),
+      }),
+    )
+    expect(emailInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationId: reservation.id,
+        recipient: reservation.email,
+        textBody: 'Your verification code is 123456',
+        verificationCode: '123456',
+      }),
+    )
+    expect(codeInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationId: reservation.id,
+        code: '123456',
+      }),
+    )
   })
 })
 

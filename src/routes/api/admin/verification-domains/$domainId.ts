@@ -6,6 +6,7 @@ import { updateVerificationDomain } from '../../../../lib/server/verification-do
 
 interface UpdateVerificationDomainBody {
   domain?: string
+  mailboxType?: 'cloudflare' | 'outlook'
   mailboxPrefix?: string | null
   description?: string | null
   enabled?: boolean
@@ -32,6 +33,11 @@ export const Route = createFileRoute(
         try {
           const domain = await updateVerificationDomain(params.domainId, {
             domain: typeof body.domain === 'string' ? body.domain : undefined,
+            mailboxType:
+              body.mailboxType === 'cloudflare' ||
+              body.mailboxType === 'outlook'
+                ? body.mailboxType
+                : undefined,
             mailboxPrefix:
               typeof body.mailboxPrefix === 'string' ||
               body.mailboxPrefix === null
@@ -52,7 +58,7 @@ export const Route = createFileRoute(
           return text(
             error instanceof Error
               ? error.message
-              : 'Unable to update verification domain',
+              : 'Unable to update verification mailbox',
             400,
           )
         }

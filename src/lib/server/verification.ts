@@ -168,6 +168,7 @@ type ParsedEmailContent = {
   subject: string | null
   htmlBody: string | null
   textBody: string | null
+  recipientEmails: string[]
 }
 
 type EmailIngestReservation = {
@@ -759,7 +760,11 @@ function createMemorableReservationMailboxName(): string {
 
 function buildReservationEmail(
   mailboxName: string,
-  verificationDomain: { domain: string; mailboxPrefix?: string | null },
+  verificationDomain: {
+    domain: string
+    mailboxPrefix?: string | null
+    mailboxType?: 'cloudflare' | 'outlook'
+  },
 ): {
   email: string
   prefix?: string
@@ -768,7 +773,21 @@ function buildReservationEmail(
   const prefix = sanitizeReservationLocalPartSegment(
     verificationDomain.mailboxPrefix,
   )
-  const localPart = prefix ? `${prefix}-${mailboxName}` : mailboxName
+  const localPartSuffix = prefix ? `${prefix}-${mailboxName}` : mailboxName
+
+  if (verificationDomain.mailboxType === 'outlook') {
+    const atIndex = verificationDomain.domain.lastIndexOf('@')
+    const mailboxLocalPart = verificationDomain.domain.slice(0, atIndex)
+    const mailboxDomain = verificationDomain.domain.slice(atIndex + 1)
+    const localPart = `${mailboxLocalPart}+${localPartSuffix}`
+    return {
+      email: `${localPart}@${mailboxDomain}`,
+      prefix: prefix || undefined,
+      mailbox: verificationDomain.domain,
+    }
+  }
+
+  const localPart = localPartSuffix
   return {
     email: `${localPart}@${verificationDomain.domain}`,
     prefix: prefix || undefined,
@@ -859,6 +878,39 @@ function readOptionalJsonString(value: unknown) {
 
 function normalizeOptionalEmail(value: string | null | undefined) {
   return normalizeOptionalString(value)?.toLowerCase()
+}
+
+function collectEmailAddressCandidates(value: string | null | undefined) {
+  const decodedValue = value ? decodeMimeEncodedWords(value) : ''
+  const candidates: string[] = []
+  const emailPattern =
+    /[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+/gi
+
+  for (const match of decodedValue.matchAll(emailPattern)) {
+    const email = normalizeOptionalEmail(match[0])
+    if (email) {
+      candidates.push(email)
+    }
+  }
+
+  return candidates
+}
+
+function uniqueEmailCandidates(values: string[]) {
+  const seen = new Set<string>()
+  const emails: string[] = []
+
+  for (const value of values) {
+    const email = normalizeOptionalEmail(value)
+    if (!email || seen.has(email)) {
+      continue
+    }
+
+    seen.add(email)
+    emails.push(email)
+  }
+
+  return emails
 }
 
 function normalizeOptionalVerificationCode(value: string | null | undefined) {
@@ -1120,9 +1172,49 @@ function parseEmailContentFromRawPayload(
       subject: normalizeStoredEmailContent(parsedMail.subject) ?? null,
       htmlBody: normalizeStoredEmailContent(parsedMail.html) ?? null,
       textBody: normalizeStoredEmailContent(parsedMail.text) ?? null,
+      recipientEmails: uniqueEmailCandidates([
+        ...(parsedMail.to || []).flatMap((mailbox) =>
+          collectEmailAddressCandidates(mailbox.address || mailbox.raw),
+        ),
+        ...(parsedMail.cc || []).flatMap((mailbox) =>
+          collectEmailAddressCandidates(mailbox.address || mailbox.raw),
+        ),
+        ...(parsedMail.bcc || []).flatMap((mailbox) =>
+          collectEmailAddressCandidates(mailbox.address || mailbox.raw),
+        ),
+        ...collectEmailAddressCandidates(rawSource),
+      ]),
     }
   } catch {
     return null
+  }
+}
+
+async function resolveEmailIngestReservation(params: {
+  recipient: string
+  parsedEmail?: ParsedEmailContent | null
+}) {
+  const candidates = uniqueEmailCandidates([
+    params.recipient,
+    ...(params.parsedEmail?.recipientEmails || []),
+  ])
+
+  for (const email of candidates) {
+    const reservation =
+      await getDb().query.verificationEmailReservations.findFirst({
+        where: eq(verificationEmailReservations.email, email),
+      })
+    if (reservation) {
+      return {
+        reservation,
+        recipient: email,
+      }
+    }
+  }
+
+  return {
+    reservation: null,
+    recipient: normalizeOptionalEmail(params.recipient) || params.recipient,
   }
 }
 
@@ -2062,10 +2154,11 @@ export async function ingestCloudflareEmail(params: {
   receivedAt?: string
 }) {
   const db = getDb()
-  const reservation = await db.query.verificationEmailReservations.findFirst({
-    where: eq(verificationEmailReservations.email, params.recipient),
-  })
   const parsedEmail = parseEmailContentFromRawPayload(params.rawPayload)
+  const { reservation, recipient } = await resolveEmailIngestReservation({
+    recipient: params.recipient,
+    parsedEmail,
+  })
   const subject = resolveVerificationEmailSubject({
     subject: params.subject,
     parsedEmail,
@@ -2091,7 +2184,7 @@ export async function ingestCloudflareEmail(params: {
       id: createId(),
       reservationId: reservation?.id,
       messageId: params.messageId,
-      recipient: params.recipient,
+      recipient,
       subject,
       textBody: resolvedBodies.textBody,
       htmlBody: resolvedBodies.htmlBody,
@@ -2126,13 +2219,13 @@ export async function ingestCloudflareEmail(params: {
   }
 
   const workspaceCleanup = await cleanupExpiredChatGptBusinessTrialWorkspace({
-    recipient: params.recipient,
+    recipient,
     subject,
     reservation,
   })
   const subscriptionCodexOAuth =
     await dispatchCodexOAuthForChatGptSubscriptionSuccess({
-      recipient: params.recipient,
+      recipient,
       subject,
       textBody: resolvedBodies.textBody,
       htmlBody: resolvedBodies.htmlBody,

@@ -9,6 +9,7 @@ import {
 
 interface CreateVerificationDomainBody {
   domain?: string
+  mailboxType?: 'cloudflare' | 'outlook'
   mailboxPrefix?: string | null
   description?: string
   enabled?: boolean
@@ -47,6 +48,8 @@ export const Route = createFileRoute('/api/admin/verification-domains')({
         try {
           const domain = await createVerificationDomain({
             domain: String(body.domain || ''),
+            mailboxType:
+              body.mailboxType === 'outlook' ? 'outlook' : 'cloudflare',
             mailboxPrefix:
               typeof body.mailboxPrefix === 'string' ||
               body.mailboxPrefix === null
@@ -64,7 +67,7 @@ export const Route = createFileRoute('/api/admin/verification-domains')({
           return text(
             error instanceof Error
               ? error.message
-              : 'Unable to create verification domain',
+              : 'Unable to create verification mailbox',
             400,
           )
         }
