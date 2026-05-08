@@ -29,7 +29,6 @@ import {
 import { CliWebSocketConnection } from './modules/app-auth/cli-websocket'
 import { deriveCliTargetFromAuthState } from './modules/app-auth/target'
 import { clearAppSession, readAppSession } from './modules/app-auth/token-store'
-import { DEFAULT_CODEY_APP_BASE_URL } from './modules/app-auth/http'
 import { resolveCliWorkerId } from './modules/app-auth/worker-id'
 import { getDefaultCliName } from './utils/cli-name'
 import {
@@ -88,15 +87,6 @@ import {
   writeCliStderrLine,
   writeCliStdoutLine,
 } from './utils/cli-output'
-import {
-  AppVerificationProviderClient,
-  type AppWhatsAppNotificationIngestResponse,
-  resolveVerificationAppConfig,
-} from './modules/verification'
-import {
-  startWhatsAppNotificationWebhookServer,
-  type WhatsAppNotificationWebhookServerHandle,
-} from './modules/android/whatsapp-notifications'
 import {
   logCliEvent,
   setObservabilityRuntimeState,
@@ -656,831 +646,739 @@ async function runRemoteWorker(
     phase: 'starting',
   })
 
-  let whatsAppWebhook: WhatsAppNotificationWebhookServerHandle | undefined
   let proxyNodes: CodeyProxyNode[] = []
   let proxyNodesLoaded = false
 
-  try {
-    while (true) {
-      setRuntimeConfig(config)
-      const authState = await resolveCliNotificationsAuthState()
-      if (!proxyNodesLoaded) {
-        try {
-          proxyNodes = await fetchCodeyProxyNodes({ authState })
-          proxyNodesLoaded = true
-          if (
-            proxyNodes.some(
-              (node) =>
-                node.protocol === 'hysteria2' ||
-                node.protocol === 'trojan' ||
-                node.protocol === 'vmess' ||
-                node.protocol === 'vless',
-            )
-          ) {
-            writeCliStderrLine(
-              `[cli:singbox] Loaded ${proxyNodes.length} proxy node(s); flow tasks can opt into isolated mixed proxy instances with --proxyTag.`,
-            )
-          } else if (proxyNodes.length) {
-            writeCliStderrLine(
-              `[cli:singbox] No usable hysteria2, trojan, vmess, or vless proxy node found in ${proxyNodes.length} configured node(s).`,
-            )
-          }
-          logCliEvent('info', 'singbox.proxy_nodes.loaded', {
-            nodes: summarizeProxyNodes(proxyNodes),
-            started: false,
-            mode: 'flow-scoped',
-          })
-        } catch (error) {
-          writeCliStderrLine(
-            `[cli:singbox] ${formatSingBoxProxyStartupError(error)}`,
+  while (true) {
+    setRuntimeConfig(config)
+    const authState = await resolveCliNotificationsAuthState()
+    if (!proxyNodesLoaded) {
+      try {
+        proxyNodes = await fetchCodeyProxyNodes({ authState })
+        proxyNodesLoaded = true
+        if (
+          proxyNodes.some(
+            (node) =>
+              node.protocol === 'hysteria2' ||
+              node.protocol === 'trojan' ||
+              node.protocol === 'vmess' ||
+              node.protocol === 'vless',
           )
-          proxyNodes = []
-          proxyNodesLoaded = true
+        ) {
+          writeCliStderrLine(
+            `[cli:singbox] Loaded ${proxyNodes.length} proxy node(s); flow tasks can opt into isolated mixed proxy instances with --proxyTag.`,
+          )
+        } else if (proxyNodes.length) {
+          writeCliStderrLine(
+            `[cli:singbox] No usable hysteria2, trojan, vmess, or vless proxy node found in ${proxyNodes.length} configured node(s).`,
+          )
         }
+        logCliEvent('info', 'singbox.proxy_nodes.loaded', {
+          nodes: summarizeProxyNodes(proxyNodes),
+          started: false,
+          mode: 'flow-scoped',
+        })
+      } catch (error) {
+        writeCliStderrLine(
+          `[cli:singbox] ${formatSingBoxProxyStartupError(error)}`,
+        )
+        proxyNodes = []
+        proxyNodesLoaded = true
       }
-      whatsAppWebhook ??= startCliWhatsAppNotificationWebhook(
-        'cli',
-        options,
-        config,
-      )
-      const target = options.target || deriveCliTargetFromAuthState(authState)
-      const workerId = resolveCliWorkerId({
-        cliName,
-        target,
-      })
-      const taskScheduler = new FlowTaskScheduler<void>()
-      let cliWebSocket: CliWebSocketConnection | undefined
-      const cliTransport: CliWorkerTransport = {
-        claimTask: async (input) => {
-          if (cliWebSocket) {
-            try {
-              return await cliWebSocket.claimTask(input)
-            } catch {
-              // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
-            }
+    }
+    const target = options.target || deriveCliTargetFromAuthState(authState)
+    const workerId = resolveCliWorkerId({
+      cliName,
+      target,
+    })
+    const taskScheduler = new FlowTaskScheduler<void>()
+    let cliWebSocket: CliWebSocketConnection | undefined
+    const cliTransport: CliWorkerTransport = {
+      claimTask: async (input) => {
+        if (cliWebSocket) {
+          try {
+            return await cliWebSocket.claimTask(input)
+          } catch {
+            // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
           }
-
-          return claimCliFlowTask(input)
-        },
-        updateTaskStatus: async (input) => {
-          if (cliWebSocket) {
-            try {
-              return await cliWebSocket.updateTaskStatus(input)
-            } catch {
-              // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
-            }
-          }
-
-          return updateCliFlowTaskStatus(input)
-        },
-        updateRuntimeState: async (input) => {
-          if (cliWebSocket) {
-            try {
-              return await cliWebSocket.updateRuntimeState(input)
-            } catch {
-              // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
-            }
-          }
-
-          return postCliConnectionRuntimeState(input)
-        },
-      }
-      const runtimeReporter = new CliConnectionRuntimeReporter({
-        authState,
-        transport: cliTransport,
-        onError: (error) => {
-          writeCliStderrLine(
-            JSON.stringify(
-              {
-                command: 'cli:runtime:error',
-                error: error.message,
-              },
-              null,
-              2,
-            ),
-          )
-        },
-        onBrowserLimit: (browserLimit) => {
-          taskScheduler.setBrowserLimit(browserLimit)
-          syncRuntimeReporterState()
-          void tryClaimTasks()
-        },
-      })
-      const taskLeaseReporters = new Map<string, CliFlowTaskLeaseReporter>()
-      const activeFlowAbortControllers = new Map<string, AbortController>()
-      const serverCanceledTaskIds = new Set<string>()
-      let outstandingStartedAt: string | undefined
-      let connectionId: string | undefined
-      let claimInFlight = false
-      let claimInterval: ReturnType<typeof setInterval> | undefined
-      let lastRuntimeState:
-        | {
-            flowId?: string
-            notificationId?: string
-            status?: string
-            message?: string
-            startedAt?: string
-            completedAt?: string
-          }
-        | undefined
-
-      const syncRuntimeReporterState = () => {
-        const snapshot = taskScheduler.getSnapshot()
-        if (!snapshot.activeCount && !snapshot.pendingCount) {
-          outstandingStartedAt = undefined
-          runtimeReporter.update({
-            runtimeFlowId: lastRuntimeState?.flowId || null,
-            runtimeTaskId: lastRuntimeState?.notificationId || null,
-            runtimeFlowStatus: lastRuntimeState?.status || null,
-            runtimeFlowMessage: lastRuntimeState?.message || null,
-            runtimeFlowStartedAt: lastRuntimeState?.startedAt || null,
-            runtimeFlowCompletedAt: lastRuntimeState?.completedAt || null,
-          })
-          setObservabilityRuntimeState({
-            cliName,
-            target: target || null,
-            phase: 'listening',
-            activeTaskCount: snapshot.activeCount,
-            pendingTaskCount: snapshot.pendingCount,
-            browserLimit: snapshot.browserLimit,
-            flowId: lastRuntimeState?.flowId || null,
-            taskId: lastRuntimeState?.notificationId || null,
-            status: lastRuntimeState?.status || null,
-            message: lastRuntimeState?.message || null,
-            startedAt: lastRuntimeState?.startedAt || null,
-            completedAt: lastRuntimeState?.completedAt || null,
-          })
-          return
         }
 
-        runtimeReporter.update({
-          runtimeFlowId:
-            snapshot.activeCount + snapshot.pendingCount > 1
-              ? 'task-queue'
-              : lastRuntimeState?.flowId || 'task-queue',
-          runtimeTaskId:
-            snapshot.activeCount === 1 && !snapshot.pendingCount
-              ? lastRuntimeState?.notificationId || null
-              : null,
-          runtimeFlowStatus: 'running',
-          runtimeFlowMessage: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (browser limit ${snapshot.browserLimit || DEFAULT_CLI_BROWSER_LIMIT})`,
-          runtimeFlowStartedAt:
-            outstandingStartedAt || lastRuntimeState?.startedAt || null,
-          runtimeFlowCompletedAt: null,
-        })
-        setObservabilityRuntimeState({
-          cliName,
-          target: target || null,
-          phase: 'running',
-          activeTaskCount: snapshot.activeCount,
-          pendingTaskCount: snapshot.pendingCount,
-          browserLimit: snapshot.browserLimit,
-          flowId:
-            snapshot.activeCount + snapshot.pendingCount > 1
-              ? 'task-queue'
-              : lastRuntimeState?.flowId || 'task-queue',
-          taskId:
-            snapshot.activeCount === 1 && !snapshot.pendingCount
-              ? lastRuntimeState?.notificationId || null
-              : null,
-          status: 'running',
-          message: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (browser limit ${snapshot.browserLimit || DEFAULT_CLI_BROWSER_LIMIT})`,
-          startedAt:
-            outstandingStartedAt || lastRuntimeState?.startedAt || null,
-          completedAt: null,
-        })
-      }
+        return claimCliFlowTask(input)
+      },
+      updateTaskStatus: async (input) => {
+        if (cliWebSocket) {
+          try {
+            return await cliWebSocket.updateTaskStatus(input)
+          } catch {
+            // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
+          }
+        }
 
-      const getClaimedTaskCount = () => {
-        const snapshot = taskScheduler.getSnapshot()
-        return snapshot.activeCount + snapshot.pendingCount
-      }
+        return updateCliFlowTaskStatus(input)
+      },
+      updateRuntimeState: async (input) => {
+        if (cliWebSocket) {
+          try {
+            return await cliWebSocket.updateRuntimeState(input)
+          } catch {
+            // Fall through to the legacy HTTP path so in-flight workers can finish cleanly after a socket drop.
+          }
+        }
 
-      const canClaimMoreTasks = () =>
-        getClaimedTaskCount() < taskScheduler.getBrowserLimit()
-
-      const logTaskLeaseError = (taskId: string, error: Error) => {
+        return postCliConnectionRuntimeState(input)
+      },
+    }
+    const runtimeReporter = new CliConnectionRuntimeReporter({
+      authState,
+      transport: cliTransport,
+      onError: (error) => {
         writeCliStderrLine(
           JSON.stringify(
             {
-              command: 'cli:task:lease:error',
-              taskId,
+              command: 'cli:runtime:error',
               error: error.message,
             },
             null,
             2,
           ),
         )
-      }
-
-      const scheduleDaemonFlowTask = (task: {
-        flowId: CliFlowCommandId
-        config: FlowOptions
-        notificationId: string
-        message: string
-        batch?: CliFlowTaskBatchMetadata
-        metadata?: CliFlowTaskMetadata
-        leaseReporter?: CliFlowTaskLeaseReporter
-      }) => {
-        const scheduled = taskScheduler.enqueue({
-          taskId: task.notificationId,
-          batchId: task.batch?.batchId,
-          parallelism: task.batch?.parallelism,
-          run: async () =>
-            withObservabilityContext(
-              {
-                flowId: task.flowId,
-                taskId: task.notificationId,
-                notificationId: task.notificationId,
-                batchId: task.batch?.batchId || null,
-              },
-              async () => {
-                const startedAt = new Date().toISOString()
-                const flowAbortController = new AbortController()
-                activeFlowAbortControllers.set(
-                  task.notificationId,
-                  flowAbortController,
-                )
-                if (
-                  !outstandingStartedAt ||
-                  Date.parse(startedAt) < Date.parse(outstandingStartedAt)
-                ) {
-                  outstandingStartedAt = startedAt
-                }
-
-                writeCliStdoutLine(
-                  JSON.stringify(
-                    {
-                      command: 'cli:task:start',
-                      notificationId: task.notificationId,
-                      flowId: task.flowId,
-                      config: redactForOutput(task.config),
-                    },
-                    null,
-                    2,
-                  ),
-                )
-
-                lastRuntimeState = {
-                  flowId: task.flowId,
-                  notificationId: task.notificationId,
-                  status: 'running',
-                  message: task.message,
-                  startedAt,
-                }
-                syncRuntimeReporterState()
-                task.leaseReporter?.markRunning(task.message)
-
-                const consoleProgressReporter =
-                  createConsoleFlowProgressReporter(`flow:${task.flowId}`)
-                let flowSingBoxProxy: CodeySingBoxProxyRuntime | undefined
-
-                try {
-                  flowSingBoxProxy = await startFlowProxyOverride({
-                    config,
-                    flowId: task.flowId,
-                    options: task.config,
-                    nodes: proxyNodes,
-                    authState,
-                    taskId: task.notificationId,
-                  })
-                  if (flowSingBoxProxy) {
-                    writeCliStderrLine(
-                      `[cli:singbox] Task ${task.notificationId} using ${flowSingBoxProxy.mixedProxy.server}; selected tag ${flowSingBoxProxy.selectedTag}.`,
-                    )
-                  }
-                  const execution = await executeFlowSubcommand(
-                    task.flowId,
-                    {
-                      ...task.config,
-                      ...(task.metadata ? { taskMetadata: task.metadata } : {}),
-                      progressReporter: (update) => {
-                        consoleProgressReporter(update)
-
-                        const message = formatRuntimeProgressMessage(update)
-                        if (!message) {
-                          return
-                        }
-
-                        lastRuntimeState = {
-                          flowId: task.flowId,
-                          notificationId: task.notificationId,
-                          status:
-                            update.status === 'failed' ? 'failed' : 'running',
-                          message,
-                          startedAt,
-                        }
-                        syncRuntimeReporterState()
-                        task.leaseReporter?.reportProgress(message)
-                      },
-                    },
-                    {
-                      abortSignal: flowAbortController.signal,
-                      onBeforeExit: async () => {
-                        await flowSingBoxProxy?.stop()
-                      },
-                      onAfterSessionClose: async () => {
-                        await flowSingBoxProxy?.stop()
-                      },
-                      singBoxProxy: flowSingBoxProxy,
-                    },
-                  )
-                  assertFlowTaskExecutionSucceeded(task.flowId, execution)
-
-                  lastRuntimeState = {
-                    flowId: task.flowId,
-                    notificationId: task.notificationId,
-                    status: execution.status,
-                    message: 'Flow completed',
-                    startedAt,
-                    completedAt:
-                      execution.completedAt || new Date().toISOString(),
-                  }
-                  syncRuntimeReporterState()
-                  writeCliStdoutLine(
-                    JSON.stringify(
-                      {
-                        command: 'cli:task:completed',
-                        notificationId: task.notificationId,
-                        flowId: task.flowId,
-                        execution: redactForOutput({
-                          status: execution.status,
-                          completedAt: execution.completedAt,
-                        }),
-                      },
-                      null,
-                      2,
-                    ),
-                  )
-                  if (task.leaseReporter) {
-                    try {
-                      await task.leaseReporter.complete({
-                        status: 'SUCCEEDED',
-                        message: 'Flow completed',
-                        ...(execution.completionResult
-                          ? { result: execution.completionResult }
-                          : {}),
-                      })
-                    } catch (error) {
-                      logTaskLeaseError(
-                        task.notificationId,
-                        sanitizeErrorForOutput(error),
-                      )
-                    } finally {
-                      taskLeaseReporters.delete(task.notificationId)
-                    }
-                  }
-                } catch (error) {
-                  const sanitized = sanitizeErrorForOutput(error)
-                  const serverCanceled = serverCanceledTaskIds.has(
-                    task.notificationId,
-                  )
-                  const retryDecision = getFlowTaskFullRetryDecision({
-                    flowId: task.flowId,
-                    error,
-                  })
-                  const failureMessage = retryDecision
-                    ? retryDecision.message
-                    : sanitized.message
-                  lastRuntimeState = {
-                    flowId: task.flowId,
-                    notificationId: task.notificationId,
-                    status: 'failed',
-                    message: failureMessage,
-                    startedAt,
-                    completedAt: new Date().toISOString(),
-                  }
-                  syncRuntimeReporterState()
-                  writeCliStderrLine(
-                    JSON.stringify(
-                      {
-                        command: 'cli:task:error',
-                        notificationId: task.notificationId,
-                        flowId: task.flowId,
-                        error: sanitized.message,
-                      },
-                      null,
-                      2,
-                    ),
-                  )
-                  if (task.leaseReporter) {
-                    try {
-                      await task.leaseReporter.complete({
-                        status: serverCanceled ? 'CANCELED' : 'FAILED',
-                        error: serverCanceled ? undefined : sanitized.message,
-                        message: failureMessage,
-                        ...(serverCanceled
-                          ? {}
-                          : retryDecision
-                            ? { retry: retryDecision }
-                            : {}),
-                      })
-                    } catch (leaseError) {
-                      logTaskLeaseError(
-                        task.notificationId,
-                        sanitizeErrorForOutput(leaseError),
-                      )
-                    } finally {
-                      taskLeaseReporters.delete(task.notificationId)
-                    }
-                  }
-                } finally {
-                  await flowSingBoxProxy?.stop()
-                  activeFlowAbortControllers.delete(task.notificationId)
-                  serverCanceledTaskIds.delete(task.notificationId)
-                  await runtimeReporter.flush()
-                  setRuntimeConfig(config)
-                }
-              },
-            ),
-        })
-
+      },
+      onBrowserLimit: (browserLimit) => {
+        taskScheduler.setBrowserLimit(browserLimit)
         syncRuntimeReporterState()
-        return scheduled.finally(() => {
-          syncRuntimeReporterState()
-          void tryClaimTasks()
+        void tryClaimTasks()
+      },
+    })
+    const taskLeaseReporters = new Map<string, CliFlowTaskLeaseReporter>()
+    const activeFlowAbortControllers = new Map<string, AbortController>()
+    const serverCanceledTaskIds = new Set<string>()
+    let outstandingStartedAt: string | undefined
+    let connectionId: string | undefined
+    let claimInFlight = false
+    let claimInterval: ReturnType<typeof setInterval> | undefined
+    let lastRuntimeState:
+      | {
+          flowId?: string
+          notificationId?: string
+          status?: string
+          message?: string
+          startedAt?: string
+          completedAt?: string
+        }
+      | undefined
+
+    const syncRuntimeReporterState = () => {
+      const snapshot = taskScheduler.getSnapshot()
+      if (!snapshot.activeCount && !snapshot.pendingCount) {
+        outstandingStartedAt = undefined
+        runtimeReporter.update({
+          runtimeFlowId: lastRuntimeState?.flowId || null,
+          runtimeTaskId: lastRuntimeState?.notificationId || null,
+          runtimeFlowStatus: lastRuntimeState?.status || null,
+          runtimeFlowMessage: lastRuntimeState?.message || null,
+          runtimeFlowStartedAt: lastRuntimeState?.startedAt || null,
+          runtimeFlowCompletedAt: lastRuntimeState?.completedAt || null,
         })
+        setObservabilityRuntimeState({
+          cliName,
+          target: target || null,
+          phase: 'listening',
+          activeTaskCount: snapshot.activeCount,
+          pendingTaskCount: snapshot.pendingCount,
+          browserLimit: snapshot.browserLimit,
+          flowId: lastRuntimeState?.flowId || null,
+          taskId: lastRuntimeState?.notificationId || null,
+          status: lastRuntimeState?.status || null,
+          message: lastRuntimeState?.message || null,
+          startedAt: lastRuntimeState?.startedAt || null,
+          completedAt: lastRuntimeState?.completedAt || null,
+        })
+        return
       }
 
-      const tryClaimTasks = async () => {
-        if (!connectionId || claimInFlight) {
-          return
-        }
+      runtimeReporter.update({
+        runtimeFlowId:
+          snapshot.activeCount + snapshot.pendingCount > 1
+            ? 'task-queue'
+            : lastRuntimeState?.flowId || 'task-queue',
+        runtimeTaskId:
+          snapshot.activeCount === 1 && !snapshot.pendingCount
+            ? lastRuntimeState?.notificationId || null
+            : null,
+        runtimeFlowStatus: 'running',
+        runtimeFlowMessage: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (browser limit ${snapshot.browserLimit || DEFAULT_CLI_BROWSER_LIMIT})`,
+        runtimeFlowStartedAt:
+          outstandingStartedAt || lastRuntimeState?.startedAt || null,
+        runtimeFlowCompletedAt: null,
+      })
+      setObservabilityRuntimeState({
+        cliName,
+        target: target || null,
+        phase: 'running',
+        activeTaskCount: snapshot.activeCount,
+        pendingTaskCount: snapshot.pendingCount,
+        browserLimit: snapshot.browserLimit,
+        flowId:
+          snapshot.activeCount + snapshot.pendingCount > 1
+            ? 'task-queue'
+            : lastRuntimeState?.flowId || 'task-queue',
+        taskId:
+          snapshot.activeCount === 1 && !snapshot.pendingCount
+            ? lastRuntimeState?.notificationId || null
+            : null,
+        status: 'running',
+        message: `${snapshot.activeCount} running, ${snapshot.pendingCount} queued (browser limit ${snapshot.browserLimit || DEFAULT_CLI_BROWSER_LIMIT})`,
+        startedAt: outstandingStartedAt || lastRuntimeState?.startedAt || null,
+        completedAt: null,
+      })
+    }
 
-        claimInFlight = true
-        try {
-          while (connectionId && canClaimMoreTasks()) {
-            const claimResult = await claimCliFlowTask({
-              connectionId,
-              authState,
-              transport: cliTransport,
-            })
-            if (claimResult.browserLimit !== undefined) {
-              taskScheduler.setBrowserLimit(claimResult.browserLimit)
-              syncRuntimeReporterState()
-            }
-            const claimedTask = claimResult.task
-            if (!claimedTask) {
-              break
-            }
+    const getClaimedTaskCount = () => {
+      const snapshot = taskScheduler.getSnapshot()
+      return snapshot.activeCount + snapshot.pendingCount
+    }
 
-            const leaseReporter = new CliFlowTaskLeaseReporter({
-              connectionId,
-              taskId: claimedTask.id,
-              authState,
-              transport: cliTransport,
-              onError: (error) => {
-                logTaskLeaseError(claimedTask.id, error)
-              },
-              onStopRequested: (reason) => {
-                const stopMessage =
-                  reason || 'Task stopped by an administrator.'
-                serverCanceledTaskIds.add(claimedTask.id)
-                const controller = activeFlowAbortControllers.get(
-                  claimedTask.id,
-                )
-                if (controller && !controller.signal.aborted) {
-                  controller.abort(new FlowInterruptedError(stopMessage))
-                  return
-                }
+    const canClaimMoreTasks = () =>
+      getClaimedTaskCount() < taskScheduler.getBrowserLimit()
 
-                const cleared = taskScheduler.clearPendingTaskIds(
-                  [claimedTask.id],
-                  stopMessage,
-                )
-                if (cleared > 0) {
-                  const pendingLeaseReporter = taskLeaseReporters.get(
-                    claimedTask.id,
-                  )
-                  void pendingLeaseReporter
-                    ?.complete({
-                      status: 'CANCELED',
-                      message: stopMessage,
-                    })
-                    .catch((error) => {
-                      logTaskLeaseError(
-                        claimedTask.id,
-                        sanitizeErrorForOutput(error),
-                      )
-                    })
-                    .finally(() => {
-                      taskLeaseReporters.delete(claimedTask.id)
-                    })
-                }
-
-                syncRuntimeReporterState()
-              },
-            })
-            leaseReporter.start()
-            taskLeaseReporters.set(claimedTask.id, leaseReporter)
-
-            const taskPayload = normalizeCliFlowTaskPayload(claimedTask.payload)
-            if (!taskPayload) {
-              try {
-                await leaseReporter.complete({
-                  status: 'FAILED',
-                  error: 'Received malformed flow task payload.',
-                  message: 'Received malformed flow task payload.',
-                })
-              } catch (error) {
-                logTaskLeaseError(claimedTask.id, sanitizeErrorForOutput(error))
-              } finally {
-                taskLeaseReporters.delete(claimedTask.id)
-              }
-              continue
-            }
-
-            void scheduleDaemonFlowTask({
-              flowId: taskPayload.flowId,
-              config: taskPayload.config as FlowOptions,
-              notificationId: claimedTask.id,
-              message: claimedTask.title || 'Task started',
-              batch: taskPayload.batch,
-              metadata: taskPayload.metadata,
-              leaseReporter,
-            }).catch((error) => {
-              if (error instanceof FlowTaskSchedulerCancelledError) {
-                if (serverCanceledTaskIds.delete(claimedTask.id)) {
-                  taskLeaseReporters.delete(claimedTask.id)
-                  return
-                }
-              }
-
-              writeCliStderrLine(
-                JSON.stringify(
-                  {
-                    command: 'cli:task:schedule:error',
-                    notificationId: claimedTask.id,
-                    flowId: taskPayload.flowId,
-                    error: sanitizeErrorForOutput(error).message,
-                  },
-                  null,
-                  2,
-                ),
-              )
-            })
-          }
-        } catch (error) {
-          writeCliStderrLine(
-            JSON.stringify(
-              {
-                command: 'cli:task:claim:error',
-                error: sanitizeErrorForOutput(error).message,
-              },
-              null,
-              2,
-            ),
-          )
-        } finally {
-          claimInFlight = false
-        }
-      }
-
-      writeCliStdoutLine(
+    const logTaskLeaseError = (taskId: string, error: Error) => {
+      writeCliStderrLine(
         JSON.stringify(
           {
-            command: announced ? 'cli:reconnect' : 'cli:start',
-            config: redactForOutput(config),
-            cliName,
-            auth: redactForOutput({
-              mode: authState.mode,
-              clientId: authState.clientId,
-              target,
-              subject: authState.session?.subject,
-              expiresAt: authState.session?.tokenSet.expiresAt,
-            }),
-            session:
-              authState.mode === 'device_session'
-                ? redactForOutput(authState.session)
-                : undefined,
-            status: 'listening',
+            command: 'cli:task:lease:error',
+            taskId,
+            error: error.message,
           },
           null,
           2,
         ),
       )
-      announced = true
+    }
 
+    const scheduleDaemonFlowTask = (task: {
+      flowId: CliFlowCommandId
+      config: FlowOptions
+      notificationId: string
+      message: string
+      batch?: CliFlowTaskBatchMetadata
+      metadata?: CliFlowTaskMetadata
+      leaseReporter?: CliFlowTaskLeaseReporter
+    }) => {
+      const scheduled = taskScheduler.enqueue({
+        taskId: task.notificationId,
+        batchId: task.batch?.batchId,
+        parallelism: task.batch?.parallelism,
+        run: async () =>
+          withObservabilityContext(
+            {
+              flowId: task.flowId,
+              taskId: task.notificationId,
+              notificationId: task.notificationId,
+              batchId: task.batch?.batchId || null,
+            },
+            async () => {
+              const startedAt = new Date().toISOString()
+              const flowAbortController = new AbortController()
+              activeFlowAbortControllers.set(
+                task.notificationId,
+                flowAbortController,
+              )
+              if (
+                !outstandingStartedAt ||
+                Date.parse(startedAt) < Date.parse(outstandingStartedAt)
+              ) {
+                outstandingStartedAt = startedAt
+              }
+
+              writeCliStdoutLine(
+                JSON.stringify(
+                  {
+                    command: 'cli:task:start',
+                    notificationId: task.notificationId,
+                    flowId: task.flowId,
+                    config: redactForOutput(task.config),
+                  },
+                  null,
+                  2,
+                ),
+              )
+
+              lastRuntimeState = {
+                flowId: task.flowId,
+                notificationId: task.notificationId,
+                status: 'running',
+                message: task.message,
+                startedAt,
+              }
+              syncRuntimeReporterState()
+              task.leaseReporter?.markRunning(task.message)
+
+              const consoleProgressReporter = createConsoleFlowProgressReporter(
+                `flow:${task.flowId}`,
+              )
+              let flowSingBoxProxy: CodeySingBoxProxyRuntime | undefined
+
+              try {
+                flowSingBoxProxy = await startFlowProxyOverride({
+                  config,
+                  flowId: task.flowId,
+                  options: task.config,
+                  nodes: proxyNodes,
+                  authState,
+                  taskId: task.notificationId,
+                })
+                if (flowSingBoxProxy) {
+                  writeCliStderrLine(
+                    `[cli:singbox] Task ${task.notificationId} using ${flowSingBoxProxy.mixedProxy.server}; selected tag ${flowSingBoxProxy.selectedTag}.`,
+                  )
+                }
+                const execution = await executeFlowSubcommand(
+                  task.flowId,
+                  {
+                    ...task.config,
+                    ...(task.metadata ? { taskMetadata: task.metadata } : {}),
+                    progressReporter: (update) => {
+                      consoleProgressReporter(update)
+
+                      const message = formatRuntimeProgressMessage(update)
+                      if (!message) {
+                        return
+                      }
+
+                      lastRuntimeState = {
+                        flowId: task.flowId,
+                        notificationId: task.notificationId,
+                        status:
+                          update.status === 'failed' ? 'failed' : 'running',
+                        message,
+                        startedAt,
+                      }
+                      syncRuntimeReporterState()
+                      task.leaseReporter?.reportProgress(message)
+                    },
+                  },
+                  {
+                    abortSignal: flowAbortController.signal,
+                    onBeforeExit: async () => {
+                      await flowSingBoxProxy?.stop()
+                    },
+                    onAfterSessionClose: async () => {
+                      await flowSingBoxProxy?.stop()
+                    },
+                    singBoxProxy: flowSingBoxProxy,
+                  },
+                )
+                assertFlowTaskExecutionSucceeded(task.flowId, execution)
+
+                lastRuntimeState = {
+                  flowId: task.flowId,
+                  notificationId: task.notificationId,
+                  status: execution.status,
+                  message: 'Flow completed',
+                  startedAt,
+                  completedAt:
+                    execution.completedAt || new Date().toISOString(),
+                }
+                syncRuntimeReporterState()
+                writeCliStdoutLine(
+                  JSON.stringify(
+                    {
+                      command: 'cli:task:completed',
+                      notificationId: task.notificationId,
+                      flowId: task.flowId,
+                      execution: redactForOutput({
+                        status: execution.status,
+                        completedAt: execution.completedAt,
+                      }),
+                    },
+                    null,
+                    2,
+                  ),
+                )
+                if (task.leaseReporter) {
+                  try {
+                    await task.leaseReporter.complete({
+                      status: 'SUCCEEDED',
+                      message: 'Flow completed',
+                      ...(execution.completionResult
+                        ? { result: execution.completionResult }
+                        : {}),
+                    })
+                  } catch (error) {
+                    logTaskLeaseError(
+                      task.notificationId,
+                      sanitizeErrorForOutput(error),
+                    )
+                  } finally {
+                    taskLeaseReporters.delete(task.notificationId)
+                  }
+                }
+              } catch (error) {
+                const sanitized = sanitizeErrorForOutput(error)
+                const serverCanceled = serverCanceledTaskIds.has(
+                  task.notificationId,
+                )
+                const retryDecision = getFlowTaskFullRetryDecision({
+                  flowId: task.flowId,
+                  error,
+                })
+                const failureMessage = retryDecision
+                  ? retryDecision.message
+                  : sanitized.message
+                lastRuntimeState = {
+                  flowId: task.flowId,
+                  notificationId: task.notificationId,
+                  status: 'failed',
+                  message: failureMessage,
+                  startedAt,
+                  completedAt: new Date().toISOString(),
+                }
+                syncRuntimeReporterState()
+                writeCliStderrLine(
+                  JSON.stringify(
+                    {
+                      command: 'cli:task:error',
+                      notificationId: task.notificationId,
+                      flowId: task.flowId,
+                      error: sanitized.message,
+                    },
+                    null,
+                    2,
+                  ),
+                )
+                if (task.leaseReporter) {
+                  try {
+                    await task.leaseReporter.complete({
+                      status: serverCanceled ? 'CANCELED' : 'FAILED',
+                      error: serverCanceled ? undefined : sanitized.message,
+                      message: failureMessage,
+                      ...(serverCanceled
+                        ? {}
+                        : retryDecision
+                          ? { retry: retryDecision }
+                          : {}),
+                    })
+                  } catch (leaseError) {
+                    logTaskLeaseError(
+                      task.notificationId,
+                      sanitizeErrorForOutput(leaseError),
+                    )
+                  } finally {
+                    taskLeaseReporters.delete(task.notificationId)
+                  }
+                }
+              } finally {
+                await flowSingBoxProxy?.stop()
+                activeFlowAbortControllers.delete(task.notificationId)
+                serverCanceledTaskIds.delete(task.notificationId)
+                await runtimeReporter.flush()
+                setRuntimeConfig(config)
+              }
+            },
+          ),
+      })
+
+      syncRuntimeReporterState()
+      return scheduled.finally(() => {
+        syncRuntimeReporterState()
+        void tryClaimTasks()
+      })
+    }
+
+    const tryClaimTasks = async () => {
+      if (!connectionId || claimInFlight) {
+        return
+      }
+
+      claimInFlight = true
       try {
-        cliWebSocket = new CliWebSocketConnection({
-          cliName,
-          target,
-          workerId,
-          authState,
-          onConnection: (connection) => {
-            connectionId = connection.connectionId
-            if (connection.browserLimit !== undefined) {
-              taskScheduler.setBrowserLimit(connection.browserLimit)
+        while (connectionId && canClaimMoreTasks()) {
+          const claimResult = await claimCliFlowTask({
+            connectionId,
+            authState,
+            transport: cliTransport,
+          })
+          if (claimResult.browserLimit !== undefined) {
+            taskScheduler.setBrowserLimit(claimResult.browserLimit)
+            syncRuntimeReporterState()
+          }
+          const claimedTask = claimResult.task
+          if (!claimedTask) {
+            break
+          }
+
+          const leaseReporter = new CliFlowTaskLeaseReporter({
+            connectionId,
+            taskId: claimedTask.id,
+            authState,
+            transport: cliTransport,
+            onError: (error) => {
+              logTaskLeaseError(claimedTask.id, error)
+            },
+            onStopRequested: (reason) => {
+              const stopMessage = reason || 'Task stopped by an administrator.'
+              serverCanceledTaskIds.add(claimedTask.id)
+              const controller = activeFlowAbortControllers.get(claimedTask.id)
+              if (controller && !controller.signal.aborted) {
+                controller.abort(new FlowInterruptedError(stopMessage))
+                return
+              }
+
+              const cleared = taskScheduler.clearPendingTaskIds(
+                [claimedTask.id],
+                stopMessage,
+              )
+              if (cleared > 0) {
+                const pendingLeaseReporter = taskLeaseReporters.get(
+                  claimedTask.id,
+                )
+                void pendingLeaseReporter
+                  ?.complete({
+                    status: 'CANCELED',
+                    message: stopMessage,
+                  })
+                  .catch((error) => {
+                    logTaskLeaseError(
+                      claimedTask.id,
+                      sanitizeErrorForOutput(error),
+                    )
+                  })
+                  .finally(() => {
+                    taskLeaseReporters.delete(claimedTask.id)
+                  })
+              }
+
+              syncRuntimeReporterState()
+            },
+          })
+          leaseReporter.start()
+          taskLeaseReporters.set(claimedTask.id, leaseReporter)
+
+          const taskPayload = normalizeCliFlowTaskPayload(claimedTask.payload)
+          if (!taskPayload) {
+            try {
+              await leaseReporter.complete({
+                status: 'FAILED',
+                error: 'Received malformed flow task payload.',
+                message: 'Received malformed flow task payload.',
+              })
+            } catch (error) {
+              logTaskLeaseError(claimedTask.id, sanitizeErrorForOutput(error))
+            } finally {
+              taskLeaseReporters.delete(claimedTask.id)
             }
-            runtimeReporter.setConnectionId(connection.connectionId)
-            if (claimInterval) {
-              clearInterval(claimInterval)
+            continue
+          }
+
+          void scheduleDaemonFlowTask({
+            flowId: taskPayload.flowId,
+            config: taskPayload.config as FlowOptions,
+            notificationId: claimedTask.id,
+            message: claimedTask.title || 'Task started',
+            batch: taskPayload.batch,
+            metadata: taskPayload.metadata,
+            leaseReporter,
+          }).catch((error) => {
+            if (error instanceof FlowTaskSchedulerCancelledError) {
+              if (serverCanceledTaskIds.delete(claimedTask.id)) {
+                taskLeaseReporters.delete(claimedTask.id)
+                return
+              }
             }
-            claimInterval = setInterval(() => {
-              void tryClaimTasks()
-            }, 2000)
-            void tryClaimTasks()
-            writeCliStdoutLine(
+
+            writeCliStderrLine(
               JSON.stringify(
                 {
-                  command: 'cli:connected',
-                  transport: 'websocket',
-                  connection,
+                  command: 'cli:task:schedule:error',
+                  notificationId: claimedTask.id,
+                  flowId: taskPayload.flowId,
+                  error: sanitizeErrorForOutput(error).message,
                 },
                 null,
                 2,
               ),
             )
-          },
-          onNotification: (notification) => {
-            writeCliStdoutLine(
-              JSON.stringify(
-                {
-                  command: 'cli:event',
-                  notification,
-                },
-                null,
-                2,
-              ),
-            )
-          },
-        })
-        await cliWebSocket.run()
+          })
+        }
       } catch (error) {
         writeCliStderrLine(
           JSON.stringify(
             {
-              command: 'cli:websocket:error',
+              command: 'cli:task:claim:error',
               error: sanitizeErrorForOutput(error).message,
             },
             null,
             2,
           ),
         )
+      } finally {
+        claimInFlight = false
+      }
+    }
 
-        cliWebSocket = undefined
-        connectionId = undefined
-        if (claimInterval) {
-          clearInterval(claimInterval)
-          claimInterval = undefined
-        }
+    writeCliStdoutLine(
+      JSON.stringify(
+        {
+          command: announced ? 'cli:reconnect' : 'cli:start',
+          config: redactForOutput(config),
+          cliName,
+          auth: redactForOutput({
+            mode: authState.mode,
+            clientId: authState.clientId,
+            target,
+            subject: authState.session?.subject,
+            expiresAt: authState.session?.tokenSet.expiresAt,
+          }),
+          session:
+            authState.mode === 'device_session'
+              ? redactForOutput(authState.session)
+              : undefined,
+          status: 'listening',
+        },
+        null,
+        2,
+      ),
+    )
+    announced = true
 
-        try {
-          for await (const notification of streamCliNotifications(
-            {
-              cliName,
-              target,
-              workerId,
-            },
-            authState,
-            {
-              onConnection: (connection) => {
-                connectionId = connection.connectionId
-                if (connection.browserLimit !== undefined) {
-                  taskScheduler.setBrowserLimit(connection.browserLimit)
-                }
-                runtimeReporter.setConnectionId(connection.connectionId)
-                if (claimInterval) {
-                  clearInterval(claimInterval)
-                }
-                claimInterval = setInterval(() => {
-                  void tryClaimTasks()
-                }, 2000)
-                void tryClaimTasks()
-                writeCliStdoutLine(
-                  JSON.stringify(
-                    {
-                      command: 'cli:connected',
-                      transport: 'sse',
-                      connection,
-                    },
-                    null,
-                    2,
-                  ),
-                )
-              },
-            },
-          )) {
-            writeCliStdoutLine(
-              JSON.stringify(
-                {
-                  command: 'cli:event',
-                  notification,
-                },
-                null,
-                2,
-              ),
-            )
+    try {
+      cliWebSocket = new CliWebSocketConnection({
+        cliName,
+        target,
+        workerId,
+        authState,
+        onConnection: (connection) => {
+          connectionId = connection.connectionId
+          if (connection.browserLimit !== undefined) {
+            taskScheduler.setBrowserLimit(connection.browserLimit)
           }
-        } catch (fallbackError) {
-          writeCliStderrLine(
+          runtimeReporter.setConnectionId(connection.connectionId)
+          if (claimInterval) {
+            clearInterval(claimInterval)
+          }
+          claimInterval = setInterval(() => {
+            void tryClaimTasks()
+          }, 2000)
+          void tryClaimTasks()
+          writeCliStdoutLine(
             JSON.stringify(
               {
-                command: 'cli:stream:error',
-                error: sanitizeErrorForOutput(fallbackError).message,
+                command: 'cli:connected',
+                transport: 'websocket',
+                connection,
+              },
+              null,
+              2,
+            ),
+          )
+        },
+        onNotification: (notification) => {
+          writeCliStdoutLine(
+            JSON.stringify(
+              {
+                command: 'cli:event',
+                notification,
+              },
+              null,
+              2,
+            ),
+          )
+        },
+      })
+      await cliWebSocket.run()
+    } catch (error) {
+      writeCliStderrLine(
+        JSON.stringify(
+          {
+            command: 'cli:websocket:error',
+            error: sanitizeErrorForOutput(error).message,
+          },
+          null,
+          2,
+        ),
+      )
+
+      cliWebSocket = undefined
+      connectionId = undefined
+      if (claimInterval) {
+        clearInterval(claimInterval)
+        claimInterval = undefined
+      }
+
+      try {
+        for await (const notification of streamCliNotifications(
+          {
+            cliName,
+            target,
+            workerId,
+          },
+          authState,
+          {
+            onConnection: (connection) => {
+              connectionId = connection.connectionId
+              if (connection.browserLimit !== undefined) {
+                taskScheduler.setBrowserLimit(connection.browserLimit)
+              }
+              runtimeReporter.setConnectionId(connection.connectionId)
+              if (claimInterval) {
+                clearInterval(claimInterval)
+              }
+              claimInterval = setInterval(() => {
+                void tryClaimTasks()
+              }, 2000)
+              void tryClaimTasks()
+              writeCliStdoutLine(
+                JSON.stringify(
+                  {
+                    command: 'cli:connected',
+                    transport: 'sse',
+                    connection,
+                  },
+                  null,
+                  2,
+                ),
+              )
+            },
+          },
+        )) {
+          writeCliStdoutLine(
+            JSON.stringify(
+              {
+                command: 'cli:event',
+                notification,
               },
               null,
               2,
             ),
           )
         }
+      } catch (fallbackError) {
+        writeCliStderrLine(
+          JSON.stringify(
+            {
+              command: 'cli:stream:error',
+              error: sanitizeErrorForOutput(fallbackError).message,
+            },
+            null,
+            2,
+          ),
+        )
       }
-
-      connectionId = undefined
-      cliWebSocket?.close()
-      cliWebSocket = undefined
-      if (claimInterval) {
-        clearInterval(claimInterval)
-        claimInterval = undefined
-      }
-
-      await taskScheduler.waitForIdle()
-      await runtimeReporter.flush()
-
-      await sleep(1000)
     }
-  } finally {
-    await whatsAppWebhook?.stop()
+
+    connectionId = undefined
+    cliWebSocket?.close()
+    cliWebSocket = undefined
+    if (claimInterval) {
+      clearInterval(claimInterval)
+      claimInterval = undefined
+    }
+
+    await taskScheduler.waitForIdle()
+    await runtimeReporter.flush()
+
+    await sleep(1000)
   }
-}
-
-function readTrimmed(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  return trimmed || undefined
-}
-
-function isMatchedWhatsAppIngestResult(
-  result: AppWhatsAppNotificationIngestResponse | undefined,
-): boolean {
-  if (!result) {
-    return false
-  }
-
-  return result.match.status === 'matched' || result.match.matched === true
-}
-
-function formatWhatsAppIngestMatchSuffix(
-  result: AppWhatsAppNotificationIngestResponse | undefined,
-): string {
-  if (!result) {
-    return ''
-  }
-
-  if (isMatchedWhatsAppIngestResult(result)) {
-    return result.match.reservationId
-      ? ` reservation=${result.match.reservationId}`
-      : ' matched'
-  }
-
-  return ` unmatched=${result.match.reason || result.match.status || 'unknown'}`
-}
-
-function startCliWhatsAppNotificationWebhook(
-  command: string,
-  options: AuthOptions,
-  config: ReturnType<typeof prepareRuntimeConfig>,
-): WhatsAppNotificationWebhookServerHandle | undefined {
-  const webhookConfig = config.forwarderWebhook
-  const enabled =
-    parseBooleanFlag(
-      options.forwarderWebhook,
-      webhookConfig?.enabled ?? true,
-    ) ?? true
-
-  if (!enabled) {
-    writeCliStderrLine(`[${command}] WhatsApp notification webhook disabled.`)
-    return undefined
-  }
-
-  const appConfig = resolveVerificationAppConfig(config)
-  const appClient = new AppVerificationProviderClient({
-    ...appConfig,
-    baseUrl:
-      appConfig.baseUrl ||
-      process.env.APP_BASE_URL ||
-      DEFAULT_CODEY_APP_BASE_URL,
-  })
-
-  return startWhatsAppNotificationWebhookServer({
-    enabled,
-    host: readTrimmed(webhookConfig?.host),
-    port: webhookConfig?.port,
-    path: readTrimmed(webhookConfig?.path),
-    deviceId:
-      readTrimmed(webhookConfig?.deviceId) || readTrimmed(config.android?.udid),
-    ingestNotification: (payload) =>
-      appClient.ingestWhatsAppNotification(payload),
-    onStatus(message) {
-      writeCliStderrLine(`[${command}:whatsapp-webhook] ${message}`)
-    },
-    onNotification(event, payload, ingestResult) {
-      writeCliStderrLine(
-        `[${command}:whatsapp-webhook] ${event.packageName} notification${formatWhatsAppIngestMatchSuffix(
-          ingestResult,
-        )}`,
-      )
-    },
-  })
 }
 
 interface ParsedCliArgs {
@@ -1581,11 +1479,6 @@ function normalizeAuthCliOptions(input: Record<string, unknown>): AuthOptions {
     cliName: readOptionalString(input.cliName),
     scope: readOptionalString(input.scope),
     target: readOptionalString(input.target),
-    forwarderWebhook:
-      typeof input.forwarderWebhook === 'string' ||
-      typeof input.forwarderWebhook === 'boolean'
-        ? input.forwarderWebhook
-        : undefined,
   }
 }
 
@@ -1657,7 +1550,6 @@ function printRootHelp(): void {
       '  --profile <name>',
       '  --cliName <name>',
       '  --target <target>',
-      '  --forwarderWebhook <bool>',
       '',
       'Examples:',
       '  codey --target octocat',

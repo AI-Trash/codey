@@ -31,7 +31,7 @@ class KeepAliveService : Service() {
             "CodeyApp",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Keeps CodeyApp visible while it listens for WhatsApp notifications."
+            description = "Keeps CodeyApp visible for Android automation tasks."
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -47,7 +47,7 @@ class KeepAliveService : Service() {
         return builder
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("CodeyApp is ready")
-            .setContentText("Listening for WhatsApp verification notifications.")
+            .setContentText("Ready for Codey Android automation tasks.")
             .setOngoing(true)
             .build()
     }

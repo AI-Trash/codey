@@ -86,7 +86,6 @@ export interface AuthOptions extends CommonOptions {
   cliName?: string
   scope?: string
   target?: string
-  forwarderWebhook?: string | boolean
 }
 
 export interface ExchangeOptions extends CommonOptions {

@@ -25,15 +25,13 @@ class ForwarderNotificationListenerService : NotificationListenerService() {
     private fun forward(settings: ForwarderSettings, notification: ForwardedNotification) {
         try {
             val payload = ForwarderNotifier.buildForwarderPayload(settings, notification)
-            val result = ForwarderNotifier.postNotificationPayload(
-                ForwarderNotifier.resolveNotificationWebhookUrl(settings),
-                payload,
-                settings.deviceToken
-            )
+            val result = ForwarderNotifier.postNotificationPayload(settings, payload)
             val message = if (result.statusCode in 200..299) {
-                "Forwarded WhatsApp notification: HTTP ${result.statusCode}"
+                "Forwarded WhatsApp notification to Codey Web: HTTP ${result.statusCode}"
             } else {
-                "Forward failed: HTTP ${result.statusCode} ${result.responseBody.takeAtMost(160)}"
+                "Forward to Codey Web failed: HTTP ${result.statusCode} ${
+                    result.responseBody.takeAtMost(160)
+                }"
             }
             ForwarderConfig.saveStatus(
                 this,
@@ -45,7 +43,7 @@ class ForwarderNotificationListenerService : NotificationListenerService() {
         } catch (error: Exception) {
             ForwarderConfig.saveStatus(
                 this,
-                "Forward failed: ${error.safeMessage()}",
+                "Forward to Codey Web failed: ${error.safeMessage()}",
                 notification.title,
                 notification.body,
                 System.currentTimeMillis()

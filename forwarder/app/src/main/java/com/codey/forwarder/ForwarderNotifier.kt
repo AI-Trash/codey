@@ -14,9 +14,9 @@ object ForwarderNotifier {
     private const val WHATSAPP_PACKAGE = "com.whatsapp"
     private const val WHATSAPP_BUSINESS_PACKAGE = "com.whatsapp.w4b"
 
-    fun shouldForwardPackage(packageName: String?, forwardBusiness: Boolean): Boolean {
+    fun shouldForwardPackage(packageName: String?, includeBusiness: Boolean): Boolean {
         return WHATSAPP_PACKAGE == packageName ||
-            (forwardBusiness && WHATSAPP_BUSINESS_PACKAGE == packageName)
+            (includeBusiness && WHATSAPP_BUSINESS_PACKAGE == packageName)
     }
 
     fun buildForwardedNotification(sbn: StatusBarNotification): ForwardedNotification {
@@ -51,7 +51,7 @@ object ForwarderNotifier {
             .put("source", "codey-app")
             .put("packageName", notification.packageName)
             .put("notificationId", notification.notificationId)
-            .put("postTime", notification.receivedAt)
+            .put("postTime", notification.receivedAt.toString())
         ForwarderConfig.putOptional(rawPayload, "android.text", notification.text)
         ForwarderConfig.putOptional(rawPayload, "android.bigText", notification.bigText)
         ForwarderConfig.putOptional(rawPayload, "android.subText", notification.subText)
@@ -66,7 +66,7 @@ object ForwarderNotifier {
             .put("deviceId", settings.deviceId)
             .put("packageName", notification.packageName)
             .put("notificationId", notification.notificationId)
-            .put("receivedAt", notification.receivedAt)
+            .put("receivedAt", notification.receivedAt.toString())
             .put("rawPayload", rawPayload)
         ForwarderConfig.putOptional(payload, "sender", notification.title)
         ForwarderConfig.putOptional(
@@ -80,20 +80,22 @@ object ForwarderNotifier {
     }
 
     fun postNotificationPayload(
-        webhookUrl: String,
-        payload: JSONObject,
-        bearerToken: String? = null
+        settings: ForwarderSettings,
+        payload: JSONObject
     ): HttpResult {
-        val connection = URL(webhookUrl).openConnection() as HttpURLConnection
+        val bearerToken = settings.deviceToken.trim()
+        if (bearerToken.isEmpty()) {
+            throw IllegalStateException("Pair with Codey Web before forwarding notifications.")
+        }
+
+        val connection = URL(buildCodeyWebIngestUrl(settings)).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
         connection.connectTimeout = 10_000
         connection.readTimeout = 10_000
         connection.doOutput = true
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         connection.setRequestProperty("Accept", "application/json")
-        if (!bearerToken.isNullOrBlank()) {
-            connection.setRequestProperty("Authorization", "Bearer ${bearerToken.trim()}")
-        }
+        connection.setRequestProperty("Authorization", "Bearer $bearerToken")
 
         OutputStreamWriter(connection.outputStream, StandardCharsets.UTF_8).use { writer ->
             writer.write(payload.toString())
@@ -110,23 +112,15 @@ object ForwarderNotifier {
         return HttpResult(statusCode, responseBody)
     }
 
-    fun buildCodeyWebIngestUrl(settings: ForwarderSettings): String {
+    private fun buildCodeyWebIngestUrl(settings: ForwarderSettings): String {
         var baseUrl = settings.codeyBaseUrl.trim()
         if (baseUrl.isEmpty()) {
-            return settings.webhookUrl
+            baseUrl = ForwarderConfig.DEFAULT_CODEY_BASE_URL
         }
         while (baseUrl.endsWith("/")) {
             baseUrl = baseUrl.dropLast(1)
         }
         return "$baseUrl/api/ingest/whatsapp-notification"
-    }
-
-    fun resolveNotificationWebhookUrl(settings: ForwarderSettings): String {
-        return if (settings.deviceToken.trim().isEmpty()) {
-            settings.webhookUrl
-        } else {
-            buildCodeyWebIngestUrl(settings)
-        }
     }
 
     private fun readStream(stream: InputStream?): String {

@@ -1,17 +1,16 @@
 <resources>
     <string name="app_name">CodeyApp</string>
-    <string name="app_subtitle">WhatsApp notification forwarding and Android automation</string>
+    <string name="app_subtitle">WhatsApp verification ingest and Android automation</string>
     <string name="section_status">Status</string>
     <string name="section_connection">Connection</string>
-    <string name="section_forwarding">Forwarding</string>
+    <string name="section_actions">Actions</string>
     <string name="section_pairing">Pairing</string>
     <string name="section_device">Device</string>
     <string name="label_codey_web_url">Codey Web URL</string>
-    <string name="label_legacy_webhook_url">Legacy CLI webhook URL</string>
     <string name="label_device_id">Device ID</string>
     <string name="label_whatsapp_phone_number">WhatsApp phone number</string>
     <string name="label_gopay_phone_number">GoPay phone number</string>
-    <string name="option_forward_whatsapp">Forward WhatsApp notifications</string>
+    <string name="option_forward_whatsapp">Forward WhatsApp notifications to Codey Web</string>
     <string name="option_include_business">Include WhatsApp Business</string>
     <string name="action_save_settings">Save Settings</string>
     <string name="action_notification_access">Notification Access</string>
@@ -42,5 +41,5 @@
     <string name="pairing_unknown">(unknown)</string>
     <string name="pairing_approval_url">Approval URL: %1$s</string>
     <string name="pairing_none">No pending pairing request.</string>
-    <string name="hint_network">Emulator: keep 10.0.2.2. Physical phone: use the computer LAN IP with FORWARDER_WEBHOOK_HOST=0.0.0.0, or run adb reverse tcp:3001 tcp:3001 and use 127.0.0.1.</string>
+    <string name="hint_network">Emulator: keep 10.0.2.2. Physical phone: use the computer LAN IP or public deployment URL for Codey Web.</string>
 </resources>

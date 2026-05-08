@@ -24,7 +24,7 @@ interface WhatsAppNotificationIngestPayload {
   message?: string
   rawPayload?: Record<string, unknown>
   extractedCode?: string
-  receivedAt?: string
+  receivedAt?: string | number
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

@@ -35,14 +35,6 @@ export interface AndroidCliConfig {
   codeyAppPackage?: string
 }
 
-export interface ForwarderWebhookConfig {
-  enabled?: boolean
-  host?: string
-  port?: number
-  path?: string
-  deviceId?: string
-}
-
 export interface SingBoxProxyConfig {
   enabled?: boolean
   executable?: string
@@ -181,7 +173,6 @@ export interface AppConfig {
   exchange?: ExchangeConfig
   verification?: VerificationConfig
   app?: AppAuthConfig
-  forwarderWebhook?: ForwarderWebhookConfig
   singBox?: SingBoxProxyConfig
   codex?: CodexOAuthConfig
   sub2api?: Sub2ApiConfig
@@ -478,18 +469,6 @@ function buildChatGPTTeamTrialConfig(): ChatGPTTeamTrialConfig | undefined {
   }
 }
 
-function buildForwarderWebhookConfig(): ForwarderWebhookConfig {
-  return {
-    enabled: hasEnvValue(process.env.FORWARDER_WEBHOOK_ENABLED)
-      ? parseBoolean(process.env.FORWARDER_WEBHOOK_ENABLED, true)
-      : true,
-    host: process.env.FORWARDER_WEBHOOK_HOST || '127.0.0.1',
-    port: parseNumber(process.env.FORWARDER_WEBHOOK_PORT, 3001),
-    path: process.env.FORWARDER_WEBHOOK_PATH || '/webhooks/codey-app/whatsapp',
-    deviceId: process.env.FORWARDER_DEVICE_ID,
-  }
-}
-
 function buildSingBoxProxyConfig(): SingBoxProxyConfig {
   return {
     enabled: hasEnvValue(process.env.CODEY_SINGBOX_ENABLED)
@@ -552,7 +531,6 @@ function buildDefaultConfig(): AppConfig {
   const codeyAppConfig = buildCodeyAppConfig()
   const sub2ApiConfig = buildSub2ApiConfig()
   const chatgptTeamTrialConfig = buildChatGPTTeamTrialConfig()
-  const forwarderWebhookConfig = buildForwarderWebhookConfig()
   const singBoxConfig = buildSingBoxProxyConfig()
   const verificationConfig =
     parseVerificationProviderConfigKind(process.env.VERIFICATION_PROVIDER) ||
@@ -633,7 +611,6 @@ function buildDefaultConfig(): AppConfig {
         : undefined,
     verification: verificationConfig,
     app: codeyAppConfig,
-    forwarderWebhook: forwarderWebhookConfig,
     singBox: singBoxConfig,
     codex: codexConfig,
     sub2api: sub2ApiConfig,

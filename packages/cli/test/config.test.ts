@@ -109,14 +109,6 @@ const androidEnvNames = {
   ANDROID_NO_RESET: undefined,
 }
 
-const forwarderWebhookEnvNames = {
-  FORWARDER_WEBHOOK_ENABLED: undefined,
-  FORWARDER_WEBHOOK_HOST: undefined,
-  FORWARDER_WEBHOOK_PORT: undefined,
-  FORWARDER_WEBHOOK_PATH: undefined,
-  FORWARDER_DEVICE_ID: undefined,
-}
-
 const singBoxEnvNames = {
   CODEY_SINGBOX_ENABLED: undefined,
   CODEY_SINGBOX_EXECUTABLE: undefined,
@@ -128,7 +120,7 @@ const singBoxEnvNames = {
   CODEY_SINGBOX_CONFIG_DIR: undefined,
 }
 
-const workspaceEnvOverrideKeys = ['CODEY_PROXY_URL', 'FORWARDER_WEBHOOK_HOST']
+const workspaceEnvOverrideKeys = ['CODEY_PROXY_URL']
 
 describe('resolveConfig codex defaults', () => {
   it('uses built-in Codex OAuth defaults when env overrides are absent', async () => {
@@ -166,7 +158,6 @@ describe('resolveConfig Android Appium config', () => {
     const config = await withEnv(
       {
         ...androidEnvNames,
-        ...forwarderWebhookEnvNames,
         ...singBoxEnvNames,
       },
       () => resolveConfig(),
@@ -177,13 +168,6 @@ describe('resolveConfig Android Appium config', () => {
       automationName: 'UiAutomator2',
       deviceName: 'Android',
       noReset: true,
-    })
-    expect(config.forwarderWebhook).toEqual({
-      enabled: true,
-      host: '127.0.0.1',
-      port: 3001,
-      path: '/webhooks/codey-app/whatsapp',
-      deviceId: undefined,
     })
     expect(config.singBox).toEqual({
       enabled: true,

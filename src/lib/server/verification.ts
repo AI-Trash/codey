@@ -75,7 +75,7 @@ export interface WhatsAppNotificationPayload {
   body?: string | null
   rawPayload?: Record<string, unknown> | null
   extractedCode?: string | null
-  receivedAt?: string | null
+  receivedAt?: string | number | null
 }
 
 type JsonRecord = Record<string, unknown>
@@ -1002,8 +1002,13 @@ function readStringFromJsonPayloadCandidates(
   return undefined
 }
 
-function normalizeWhatsAppReceivedAt(value: string | null | undefined) {
-  const normalized = normalizeOptionalString(value)
+function normalizeWhatsAppReceivedAt(
+  value: string | number | null | undefined,
+) {
+  const normalized =
+    typeof value === 'number' && Number.isFinite(value)
+      ? String(value)
+      : normalizeOptionalString(value)
   if (!normalized) {
     return new Date()
   }

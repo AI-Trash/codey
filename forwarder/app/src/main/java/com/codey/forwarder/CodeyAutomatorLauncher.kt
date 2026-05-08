@@ -24,8 +24,9 @@ object CodeyAutomatorLauncher {
             arrayOf("su", "-c", instrumentCommand),
             timeoutMs + 20_000L
         )
-        if (root.exitCode == 0) {
-            return AutomatorRunResult.fromCommand("root", root)
+        val rootResult = AutomatorRunResult.fromCommand("root", root)
+        if (rootResult.ok || root.exitCode == 0) {
+            return rootResult
         }
 
         if (!hasShizukuPermission()) {
@@ -113,16 +114,51 @@ object CodeyAutomatorLauncher {
         stderr.start()
         val completed = process.waitFor(max(1L, timeoutMs), TimeUnit.MILLISECONDS)
         if (!completed) {
+            val stdoutSnapshot = stdout.output()
+            val payloadExitCode = exitCodeFromPayload(stdoutSnapshot)
+            if (payloadExitCode != null) {
+                process.destroy()
+                stdout.join(1_000L)
+                stderr.join(1_000L)
+                return CommandResult(payloadExitCode, stdout.output(), stderr.output())
+            }
             process.destroyForcibly()
             throw IllegalStateException("Timed out running Codey automator.")
         }
         stdout.join(1_000L)
         stderr.join(1_000L)
-        return CommandResult(process.exitValue(), stdout.output(), stderr.output())
+        val stdoutOutput = stdout.output()
+        val exitCode = readExitCode(process, stdoutOutput)
+        return CommandResult(exitCode, stdoutOutput, stderr.output())
+    }
+
+    private fun readExitCode(process: Process, stdout: String): Int {
+        return try {
+            process.exitValue()
+        } catch (error: IllegalThreadStateException) {
+            val payloadExitCode = exitCodeFromPayload(stdout)
+            if (payloadExitCode != null) {
+                payloadExitCode
+            } else {
+                process.destroyForcibly()
+                throw IllegalStateException(
+                    "Codey automator process finished output collection without an exit code.",
+                    error
+                )
+            }
+        }
     }
 
     private fun shellQuote(value: String): String {
         return "'" + value.replace("'", "'\\''") + "'"
+    }
+
+    private fun exitCodeFromPayload(output: String?): Int? {
+        val payload = parsePayload(output) ?: return null
+        if (!payload.has("ok")) {
+            return null
+        }
+        return if (payload.optBoolean("ok", false)) 0 else 1
     }
 
     data class AutomatorRunResult(
@@ -138,7 +174,7 @@ object CodeyAutomatorLauncher {
             fun fromCommand(mode: String, commandResult: CommandResult): AutomatorRunResult {
                 val payload = parsePayload(commandResult.stdout)
                 val payloadError = payload?.optString("error")?.takeIf { it.isNotEmpty() }
-                val ok = commandResult.exitCode == 0 && payload?.optBoolean("ok", false) == true
+                val ok = payload?.optBoolean("ok", false) == true
                 val error = if (ok) {
                     null
                 } else {

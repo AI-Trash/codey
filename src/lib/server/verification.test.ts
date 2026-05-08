@@ -1151,6 +1151,49 @@ describe('WhatsApp notification ingest', () => {
     )
   })
 
+  it('accepts numeric WhatsApp notification timestamps', async () => {
+    const receivedAt = new Date('2026-04-30T00:00:00.000Z')
+    const notificationRecord = {
+      id: 'notification-record-1',
+      reservationId: null,
+      verificationCode: '919191',
+      receivedAt,
+    }
+    const notificationInsert = createInsertChain(notificationRecord)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationEmailReservations: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      },
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: notificationInsert.values }),
+    })
+
+    await expect(
+      ingestWhatsAppNotification({
+        body: 'Use 919191 to verify your account',
+        receivedAt: receivedAt.getTime(),
+      }),
+    ).resolves.toMatchObject({
+      notificationRecord,
+      codeRecord: null,
+      match: {
+        status: 'unmatched',
+        reason: 'no_active_reservation',
+      },
+    })
+
+    expect(notificationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verificationCode: '919191',
+        receivedAt,
+      }),
+    )
+  })
+
   it('keeps an ambiguous WhatsApp code unmatched when multiple reservations are active', async () => {
     const receivedAt = new Date('2026-04-30T00:00:00.000Z')
     const notificationRecord = {

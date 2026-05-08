@@ -202,7 +202,7 @@ export async function runCodeyAppGoPayUnlink(
 
       const result = await runAdbShellCommand(command, timeoutMs + 30_000)
       const payload = readLastJsonObject(result.stdout)
-      if (result.exitCode !== 0 || !payload?.ok) {
+      if (payload?.ok !== true) {
         const payloadError = readString(payload?.error)
         throw new Error(
           payloadError ||

@@ -3,9 +3,9 @@
 package com.codey.app
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -23,11 +23,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -51,13 +49,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.google.zxing.integration.android.IntentIntegrator
 import com.google.zxing.integration.android.IntentResult
-import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var codeyBaseUrl by mutableStateOf("")
-    private var webhookUrl by mutableStateOf("")
     private var deviceId by mutableStateOf("")
     private var whatsappPhoneNumber by mutableStateOf("")
     private var gopayPhoneNumber by mutableStateOf("")
@@ -74,8 +70,6 @@ class MainActivity : ComponentActivity() {
                 ForwarderAppScreen(
                     codeyBaseUrl = codeyBaseUrl,
                     onCodeyBaseUrlChange = { codeyBaseUrl = it },
-                    webhookUrl = webhookUrl,
-                    onWebhookUrlChange = { webhookUrl = it },
                     deviceId = deviceId,
                     onDeviceIdChange = { deviceId = it },
                     whatsappPhoneNumber = whatsappPhoneNumber,
@@ -93,9 +87,6 @@ class MainActivity : ComponentActivity() {
                         ForwarderConfig.saveStatus(this, "Settings saved.")
                         refreshStatus()
                     },
-                    onNotificationAccess = {
-                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    },
                     onRefresh = { refreshStatus() },
                     onStartPairing = { startPairing() },
                     onCompletePairing = { completePairing() },
@@ -103,14 +94,14 @@ class MainActivity : ComponentActivity() {
                     onOpenPairingLink = { openPairingLink() },
                     onCopyPairingLink = { copyPairingLink() },
                     onCopyPairingUserCode = { copyPairingUserCode() },
+                    onNotificationAccess = {
+                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    },
+                    onSendTestPayload = { sendTestPayload() },
                     onStartKeepAlive = { startKeepAlive() },
                     onBatterySettings = { openBatterySettings() },
                     onShizukuPermission = { requestShizukuPermission() },
-                    onRunGoPayUnlink = { runGoPayUnlink() },
-                    onSendTestPayload = {
-                        saveSettings()
-                        sendTestPayload()
-                    }
+                    onRunGoPayUnlink = { runGoPayUnlink() }
                 )
             }
         }
@@ -133,7 +124,6 @@ class MainActivity : ComponentActivity() {
     private fun loadSettings() {
         val settings = ForwarderConfig.readSettings(this)
         codeyBaseUrl = settings.codeyBaseUrl
-        webhookUrl = settings.webhookUrl
         deviceId = settings.deviceId
         whatsappPhoneNumber = settings.whatsappPhoneNumber
         gopayPhoneNumber = settings.gopayPhoneNumber
@@ -146,7 +136,6 @@ class MainActivity : ComponentActivity() {
             this,
             ForwarderSettings(
                 codeyBaseUrl,
-                webhookUrl,
                 deviceId,
                 ForwarderConfig.readSettings(this).deviceToken,
                 whatsappPhoneNumber,
@@ -330,7 +319,6 @@ class MainActivity : ComponentActivity() {
                 this,
                 ForwarderSettings(
                     link.baseUrl,
-                    current.webhookUrl,
                     current.deviceId,
                     current.deviceToken,
                     current.whatsappPhoneNumber,
@@ -441,7 +429,6 @@ class MainActivity : ComponentActivity() {
 
     private fun sendTestPayload() {
         Thread {
-            val settings = ForwarderConfig.readSettings(this)
             val sample = ForwardedNotification(
                 "com.whatsapp",
                 "test-${System.currentTimeMillis()}",
@@ -450,27 +437,26 @@ class MainActivity : ComponentActivity() {
                 "Your verification code is 123456.",
                 null,
                 null,
-                "Codey",
+                "Codey test",
                 System.currentTimeMillis()
             )
 
             try {
-                val payload: JSONObject = ForwarderNotifier.buildForwarderPayload(settings, sample)
-                val result = ForwarderNotifier.postNotificationPayload(
-                    ForwarderNotifier.resolveNotificationWebhookUrl(settings),
-                    payload,
-                    settings.deviceToken
-                )
+                val settings = ForwarderConfig.readSettings(this)
+                val payload = ForwarderNotifier.buildForwarderPayload(settings, sample)
+                val result = ForwarderNotifier.postNotificationPayload(settings, payload)
                 val message = if (result.statusCode in 200..299) {
-                    "Test forwarded: HTTP ${result.statusCode}"
+                    "Test forwarded to Codey Web: HTTP ${result.statusCode}"
                 } else {
-                    "Test failed: HTTP ${result.statusCode} ${result.responseBody.takeAtMost(120)}"
+                    "Test to Codey Web failed: HTTP ${result.statusCode} ${
+                        result.responseBody.takeAtMost(120)
+                    }"
                 }
                 ForwarderConfig.saveStatus(this, message, sample.title, sample.body)
             } catch (error: Exception) {
                 ForwarderConfig.saveStatus(
                     this,
-                    "Test failed: ${error.safeMessage()}",
+                    "Test to Codey Web failed: ${error.safeMessage()}",
                     sample.title,
                     sample.body
                 )
@@ -499,8 +485,8 @@ class MainActivity : ComponentActivity() {
         val splitter = TextUtils.SimpleStringSplitter(':')
         splitter.setString(flattened)
         while (splitter.hasNext()) {
-            val enabled = ComponentName.unflattenFromString(splitter.next())
-            if (serviceName == enabled) {
+            val componentName = ComponentName.unflattenFromString(splitter.next())
+            if (componentName == serviceName) {
                 return true
             }
         }
@@ -546,8 +532,6 @@ private fun CodeyAppTheme(content: @Composable () -> Unit) {
 private fun ForwarderAppScreen(
     codeyBaseUrl: String,
     onCodeyBaseUrlChange: (String) -> Unit,
-    webhookUrl: String,
-    onWebhookUrlChange: (String) -> Unit,
     deviceId: String,
     onDeviceIdChange: (String) -> Unit,
     whatsappPhoneNumber: String,
@@ -561,7 +545,6 @@ private fun ForwarderAppScreen(
     statusText: String,
     pairingText: String,
     onSaveSettings: () -> Unit,
-    onNotificationAccess: () -> Unit,
     onRefresh: () -> Unit,
     onStartPairing: () -> Unit,
     onCompletePairing: () -> Unit,
@@ -569,11 +552,12 @@ private fun ForwarderAppScreen(
     onOpenPairingLink: () -> Unit,
     onCopyPairingLink: () -> Unit,
     onCopyPairingUserCode: () -> Unit,
+    onNotificationAccess: () -> Unit,
+    onSendTestPayload: () -> Unit,
     onStartKeepAlive: () -> Unit,
     onBatterySettings: () -> Unit,
     onShizukuPermission: () -> Unit,
-    onRunGoPayUnlink: () -> Unit,
-    onSendTestPayload: () -> Unit
+    onRunGoPayUnlink: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -611,20 +595,13 @@ private fun ForwarderAppScreen(
                     keyboardType = KeyboardType.Uri
                 )
                 AppTextField(
-                    value = webhookUrl,
-                    onValueChange = onWebhookUrlChange,
-                    label = stringResource(R.string.label_legacy_webhook_url),
-                    minLines = 2,
-                    keyboardType = KeyboardType.Uri
-                )
-                AppTextField(
                     value = deviceId,
                     onValueChange = onDeviceIdChange,
                     label = stringResource(R.string.label_device_id)
                 )
             }
 
-            FormSection(title = stringResource(R.string.section_forwarding)) {
+            FormSection(title = stringResource(R.string.section_device)) {
                 AppTextField(
                     value = whatsappPhoneNumber,
                     onValueChange = onWhatsappPhoneNumberChange,
@@ -680,18 +657,18 @@ private fun ForwarderAppScreen(
                 )
             }
 
-            FormSection(title = stringResource(R.string.section_device)) {
+            FormSection(title = stringResource(R.string.section_actions)) {
                 ActionRow(
                     leftText = stringResource(R.string.action_notification_access),
                     onLeftClick = onNotificationAccess,
-                    rightText = stringResource(R.string.action_refresh),
-                    onRightClick = onRefresh
+                    rightText = stringResource(R.string.action_send_test_payload),
+                    onRightClick = onSendTestPayload
                 )
                 ActionRow(
                     leftText = stringResource(R.string.action_start_keep_alive),
                     onLeftClick = onStartKeepAlive,
-                    rightText = stringResource(R.string.action_battery_settings),
-                    onRightClick = onBatterySettings
+                    rightText = stringResource(R.string.action_refresh),
+                    onRightClick = onRefresh
                 )
                 ActionRow(
                     leftText = stringResource(R.string.action_shizuku_permission),
@@ -700,10 +677,10 @@ private fun ForwarderAppScreen(
                     onRightClick = onRunGoPayUnlink
                 )
                 TextButton(
-                    onClick = onSendTestPayload,
+                    onClick = onBatterySettings,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(stringResource(R.string.action_send_test_payload))
+                    Text(stringResource(R.string.action_battery_settings))
                 }
             }
 
@@ -779,16 +756,8 @@ private fun CheckRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = onCheckedChange
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f)
-        )
+        Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+        Text(text = label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

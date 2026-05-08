@@ -234,7 +234,7 @@ pnpm codey android-healthcheck --androidUdid emulator-5554
 
 Pass `--chromeDefaultProfile true` when you want a flow to start from your local Chrome `Default` profile instead of a blank temporary session. On recent Chrome versions, Codey clones the on-disk `Default` profile into a temporary automation-only user-data directory before launch so Chrome will still honor the remote debugging pipe without attaching directly to your live profile.
 
-GoPay trial checkout is split into two Codey tasks. `chatgpt-register --claimTrial gopay` and `chatgpt-team-trial --claimTrial gopay` stop as soon as they capture the Midtrans GoPay payment link, report that link back to Codey Web, and finish like the PayPal handoff. GoPay trial checkout creation does not call the ChatGPT coupon eligibility endpoint; it uses the configured trial coupon directly. Set `--trialCoupon team`, `--trialCoupon plus`, or `CHATGPT_TEAM_TRIAL_COUPON`; when omitted, Codey uses the Plus trial coupon. Codey Web then queues `chatgpt-team-trial-gopay` with the captured `--paymentRedirectUrl` to continue the GoPay authorization/payment step. For the continuation task, set `CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER`; `CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE` is optional when the Midtrans page already shows the right country code. GoPay continuation flows start an Appium companion that opens GoPay Linked apps and clicks `Unlink` -> `Unlink` before the browser opens the GoPay authorization link; set `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK=false` to skip it, or `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS` to tune the wait. After submitting the phone number, the flow clicks the GoPay authorization/confirmation page when it appears. If the authorization page asks for a WhatsApp OTP, the flow polls Codey app WhatsApp notification ingest and fills the latest 6-digit code received after the GoPay authorization page opens. If `CHATGPT_TEAM_TRIAL_GOPAY_PIN` is omitted, the flow opens the GoPay authorization page and waits for manual PIN completion until `CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS` (default 180000 ms).
+GoPay trial checkout is split into two Codey tasks. `chatgpt-register --claimTrial gopay` and `chatgpt-team-trial --claimTrial gopay` stop as soon as they capture the Midtrans GoPay payment link, report that link back to Codey Web, and finish like the PayPal handoff. GoPay trial checkout creation does not call the ChatGPT coupon eligibility endpoint; it uses the configured trial coupon directly. Set `--trialCoupon team`, `--trialCoupon plus`, or `CHATGPT_TEAM_TRIAL_COUPON`; when omitted, Codey uses the Plus trial coupon. Codey Web then queues `chatgpt-team-trial-gopay` with the captured `--paymentRedirectUrl` to continue the GoPay authorization/payment step. For the continuation task, set `CHATGPT_TEAM_TRIAL_GOPAY_PHONE_NUMBER`; `CHATGPT_TEAM_TRIAL_GOPAY_COUNTRY_CODE` is optional when the Midtrans page already shows the right country code. GoPay continuation flows start an Appium companion that opens GoPay Linked apps and clicks `Unlink` -> `Unlink` before the browser opens the GoPay authorization link; set `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_BEFORE_LINK=false` to skip it, or `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_TIMEOUT_MS` to tune the wait. After submitting the phone number, the flow clicks the GoPay authorization/confirmation page when it appears. If the authorization page asks for a WhatsApp OTP, ingest it through Codey Web's `/api/ingest/whatsapp-notification` endpoint so the flow can fill the latest 6-digit code received after the GoPay authorization page opens. If `CHATGPT_TEAM_TRIAL_GOPAY_PIN` is omitted, the flow opens the GoPay authorization page and waits for manual PIN completion until `CHATGPT_TEAM_TRIAL_GOPAY_AUTHORIZATION_TIMEOUT_MS` (default 180000 ms).
 
 `chatgpt-register-hosted-checkouts` creates a new ChatGPT account, generates hosted GoPay checkout links for the built-in country list, and opens one checkout page at a time. It uses the same `--trialCoupon` / `CHATGPT_TEAM_TRIAL_COUPON` selection as the GoPay trial checkout flow. Close the active checkout tab/window to advance to the next country; after the last page closes, the flow writes the generated link list under `artifacts/`.
 
@@ -266,38 +266,11 @@ Set `CODEY_ANDROID_APP_PACKAGE` when using a custom app id. Set
 `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_APPIUM_FALLBACK=true` only if you want the CLI
 to fall back to the old Appium GoPay unlink path when CodeyApp automation fails.
 
-CodeyApp can now pair directly with Codey Web through the same device-code style
+CodeyApp can pair directly with Codey Web through the same device-code style
 approval surface used by terminal clients. After pairing, the Android app stores
-a revocable per-device token and posts WhatsApp notifications straight to
-Codey Web's `/api/ingest/whatsapp-notification` endpoint. The legacy CLI local
-webhook remains available as a fallback when the app has not been paired.
-
-When the CLI remote worker starts, Codey also starts a local CodeyApp webhook
-endpoint for legacy WhatsApp verification notifications. The Android app lives
-in `forwarder/` and still defaults that fallback URL to the emulator address:
-
-```text
-http://10.0.2.2:3001/webhooks/codey-app/whatsapp
-```
-
-The legacy endpoint accepts JSON, form-encoded, or plain-text webhook bodies and
-forwards the original notification payload to Codey Web's
-`/api/ingest/whatsapp-notification` endpoint. Disable auto-start with
-`FORWARDER_WEBHOOK_ENABLED=false` or `pnpm codey --forwarderWebhook false`.
-Optional overrides:
-
-```env
-FORWARDER_WEBHOOK_HOST=127.0.0.1
-FORWARDER_WEBHOOK_PORT=3001
-FORWARDER_WEBHOOK_PATH=/webhooks/codey-app/whatsapp
-FORWARDER_DEVICE_ID=emulator-5554
-CODEY_ANDROID_APP_PACKAGE=com.codey.app
-```
-
-For a real Android phone, either set `FORWARDER_WEBHOOK_HOST=0.0.0.0` and use
-`http://<computer-lan-ip>:3001/webhooks/codey-app/whatsapp` in the app, or keep
-the loopback host and run `adb reverse tcp:3001 tcp:3001`, then use
-`http://127.0.0.1:3001/webhooks/codey-app/whatsapp` on the phone.
+a revocable per-device token for direct WhatsApp verification ingest and GoPay
+automation tasks. CodeyApp no longer forwards WhatsApp notifications through a
+CLI webhook.
 
 ### CLI logs
 
@@ -425,24 +398,17 @@ The workflow syncs `CODEY_INGEST_URL` and `CODEY_WEBHOOK_SECRET` into the Worker
 
 ## WhatsApp notification ingest
 
-The CLI remote worker exposes a local CodeyApp endpoint by default:
-
-```text
-POST http://127.0.0.1:3001/webhooks/codey-app/whatsapp
-```
-
-The Android app in `forwarder/` sends WhatsApp notification payloads to that
-endpoint. The CLI preserves the original payload in `rawPayload`, extracts
-common fields such as package, title, body, sender, timestamp, and OTP code, then
-forwards it to Codey Web:
+The CLI remote worker no longer exposes a local CodeyApp webhook. The Android
+app in `forwarder/` forwards WhatsApp notifications directly to Codey Web after
+mobile pairing, and other trusted clients can POST to the same endpoint:
 
 ```text
 POST /api/ingest/whatsapp-notification
 ```
 
-Direct calls to the Codey Web endpoint must be authorized with either
-`VERIFICATION_API_KEY` / `VERIFICATION_API_KEY_HEADER` or an OIDC bearer token
-with `verification:ingest`.
+Direct calls to the Codey Web endpoint must be authorized with either a paired
+mobile device bearer token, `VERIFICATION_API_KEY` / `VERIFICATION_API_KEY_HEADER`,
+or an OIDC bearer token with `verification:ingest`.
 
 Recommended payload:
 
@@ -467,15 +433,12 @@ Recommended payload:
 Build or install the Android app from `forwarder/`. For an emulator, the app's
 default Codey Web URL points at the host machine through `10.0.2.2:3000`. For a
 physical phone, set **Codey Web URL** to the computer LAN address or public
-deployment URL. The legacy webhook URL is only used when the app is not paired;
-for that fallback, set the webhook URL to either the computer LAN address with
-`FORWARDER_WEBHOOK_HOST=0.0.0.0` on the CLI, or use `adb reverse tcp:3001
-tcp:3001` and keep the legacy webhook URL on `127.0.0.1`.
+deployment URL.
 
 After installing the app:
 
 1. Open CodeyApp and confirm **Codey Web URL**, **Device ID**, and optional
-   WhatsApp / GoPay phone numbers.
+   WhatsApp and GoPay phone numbers.
 2. For QR pairing, open **Admin -> Mobile pairing** in Codey Web, click
    **Generate QR code**, then tap **Scan Web QR** in CodeyApp and scan the
    displayed QR code. CodeyApp stores the Codey Web URL, user code, approval
@@ -488,14 +451,14 @@ After installing the app:
    pending mobile pairing request.
 5. Return to CodeyApp and tap **Complete Pairing**. The status should show that
    the app is paired.
-6. Tap **Notification Access** and enable notification access for CodeyApp.
+6. Tap **Notification Access** and enable CodeyApp so it can forward WhatsApp
+   verification notifications directly to Codey Web.
 7. Return to the app and tap **Start Keep Alive**.
 8. Tap **Battery Settings** and allow unrestricted/background battery usage for
    CodeyApp. On Xiaomi/OPPO/Vivo/Huawei-style ROMs, also enable
    autostart/locked app/no background cleanup for CodeyApp.
-9. Tap **Send Test Payload**. When paired, Codey Web should receive a
-   WhatsApp notification with code `123456` even when the CLI is not running.
-   When unpaired, keep `pnpm codey` running and use the legacy local webhook.
+9. Tap **Send Test Payload**. Codey Web should receive a WhatsApp notification
+   with code `123456` even when the CLI is not running.
 
 ## Build and validation
 

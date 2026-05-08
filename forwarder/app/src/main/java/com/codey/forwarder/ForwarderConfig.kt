@@ -7,11 +7,9 @@ import org.json.JSONObject
 
 object ForwarderConfig {
     const val DEFAULT_CODEY_BASE_URL = "http://10.0.2.2:3000"
-    const val DEFAULT_WEBHOOK_URL = "http://10.0.2.2:3001/webhooks/codey-app/whatsapp"
 
     private const val PREFS_NAME = "codey_app"
     private const val KEY_CODEY_BASE_URL = "codey_base_url"
-    private const val KEY_WEBHOOK_URL = "webhook_url"
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_DEVICE_TOKEN = "device_token"
     private const val KEY_WHATSAPP_PHONE_NUMBER = "whatsapp_phone_number"
@@ -30,7 +28,6 @@ object ForwarderConfig {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return ForwarderSettings(
             codeyBaseUrl = readString(prefs, KEY_CODEY_BASE_URL, DEFAULT_CODEY_BASE_URL),
-            webhookUrl = readString(prefs, KEY_WEBHOOK_URL, DEFAULT_WEBHOOK_URL),
             deviceId = readString(prefs, KEY_DEVICE_ID, defaultDeviceId(context)),
             deviceToken = readString(prefs, KEY_DEVICE_TOKEN, ""),
             whatsappPhoneNumber = readString(prefs, KEY_WHATSAPP_PHONE_NUMBER, ""),
@@ -44,7 +41,6 @@ object ForwarderConfig {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_CODEY_BASE_URL, settings.codeyBaseUrl.trimOrEmpty())
-            .putString(KEY_WEBHOOK_URL, settings.webhookUrl.trimOrEmpty())
             .putString(KEY_DEVICE_ID, settings.deviceId.trimOrEmpty())
             .putString(KEY_DEVICE_TOKEN, settings.deviceToken.trimOrEmpty())
             .putString(KEY_WHATSAPP_PHONE_NUMBER, settings.whatsappPhoneNumber.trimOrEmpty())
