@@ -256,12 +256,51 @@ session lifecycle check that opens an Android session and reports the connected
 device details.
 
 GoPay unlink automation uses the installed CodeyApp by default instead of
-Appium. Install `forwarder/` as `com.codey.app` and install the companion
-`com.codey.automatorhost` APK from the same build; the CLI starts CodeyApp's
-AndroidX UiAutomator instrumentation through
+Appium. Install `forwarder/` as `com.codey.app`; the CodeyApp debug APK embeds
+the companion `com.codey.automatorhost` APK and installs or updates it through
+root/Shizuku when you tap **Install Automator Host** or before **Run GoPay
+Unlink**. The CLI starts CodeyApp's AndroidX UiAutomator instrumentation through
 `adb shell su -c am instrument ...`, so the target device must allow root for
 the CLI path. The Android app itself also has a root fastpath and a Shizuku
 fallback from its **Run GoPay Unlink** button.
+For users, update only the CodeyApp APK from the `codey-forwarder-debug-apk`
+artifact; the embedded companion is installed or updated by the app itself. For
+developer workspaces, this task installs the app and standalone companion APKs
+without clearing app data:
+
+```bash
+cd forwarder
+./gradlew installCodeyDebug
+```
+
+If Android reports `INSTALL_FAILED_UPDATE_INCOMPATIBLE` while updating
+`com.codey.app`, the installed app was signed by a different key. Android will
+not update that package in place; uninstall/reinstall CodeyApp once or rebuild
+with the original keystore before using `adb install -r`. A mismatched
+`com.codey.automatorhost` install is handled by CodeyApp: it uninstalls the old
+companion and reinstalls the embedded same-signature APK through root/Shizuku.
+GitHub Actions builds must use a stable signing key so downloaded APK artifacts
+can update existing installs. Configure these repository secrets:
+
+```text
+CODEY_ANDROID_SIGNING_KEYSTORE_BASE64
+CODEY_ANDROID_SIGNING_STORE_PASSWORD
+CODEY_ANDROID_SIGNING_KEY_ALIAS
+CODEY_ANDROID_SIGNING_KEY_PASSWORD
+```
+
+Create the keystore once and keep it stable:
+
+```bash
+keytool -genkeypair -v -keystore codey-forwarder.jks -storetype JKS -alias codey-forwarder -keyalg RSA -keysize 2048 -validity 10000
+base64 -w 0 codey-forwarder.jks
+```
+
+The `build-forwarder` workflow decodes that keystore, signs both APKs with it,
+and runs `./gradlew verifyDebugApkSignatures` before uploading artifacts.
+The Android app can install the embedded companion through root/Shizuku; the
+separate companion artifact remains available for diagnostics or manual
+fallback installs.
 Set `CODEY_ANDROID_APP_PACKAGE` when using a custom app id. Set
 `CHATGPT_TEAM_TRIAL_GOPAY_UNLINK_APPIUM_FALLBACK=true` only if you want the CLI
 to fall back to the old Appium GoPay unlink path when CodeyApp automation fails.

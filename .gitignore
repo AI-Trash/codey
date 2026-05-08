@@ -22,3 +22,4 @@ prisma/*.db-journal
 src/generated/prisma/
 src/routeTree.gen.ts
 .sisyphus*
+forwarder/signing/

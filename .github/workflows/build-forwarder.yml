@@ -38,9 +38,34 @@ jobs:
         run: chmod +x ./gradlew
         working-directory: forwarder
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --no-daemon
+      - name: Require signing secrets
+        run: |
+          test -n "${CODEY_ANDROID_SIGNING_KEYSTORE_BASE64}"
+          test -n "${CODEY_ANDROID_SIGNING_STORE_PASSWORD}"
+          test -n "${CODEY_ANDROID_SIGNING_KEY_ALIAS}"
+          test -n "${CODEY_ANDROID_SIGNING_KEY_PASSWORD}"
+        env:
+          CODEY_ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.CODEY_ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          CODEY_ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.CODEY_ANDROID_SIGNING_STORE_PASSWORD }}
+          CODEY_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.CODEY_ANDROID_SIGNING_KEY_ALIAS }}
+          CODEY_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.CODEY_ANDROID_SIGNING_KEY_PASSWORD }}
+
+      - name: Decode signing keystore
+        run: |
+          mkdir -p signing
+          printf '%s' "${CODEY_ANDROID_SIGNING_KEYSTORE_BASE64}" | base64 --decode > signing/codey-forwarder.jks
         working-directory: forwarder
+        env:
+          CODEY_ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.CODEY_ANDROID_SIGNING_KEYSTORE_BASE64 }}
+
+      - name: Build and verify debug APK signatures
+        run: ./gradlew verifyDebugApkSignatures --no-daemon
+        working-directory: forwarder
+        env:
+          CODEY_ANDROID_SIGNING_STORE_FILE: ${{ github.workspace }}/forwarder/signing/codey-forwarder.jks
+          CODEY_ANDROID_SIGNING_STORE_PASSWORD: ${{ secrets.CODEY_ANDROID_SIGNING_STORE_PASSWORD }}
+          CODEY_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.CODEY_ANDROID_SIGNING_KEY_ALIAS }}
+          CODEY_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.CODEY_ANDROID_SIGNING_KEY_PASSWORD }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -50,3 +75,5 @@ jobs:
           path: |
             forwarder/app/build/outputs/apk/debug/app-debug.apk
             forwarder/app/build/outputs/apk/debug/output-metadata.json
+            forwarder/automator-host/build/outputs/apk/debug/automator-host-debug.apk
+            forwarder/automator-host/build/outputs/apk/debug/output-metadata.json

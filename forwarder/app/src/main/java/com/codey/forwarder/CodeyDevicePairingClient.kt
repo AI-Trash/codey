@@ -25,11 +25,14 @@ object CodeyDevicePairingClient {
         }
 
         val response = JSONObject(result.responseBody)
+        val baseUrl = normalizeBaseUrl(settings.codeyBaseUrl)
+        val verificationUri = response.optString("verificationUri", "/device")
+        val verificationUriComplete = response.optString("verificationUriComplete", "")
         return PairingChallenge(
             deviceCode = response.getString("deviceCode"),
             userCode = response.getString("userCode"),
-            verificationUri = response.optString("verificationUri", "/device"),
-            verificationUriComplete = response.optString("verificationUriComplete", ""),
+            verificationUri = toAbsoluteUrl(baseUrl, verificationUri),
+            verificationUriComplete = toAbsoluteUrl(baseUrl, verificationUriComplete),
             expiresAt = response.optString("expiresAt", "")
         )
     }
@@ -120,6 +123,10 @@ object CodeyDevicePairingClient {
     }
 
     private fun buildUrl(baseUrl: String?, path: String): String {
+        return normalizeBaseUrl(baseUrl) + path
+    }
+
+    private fun normalizeBaseUrl(baseUrl: String?): String {
         var normalizedBase = if (baseUrl.isNullOrBlank()) {
             ForwarderConfig.DEFAULT_CODEY_BASE_URL
         } else {
@@ -128,7 +135,29 @@ object CodeyDevicePairingClient {
         while (normalizedBase.endsWith("/")) {
             normalizedBase = normalizedBase.dropLast(1)
         }
-        return normalizedBase + path
+        return normalizedBase
+    }
+
+    private fun toAbsoluteUrl(baseUrl: String, value: String): String {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) {
+            return ""
+        }
+        if (
+            trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            return trimmed
+        }
+        return if (trimmed.startsWith("/")) {
+            baseUrl + trimmed
+        } else {
+            "$baseUrl/$trimmed"
+        }
+    }
+
+    internal fun normalizeVerificationUrl(baseUrl: String?, value: String): String {
+        return toAbsoluteUrl(normalizeBaseUrl(baseUrl), value)
     }
 
     private fun readStream(stream: InputStream?): String {

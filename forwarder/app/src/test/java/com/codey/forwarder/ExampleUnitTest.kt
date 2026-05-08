@@ -34,4 +34,31 @@ class ExampleUnitTest {
             assertEquals("QR code is not a Codey pairing link.", expected.message)
         }
     }
+
+    @Test
+    fun normalizesRelativeApprovalUrls() {
+        assertEquals(
+            "https://codey.example/device",
+            CodeyDevicePairingClient.normalizeVerificationUrl(
+                "https://codey.example/",
+                "/device"
+            )
+        )
+
+        assertEquals(
+            "https://codey.example/device?userCode=ABCD-EFGH",
+            CodeyDevicePairingClient.normalizeVerificationUrl(
+                "https://codey.example/",
+                "/device?userCode=ABCD-EFGH"
+            )
+        )
+
+        assertEquals(
+            "https://other.example/device?userCode=ABCD-EFGH",
+            CodeyDevicePairingClient.normalizeVerificationUrl(
+                "https://codey.example/",
+                "https://other.example/device?userCode=ABCD-EFGH"
+            )
+        )
+    }
 }

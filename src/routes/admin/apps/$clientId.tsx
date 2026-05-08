@@ -3,6 +3,11 @@ import { createServerFn } from '@tanstack/react-start'
 import { hasAdminPermission } from '#/lib/admin-access'
 import { AdminPageHeader } from '../../../components/admin/layout'
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from '../../../components/ui/alert'
+import {
   AdminAuthRequired,
   EditOAuthClientPageContent,
   type ManagedOAuthClient,
@@ -17,6 +22,10 @@ import {
 } from '../../../components/ui/card'
 import { InfoTooltip } from '../../../components/ui/info-tooltip'
 import { m } from '#/paraglide/messages'
+
+function getLoadErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
 
 const loadOAuthClient = createServerFn({ method: 'GET' })
   .inputValidator((data: { clientId: string }) => data)
@@ -38,11 +47,17 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
     ])
     const request = getRequest()
 
+    let admin
     try {
-      const admin = await requireAdminPermission(request, 'OAUTH_CLIENTS')
-      const env = getAppEnv()
-      const appBaseUrl = env.appBaseUrl || new URL(request.url).origin
+      admin = await requireAdminPermission(request, 'OAUTH_CLIENTS')
+    } catch {
+      return { authorized: false as const }
+    }
 
+    const env = getAppEnv()
+    const appBaseUrl = env.appBaseUrl || new URL(request.url).origin
+
+    try {
       const client = await getOAuthClientSummaryById(data.clientId)
       if (!client) {
         return {
@@ -51,12 +66,28 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
           appBaseUrl,
           supportedScopes: [] as string[],
           verificationDomains: [] as ManagedVerificationDomainOption[],
+          verificationDomainsError: null,
+          loadError: null,
           canManageDomains: hasAdminPermission(
             admin.user,
             'VERIFICATION_DOMAINS',
           ),
         }
       }
+
+      const verificationDomainsResult =
+        await listRegistrationEnabledVerificationDomains()
+          .then((domains) => ({
+            domains: domains as ManagedVerificationDomainOption[],
+            error: null,
+          }))
+          .catch((error: unknown) => ({
+            domains: [] as ManagedVerificationDomainOption[],
+            error: getLoadErrorMessage(
+              error,
+              'Unable to load verification mailboxes.',
+            ),
+          }))
 
       return {
         authorized: true as const,
@@ -65,15 +96,28 @@ const loadOAuthClient = createServerFn({ method: 'GET' })
         supportedScopes: env.oauthSupportedScopes.length
           ? env.oauthSupportedScopes
           : DEFAULT_OAUTH_SUPPORTED_SCOPES,
-        verificationDomains:
-          (await listRegistrationEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
+        verificationDomains: verificationDomainsResult.domains,
+        verificationDomainsError: verificationDomainsResult.error,
+        loadError: null,
         canManageDomains: hasAdminPermission(
           admin.user,
           'VERIFICATION_DOMAINS',
         ),
       }
-    } catch {
-      return { authorized: false as const }
+    } catch (error) {
+      return {
+        authorized: true as const,
+        client: null,
+        appBaseUrl,
+        supportedScopes: [] as string[],
+        verificationDomains: [] as ManagedVerificationDomainOption[],
+        verificationDomainsError: null,
+        loadError: getLoadErrorMessage(error, 'Unable to load OAuth app.'),
+        canManageDomains: hasAdminPermission(
+          admin.user,
+          'VERIFICATION_DOMAINS',
+        ),
+      }
     }
   })
 
@@ -88,6 +132,25 @@ function AdminAppsDetailPage() {
 
   if (!data.authorized) {
     return <AdminAuthRequired />
+  }
+
+  if (data.loadError) {
+    return (
+      <div className="grid gap-4">
+        <AdminPageHeader
+          eyebrow={m.admin_apps_eyebrow()}
+          title={m.admin_apps_title()}
+          description={m.admin_apps_description()}
+          variant="plain"
+        />
+        <Alert variant="destructive">
+          <AlertTitle>{m.oauth_clients_load_failed_title()}</AlertTitle>
+          <AlertDescription>
+            {data.loadError || m.oauth_clients_load_failed_description()}
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
   }
 
   if (!data.client) {
@@ -129,6 +192,15 @@ function AdminAppsDetailPage() {
           </>
         }
       />
+      {data.verificationDomainsError ? (
+        <Alert variant="destructive">
+          <AlertTitle>{m.domain_load_failed_title()}</AlertTitle>
+          <AlertDescription>
+            {data.verificationDomainsError ||
+              m.domain_load_failed_description()}
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <EditOAuthClientPageContent
         initialClient={data.client}
         supportedScopes={data.supportedScopes}

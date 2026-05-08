@@ -37,7 +37,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +100,7 @@ class MainActivity : ComponentActivity() {
                     onStartKeepAlive = { startKeepAlive() },
                     onBatterySettings = { openBatterySettings() },
                     onShizukuPermission = { requestShizukuPermission() },
+                    onInstallAutomatorHost = { installAutomatorHost() },
                     onRunGoPayUnlink = { runGoPayUnlink() }
                 )
             }
@@ -408,6 +408,26 @@ class MainActivity : ComponentActivity() {
         refreshStatus()
     }
 
+    private fun installAutomatorHost() {
+        Thread {
+            try {
+                val result = CodeyAutomatorLauncher.ensureAutomatorHostReady(this)
+                val message = if (result.installed) {
+                    "Codey Automator Host installed via ${result.mode}."
+                } else {
+                    "Codey Automator Host is already installed."
+                }
+                ForwarderConfig.saveStatus(this, message)
+            } catch (error: Exception) {
+                ForwarderConfig.saveStatus(
+                    this,
+                    "Codey Automator Host install failed: ${error.safeMessage()}"
+                )
+            }
+            mainHandler.post { refreshStatus() }
+        }.start()
+    }
+
     private fun runGoPayUnlink() {
         Thread {
             try {
@@ -557,6 +577,7 @@ private fun ForwarderAppScreen(
     onStartKeepAlive: () -> Unit,
     onBatterySettings: () -> Unit,
     onShizukuPermission: () -> Unit,
+    onInstallAutomatorHost: () -> Unit,
     onRunGoPayUnlink: () -> Unit
 ) {
     Surface(
@@ -673,15 +694,15 @@ private fun ForwarderAppScreen(
                 ActionRow(
                     leftText = stringResource(R.string.action_shizuku_permission),
                     onLeftClick = onShizukuPermission,
+                    rightText = stringResource(R.string.action_install_automator_host),
+                    onRightClick = onInstallAutomatorHost
+                )
+                ActionRow(
+                    leftText = stringResource(R.string.action_battery_settings),
+                    onLeftClick = onBatterySettings,
                     rightText = stringResource(R.string.action_run_gopay_unlink),
                     onRightClick = onRunGoPayUnlink
                 )
-                TextButton(
-                    onClick = onBatterySettings,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(R.string.action_battery_settings))
-                }
             }
 
             Text(

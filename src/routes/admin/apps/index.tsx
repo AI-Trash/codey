@@ -6,6 +6,11 @@ import { hasAdminPermission } from '#/lib/admin-access'
 
 import { AdminPageHeader } from '../../../components/admin/layout'
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from '../../../components/ui/alert'
+import {
   AdminAuthRequired,
   CreateOAuthClientDialog,
   OAuthClientsList,
@@ -21,6 +26,10 @@ import {
   CardTitle,
 } from '../../../components/ui/card'
 import { m } from '#/paraglide/messages'
+
+function getLoadErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
 
 const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
   const [
@@ -41,20 +50,9 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
   const request = getRequest()
   const env = getAppEnv()
 
+  let admin
   try {
-    const admin = await requireAdminPermission(request, 'OAUTH_CLIENTS')
-
-    return {
-      authorized: true as const,
-      clients: (await listOAuthClients()) as ManagedOAuthClient[],
-      appBaseUrl: env.appBaseUrl || new URL(request.url).origin,
-      supportedScopes: env.oauthSupportedScopes.length
-        ? env.oauthSupportedScopes
-        : DEFAULT_OAUTH_SUPPORTED_SCOPES,
-      verificationDomains:
-        (await listRegistrationEnabledVerificationDomains()) as ManagedVerificationDomainOption[],
-      canManageDomains: hasAdminPermission(admin.user, 'VERIFICATION_DOMAINS'),
-    }
+    admin = await requireAdminPermission(request, 'OAUTH_CLIENTS')
   } catch {
     return {
       authorized: false as const,
@@ -63,6 +61,48 @@ const loadOAuthClients = createServerFn({ method: 'GET' }).handler(async () => {
       supportedScopes: [] as string[],
       verificationDomains: [] as ManagedVerificationDomainOption[],
       canManageDomains: false,
+      loadError: null,
+      verificationDomainsError: null,
+    }
+  }
+
+  try {
+    const verificationDomainsResult =
+      await listRegistrationEnabledVerificationDomains()
+        .then((domains) => ({
+          domains: domains as ManagedVerificationDomainOption[],
+          error: null,
+        }))
+        .catch((error: unknown) => ({
+          domains: [] as ManagedVerificationDomainOption[],
+          error: getLoadErrorMessage(
+            error,
+            'Unable to load verification mailboxes.',
+          ),
+        }))
+
+    return {
+      authorized: true as const,
+      clients: (await listOAuthClients()) as ManagedOAuthClient[],
+      appBaseUrl: env.appBaseUrl || new URL(request.url).origin,
+      supportedScopes: env.oauthSupportedScopes.length
+        ? env.oauthSupportedScopes
+        : DEFAULT_OAUTH_SUPPORTED_SCOPES,
+      verificationDomains: verificationDomainsResult.domains,
+      canManageDomains: hasAdminPermission(admin.user, 'VERIFICATION_DOMAINS'),
+      loadError: null,
+      verificationDomainsError: verificationDomainsResult.error,
+    }
+  } catch (error) {
+    return {
+      authorized: true as const,
+      clients: [] as ManagedOAuthClient[],
+      appBaseUrl: 'http://localhost:3000',
+      supportedScopes: [] as string[],
+      verificationDomains: [] as ManagedVerificationDomainOption[],
+      canManageDomains: hasAdminPermission(admin.user, 'VERIFICATION_DOMAINS'),
+      loadError: getLoadErrorMessage(error, 'Unable to load OAuth apps.'),
+      verificationDomainsError: null,
     }
   }
 })
@@ -94,6 +134,25 @@ function AdminAppsListPage() {
 
   if (!data.authorized) {
     return <AdminAuthRequired />
+  }
+
+  if (data.loadError) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-6">
+        <AdminPageHeader
+          eyebrow={m.admin_apps_eyebrow()}
+          title={m.admin_apps_title()}
+          description={m.admin_apps_description()}
+          variant="plain"
+        />
+        <Alert variant="destructive">
+          <AlertTitle>{m.oauth_clients_load_failed_title()}</AlertTitle>
+          <AlertDescription>
+            {data.loadError || m.oauth_clients_load_failed_description()}
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
   }
 
   function setCreateDialogOpen(open: boolean) {
@@ -142,6 +201,15 @@ function AdminAppsListPage() {
             <OAuthClientsList clients={clients} fillHeight />
           </CardContent>
         </Card>
+        {data.verificationDomainsError ? (
+          <Alert variant="destructive">
+            <AlertTitle>{m.domain_load_failed_title()}</AlertTitle>
+            <AlertDescription>
+              {data.verificationDomainsError ||
+                m.domain_load_failed_description()}
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </div>
 
       <CreateOAuthClientDialog

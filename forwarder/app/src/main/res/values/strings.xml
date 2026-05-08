@@ -24,6 +24,7 @@
     <string name="action_start_keep_alive">Start Keep Alive</string>
     <string name="action_battery_settings">Battery Settings</string>
     <string name="action_shizuku_permission">Shizuku Permission</string>
+    <string name="action_install_automator_host">Install Automator Host</string>
     <string name="action_run_gopay_unlink">Run GoPay Unlink</string>
     <string name="action_send_test_payload">Send Test Payload</string>
     <string name="status_notification_access">Notification access: %1$s</string>

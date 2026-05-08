@@ -12,6 +12,7 @@
 
     <queries>
         <package android:name="com.gojek.gopay" />
+        <package android:name="com.codey.automatorhost" />
     </queries>
 
     <instrumentation

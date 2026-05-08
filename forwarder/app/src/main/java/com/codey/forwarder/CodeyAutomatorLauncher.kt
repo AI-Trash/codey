@@ -1,9 +1,11 @@
 package com.codey.app
 
 import android.content.Context
+import android.content.pm.PackageManager
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.InputStream
 import java.lang.reflect.Method
 import java.util.concurrent.TimeUnit
@@ -11,8 +13,11 @@ import kotlin.math.max
 
 object CodeyAutomatorLauncher {
     private const val SHIZUKU_PERMISSION_REQUEST_CODE = 7721
+    private const val AUTOMATOR_HOST_PACKAGE = "com.codey.automatorhost"
+    private const val AUTOMATOR_HOST_ASSET = "codey-automator-host.apk"
 
     fun runGoPayUnlink(context: Context, timeoutMs: Long): AutomatorRunResult {
+        ensureAutomatorHostReady(context)
         val instrumentCommand = buildInstrumentationCommand(
             context,
             "gopay-unlink",
@@ -90,12 +95,153 @@ object CodeyAutomatorLauncher {
             shellQuote("$packageName/.CodeyAutomatorInstrumentation")
     }
 
+    fun ensureAutomatorHostReady(context: Context): AutomatorHostInstallResult {
+        if (isAutomatorHostSignatureValid(context)) {
+            return AutomatorHostInstallResult(false, "installed", null, null)
+        }
+
+        val apkFile = writeAutomatorHostApk(context)
+        try {
+            val root = installAutomatorHostWithRoot(apkFile)
+            if (root.exitCode == 0 && isAutomatorHostSignatureValid(context)) {
+                return AutomatorHostInstallResult(true, "root", root, null)
+            }
+
+            if (!hasShizukuPermission()) {
+                requestShizukuPermission()
+                throw IllegalStateException(
+                    "Codey Automator Host install needs root or Shizuku permission. Shizuku permission was requested; grant it and try again."
+                )
+            }
+
+            val shizuku = installAutomatorHostWithShizuku(apkFile)
+            if (shizuku.exitCode == 0 && isAutomatorHostSignatureValid(context)) {
+                return AutomatorHostInstallResult(true, "shizuku", root, shizuku)
+            }
+
+            val error = listOf(root, shizuku)
+                .map { result ->
+                    val output = (result.stderr.ifBlank { result.stdout }).takeAtMost(240)
+                    output.ifBlank { "exitCode=${result.exitCode}" }
+                }
+                .joinToString("; ")
+            throw IllegalStateException(
+                "Codey Automator Host install failed or installed with the wrong signature: $error"
+            )
+        } finally {
+            apkFile.delete()
+        }
+    }
+
+    private fun isAutomatorHostSignatureValid(context: Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo(AUTOMATOR_HOST_PACKAGE, 0)
+            context.packageManager.checkSignatures(
+                context.applicationInfo.packageName,
+                AUTOMATOR_HOST_PACKAGE
+            ) == PackageManager.SIGNATURE_MATCH
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun writeAutomatorHostApk(context: Context): File {
+        val directory = context.externalCacheDir ?: context.cacheDir
+        if (!directory.exists()) {
+            directory.mkdirs()
+        }
+        val apkFile = File(directory, AUTOMATOR_HOST_ASSET)
+        context.assets.open(AUTOMATOR_HOST_ASSET).use { input ->
+            apkFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        apkFile.setReadable(true, false)
+        return apkFile
+    }
+
+    private fun installAutomatorHostWithRoot(apkFile: File): CommandResult {
+        return try {
+            val firstAttempt = runRootInstall(apkFile)
+            if (!isUpdateIncompatible(firstAttempt)) {
+                return firstAttempt
+            }
+
+            runLocalProcess(
+                arrayOf("su", "-c", "pm uninstall $AUTOMATOR_HOST_PACKAGE"),
+                60_000L
+            )
+            runRootInstall(apkFile)
+        } catch (error: Exception) {
+            CommandResult(
+                1,
+                "",
+                "Root install failed: ${error.safeInstallerMessage()}"
+            )
+        }
+    }
+
+    private fun installAutomatorHostWithShizuku(apkFile: File): CommandResult {
+        return try {
+            val firstAttempt = runShizukuInstall(apkFile)
+            if (!isUpdateIncompatible(firstAttempt)) {
+                return firstAttempt
+            }
+
+            runShizukuProcess(
+                arrayOf("sh", "-c", "pm uninstall $AUTOMATOR_HOST_PACKAGE"),
+                60_000L
+            )
+            runShizukuInstall(apkFile)
+        } catch (error: Exception) {
+            CommandResult(
+                1,
+                "",
+                "Shizuku install failed: ${error.safeInstallerMessage()}"
+            )
+        }
+    }
+
+    private fun runRootInstall(apkFile: File): CommandResult {
+        return runLocalProcess(
+            arrayOf("su", "-c", installCommand(apkFile.absolutePath)),
+            60_000L
+        )
+    }
+
+    private fun runShizukuInstall(apkFile: File): CommandResult {
+        return runShizukuProcess(
+            arrayOf("sh", "-c", installCommand(apkFile.absolutePath)),
+            60_000L
+        )
+    }
+
+    private fun isUpdateIncompatible(result: CommandResult): Boolean {
+        return result.stdout.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") ||
+            result.stderr.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE")
+    }
+
+    private fun installCommand(apkPath: String): String {
+        val installerApkPath = "/data/local/tmp/$AUTOMATOR_HOST_ASSET"
+        return "rm -f ${shellQuote(installerApkPath)}; " +
+            "cp ${shellQuote(apkPath)} ${shellQuote(installerApkPath)} && " +
+            "chmod 0644 ${shellQuote(installerApkPath)} && " +
+            "pm install -r ${shellQuote(installerApkPath)}; " +
+            "rc=\$?; " +
+            "rm -f ${shellQuote(installerApkPath)}; " +
+            "exit \$rc"
+    }
+
     private fun runLocalProcess(command: Array<String>, timeoutMs: Long): CommandResult {
         val process = ProcessBuilder(*command).start()
         return collect(process, timeoutMs)
     }
 
     private fun runShizukuProcess(command: Array<String>, timeoutMs: Long): CommandResult {
+        return collect(startShizukuProcess(command), timeoutMs)
+    }
+
+    private fun startShizukuProcess(command: Array<String>): Process {
         val newProcess: Method = Shizuku::class.java.getDeclaredMethod(
             "newProcess",
             Array<String>::class.java,
@@ -103,8 +249,7 @@ object CodeyAutomatorLauncher {
             String::class.java
         )
         newProcess.isAccessible = true
-        val process = newProcess.invoke(null, command, null, null) as Process
-        return collect(process, timeoutMs)
+        return newProcess.invoke(null, command, null, null) as Process
     }
 
     private fun collect(process: Process, timeoutMs: Long): CommandResult {
@@ -201,6 +346,13 @@ object CodeyAutomatorLauncher {
         val stderr: String
     )
 
+    data class AutomatorHostInstallResult(
+        val installed: Boolean,
+        val mode: String,
+        val rootAttempt: CommandResult?,
+        val shizukuAttempt: CommandResult?
+    )
+
     private class StreamCollector(private val stream: InputStream) : Thread() {
         private val output = ByteArrayOutputStream()
 
@@ -247,4 +399,9 @@ private fun parsePayload(output: String?): JSONObject? {
         }
     }
     return null
+}
+
+private fun Throwable.safeInstallerMessage(): String {
+    return message?.takeIf { it.isNotBlank() }
+        ?: javaClass.simpleName
 }

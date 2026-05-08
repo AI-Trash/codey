@@ -9,8 +9,13 @@ import {
 } from '#/components/admin/verification-domains'
 import { AdminAuthRequired } from '#/components/admin/oauth-clients'
 import { AdminPageHeader } from '#/components/admin/layout'
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import { m } from '#/paraglide/messages'
+
+function getLoadErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
 
 const loadVerificationDomains = createServerFn({ method: 'GET' }).handler(
   async () => {
@@ -27,14 +32,26 @@ const loadVerificationDomains = createServerFn({ method: 'GET' }).handler(
 
     try {
       await requireAdminPermission(request, 'VERIFICATION_DOMAINS')
+    } catch {
+      return { authorized: false as const }
+    }
 
+    try {
       return {
         authorized: true as const,
         domains:
           (await listVerificationDomains()) as ManagedVerificationDomain[],
+        loadError: null,
       }
-    } catch {
-      return { authorized: false as const }
+    } catch (error) {
+      return {
+        authorized: true as const,
+        domains: [] as ManagedVerificationDomain[],
+        loadError: getLoadErrorMessage(
+          error,
+          'Unable to load verification mailboxes.',
+        ),
+      }
     }
   },
 )
@@ -92,19 +109,30 @@ function AdminMailboxesPage() {
         }
       />
 
-      <VerificationDomainsPageContent
-        initialDomains={data.domains}
-        createdDomain={createdDomain}
-      />
+      {data.loadError ? (
+        <Alert variant="destructive">
+          <AlertTitle>{m.domain_load_failed_title()}</AlertTitle>
+          <AlertDescription>
+            {data.loadError || m.domain_load_failed_description()}
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <VerificationDomainsPageContent
+          initialDomains={data.domains}
+          createdDomain={createdDomain}
+        />
+      )}
 
-      <CreateVerificationDomainDialog
-        open={Boolean(search.create)}
-        onOpenChange={setCreateDialogOpen}
-        hasExistingDomains={data.domains.length > 0 || createdDomain !== null}
-        onDomainCreated={(domain) => {
-          setCreatedDomain(domain)
-        }}
-      />
+      {!data.loadError ? (
+        <CreateVerificationDomainDialog
+          open={Boolean(search.create)}
+          onOpenChange={setCreateDialogOpen}
+          hasExistingDomains={data.domains.length > 0 || createdDomain !== null}
+          onDomainCreated={(domain) => {
+            setCreatedDomain(domain)
+          }}
+        />
+      ) : null}
     </>
   )
 }

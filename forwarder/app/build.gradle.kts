@@ -3,6 +3,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val copyAutomatorHostDebugApk by tasks.registering(Copy::class) {
+    dependsOn(":automator-host:assembleDebug")
+    from(project(":automator-host").layout.buildDirectory.file("outputs/apk/debug/automator-host-debug.apk"))
+    into(layout.buildDirectory.dir("generated/assets/automator-host/debug"))
+    rename { "codey-automator-host.apk" }
+}
+
 android {
     namespace = "com.codey.app"
     compileSdk {
@@ -37,6 +44,15 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets {
+        getByName("debug") {
+            assets.srcDir(layout.buildDirectory.get().asFile.resolve("generated/assets/automator-host/debug"))
+        }
+    }
+}
+
+tasks.matching { it.name == "mergeDebugAssets" }.configureEach {
+    dependsOn(copyAutomatorHostDebugApk)
 }
 
 dependencies {
