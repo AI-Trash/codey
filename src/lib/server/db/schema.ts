@@ -959,7 +959,7 @@ export const proxyNodes = pgTable(
     name: text('name').notNull(),
     tag: text('tag').notNull(),
     protocol: text('protocol')
-      .$type<'hysteria2' | 'trojan' | 'vless' | 'socks' | 'http'>()
+      .$type<'hysteria2' | 'trojan' | 'vmess' | 'vless' | 'socks' | 'http'>()
       .default('hysteria2')
       .notNull(),
     server: text('server').notNull(),
@@ -968,6 +968,8 @@ export const proxyNodes = pgTable(
     passwordCiphertext: text('password_ciphertext'),
     passwordPreview: text('password_preview'),
     vlessFlow: text('vless_flow'),
+    protocolSettings:
+      jsonb('protocol_settings').$type<Record<string, unknown>>(),
     tlsServerName: text('tls_server_name'),
     tlsInsecure: boolean('tls_insecure').default(false).notNull(),
     description: text('description'),

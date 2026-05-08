@@ -4,9 +4,40 @@ import { ensureJson, resolveAppUrl } from './http'
 export type CodeyProxyNodeProtocol =
   | 'hysteria2'
   | 'trojan'
+  | 'vmess'
   | 'vless'
   | 'socks'
   | 'http'
+
+export interface CodeyVmessTransportSettings {
+  type: 'grpc' | 'http' | 'httpupgrade' | 'quic' | 'ws'
+  serviceName?: string
+  idleTimeout?: string
+  pingTimeout?: string
+  permitWithoutStream?: boolean
+  host?: string | string[]
+  path?: string
+  method?: string
+  headers?: Record<string, string | string[]>
+  maxEarlyData?: number
+  earlyDataHeaderName?: string
+}
+
+export interface CodeyVmessProtocolSettings {
+  security?:
+    | 'auto'
+    | 'none'
+    | 'zero'
+    | 'aes-128-gcm'
+    | 'chacha20-poly1305'
+    | 'aes-128-ctr'
+  alterId?: number
+  globalPadding?: boolean
+  authenticatedLength?: boolean
+  network?: 'tcp' | 'udp'
+  packetEncoding?: 'packetaddr' | 'xudp'
+  transport?: CodeyVmessTransportSettings
+}
 
 export interface CodeyProxyNode {
   id: string
@@ -19,6 +50,7 @@ export interface CodeyProxyNode {
   password?: string
   uuid?: string
   vlessFlow?: string
+  vmess?: CodeyVmessProtocolSettings
   tls?: {
     enabled: true
     serverName?: string

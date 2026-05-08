@@ -673,6 +673,7 @@ async function runRemoteWorker(
               (node) =>
                 node.protocol === 'hysteria2' ||
                 node.protocol === 'trojan' ||
+                node.protocol === 'vmess' ||
                 node.protocol === 'vless',
             )
           ) {
@@ -681,7 +682,7 @@ async function runRemoteWorker(
             )
           } else if (proxyNodes.length) {
             writeCliStderrLine(
-              `[cli:singbox] No usable hysteria2, trojan, or vless proxy node found in ${proxyNodes.length} configured node(s).`,
+              `[cli:singbox] No usable hysteria2, trojan, vmess, or vless proxy node found in ${proxyNodes.length} configured node(s).`,
             )
           }
           logCliEvent('info', 'singbox.proxy_nodes.loaded', {

@@ -10,9 +10,49 @@ import { createId } from './security'
 export type ProxyNodeProtocol =
   | 'hysteria2'
   | 'trojan'
+  | 'vmess'
   | 'vless'
   | 'socks'
   | 'http'
+
+export type VmessSecurity =
+  | 'auto'
+  | 'none'
+  | 'zero'
+  | 'aes-128-gcm'
+  | 'chacha20-poly1305'
+  | 'aes-128-ctr'
+
+export type VmessNetwork = 'tcp' | 'udp'
+export type VmessPacketEncoding = 'packetaddr' | 'xudp'
+export type VmessTransportType = 'grpc' | 'http' | 'httpupgrade' | 'quic' | 'ws'
+
+export interface VmessTransportSettings {
+  type: VmessTransportType
+  serviceName?: string
+  idleTimeout?: string
+  pingTimeout?: string
+  permitWithoutStream?: boolean
+  host?: string | string[]
+  path?: string
+  method?: string
+  headers?: Record<string, string | string[]>
+  maxEarlyData?: number
+  earlyDataHeaderName?: string
+}
+
+export interface VmessProtocolSettings {
+  security?: VmessSecurity
+  alterId?: number
+  globalPadding?: boolean
+  authenticatedLength?: boolean
+  network?: VmessNetwork
+  packetEncoding?: VmessPacketEncoding
+  transport?: VmessTransportSettings
+}
+
+export type ProxyNodeProtocolSettings = VmessProtocolSettings &
+  Record<string, unknown>
 
 export interface ManagedProxyNodeSummary {
   id: string
@@ -25,6 +65,7 @@ export interface ManagedProxyNodeSummary {
   hasPassword: boolean
   passwordPreview: string | null
   vlessFlow: string | null
+  protocolSettings: ProxyNodeProtocolSettings | null
   tlsServerName: string | null
   tlsInsecure: boolean
   description: string | null
@@ -45,6 +86,7 @@ export interface CliProxyNodeConfig {
   password?: string
   uuid?: string
   vlessFlow?: string
+  vmess?: VmessProtocolSettings
   tls?: {
     enabled: true
     serverName?: string
@@ -61,6 +103,7 @@ export interface CreateProxyNodeInput {
   username?: string | null
   password?: string | null
   vlessFlow?: string | null
+  protocolSettings?: unknown
   tlsServerName?: string | null
   tlsInsecure?: boolean
   description?: string | null
@@ -97,6 +140,7 @@ function normalizeProtocol(value: unknown): ProxyNodeProtocol {
   if (
     value === 'hysteria2' ||
     value === 'trojan' ||
+    value === 'vmess' ||
     value === 'vless' ||
     value === 'socks' ||
     value === 'http'
@@ -104,7 +148,9 @@ function normalizeProtocol(value: unknown): ProxyNodeProtocol {
     return value
   }
 
-  throw new Error('protocol must be hysteria2, trojan, vless, socks, or http')
+  throw new Error(
+    'protocol must be hysteria2, trojan, vmess, vless, socks, or http',
+  )
 }
 
 function normalizeServerPort(value: number): number {
@@ -128,9 +174,9 @@ function normalizeVlessFlow(value: string | null | undefined): string | null {
   return normalized
 }
 
-function validateVlessUuid(value: string | null): void {
+function validateUuid(value: string | null, protocol: 'vless' | 'vmess'): void {
   if (!value) {
-    throw new Error('uuid is required for vless proxy nodes')
+    throw new Error(`uuid is required for ${protocol} proxy nodes`)
   }
 
   if (!isValidUuid(value)) {
@@ -144,7 +190,11 @@ function validateProtocolCredentials(input: {
   passwordCiphertext: string | null | undefined
 }): void {
   if (input.protocol === 'vless') {
-    validateVlessUuid(input.username)
+    validateUuid(input.username, 'vless')
+  }
+
+  if (input.protocol === 'vmess') {
+    validateUuid(input.username, 'vmess')
   }
 
   if (input.protocol === 'trojan' && !input.passwordCiphertext) {
@@ -154,6 +204,305 @@ function validateProtocolCredentials(input: {
 
 function shouldKeepUsername(protocol: ProxyNodeProtocol): boolean {
   return protocol !== 'hysteria2' && protocol !== 'trojan'
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function readRecordValue(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): unknown {
+  for (const key of keys) {
+    if (Object.hasOwn(record, key)) {
+      return record[key]
+    }
+  }
+
+  return undefined
+}
+
+function readOptionalString(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): string | null {
+  const value = readRecordValue(record, ...keys)
+  return typeof value === 'string' ? normalizeOptionalText(value) : null
+}
+
+function normalizeOptionalInteger(
+  value: unknown,
+  field: string,
+): number | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined
+  }
+
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`${field} must be an integer`)
+  }
+
+  return parsed
+}
+
+function normalizeVmessSecurity(value: unknown): VmessSecurity | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) {
+    return undefined
+  }
+
+  if (
+    normalized === 'auto' ||
+    normalized === 'none' ||
+    normalized === 'zero' ||
+    normalized === 'aes-128-gcm' ||
+    normalized === 'chacha20-poly1305' ||
+    normalized === 'aes-128-ctr'
+  ) {
+    return normalized
+  }
+
+  throw new Error('vmess security is not supported')
+}
+
+function normalizeVmessNetwork(value: unknown): VmessNetwork | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) {
+    return undefined
+  }
+
+  if (normalized === 'tcp' || normalized === 'udp') {
+    return normalized
+  }
+
+  throw new Error('vmess network must be tcp, udp, or empty')
+}
+
+function normalizeVmessPacketEncoding(
+  value: unknown,
+): VmessPacketEncoding | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) {
+    return undefined
+  }
+
+  if (normalized === 'packetaddr' || normalized === 'xudp') {
+    return normalized
+  }
+
+  throw new Error('vmess packetEncoding must be packetaddr, xudp, or empty')
+}
+
+function normalizeVmessTransportType(
+  value: unknown,
+): VmessTransportType | undefined {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (!normalized) {
+    return undefined
+  }
+
+  if (
+    normalized === 'grpc' ||
+    normalized === 'http' ||
+    normalized === 'httpupgrade' ||
+    normalized === 'quic' ||
+    normalized === 'ws'
+  ) {
+    return normalized
+  }
+
+  throw new Error('vmess transport type is not supported')
+}
+
+function normalizeVmessDuration(
+  value: unknown,
+  field: string,
+): string | undefined {
+  const normalized = typeof value === 'string' ? value.trim() : ''
+  if (!normalized) {
+    return undefined
+  }
+
+  if (!/^\d+(ns|us|µs|ms|s|m|h)$/.test(normalized)) {
+    throw new Error(`${field} must be a duration like 60s`)
+  }
+
+  return normalized
+}
+
+function normalizeVmessHost(value: unknown): string | string[] | undefined {
+  if (typeof value === 'string') {
+    return normalizeOptionalText(value) || undefined
+  }
+
+  if (Array.isArray(value)) {
+    const hosts = value
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+    return hosts.length ? hosts : undefined
+  }
+
+  return undefined
+}
+
+function normalizeVmessHeaders(
+  value: unknown,
+): Record<string, string | string[]> | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const headers: Record<string, string | string[]> = {}
+  for (const [key, headerValue] of Object.entries(value)) {
+    const headerName = key.trim()
+    if (!headerName) {
+      continue
+    }
+
+    if (typeof headerValue === 'string') {
+      const normalized = normalizeOptionalText(headerValue)
+      if (normalized) {
+        headers[headerName] = normalized
+      }
+      continue
+    }
+
+    if (Array.isArray(headerValue)) {
+      const normalizedValues = headerValue
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+      if (normalizedValues.length) {
+        headers[headerName] = normalizedValues
+      }
+    }
+  }
+
+  return Object.keys(headers).length ? headers : undefined
+}
+
+function normalizeVmessTransport(
+  value: unknown,
+): VmessTransportSettings | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+
+  const type = normalizeVmessTransportType(readRecordValue(value, 'type'))
+  if (!type) {
+    return undefined
+  }
+
+  const maxEarlyData = normalizeOptionalInteger(
+    readRecordValue(value, 'maxEarlyData', 'max_early_data'),
+    'vmess transport maxEarlyData',
+  )
+
+  if (maxEarlyData !== undefined && maxEarlyData < 0) {
+    throw new Error('vmess transport maxEarlyData must be at least 0')
+  }
+
+  const serviceName = readOptionalString(value, 'serviceName', 'service_name')
+  const idleTimeout = normalizeVmessDuration(
+    readRecordValue(value, 'idleTimeout', 'idle_timeout'),
+    'vmess transport idleTimeout',
+  )
+  const pingTimeout = normalizeVmessDuration(
+    readRecordValue(value, 'pingTimeout', 'ping_timeout'),
+    'vmess transport pingTimeout',
+  )
+  const permitWithoutStream = readRecordValue(
+    value,
+    'permitWithoutStream',
+    'permit_without_stream',
+  )
+  const host = normalizeVmessHost(readRecordValue(value, 'host'))
+  const path = readOptionalString(value, 'path')
+  const method = readOptionalString(value, 'method')
+  const headers = normalizeVmessHeaders(readRecordValue(value, 'headers'))
+  const earlyDataHeaderName = readOptionalString(
+    value,
+    'earlyDataHeaderName',
+    'early_data_header_name',
+  )
+
+  const transport: VmessTransportSettings = {
+    type,
+    ...(serviceName ? { serviceName } : {}),
+    ...(idleTimeout ? { idleTimeout } : {}),
+    ...(pingTimeout ? { pingTimeout } : {}),
+    ...(typeof permitWithoutStream === 'boolean'
+      ? { permitWithoutStream }
+      : {}),
+    ...(host ? { host } : {}),
+    ...(path ? { path } : {}),
+    ...(method ? { method } : {}),
+    ...(headers ? { headers } : {}),
+    ...(maxEarlyData !== undefined ? { maxEarlyData } : {}),
+    ...(earlyDataHeaderName ? { earlyDataHeaderName } : {}),
+  }
+
+  return transport
+}
+
+function normalizeProtocolSettings(
+  protocol: ProxyNodeProtocol,
+  value: unknown,
+): ProxyNodeProtocolSettings | null {
+  if (protocol !== 'vmess') {
+    return null
+  }
+
+  if (value === undefined || value === null || value === '') {
+    return {
+      security: 'auto',
+      alterId: 0,
+    }
+  }
+
+  if (!isRecord(value)) {
+    throw new Error('protocolSettings must be a JSON object')
+  }
+
+  const alterId = normalizeOptionalInteger(
+    readRecordValue(value, 'alterId', 'alter_id'),
+    'vmess alterId',
+  )
+  if (alterId !== undefined && (alterId < 0 || alterId > 65535)) {
+    throw new Error('vmess alterId must be between 0 and 65535')
+  }
+
+  const globalPadding = readRecordValue(
+    value,
+    'globalPadding',
+    'global_padding',
+  )
+  const authenticatedLength = readRecordValue(
+    value,
+    'authenticatedLength',
+    'authenticated_length',
+  )
+  const network = normalizeVmessNetwork(readRecordValue(value, 'network'))
+  const packetEncoding = normalizeVmessPacketEncoding(
+    readRecordValue(value, 'packetEncoding', 'packet_encoding'),
+  )
+  const transport = normalizeVmessTransport(readRecordValue(value, 'transport'))
+
+  return {
+    security:
+      normalizeVmessSecurity(readRecordValue(value, 'security')) || 'auto',
+    alterId: alterId ?? 0,
+    ...(typeof globalPadding === 'boolean' ? { globalPadding } : {}),
+    ...(typeof authenticatedLength === 'boolean'
+      ? { authenticatedLength }
+      : {}),
+    ...(network ? { network } : {}),
+    ...(packetEncoding ? { packetEncoding } : {}),
+    ...(transport ? { transport } : {}),
+  }
 }
 
 function isValidUuid(value: string): boolean {
@@ -209,6 +558,10 @@ function toSummary(row: ProxyNodeRow): ManagedProxyNodeSummary {
     hasPassword: Boolean(row.passwordCiphertext),
     passwordPreview: row.passwordPreview,
     vlessFlow: row.vlessFlow,
+    protocolSettings:
+      row.protocol === 'vmess'
+        ? normalizeProtocolSettings(row.protocol, row.protocolSettings)
+        : null,
     tlsServerName: row.tlsServerName,
     tlsInsecure: row.tlsInsecure,
     description: row.description,
@@ -226,7 +579,12 @@ function toCliConfig(row: ProxyNodeRow): CliProxyNodeConfig {
   const tlsEnabled =
     row.protocol === 'hysteria2' ||
     row.protocol === 'trojan' ||
+    row.protocol === 'vmess' ||
     row.protocol === 'vless'
+  const vmessSettings =
+    row.protocol === 'vmess'
+      ? normalizeProtocolSettings(row.protocol, row.protocolSettings)
+      : null
 
   return {
     id: row.id,
@@ -235,15 +593,18 @@ function toCliConfig(row: ProxyNodeRow): CliProxyNodeConfig {
     protocol: row.protocol,
     server: row.server,
     serverPort: row.serverPort,
-    ...(row.protocol === 'vless' && row.username
+    ...((row.protocol === 'vless' || row.protocol === 'vmess') && row.username
       ? { uuid: row.username }
       : row.username
         ? { username: row.username }
         : {}),
-    ...(row.protocol !== 'vless' && password ? { password } : {}),
+    ...(row.protocol !== 'vless' && row.protocol !== 'vmess' && password
+      ? { password }
+      : {}),
     ...(row.protocol === 'vless' && row.vlessFlow
       ? { vlessFlow: row.vlessFlow }
       : {}),
+    ...(vmessSettings ? { vmess: vmessSettings } : {}),
     ...(tlsEnabled
       ? {
           tls: {
@@ -306,6 +667,10 @@ export async function createProxyNode(
   const username = normalizeOptionalText(input.username)
   const passwordUpdate = buildPasswordUpdate(input.password)
   const vlessFlow = normalizeVlessFlow(input.vlessFlow)
+  const protocolSettings = normalizeProtocolSettings(
+    protocol,
+    input.protocolSettings,
+  )
   const now = new Date()
 
   validateProtocolCredentials({
@@ -332,12 +697,15 @@ export async function createProxyNode(
       serverPort,
       username: shouldKeepUsername(protocol) ? username : null,
       passwordCiphertext:
-        protocol === 'vless'
+        protocol === 'vless' || protocol === 'vmess'
           ? null
           : (passwordUpdate?.passwordCiphertext ?? null),
       passwordPreview:
-        protocol === 'vless' ? null : (passwordUpdate?.passwordPreview ?? null),
+        protocol === 'vless' || protocol === 'vmess'
+          ? null
+          : (passwordUpdate?.passwordPreview ?? null),
       vlessFlow: protocol === 'vless' ? vlessFlow : null,
+      protocolSettings,
       tlsServerName: normalizeOptionalText(input.tlsServerName),
       tlsInsecure: input.tlsInsecure ?? false,
       description: normalizeOptionalText(input.description),
@@ -387,8 +755,12 @@ export async function updateProxyNode(
     input.vlessFlow !== undefined
       ? normalizeVlessFlow(input.vlessFlow)
       : existing.vlessFlow
+  const nextProtocolSettings =
+    input.protocolSettings !== undefined || nextProtocol !== existing.protocol
+      ? normalizeProtocolSettings(nextProtocol, input.protocolSettings)
+      : normalizeProtocolSettings(nextProtocol, existing.protocolSettings)
   const nextPasswordCiphertext =
-    nextProtocol === 'vless'
+    nextProtocol === 'vless' || nextProtocol === 'vmess'
       ? null
       : (passwordUpdate?.passwordCiphertext ??
         (passwordUpdate ? null : existing.passwordCiphertext))
@@ -414,13 +786,14 @@ export async function updateProxyNode(
           ? normalizeServerPort(input.serverPort)
           : existing.serverPort,
       username: shouldKeepUsername(nextProtocol) ? nextUsername : null,
-      ...(nextProtocol === 'vless'
+      ...(nextProtocol === 'vless' || nextProtocol === 'vmess'
         ? {
             passwordCiphertext: null,
             passwordPreview: null,
           }
         : (passwordUpdate ?? {})),
       vlessFlow: nextProtocol === 'vless' ? nextVlessFlow : null,
+      protocolSettings: nextProtocolSettings,
       tlsServerName:
         input.tlsServerName !== undefined
           ? normalizeOptionalText(input.tlsServerName)

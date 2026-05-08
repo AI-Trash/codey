@@ -281,6 +281,13 @@
       "when": 1778083200000,
       "tag": "0039_mobile_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1778169600000,
+      "tag": "0040_proxy_node_protocol_settings",
+      "breakpoints": true
     }
   ]
 }

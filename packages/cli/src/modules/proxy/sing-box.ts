@@ -31,11 +31,18 @@ interface SingBoxOutbound {
   password?: string
   uuid?: string
   flow?: string
+  security?: string
+  alter_id?: number
+  global_padding?: boolean
+  authenticated_length?: boolean
+  network?: string
+  packet_encoding?: string
   tls?: {
     enabled: boolean
     server_name?: string
     insecure?: boolean
   }
+  transport?: Record<string, unknown>
 }
 
 interface SingBoxConfig {
@@ -194,7 +201,10 @@ function isManagedSingBoxProtocol(
   protocol: CodeyProxyNode['protocol'],
 ): boolean {
   return (
-    protocol === 'hysteria2' || protocol === 'trojan' || protocol === 'vless'
+    protocol === 'hysteria2' ||
+    protocol === 'trojan' ||
+    protocol === 'vmess' ||
+    protocol === 'vless'
   )
 }
 
@@ -261,6 +271,34 @@ function toSingBoxOutbound(
     }
   }
 
+  if (node.protocol === 'vmess') {
+    if (!node.uuid) {
+      throw new Error(
+        `vmess proxy node ${node.name || node.id} is missing uuid`,
+      )
+    }
+
+    return {
+      ...baseOutbound,
+      uuid: node.uuid,
+      security: node.vmess?.security || 'auto',
+      alter_id: node.vmess?.alterId ?? 0,
+      ...(node.vmess?.globalPadding !== undefined
+        ? { global_padding: node.vmess.globalPadding }
+        : {}),
+      ...(node.vmess?.authenticatedLength !== undefined
+        ? { authenticated_length: node.vmess.authenticatedLength }
+        : {}),
+      ...(node.vmess?.network ? { network: node.vmess.network } : {}),
+      ...(node.vmess?.packetEncoding
+        ? { packet_encoding: node.vmess.packetEncoding }
+        : {}),
+      ...(node.vmess?.transport
+        ? { transport: toSingBoxVmessTransport(node.vmess.transport) }
+        : {}),
+    }
+  }
+
   if (node.protocol === 'trojan' && !node.password) {
     throw new Error(
       `trojan proxy node ${node.name || node.id} is missing password`,
@@ -270,6 +308,34 @@ function toSingBoxOutbound(
   return {
     ...baseOutbound,
     ...(node.password ? { password: node.password } : {}),
+  }
+}
+
+function toSingBoxVmessTransport(
+  transport: NonNullable<CodeyProxyNode['vmess']>['transport'],
+): Record<string, unknown> | undefined {
+  if (!transport) {
+    return undefined
+  }
+
+  return {
+    type: transport.type,
+    ...(transport.serviceName ? { service_name: transport.serviceName } : {}),
+    ...(transport.idleTimeout ? { idle_timeout: transport.idleTimeout } : {}),
+    ...(transport.pingTimeout ? { ping_timeout: transport.pingTimeout } : {}),
+    ...(transport.permitWithoutStream !== undefined
+      ? { permit_without_stream: transport.permitWithoutStream }
+      : {}),
+    ...(transport.host ? { host: transport.host } : {}),
+    ...(transport.path ? { path: transport.path } : {}),
+    ...(transport.method ? { method: transport.method } : {}),
+    ...(transport.headers ? { headers: transport.headers } : {}),
+    ...(transport.maxEarlyData !== undefined
+      ? { max_early_data: transport.maxEarlyData }
+      : {}),
+    ...(transport.earlyDataHeaderName
+      ? { early_data_header_name: transport.earlyDataHeaderName }
+      : {}),
   }
 }
 
@@ -899,7 +965,7 @@ class LocalSingBoxProxyRuntime implements CodeySingBoxProxyRuntime {
     if (!hasUsableProxyNodes(this.nodes)) {
       await this.stop()
       throw new Error(
-        'No enabled hysteria2, trojan, or vless proxy nodes are available',
+        'No enabled hysteria2, trojan, vmess, or vless proxy nodes are available',
       )
     }
 

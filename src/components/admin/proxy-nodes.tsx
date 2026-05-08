@@ -29,9 +29,31 @@ import { m } from '#/paraglide/messages'
 export type ProxyNodeProtocol =
   | 'hysteria2'
   | 'trojan'
+  | 'vmess'
   | 'vless'
   | 'socks'
   | 'http'
+
+type VmessTransportType = 'grpc' | 'http' | 'httpupgrade' | 'quic' | 'ws'
+
+type ProxyNodeProtocolSettings = {
+  security?: string
+  alterId?: number
+  network?: string
+  packetEncoding?: string
+  transport?: {
+    type: VmessTransportType
+    serviceName?: string
+    idleTimeout?: string
+    pingTimeout?: string
+    permitWithoutStream?: boolean
+    host?: string
+    path?: string
+    method?: string
+    maxEarlyData?: number
+    earlyDataHeaderName?: string
+  }
+}
 
 export type ManagedProxyNode = {
   id: string
@@ -44,6 +66,7 @@ export type ManagedProxyNode = {
   hasPassword: boolean
   passwordPreview: string | null
   vlessFlow: string | null
+  protocolSettings: ProxyNodeProtocolSettings | null
   tlsServerName: string | null
   tlsInsecure: boolean
   description: string | null
@@ -62,6 +85,15 @@ type ProxyNodeFormValues = {
   username: string
   password: string
   vlessFlow: string
+  vmessSecurity: string
+  vmessAlterId: string
+  vmessNetwork: string
+  vmessPacketEncoding: string
+  vmessTransportType: '' | VmessTransportType
+  vmessGrpcServiceName: string
+  vmessGrpcIdleTimeout: string
+  vmessGrpcPingTimeout: string
+  vmessGrpcPermitWithoutStream: boolean
   tlsServerName: string
   tlsInsecure: boolean
   description: string
@@ -391,12 +423,16 @@ function ProxyNodeForm(props: {
   const { form, onChange } = props
   const supportsUsername =
     form.protocol !== 'hysteria2' && form.protocol !== 'trojan'
-  const supportsPassword = form.protocol !== 'vless'
+  const supportsPassword =
+    form.protocol !== 'vless' && form.protocol !== 'vmess'
   const supportsTls =
     form.protocol === 'hysteria2' ||
     form.protocol === 'trojan' ||
+    form.protocol === 'vmess' ||
     form.protocol === 'vless'
   const isVless = form.protocol === 'vless'
+  const isUuidProtocol = form.protocol === 'vless' || form.protocol === 'vmess'
+  const isVmess = form.protocol === 'vmess'
 
   function patch(values: Partial<ProxyNodeFormValues>) {
     onChange({
@@ -439,6 +475,7 @@ function ProxyNodeForm(props: {
           >
             <NativeSelectOption value="hysteria2">hysteria2</NativeSelectOption>
             <NativeSelectOption value="trojan">trojan</NativeSelectOption>
+            <NativeSelectOption value="vmess">vmess</NativeSelectOption>
             <NativeSelectOption value="vless">vless</NativeSelectOption>
             <NativeSelectOption value="socks">socks</NativeSelectOption>
             <NativeSelectOption value="http">http</NativeSelectOption>
@@ -479,7 +516,7 @@ function ProxyNodeForm(props: {
         {supportsUsername ? (
           <Field
             label={
-              isVless
+              isUuidProtocol
                 ? m.proxy_nodes_field_uuid()
                 : m.proxy_nodes_field_username()
             }
@@ -488,11 +525,11 @@ function ProxyNodeForm(props: {
               value={form.username}
               onChange={(event) => patch({ username: event.target.value })}
               placeholder={
-                isVless
+                isUuidProtocol
                   ? m.proxy_nodes_field_uuid_placeholder()
                   : m.proxy_nodes_field_username_placeholder()
               }
-              required={isVless}
+              required={isUuidProtocol}
               disabled={props.disabled}
             />
           </Field>
@@ -530,6 +567,160 @@ function ProxyNodeForm(props: {
             </NativeSelectOption>
           </NativeSelect>
         </Field>
+      ) : null}
+
+      {isVmess ? (
+        <div className="grid gap-4 rounded-lg border p-4">
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Field label={m.proxy_nodes_field_vmess_security()}>
+              <NativeSelect
+                value={form.vmessSecurity}
+                onChange={(event) =>
+                  patch({ vmessSecurity: event.target.value })
+                }
+                disabled={props.disabled}
+                className="w-full"
+              >
+                <NativeSelectOption value="auto">auto</NativeSelectOption>
+                <NativeSelectOption value="none">none</NativeSelectOption>
+                <NativeSelectOption value="zero">zero</NativeSelectOption>
+                <NativeSelectOption value="aes-128-gcm">
+                  aes-128-gcm
+                </NativeSelectOption>
+                <NativeSelectOption value="chacha20-poly1305">
+                  chacha20-poly1305
+                </NativeSelectOption>
+                <NativeSelectOption value="aes-128-ctr">
+                  aes-128-ctr
+                </NativeSelectOption>
+              </NativeSelect>
+            </Field>
+
+            <Field label={m.proxy_nodes_field_vmess_alter_id()}>
+              <Input
+                value={form.vmessAlterId}
+                onChange={(event) =>
+                  patch({ vmessAlterId: event.target.value })
+                }
+                placeholder="0"
+                inputMode="numeric"
+                disabled={props.disabled}
+              />
+            </Field>
+
+            <Field label={m.proxy_nodes_field_vmess_network()}>
+              <NativeSelect
+                value={form.vmessNetwork}
+                onChange={(event) =>
+                  patch({ vmessNetwork: event.target.value })
+                }
+                disabled={props.disabled}
+                className="w-full"
+              >
+                <NativeSelectOption value="">
+                  {m.proxy_nodes_field_vmess_default()}
+                </NativeSelectOption>
+                <NativeSelectOption value="tcp">tcp</NativeSelectOption>
+                <NativeSelectOption value="udp">udp</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Field label={m.proxy_nodes_field_vmess_packet_encoding()}>
+              <NativeSelect
+                value={form.vmessPacketEncoding}
+                onChange={(event) =>
+                  patch({ vmessPacketEncoding: event.target.value })
+                }
+                disabled={props.disabled}
+                className="w-full"
+              >
+                <NativeSelectOption value="">
+                  {m.proxy_nodes_field_vmess_default()}
+                </NativeSelectOption>
+                <NativeSelectOption value="packetaddr">
+                  packetaddr
+                </NativeSelectOption>
+                <NativeSelectOption value="xudp">xudp</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+
+            <Field label={m.proxy_nodes_field_vmess_transport()}>
+              <NativeSelect
+                value={form.vmessTransportType}
+                onChange={(event) =>
+                  patch({
+                    vmessTransportType: event.target
+                      .value as ProxyNodeFormValues['vmessTransportType'],
+                  })
+                }
+                disabled={props.disabled}
+                className="w-full"
+              >
+                <NativeSelectOption value="">
+                  {m.proxy_nodes_field_vmess_transport_none()}
+                </NativeSelectOption>
+                <NativeSelectOption value="grpc">grpc</NativeSelectOption>
+                <NativeSelectOption value="ws">ws</NativeSelectOption>
+                <NativeSelectOption value="http">http</NativeSelectOption>
+                <NativeSelectOption value="httpupgrade">
+                  httpupgrade
+                </NativeSelectOption>
+                <NativeSelectOption value="quic">quic</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          </div>
+
+          {form.vmessTransportType === 'grpc' ? (
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Field label={m.proxy_nodes_field_vmess_grpc_service_name()}>
+                <Input
+                  value={form.vmessGrpcServiceName}
+                  onChange={(event) =>
+                    patch({ vmessGrpcServiceName: event.target.value })
+                  }
+                  placeholder="webdav"
+                  disabled={props.disabled}
+                />
+              </Field>
+
+              <Field label={m.proxy_nodes_field_vmess_grpc_idle_timeout()}>
+                <Input
+                  value={form.vmessGrpcIdleTimeout}
+                  onChange={(event) =>
+                    patch({ vmessGrpcIdleTimeout: event.target.value })
+                  }
+                  placeholder="60s"
+                  disabled={props.disabled}
+                />
+              </Field>
+
+              <Field label={m.proxy_nodes_field_vmess_grpc_ping_timeout()}>
+                <Input
+                  value={form.vmessGrpcPingTimeout}
+                  onChange={(event) =>
+                    patch({ vmessGrpcPingTimeout: event.target.value })
+                  }
+                  placeholder="20s"
+                  disabled={props.disabled}
+                />
+              </Field>
+
+              <div className="lg:col-span-3">
+                <CheckboxRow
+                  checked={form.vmessGrpcPermitWithoutStream}
+                  label={m.proxy_nodes_toggle_vmess_grpc_permit_without_stream_title()}
+                  description={m.proxy_nodes_toggle_vmess_grpc_permit_without_stream_description()}
+                  onCheckedChange={(checked) =>
+                    patch({ vmessGrpcPermitWithoutStream: checked })
+                  }
+                  disabled={props.disabled}
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {supportsTls ? (
@@ -618,6 +809,30 @@ function toFormValues(node: ManagedProxyNode): ProxyNodeFormValues {
     username: node.username || '',
     password: '',
     vlessFlow: node.vlessFlow || '',
+    vmessSecurity: node.protocolSettings?.security || 'auto',
+    vmessAlterId:
+      node.protocolSettings?.alterId === undefined
+        ? '0'
+        : String(node.protocolSettings.alterId),
+    vmessNetwork: node.protocolSettings?.network || '',
+    vmessPacketEncoding: node.protocolSettings?.packetEncoding || '',
+    vmessTransportType: node.protocolSettings?.transport?.type || '',
+    vmessGrpcServiceName:
+      node.protocolSettings?.transport?.type === 'grpc'
+        ? node.protocolSettings.transport.serviceName || ''
+        : '',
+    vmessGrpcIdleTimeout:
+      node.protocolSettings?.transport?.type === 'grpc'
+        ? node.protocolSettings.transport.idleTimeout || ''
+        : '',
+    vmessGrpcPingTimeout:
+      node.protocolSettings?.transport?.type === 'grpc'
+        ? node.protocolSettings.transport.pingTimeout || ''
+        : '',
+    vmessGrpcPermitWithoutStream:
+      node.protocolSettings?.transport?.type === 'grpc'
+        ? Boolean(node.protocolSettings.transport.permitWithoutStream)
+        : false,
     tlsServerName: node.tlsServerName || '',
     tlsInsecure: node.tlsInsecure,
     description: node.description || '',
@@ -635,6 +850,15 @@ function createNewProxyNodeFormValues(): ProxyNodeFormValues {
     username: '',
     password: '',
     vlessFlow: '',
+    vmessSecurity: 'auto',
+    vmessAlterId: '0',
+    vmessNetwork: '',
+    vmessPacketEncoding: '',
+    vmessTransportType: '',
+    vmessGrpcServiceName: '',
+    vmessGrpcIdleTimeout: '',
+    vmessGrpcPingTimeout: '',
+    vmessGrpcPermitWithoutStream: false,
     tlsServerName: '',
     tlsInsecure: false,
     description: '',
@@ -660,10 +884,47 @@ function toProxyNodePayload(
       ? { password: form.password.trim() || null }
       : {}),
     vlessFlow: form.protocol === 'vless' ? form.vlessFlow.trim() || null : null,
+    protocolSettings:
+      form.protocol === 'vmess' ? toVmessProtocolSettingsPayload(form) : null,
     tlsServerName: form.tlsServerName.trim() || null,
     tlsInsecure: form.tlsInsecure,
     description: form.description.trim() || null,
     enabled: form.enabled,
+  }
+}
+
+function toVmessProtocolSettingsPayload(form: ProxyNodeFormValues) {
+  return {
+    security: form.vmessSecurity || 'auto',
+    alterId: Number(form.vmessAlterId || '0'),
+    ...(form.vmessNetwork ? { network: form.vmessNetwork } : {}),
+    ...(form.vmessPacketEncoding
+      ? { packetEncoding: form.vmessPacketEncoding }
+      : {}),
+    ...(form.vmessTransportType
+      ? {
+          transport: {
+            type: form.vmessTransportType,
+            ...(form.vmessTransportType === 'grpc' &&
+            form.vmessGrpcServiceName.trim()
+              ? { serviceName: form.vmessGrpcServiceName.trim() }
+              : {}),
+            ...(form.vmessTransportType === 'grpc' &&
+            form.vmessGrpcIdleTimeout.trim()
+              ? { idleTimeout: form.vmessGrpcIdleTimeout.trim() }
+              : {}),
+            ...(form.vmessTransportType === 'grpc' &&
+            form.vmessGrpcPingTimeout.trim()
+              ? { pingTimeout: form.vmessGrpcPingTimeout.trim() }
+              : {}),
+            ...(form.vmessTransportType === 'grpc'
+              ? {
+                  permitWithoutStream: form.vmessGrpcPermitWithoutStream,
+                }
+              : {}),
+          },
+        }
+      : {}),
   }
 }
 

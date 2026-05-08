@@ -104,8 +104,10 @@ traffic without changing the system proxy, so parallel flows can choose
 different tags independently. `CODEY_SINGBOX_MIXED_PORT` is the preferred first
 port; additional concurrent flows reserve another local port automatically. Set
 `CODEY_SINGBOX_EXECUTABLE` only when you want to force a specific local binary.
-The managed sing-box path supports hysteria2, trojan, and vless nodes. Optional
-tuning:
+The managed sing-box path supports hysteria2, trojan, vmess, and vless nodes.
+VMess nodes use the UUID field for `uuid`, the shared TLS fields for `tls`, and
+protocol settings for VMess-specific options such as `security`, `alterId`, and
+gRPC transport settings. Optional tuning:
 
 ```env
 CODEY_SINGBOX_ENABLED=true
