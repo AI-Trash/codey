@@ -29,7 +29,7 @@ export default function Header() {
         <nav className="hidden items-center gap-1 md:flex">
           {primaryLinks.map((link) => (
             <Button key={link.href} asChild variant="ghost" size="sm">
-              <a href={link.href}>{link.label}</a>
+              <Link to={link.href}>{link.label}</Link>
             </Button>
           ))}
         </nav>

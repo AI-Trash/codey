@@ -481,6 +481,44 @@ function getGraphMessageBodyFields(message: GraphMessage) {
   }
 }
 
+async function syncOutlookGraphVerificationEmail(params: {
+  reservationId: string
+  email: string
+  message: GraphMessage
+  code: string
+  receivedAt: Date
+}) {
+  const existing = await getDb().query.emailIngestRecords.findFirst({
+    where: and(
+      eq(emailIngestRecords.reservationId, params.reservationId),
+      eq(emailIngestRecords.messageId, params.message.id),
+    ),
+  })
+
+  if (existing) {
+    return existing
+  }
+
+  const bodies = getGraphMessageBodyFields(params.message)
+  const [emailRecord] = await getDb()
+    .insert(emailIngestRecords)
+    .values({
+      id: createId(),
+      reservationId: params.reservationId,
+      messageId: params.message.id,
+      recipient: params.email,
+      subject: params.message.subject || null,
+      textBody: bodies.textBody,
+      htmlBody: bodies.htmlBody,
+      rawPayload: null,
+      verificationCode: params.code,
+      receivedAt: params.receivedAt,
+    })
+    .returning()
+
+  return emailRecord || null
+}
+
 async function acquireOutlookGraphAccessToken(
   credential: PersonalMailboxCredentialRow,
 ): Promise<string> {
@@ -872,6 +910,13 @@ export async function findOutlookGraphVerificationCode(params: {
         const receivedAt = message.receivedDateTime
           ? new Date(message.receivedDateTime)
           : new Date()
+        await syncOutlookGraphVerificationEmail({
+          reservationId: params.reservationId,
+          email: params.email,
+          message,
+          code,
+          receivedAt,
+        })
         const codeRows = await getDb()
           .insert(verificationCodes)
           .values({

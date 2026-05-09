@@ -1,9 +1,10 @@
 import '@tanstack/react-start/server-only'
 
 import crypto from 'node:crypto'
-import { asc, eq } from 'drizzle-orm'
+import { asc, eq, inArray, or } from 'drizzle-orm'
 import { getDb } from './db/client'
 import {
+  verificationEmailReservations,
   verificationDomains,
   type VerificationDomainRow,
   type VerificationMailboxType,
@@ -309,10 +310,12 @@ async function getFallbackVerificationDomain(): Promise<VerificationDomainRow | 
     return defaultDomain
   }
 
-  return getDb().query.verificationDomains.findFirst({
-    where: eq(verificationDomains.registrationEnabled, true),
-    orderBy: [asc(verificationDomains.domain)],
-  })
+  return (
+    (await getDb().query.verificationDomains.findFirst({
+      where: eq(verificationDomains.registrationEnabled, true),
+      orderBy: [asc(verificationDomains.domain)],
+    })) ?? null
+  )
 }
 
 export async function resolveVerificationDomainById(
@@ -363,13 +366,47 @@ export async function resolveReservationVerificationDomain(options?: {
   const registrationDomains = (await listVerificationDomainRows()).filter(
     (domain) => domain.registrationEnabled,
   )
-  if (!registrationDomains.length) {
+  const personalMailboxDomains = registrationDomains.filter(
+    (domain) => domain.mailboxType === 'outlook',
+  )
+  let reservedPersonalMailboxEmails = new Set<string>()
+
+  if (personalMailboxDomains.length) {
+    const activeReservations =
+      await getDb().query.verificationEmailReservations.findMany({
+        columns: { email: true, mailbox: true },
+        where: or(
+          inArray(
+            verificationEmailReservations.email,
+            personalMailboxDomains.map((domain) => domain.domain),
+          ),
+          inArray(
+            verificationEmailReservations.mailbox,
+            personalMailboxDomains.map((domain) => domain.domain),
+          ),
+        ),
+      })
+
+    reservedPersonalMailboxEmails = new Set(
+      activeReservations
+        .flatMap((reservation) => [reservation.email, reservation.mailbox])
+        .filter((email): email is string => Boolean(email)),
+    )
+  }
+
+  const availableDomains = registrationDomains.filter(
+    (domain) =>
+      domain.mailboxType !== 'outlook' ||
+      !reservedPersonalMailboxEmails.has(domain.domain),
+  )
+
+  if (!availableDomains.length) {
     throw new Error(
       'No verification mailboxes are marked for new registrations. Update one from the admin mailbox settings page.',
     )
   }
 
-  return registrationDomains[crypto.randomInt(0, registrationDomains.length)]
+  return availableDomains[crypto.randomInt(0, availableDomains.length)]
 }
 
 export async function createVerificationDomain(

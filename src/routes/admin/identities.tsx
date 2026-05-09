@@ -7,7 +7,7 @@ import {
   useState,
 } from 'react'
 
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
   CalendarIcon,
@@ -873,9 +873,12 @@ function IdentityDetailAction(props: { summary: IdentitySummary }) {
           aria-label={m.admin_identity_detail_button()}
           title={m.admin_identity_detail_button()}
         >
-          <a href={`/admin/identities/${encodeURIComponent(props.summary.id)}`}>
+          <Link
+            to="/admin/identities/$identityId"
+            params={{ identityId: props.summary.id }}
+          >
             <EyeIcon />
-          </a>
+          </Link>
         </Button>
       </TooltipTrigger>
       <TooltipContent sideOffset={6}>

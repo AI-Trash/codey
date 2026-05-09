@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type SetStateAction,
 } from 'react'
+import { Link } from '@tanstack/react-router'
 import {
   AppWindowIcon,
   CalendarIcon,
@@ -132,7 +133,7 @@ export function AdminAuthRequired() {
       </CardHeader>
       <CardContent>
         <Button asChild>
-          <a href="/admin/login">{m.admin_auth_required_cta()}</a>
+          <Link to="/admin/login">{m.admin_auth_required_cta()}</Link>
         </Button>
       </CardContent>
     </Card>
@@ -353,9 +354,12 @@ export function OAuthClientsList({
                   </TableCell>
                   <TableCell className="align-top text-right">
                     <Button asChild size="sm">
-                      <a href={`/admin/apps/${client.id}`}>
+                      <Link
+                        to="/admin/apps/$clientId"
+                        params={{ clientId: client.id }}
+                      >
                         {m.oauth_clients_edit_app()}
-                      </a>
+                      </Link>
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -528,9 +532,12 @@ export function CreateOAuthClientDialog({
                   footer={
                     <div className="flex flex-wrap gap-2">
                       <Button asChild size="sm">
-                        <a href={`/admin/apps/${created.client.id}`}>
+                        <Link
+                          to="/admin/apps/$clientId"
+                          params={{ clientId: created.client.id }}
+                        >
                           {m.oauth_new_open_app_settings()}
-                        </a>
+                        </Link>
                       </Button>
                       <Button
                         type="button"

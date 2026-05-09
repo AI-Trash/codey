@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
   AppWindowIcon,
@@ -183,10 +183,10 @@ function AdminIdentityDetailPage() {
         meta={<StatusBadge value={identity.status} />}
         actions={
           <Button asChild variant="outline">
-            <a href="/admin/identities">
+            <Link to="/admin/identities">
               <ArrowLeftIcon />
               {m.admin_identity_back_to_identities()}
-            </a>
+            </Link>
           </Button>
         }
       />

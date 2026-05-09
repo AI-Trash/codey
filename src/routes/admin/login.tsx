@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
@@ -79,7 +79,7 @@ function AdminLoginPage() {
               </a>
             </Button>
             <Button asChild variant="outline">
-              <a href="/device">{m.admin_login_secondary_cta()}</a>
+              <Link to="/device">{m.admin_login_secondary_cta()}</Link>
             </Button>
           </CardContent>
         </Card>

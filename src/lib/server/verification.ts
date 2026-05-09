@@ -777,13 +777,8 @@ function buildReservationEmail(
   const localPartSuffix = prefix ? `${prefix}-${mailboxName}` : mailboxName
 
   if (verificationDomain.mailboxType === 'outlook') {
-    const atIndex = verificationDomain.domain.lastIndexOf('@')
-    const mailboxLocalPart = verificationDomain.domain.slice(0, atIndex)
-    const mailboxDomain = verificationDomain.domain.slice(atIndex + 1)
-    const localPart = `${mailboxLocalPart}+${localPartSuffix}`
     return {
-      email: `${localPart}@${mailboxDomain}`,
-      prefix: prefix || undefined,
+      email: verificationDomain.domain,
       mailbox: verificationDomain.domain,
     }
   }
@@ -1009,7 +1004,7 @@ function normalizeWhatsAppReceivedAt(
   const normalized =
     typeof value === 'number' && Number.isFinite(value)
       ? String(value)
-      : normalizeOptionalString(value)
+      : normalizeOptionalString(typeof value === 'string' ? value : undefined)
   if (!normalized) {
     return new Date()
   }
@@ -1809,14 +1804,26 @@ export async function findVerificationCode(params: {
     })
 
     if (graphResult.code) {
-      codeRows = await getDb().query.verificationCodes.findMany({
-        where: and(
-          eq(verificationCodes.reservationId, reservation.id),
-          gte(verificationCodes.receivedAt, since),
-        ),
-        orderBy: [desc(verificationCodes.receivedAt)],
-        limit: 20,
-      })
+      const refreshedRecords = await Promise.all([
+        getDb().query.verificationCodes.findMany({
+          where: and(
+            eq(verificationCodes.reservationId, reservation.id),
+            gte(verificationCodes.receivedAt, since),
+          ),
+          orderBy: [desc(verificationCodes.receivedAt)],
+          limit: 20,
+        }),
+        getDb().query.emailIngestRecords.findMany({
+          where: and(
+            eq(emailIngestRecords.recipient, params.email),
+            gte(emailIngestRecords.receivedAt, since),
+          ),
+          orderBy: [desc(emailIngestRecords.receivedAt)],
+          limit: 5,
+        }),
+      ])
+      codeRows = refreshedRecords[0]
+      emailRows = refreshedRecords[1]
     }
   }
 
@@ -1828,9 +1835,19 @@ export async function findVerificationCode(params: {
     rawPayload: email.rawPayload,
     receivedAt: email.receivedAt.toISOString(),
   }))
-  const mergedEmails = graphResult?.emails?.length
-    ? [...graphResult.emails, ...emails]
-    : emails
+  const shouldMergeGraphEmails = graphResult?.emails?.some((graphEmail) => {
+    if (!graphEmail.messageId) {
+      return true
+    }
+
+    return !emails.some(
+      (email) => email.messageId && email.messageId === graphEmail.messageId,
+    )
+  })
+  const mergedEmails =
+    graphResult?.emails?.length && shouldMergeGraphEmails
+      ? [...graphResult.emails, ...emails]
+      : emails
 
   const manualCode = codeRows[0]
   if (!manualCode) {

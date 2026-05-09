@@ -59,17 +59,19 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           {!isAdminRoute ? <Header /> : null}
           {children}
           {!isAdminRoute ? <Footer /> : null}
-          <TanStackDevtools
-            config={{
-              position: 'bottom-right',
-            }}
-            plugins={[
-              {
-                name: 'Tanstack Router',
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-            ]}
-          />
+          {import.meta.env.DEV ? (
+            <TanStackDevtools
+              config={{
+                position: 'bottom-right',
+              }}
+              plugins={[
+                {
+                  name: 'Tanstack Router',
+                  render: <TanStackRouterDevtoolsPanel />,
+                },
+              ]}
+            />
+          ) : null}
           <Toaster closeButton richColors position="bottom-right" />
           <Scripts />
         </AppQueryProvider>

@@ -10,7 +10,7 @@ import {
   cliFlowDefinitions,
   listCliFlowConfigFieldDefinitions,
 } from '../../../packages/cli/src/modules/flow-cli/flow-registry'
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import {
   type LucideIcon,
@@ -1386,12 +1386,13 @@ function RuntimeFlowCell(props: { connection: CliConnectionSummary }) {
         {timestamp ? formatAdminDate(timestamp) || timestamp : m.oauth_none()}
       </span>
       {connection.runtimeTaskId ? (
-        <a
-          href={`/admin/flows/${encodeURIComponent(connection.runtimeTaskId)}`}
+        <Link
+          to="/admin/flows/$taskId"
+          params={{ taskId: connection.runtimeTaskId }}
           className="text-xs font-medium text-foreground underline underline-offset-4"
         >
           {m.admin_cli_view_flow()}
-        </a>
+        </Link>
       ) : null}
     </div>
   )

@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { hasAdminPermission } from '#/lib/admin-access'
 import { AdminPageHeader } from '../../../components/admin/layout'
@@ -181,13 +181,15 @@ function AdminAppsDetailPage() {
           <>
             {data.canManageDomains ? (
               <Button asChild variant="outline">
-                <a href="/admin/mailboxes/domain">{m.admin_manage_domains()}</a>
+                <Link to="/admin/mailboxes/domain">
+                  {m.admin_manage_domains()}
+                </Link>
               </Button>
             ) : null}
             <Button asChild variant="outline">
-              <a href="/admin/apps?create=true">
+              <Link to="/admin/apps" search={{ create: true }}>
                 {m.admin_register_another_app()}
-              </a>
+              </Link>
             </Button>
           </>
         }

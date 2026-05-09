@@ -289,7 +289,7 @@ export function AdminShell(props: {
                         isActive={item.matches(pathname)}
                         tooltip={item.label}
                       >
-                        <Link to={item.to}>
+                        <Link to={item.to} preload={false}>
                           <item.icon />
                           <span>{item.label}</span>
                         </Link>
@@ -302,7 +302,7 @@ export function AdminShell(props: {
                                 asChild
                                 isActive={child.matches(pathname)}
                               >
-                                <Link to={child.to}>
+                                <Link to={child.to} preload={false}>
                                   <span>{child.label}</span>
                                 </Link>
                               </SidebarMenuSubButton>
@@ -376,7 +376,9 @@ function AdminBreadcrumb(props: {
       <BreadcrumbList>
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
-            <a href={defaultRoute}>{m.admin_breadcrumb_root()}</a>
+            <Link to={defaultRoute} preload={false}>
+              {m.admin_breadcrumb_root()}
+            </Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />

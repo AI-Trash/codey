@@ -153,12 +153,12 @@ function DevicePage() {
               <div className="sm:col-span-2">
                 <p className="text-sm leading-6 text-muted-foreground">
                   {m.device_challenge_hint_prefix()}{' '}
-                  <a
+                  <Link
+                    to="/admin"
                     className="font-medium text-foreground underline underline-offset-4"
-                    href="/admin"
                   >
                     {m.device_challenge_hint_link()}
-                  </a>
+                  </Link>
                   .
                 </p>
               </div>
@@ -168,12 +168,12 @@ function DevicePage() {
               <p className="leading-6">{m.device_empty_first()}</p>
               <p className="leading-6">
                 {m.device_empty_second_prefix()}{' '}
-                <a
+                <Link
+                  to="/admin"
                   className="font-medium text-foreground underline underline-offset-4"
-                  href="/admin"
                 >
                   {m.device_empty_second_link()}
-                </a>{' '}
+                </Link>{' '}
                 {m.device_empty_second_suffix()}
               </p>
             </div>

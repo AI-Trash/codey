@@ -30,6 +30,7 @@ const loadAdminShellUser = createServerFn({ method: 'GET' }).handler(
 )
 
 export const Route = createFileRoute('/admin')({
+  staleTime: 5 * 60 * 1000,
   loader: async () => ({
     currentUser: await loadAdminShellUser(),
   }),

@@ -181,6 +181,9 @@ describe('verification email reservations', () => {
             },
           ]),
         },
+        verificationEmailReservations: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
       },
       insert: vi.fn(() => ({
         values: reservationInsert.values,
@@ -226,6 +229,9 @@ describe('verification email reservations', () => {
             },
           ]),
         },
+        verificationEmailReservations: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
       },
       insert: vi.fn(() => ({
         values: reservationInsert.values,
@@ -249,11 +255,11 @@ describe('verification email reservations', () => {
     )
   })
 
-  it('uses plus-address aliases when the selected registration mailbox is outlook', async () => {
+  it('uses the personal mailbox address directly when the selected registration mailbox is outlook', async () => {
     const reservation = {
       id: 'reservation-id',
-      email: 'codey+qa-memorable-name@outlook.example.com',
-      prefix: 'qa',
+      email: 'codey@outlook.example.com',
+      prefix: null,
       mailbox: 'codey@outlook.example.com',
       expiresAt: new Date('2026-05-03T00:15:00.000Z'),
     }
@@ -284,6 +290,9 @@ describe('verification email reservations', () => {
             },
           ]),
         },
+        verificationEmailReservations: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
       },
       insert: vi.fn(() => ({
         values: reservationInsert.values,
@@ -292,18 +301,78 @@ describe('verification email reservations', () => {
 
     await expect(reserveVerificationEmailTarget()).resolves.toMatchObject({
       reservationId: 'reservation-id',
-      email: 'codey+qa-memorable-name@outlook.example.com',
-      prefix: 'qa',
+      email: 'codey@outlook.example.com',
+      prefix: undefined,
       mailbox: 'codey@outlook.example.com',
     })
 
     expect(reservationInsert.values).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: expect.stringMatching(
-          /^codey\+qa-[a-z]+-[a-z]+-\d+@outlook\.example\.com$/,
-        ),
-        prefix: 'qa',
+        email: 'codey@outlook.example.com',
+        prefix: undefined,
         mailbox: 'codey@outlook.example.com',
+      }),
+    )
+  })
+
+  it('skips personal mailboxes that already have a reservation', async () => {
+    const reservation = {
+      id: 'reservation-id',
+      email: 'fresh@outlook.example.com',
+      prefix: null,
+      mailbox: 'fresh@outlook.example.com',
+      expiresAt: new Date('2026-05-03T00:15:00.000Z'),
+    }
+    const reservationInsert = createReservationInsertChain([reservation])
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationDomains: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'mailbox-used',
+              domain: 'used@outlook.example.com',
+              mailboxType: 'outlook',
+              mailboxPrefix: null,
+              registrationEnabled: true,
+              isDefault: false,
+              createdAt: new Date('2026-05-03T00:00:00.000Z'),
+            },
+            {
+              id: 'mailbox-fresh',
+              domain: 'fresh@outlook.example.com',
+              mailboxType: 'outlook',
+              mailboxPrefix: null,
+              registrationEnabled: true,
+              isDefault: false,
+              createdAt: new Date('2026-05-03T00:00:00.000Z'),
+            },
+          ]),
+        },
+        verificationEmailReservations: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              email: 'used@outlook.example.com',
+              mailbox: 'used@outlook.example.com',
+            },
+          ]),
+        },
+      },
+      insert: vi.fn(() => ({
+        values: reservationInsert.values,
+      })),
+    })
+
+    await expect(reserveVerificationEmailTarget()).resolves.toMatchObject({
+      email: 'fresh@outlook.example.com',
+      mailbox: 'fresh@outlook.example.com',
+    })
+
+    expect(reservationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'fresh@outlook.example.com',
+        mailbox: 'fresh@outlook.example.com',
       }),
     )
   })

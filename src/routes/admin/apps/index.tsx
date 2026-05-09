@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import { hasAdminPermission } from '#/lib/admin-access'
 
@@ -177,9 +177,9 @@ function AdminAppsListPage() {
             <>
               {data.canManageDomains ? (
                 <Button asChild variant="outline">
-                  <a href="/admin/mailboxes/domain">
+                  <Link to="/admin/mailboxes/domain">
                     {m.admin_manage_domains()}
-                  </a>
+                  </Link>
                 </Button>
               ) : null}
               <Button

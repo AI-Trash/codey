@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { ArrowRightIcon } from 'lucide-react'
 
 import { Badge } from '#/components/ui/badge'
@@ -51,13 +51,13 @@ function App() {
 
             <div className="flex flex-wrap justify-center gap-3 lg:justify-start">
               <Button asChild size="lg">
-                <a href="/admin">{m.home_primary_cta()}</a>
+                <Link to="/admin">{m.home_primary_cta()}</Link>
               </Button>
               <Button asChild variant="outline" size="lg">
-                <a href="/device">
+                <Link to="/device">
                   {m.home_secondary_cta()}
                   <ArrowRightIcon className="size-4" />
-                </a>
+                </Link>
               </Button>
             </div>
 
