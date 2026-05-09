@@ -3,13 +3,12 @@ import { requireAdminPermission } from '../../../lib/server/auth'
 import { json, text } from '../../../lib/server/http'
 import { readJsonBody } from '../../../lib/server/request'
 import {
-  createVerificationDomain,
+  createCloudflareVerificationDomain,
   listVerificationDomains,
 } from '../../../lib/server/verification-domains'
 
 interface CreateVerificationDomainBody {
   domain?: string
-  mailboxType?: 'cloudflare' | 'outlook'
   mailboxPrefix?: string | null
   description?: string
   registrationEnabled?: boolean
@@ -46,10 +45,8 @@ export const Route = createFileRoute('/api/admin/verification-domains')({
         const body = await readJsonBody<CreateVerificationDomainBody>(request)
 
         try {
-          const domain = await createVerificationDomain({
+          const domain = await createCloudflareVerificationDomain({
             domain: String(body.domain || ''),
-            mailboxType:
-              body.mailboxType === 'outlook' ? 'outlook' : 'cloudflare',
             mailboxPrefix:
               typeof body.mailboxPrefix === 'string' ||
               body.mailboxPrefix === null

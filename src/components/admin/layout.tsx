@@ -57,6 +57,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
   SidebarSeparator,
@@ -80,7 +83,7 @@ import { cn } from '#/lib/utils'
 import { m } from '#/paraglide/messages'
 import { getLocale, locales, setLocale } from '#/paraglide/runtime'
 
-type StatusTone = 'good' | 'warning' | 'danger' | 'neutral'
+export type StatusTone = 'good' | 'warning' | 'danger' | 'neutral'
 
 export type AdminShellUser = {
   name: string | null
@@ -185,7 +188,25 @@ function getAdminNavigation(currentUser?: AdminShellUser | null) {
       to: '/admin/mailboxes',
       icon: InboxIcon,
       matches: (pathname: string) =>
-        pathname === '/admin/mailboxes' || pathname === '/admin/domains',
+        pathname === '/admin/mailboxes' ||
+        pathname.startsWith('/admin/mailboxes/') ||
+        pathname === '/admin/domains',
+      children: [
+        {
+          label: m.admin_nav_domain_mailboxes(),
+          to: '/admin/mailboxes/domain',
+          matches: (pathname: string) =>
+            pathname === '/admin/mailboxes' ||
+            pathname === '/admin/mailboxes/domain' ||
+            pathname === '/admin/domains',
+        },
+        {
+          label: m.admin_nav_personal_mailboxes(),
+          to: '/admin/mailboxes/personal',
+          matches: (pathname: string) =>
+            pathname === '/admin/mailboxes/personal',
+        },
+      ],
     })
   }
 
@@ -273,6 +294,22 @@ export function AdminShell(props: {
                           <span>{item.label}</span>
                         </Link>
                       </SidebarMenuButton>
+                      {'children' in item && item.children?.length ? (
+                        <SidebarMenuSub>
+                          {item.children.map((child) => (
+                            <SidebarMenuSubItem key={child.to}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={child.matches(pathname)}
+                              >
+                                <Link to={child.to}>
+                                  <span>{child.label}</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      ) : null}
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
@@ -688,7 +725,19 @@ function getAdminPageLabel(pathname: string) {
     return m.admin_nav_register_app()
   }
 
-  if (pathname === '/admin/mailboxes' || pathname === '/admin/domains') {
+  if (
+    pathname === '/admin/mailboxes' ||
+    pathname === '/admin/mailboxes/domain' ||
+    pathname === '/admin/domains'
+  ) {
+    return m.admin_nav_domain_mailboxes()
+  }
+
+  if (pathname === '/admin/mailboxes/personal') {
+    return m.admin_nav_personal_mailboxes()
+  }
+
+  if (pathname.startsWith('/admin/mailboxes/')) {
     return m.admin_nav_domains()
   }
 

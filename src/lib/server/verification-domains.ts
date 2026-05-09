@@ -248,6 +248,28 @@ export async function listVerificationDomains(): Promise<
     })
 }
 
+export async function listDomainVerificationMailboxes(): Promise<
+  VerificationDomainSummary[]
+> {
+  return (await listVerificationDomains()).filter(
+    (domain) => domain.mailboxType === 'cloudflare',
+  )
+}
+
+export async function listPersonalVerificationMailboxDomains(): Promise<
+  VerificationDomainRow[]
+> {
+  await ensureLegacyVerificationDomainSeeded()
+
+  return getDb().query.verificationDomains.findMany({
+    where: eq(verificationDomains.mailboxType, 'outlook'),
+    orderBy: [
+      asc(verificationDomains.domain),
+      asc(verificationDomains.createdAt),
+    ],
+  })
+}
+
 export async function listRegistrationEnabledVerificationDomains(): Promise<
   VerificationDomainOption[]
 > {
@@ -409,6 +431,15 @@ export async function createVerificationDomain(
   return toSummary(created, 0)
 }
 
+export async function createCloudflareVerificationDomain(
+  input: Omit<CreateVerificationDomainInput, 'mailboxType'>,
+): Promise<VerificationDomainSummary> {
+  return createVerificationDomain({
+    ...input,
+    mailboxType: 'cloudflare',
+  })
+}
+
 export async function updateVerificationDomain(
   id: string,
   input: UpdateVerificationDomainInput,
@@ -420,6 +451,15 @@ export async function updateVerificationDomain(
   })
   if (!existing) {
     throw new Error('Verification mailbox not found')
+  }
+
+  if (
+    input.mailboxType !== undefined &&
+    input.mailboxType !== existing.mailboxType
+  ) {
+    throw new Error(
+      'Mailbox type changes are managed from the domain and personal mailbox pages.',
+    )
   }
 
   if (input.isDefault === false && existing.isDefault) {

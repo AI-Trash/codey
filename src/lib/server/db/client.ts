@@ -17,7 +17,7 @@ declare global {
 }
 
 const MIGRATIONS_FOLDER = path.join(process.cwd(), 'drizzle')
-const SCHEMA_REPAIR_ADVISORY_LOCK_KEY = 2026050901
+const SCHEMA_REPAIR_ADVISORY_LOCK_KEY = 2026050902
 
 function createClient(): SqlClient {
   const { databaseUrl } = getAppEnv()
@@ -144,12 +144,57 @@ async function repairVerificationDomainsSchema(): Promise<void> {
   })
 }
 
+async function repairPersonalMailboxesSchema(): Promise<void> {
+  await getDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(${SCHEMA_REPAIR_ADVISORY_LOCK_KEY})`,
+    )
+
+    await tx.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_enum
+          WHERE enumlabel = 'OUTLOOK_GRAPH'
+            AND enumtypid = 'verification_code_source'::regtype
+        ) THEN
+          ALTER TYPE "verification_code_source" ADD VALUE 'OUTLOOK_GRAPH';
+        END IF;
+
+        CREATE TABLE IF NOT EXISTS "personal_mailbox_credentials" (
+          "id" text PRIMARY KEY NOT NULL,
+          "verification_domain_id" text NOT NULL REFERENCES "verification_domains"("id") ON DELETE cascade,
+          "provider" text DEFAULT 'outlook' NOT NULL,
+          "graph_tenant_id" text DEFAULT 'common' NOT NULL,
+          "graph_client_id" text NOT NULL,
+          "graph_scopes" text DEFAULT 'https://graph.microsoft.com/Mail.Read offline_access' NOT NULL,
+          "graph_refresh_token_ciphertext" text NOT NULL,
+          "graph_refresh_token_preview" text,
+          "password_ciphertext" text,
+          "password_preview" text,
+          "last_graph_read_at" timestamp with time zone,
+          "last_graph_error" text,
+          "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+          "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS "personal_mailbox_credentials_domain_unique"
+          ON "personal_mailbox_credentials" USING btree ("verification_domain_id");
+        CREATE INDEX IF NOT EXISTS "personal_mailbox_credentials_provider_idx"
+          ON "personal_mailbox_credentials" USING btree ("provider");
+      END $$;
+    `)
+  })
+}
+
 async function ensureDatabaseReady(): Promise<void> {
   if (!globalThis.__codeyDbMigrationPromise) {
     globalThis.__codeyDbMigrationPromise = migrate(getDb(), {
       migrationsFolder: MIGRATIONS_FOLDER,
     })
       .then(() => repairVerificationDomainsSchema())
+      .then(() => repairPersonalMailboxesSchema())
       .catch((error) => {
         globalThis.__codeyDbMigrationPromise = undefined
         throw error

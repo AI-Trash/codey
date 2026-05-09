@@ -6,7 +6,6 @@ import { updateVerificationDomain } from '../../../../lib/server/verification-do
 
 interface UpdateVerificationDomainBody {
   domain?: string
-  mailboxType?: 'cloudflare' | 'outlook'
   mailboxPrefix?: string | null
   description?: string | null
   registrationEnabled?: boolean
@@ -33,11 +32,7 @@ export const Route = createFileRoute(
         try {
           const domain = await updateVerificationDomain(params.domainId, {
             domain: typeof body.domain === 'string' ? body.domain : undefined,
-            mailboxType:
-              body.mailboxType === 'cloudflare' ||
-              body.mailboxType === 'outlook'
-                ? body.mailboxType
-                : undefined,
+            mailboxType: 'cloudflare',
             mailboxPrefix:
               typeof body.mailboxPrefix === 'string' ||
               body.mailboxPrefix === null

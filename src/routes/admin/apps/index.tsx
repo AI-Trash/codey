@@ -177,7 +177,9 @@ function AdminAppsListPage() {
             <>
               {data.canManageDomains ? (
                 <Button asChild variant="outline">
-                  <a href="/admin/mailboxes">{m.admin_manage_domains()}</a>
+                  <a href="/admin/mailboxes/domain">
+                    {m.admin_manage_domains()}
+                  </a>
                 </Button>
               ) : null}
               <Button

@@ -39,6 +39,7 @@ import {
 import { sendAstrBotWorkspaceRemovalNotification } from './astrbot'
 import { publishVerificationCodeEvent } from './verification-events'
 import { resolveReservationVerificationDomain } from './verification-domains'
+import type { OutlookGraphCodeLookupResult } from './personal-mailboxes'
 import { removeDisabledSub2ApiAccountsForWorkspace } from './sub2api-codex-oauth'
 import {
   listAdminCliConnectionState,
@@ -1777,7 +1778,7 @@ export async function findVerificationCode(params: {
 
   const startedAt = new Date(params.startedAt)
   const since = Number.isNaN(startedAt.getTime()) ? new Date(0) : startedAt
-  const [codeRows, emailRows] = await Promise.all([
+  let [codeRows, emailRows] = await Promise.all([
     getDb().query.verificationCodes.findMany({
       where: and(
         eq(verificationCodes.reservationId, reservation.id),
@@ -1795,6 +1796,29 @@ export async function findVerificationCode(params: {
       limit: 5,
     }),
   ])
+  let graphResult: OutlookGraphCodeLookupResult | undefined
+
+  if (!codeRows[0]) {
+    const { findOutlookGraphVerificationCode } =
+      await import('./personal-mailboxes')
+    graphResult = await findOutlookGraphVerificationCode({
+      reservationId: reservation.id,
+      email: reservation.email,
+      mailbox: reservation.mailbox,
+      startedAt: since,
+    })
+
+    if (graphResult.code) {
+      codeRows = await getDb().query.verificationCodes.findMany({
+        where: and(
+          eq(verificationCodes.reservationId, reservation.id),
+          gte(verificationCodes.receivedAt, since),
+        ),
+        orderBy: [desc(verificationCodes.receivedAt)],
+        limit: 20,
+      })
+    }
+  }
 
   const emails = emailRows.map((email) => ({
     messageId: email.messageId,
@@ -1804,13 +1828,16 @@ export async function findVerificationCode(params: {
     rawPayload: email.rawPayload,
     receivedAt: email.receivedAt.toISOString(),
   }))
+  const mergedEmails = graphResult?.emails?.length
+    ? [...graphResult.emails, ...emails]
+    : emails
 
   const manualCode = codeRows[0]
   if (!manualCode) {
     return {
       reservationId: reservation.id,
       status: 'pending' as const,
-      emails,
+      emails: mergedEmails,
     }
   }
 
@@ -1820,7 +1847,7 @@ export async function findVerificationCode(params: {
     code: manualCode.code,
     source: manualCode.source,
     receivedAt: manualCode.receivedAt.toISOString(),
-    emails,
+    emails: mergedEmails,
   }
 }
 

@@ -24,9 +24,11 @@ export const deviceChallengeStatusEnum = pgEnum('device_challenge_status', [
 export const verificationCodeSourceEnum = pgEnum('verification_code_source', [
   'MANUAL',
   'CLOUDFLARE_EMAIL',
+  'OUTLOOK_GRAPH',
   'WHATSAPP_NOTIFICATION',
 ])
 export type VerificationMailboxType = 'cloudflare' | 'outlook'
+export type PersonalMailboxProvider = 'outlook'
 export const flowAppRequestStatusEnum = pgEnum('flow_app_request_status', [
   'PENDING',
   'IN_REVIEW',
@@ -959,6 +961,54 @@ export const verificationDomains = pgTable(
   ],
 )
 
+export const personalMailboxCredentials = pgTable(
+  'personal_mailbox_credentials',
+  {
+    id: text('id').primaryKey(),
+    verificationDomainId: text('verification_domain_id')
+      .notNull()
+      .references(() => verificationDomains.id, { onDelete: 'cascade' }),
+    provider: text('provider')
+      .$type<PersonalMailboxProvider>()
+      .default('outlook')
+      .notNull(),
+    graphTenantId: text('graph_tenant_id').default('common').notNull(),
+    graphClientId: text('graph_client_id').notNull(),
+    graphScopes: text('graph_scopes')
+      .default('https://graph.microsoft.com/Mail.Read offline_access')
+      .notNull(),
+    graphRefreshTokenCiphertext: text(
+      'graph_refresh_token_ciphertext',
+    ).notNull(),
+    graphRefreshTokenPreview: text('graph_refresh_token_preview'),
+    passwordCiphertext: text('password_ciphertext'),
+    passwordPreview: text('password_preview'),
+    lastGraphReadAt: timestamp('last_graph_read_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    lastGraphError: text('last_graph_error'),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'date',
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex('personal_mailbox_credentials_domain_unique').on(
+      table.verificationDomainId,
+    ),
+    index('personal_mailbox_credentials_provider_idx').on(table.provider),
+  ],
+)
+
 export const proxyNodes = pgTable(
   'proxy_nodes',
   {
@@ -1433,8 +1483,22 @@ export const workspaceInviteAuthorizeWorkflowsRelations = relations(
 
 export const verificationDomainsRelations = relations(
   verificationDomains,
-  ({ many }) => ({
+  ({ many, one }) => ({
     oauthClients: many(oauthClients),
+    personalMailboxCredential: one(personalMailboxCredentials, {
+      fields: [verificationDomains.id],
+      references: [personalMailboxCredentials.verificationDomainId],
+    }),
+  }),
+)
+
+export const personalMailboxCredentialsRelations = relations(
+  personalMailboxCredentials,
+  ({ one }) => ({
+    verificationDomain: one(verificationDomains, {
+      fields: [personalMailboxCredentials.verificationDomainId],
+      references: [verificationDomains.id],
+    }),
   }),
 )
 
@@ -1512,6 +1576,8 @@ export type ManagedWorkspaceMemberRow =
 export type WorkspaceInviteAuthorizeWorkflowRow =
   typeof workspaceInviteAuthorizeWorkflows.$inferSelect
 export type VerificationDomainRow = typeof verificationDomains.$inferSelect
+export type PersonalMailboxCredentialRow =
+  typeof personalMailboxCredentials.$inferSelect
 export type ProxyNodeRow = typeof proxyNodes.$inferSelect
 export type OAuthClientRow = typeof oauthClients.$inferSelect
 export type ExternalServiceConfigRow =

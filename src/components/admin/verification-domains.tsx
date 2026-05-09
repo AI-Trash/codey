@@ -10,7 +10,6 @@ import {
   CardTitle,
 } from '#/components/ui/card'
 import { Checkbox } from '#/components/ui/checkbox'
-import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import {
   Dialog,
   DialogContent,
@@ -42,7 +41,6 @@ type VerificationMailboxType = 'cloudflare' | 'outlook'
 
 type VerificationDomainFormValues = {
   domain: string
-  mailboxType: VerificationMailboxType
   mailboxPrefix: string
   description: string
   registrationEnabled: boolean
@@ -141,7 +139,6 @@ export function CreateVerificationDomainDialog({
         },
         body: JSON.stringify({
           domain: form.domain,
-          mailboxType: form.mailboxType,
           mailboxPrefix: form.mailboxPrefix.trim() || null,
           description: form.description.trim() || undefined,
           registrationEnabled: form.registrationEnabled,
@@ -182,43 +179,20 @@ export function CreateVerificationDomainDialog({
         </DialogHeader>
 
         <form className="grid gap-4" onSubmit={handleCreate}>
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-            <Field label={m.domain_field_type()}>
-              <NativeSelect
-                value={form.mailboxType}
-                onChange={(event) => {
-                  const nextValue = normalizeMailboxType(event.target.value)
-                  setForm((current) => ({
-                    ...current,
-                    mailboxType: nextValue,
-                  }))
-                }}
-                className="w-full"
-              >
-                <NativeSelectOption value="cloudflare">
-                  {m.domain_type_cloudflare()}
-                </NativeSelectOption>
-                <NativeSelectOption value="outlook">
-                  {m.domain_type_outlook()}
-                </NativeSelectOption>
-              </NativeSelect>
-            </Field>
-
-            <Field label={m.domain_field_domain()}>
-              <Input
-                value={form.domain}
-                onChange={(event) => {
-                  const nextValue = event.target.value
-                  setForm((current) => ({ ...current, domain: nextValue }))
-                }}
-                placeholder={getMailboxAddressPlaceholder(form.mailboxType)}
-                required
-              />
-            </Field>
-          </div>
+          <Field label={m.domain_field_domain()}>
+            <Input
+              value={form.domain}
+              onChange={(event) => {
+                const nextValue = event.target.value
+                setForm((current) => ({ ...current, domain: nextValue }))
+              }}
+              placeholder={m.domain_field_domain_placeholder()}
+              required
+            />
+          </Field>
 
           <FieldDescription>
-            {getMailboxTypeDescription(form.mailboxType)}
+            {m.domain_type_cloudflare_description()}
           </FieldDescription>
 
           <Field label={m.domain_field_mailbox_prefix()}>
@@ -304,7 +278,6 @@ function VerificationDomainCard({
     try {
       const payload = {
         domain: overrides?.domain ?? form.domain,
-        mailboxType: overrides?.mailboxType ?? form.mailboxType,
         mailboxPrefix:
           (overrides?.mailboxPrefix ?? form.mailboxPrefix).trim() || null,
         description:
@@ -362,9 +335,7 @@ function VerificationDomainCard({
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle className="text-lg">{domain.domain}</CardTitle>
-              <Badge variant="secondary">
-                {getMailboxTypeLabel(domain.mailboxType)}
-              </Badge>
+              <Badge variant="secondary">{m.domain_type_cloudflare()}</Badge>
               {domain.isDefault ? (
                 <Badge>{m.domain_badge_default()}</Badge>
               ) : null}
@@ -386,28 +357,7 @@ function VerificationDomainCard({
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,200px)_minmax(0,1fr)_minmax(0,240px)_220px]">
-          <Field label={m.domain_field_type()}>
-            <NativeSelect
-              value={form.mailboxType}
-              onChange={(event) => {
-                const nextValue = normalizeMailboxType(event.target.value)
-                setForm((current) => ({
-                  ...current,
-                  mailboxType: nextValue,
-                }))
-              }}
-              className="w-full"
-            >
-              <NativeSelectOption value="cloudflare">
-                {m.domain_type_cloudflare()}
-              </NativeSelectOption>
-              <NativeSelectOption value="outlook">
-                {m.domain_type_outlook()}
-              </NativeSelectOption>
-            </NativeSelect>
-          </Field>
-
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,240px)_220px]">
           <Field label={m.domain_field_domain()}>
             <Input
               value={form.domain}
@@ -415,7 +365,7 @@ function VerificationDomainCard({
                 const nextValue = event.target.value
                 setForm((current) => ({ ...current, domain: nextValue }))
               }}
-              placeholder={getMailboxAddressPlaceholder(form.mailboxType)}
+              placeholder={m.domain_field_domain_placeholder()}
             />
           </Field>
 
@@ -441,7 +391,7 @@ function VerificationDomainCard({
         </div>
 
         <FieldDescription>
-          {getMailboxTypeDescription(form.mailboxType)}
+          {m.domain_type_cloudflare_description()}
         </FieldDescription>
 
         <Field label={m.domain_field_description()}>
@@ -552,7 +502,6 @@ function toFormValues(
 ): VerificationDomainFormValues {
   return {
     domain: domain.domain,
-    mailboxType: domain.mailboxType,
     mailboxPrefix: domain.mailboxPrefix || '',
     description: domain.description || '',
     registrationEnabled: domain.registrationEnabled,
@@ -565,34 +514,11 @@ function createNewVerificationDomainFormValues(
 ): VerificationDomainFormValues {
   return {
     domain: '',
-    mailboxType: 'cloudflare',
     mailboxPrefix: '',
     description: '',
     registrationEnabled: true,
     isDefault: !hasExistingDomains,
   }
-}
-
-function normalizeMailboxType(value: string): VerificationMailboxType {
-  return value === 'outlook' ? 'outlook' : 'cloudflare'
-}
-
-function getMailboxTypeLabel(type: VerificationMailboxType) {
-  return type === 'outlook'
-    ? m.domain_type_outlook()
-    : m.domain_type_cloudflare()
-}
-
-function getMailboxTypeDescription(type: VerificationMailboxType) {
-  return type === 'outlook'
-    ? m.domain_type_outlook_description()
-    : m.domain_type_cloudflare_description()
-}
-
-function getMailboxAddressPlaceholder(type: VerificationMailboxType) {
-  return type === 'outlook'
-    ? m.domain_field_outlook_mailbox_placeholder()
-    : m.domain_field_domain_placeholder()
 }
 
 function sortDomains(domains: ManagedVerificationDomain[]) {
