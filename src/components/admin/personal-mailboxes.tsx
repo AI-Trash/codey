@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { AlertCircleIcon, FileUpIcon, RefreshCwIcon } from 'lucide-react'
+import {
+  AlertCircleIcon,
+  CalendarPlusIcon,
+  ClipboardCopyIcon,
+  FileUpIcon,
+  RefreshCwIcon,
+} from 'lucide-react'
 
 import {
   EmptyState,
@@ -65,6 +71,25 @@ type ImportResult = {
   }>
 }
 
+type ExportedAccessToken = {
+  mailboxId: string
+  email: string
+  provider: 'outlook'
+  accessToken: string
+  tokenType: string
+  expiresIn: number | null
+  expiresAt: string | null
+  scope: string | null
+}
+
+type ManualReservation = {
+  reservationId: string
+  mailboxId: string
+  email: string
+  mailbox: string
+  expiresAt: string
+}
+
 export function PersonalMailboxesPageContent({
   initialMailboxes,
 }: {
@@ -73,6 +98,12 @@ export function PersonalMailboxesPageContent({
   const [mailboxes, setMailboxes] = useState(initialMailboxes)
   const [importOpen, setImportOpen] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [exportingMailboxId, setExportingMailboxId] = useState<string | null>(
+    null,
+  )
+  const [reservingMailboxId, setReservingMailboxId] = useState<string | null>(
+    null,
+  )
 
   useEffect(() => {
     setMailboxes(initialMailboxes)
@@ -91,6 +122,92 @@ export function PersonalMailboxesPageContent({
     () => mailboxes.filter((mailbox) => mailbox.status === 'configured').length,
     [mailboxes],
   )
+
+  async function copyAccessToken(mailbox: ManagedPersonalMailbox) {
+    setExportingMailboxId(mailbox.id)
+
+    try {
+      ensureClipboardAvailable()
+      const response = await fetch(
+        `/api/admin/personal-mailboxes/${encodeURIComponent(mailbox.id)}/access-token`,
+        {
+          method: 'POST',
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      const data = (await response.json()) as {
+        token: ExportedAccessToken
+      }
+      await writeClipboardText(data.token.accessToken)
+      showAppToast({
+        kind: 'success',
+        title: m.personal_mailbox_access_token_copy_success_title(),
+        description: data.token.expiresAt
+          ? m.personal_mailbox_access_token_copy_success_description({
+              expiresAt:
+                formatAdminDate(data.token.expiresAt) || data.token.expiresAt,
+            })
+          : m.personal_mailbox_access_token_copy_success_description_unknown(),
+      })
+    } catch (error) {
+      showAppToast({
+        kind: 'error',
+        title: m.personal_mailbox_access_token_copy_failed_title(),
+        description: getToastErrorDescription(
+          error,
+          m.personal_mailbox_access_token_copy_failed_description(),
+        ),
+      })
+    } finally {
+      setExportingMailboxId(null)
+    }
+  }
+
+  async function createManualReservation(mailbox: ManagedPersonalMailbox) {
+    setReservingMailboxId(mailbox.id)
+
+    try {
+      const response = await fetch(
+        `/api/admin/personal-mailboxes/${encodeURIComponent(mailbox.id)}/reservation`,
+        {
+          method: 'POST',
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(await response.text())
+      }
+
+      const data = (await response.json()) as {
+        reservation: ManualReservation
+      }
+      showAppToast({
+        kind: 'success',
+        title: m.personal_mailbox_manual_reservation_success_title(),
+        description: m.personal_mailbox_manual_reservation_success_description({
+          email: data.reservation.email,
+          expiresAt:
+            formatAdminDate(data.reservation.expiresAt) ||
+            data.reservation.expiresAt,
+        }),
+      })
+    } catch (error) {
+      showAppToast({
+        kind: 'error',
+        title: m.personal_mailbox_manual_reservation_failed_title(),
+        description: getToastErrorDescription(
+          error,
+          m.personal_mailbox_manual_reservation_failed_description(),
+        ),
+      })
+    } finally {
+      setReservingMailboxId(null)
+    }
+  }
 
   return (
     <div className="grid gap-4">
@@ -148,6 +265,9 @@ export function PersonalMailboxesPageContent({
                   </TableHead>
                   <TableHead>{m.personal_mailbox_table_token()}</TableHead>
                   <TableHead>{m.personal_mailbox_table_last_read()}</TableHead>
+                  <TableHead className="text-right">
+                    {m.personal_mailbox_table_actions()}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -203,6 +323,52 @@ export function PersonalMailboxesPageContent({
                         {formatAdminDate(mailbox.lastGraphReadAt) ||
                           m.personal_mailbox_never_read()}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            mailbox.status === 'missing_credentials' ||
+                            reservingMailboxId === mailbox.id
+                          }
+                          onClick={() => {
+                            void createManualReservation(mailbox)
+                          }}
+                        >
+                          {reservingMailboxId === mailbox.id ? (
+                            <RefreshCwIcon className="animate-spin" />
+                          ) : (
+                            <CalendarPlusIcon />
+                          )}
+                          {reservingMailboxId === mailbox.id
+                            ? m.personal_mailbox_manual_reservation_creating()
+                            : m.personal_mailbox_create_manual_reservation()}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={
+                            mailbox.status === 'missing_credentials' ||
+                            exportingMailboxId === mailbox.id
+                          }
+                          onClick={() => {
+                            void copyAccessToken(mailbox)
+                          }}
+                        >
+                          {exportingMailboxId === mailbox.id ? (
+                            <RefreshCwIcon className="animate-spin" />
+                          ) : (
+                            <ClipboardCopyIcon />
+                          )}
+                          {exportingMailboxId === mailbox.id
+                            ? m.personal_mailbox_access_token_copying()
+                            : m.personal_mailbox_copy_access_token()}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -413,5 +579,17 @@ function getMailboxStatusTone(
       return 'danger'
     default:
       return 'warning'
+  }
+}
+
+async function writeClipboardText(value: string) {
+  ensureClipboardAvailable()
+
+  await navigator.clipboard.writeText(value)
+}
+
+function ensureClipboardAvailable() {
+  if (typeof navigator === 'undefined' || !navigator.clipboard) {
+    throw new Error(m.clipboard_copy_error())
   }
 }

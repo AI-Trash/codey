@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   createId: vi.fn(() => 'generated-id'),
@@ -34,9 +34,15 @@ vi.mock('./verification-events', () => ({
 }))
 
 import {
+  createManualPersonalMailboxReservation,
+  exportPersonalMailboxAccessToken,
   findOutlookGraphVerificationCode,
   importPersonalMailboxesFromCsv,
 } from './personal-mailboxes'
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 function createInsertChain(returnedRows: unknown[]) {
   const returning = vi.fn().mockResolvedValue(returnedRows)
@@ -404,6 +410,188 @@ describe('personal mailbox Graph verification lookup', () => {
         email: 'person@example.com',
         code: '123456',
         source: 'OUTLOOK_GRAPH',
+      }),
+    )
+  })
+
+  it('exports a fresh access token and stores rotated refresh tokens', async () => {
+    const now = new Date('2026-05-09T00:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+
+    const domain = {
+      id: 'mailbox-token',
+      domain: 'token@example.com',
+      mailboxType: 'outlook' as const,
+      mailboxPrefix: null,
+      description: null,
+      registrationEnabled: true,
+      isDefault: false,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const credential = {
+      id: 'credential-token',
+      verificationDomainId: domain.id,
+      provider: 'outlook' as const,
+      graphTenantId: 'common',
+      graphClientId: 'client-id',
+      graphScopes: 'https://graph.microsoft.com/Mail.Read offline_access',
+      graphRefreshTokenCiphertext: 'encrypted:old-refresh-token',
+      graphRefreshTokenPreview: '****token',
+      passwordCiphertext: null,
+      passwordPreview: null,
+      lastGraphReadAt: null,
+      lastGraphError: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const updateWhere = vi.fn()
+    const updateSet = vi.fn(() => ({ where: updateWhere }))
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce(domain)
+      .mockResolvedValueOnce(credential)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationDomains: {
+          findFirst,
+        },
+        personalMailboxCredentials: {
+          findFirst,
+        },
+      },
+      update: vi.fn(() => ({ set: updateSet })),
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            access_token: 'fresh-access-token',
+            refresh_token: 'new-refresh-token',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            scope: 'https://graph.microsoft.com/Mail.Read',
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+
+    await expect(
+      exportPersonalMailboxAccessToken('mailbox-token'),
+    ).resolves.toEqual({
+      mailboxId: 'mailbox-token',
+      email: 'token@example.com',
+      provider: 'outlook',
+      accessToken: 'fresh-access-token',
+      tokenType: 'Bearer',
+      expiresIn: 3600,
+      expiresAt: '2026-05-09T01:00:00.000Z',
+      scope: 'https://graph.microsoft.com/Mail.Read',
+    })
+
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        graphRefreshTokenCiphertext: 'encrypted:new-refresh-token',
+        graphRefreshTokenPreview: '****-token',
+      }),
+    )
+    expect(mocks.decryptSecret).toHaveBeenCalledWith(
+      'encrypted:old-refresh-token',
+      'decrypt an Outlook Graph refresh token',
+    )
+  })
+
+  it('creates a short-lived manual reservation for a personal mailbox', async () => {
+    const now = new Date('2026-05-09T00:00:00.000Z')
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+    mocks.createId.mockReset()
+    mocks.createId.mockReturnValue('manual-reservation-id')
+
+    const domain = {
+      id: 'mailbox-manual',
+      domain: 'manual@example.com',
+      mailboxType: 'outlook' as const,
+      mailboxPrefix: null,
+      description: null,
+      registrationEnabled: true,
+      isDefault: false,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const credential = {
+      id: 'credential-manual',
+      verificationDomainId: domain.id,
+      provider: 'outlook' as const,
+      graphTenantId: 'common',
+      graphClientId: 'client-id',
+      graphScopes: 'https://graph.microsoft.com/Mail.Read offline_access',
+      graphRefreshTokenCiphertext: 'encrypted:refresh-token',
+      graphRefreshTokenPreview: '****token',
+      passwordCiphertext: null,
+      passwordPreview: null,
+      lastGraphReadAt: null,
+      lastGraphError: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    const reservation = {
+      id: 'manual-reservation-id',
+      email: 'manual@example.com',
+      prefix: null,
+      mailbox: 'manual@example.com',
+      identityId: null,
+      createdAt: now,
+      expiresAt: new Date('2026-05-09T00:01:00.000Z'),
+      updatedAt: now,
+    }
+    const returning = vi.fn().mockResolvedValue([reservation])
+    const onConflictDoUpdate = vi.fn(() => ({ returning }))
+    const values = vi.fn(() => ({ onConflictDoUpdate }))
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce(domain)
+      .mockResolvedValueOnce(credential)
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationDomains: {
+          findFirst,
+        },
+        personalMailboxCredentials: {
+          findFirst,
+        },
+      },
+      insert: vi.fn(() => ({ values })),
+    })
+
+    await expect(
+      createManualPersonalMailboxReservation('mailbox-manual'),
+    ).resolves.toEqual({
+      reservationId: 'manual-reservation-id',
+      mailboxId: 'mailbox-manual',
+      email: 'manual@example.com',
+      mailbox: 'manual@example.com',
+      expiresAt: '2026-05-09T00:01:00.000Z',
+    })
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'manual-reservation-id',
+        email: 'manual@example.com',
+        mailbox: 'manual@example.com',
+        expiresAt: new Date('2026-05-09T00:01:00.000Z'),
+      }),
+    )
+    expect(onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({
+          mailbox: 'manual@example.com',
+          expiresAt: new Date('2026-05-09T00:01:00.000Z'),
+        }),
       }),
     )
   })

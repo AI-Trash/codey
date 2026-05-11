@@ -7,6 +7,7 @@ import {
   emailIngestRecords,
   personalMailboxCredentials,
   verificationCodes,
+  verificationEmailReservations,
   verificationDomains,
   type PersonalMailboxCredentialRow,
   type VerificationDomainRow,
@@ -102,13 +103,41 @@ export interface OutlookGraphCodeLookupResult {
   receivedAt?: string
 }
 
+export interface OutlookGraphAccessTokenExport {
+  mailboxId: string
+  email: string
+  provider: 'outlook'
+  accessToken: string
+  tokenType: string
+  expiresIn: number | null
+  expiresAt: string | null
+  scope: string | null
+}
+
+export interface PersonalMailboxManualReservation {
+  reservationId: string
+  mailboxId: string
+  email: string
+  mailbox: string
+  expiresAt: string
+}
+
 export type PersonalMailboxCredentialInsert =
   typeof personalMailboxCredentials.$inferInsert
+
+interface OutlookGraphTokenResult {
+  accessToken: string
+  tokenType: string
+  expiresIn: number | null
+  expiresAt: Date | null
+  scope: string | null
+}
 
 const DEFAULT_GRAPH_TENANT_ID = 'common'
 const DEFAULT_GRAPH_SCOPES =
   'https://graph.microsoft.com/Mail.Read offline_access'
 const MAX_GRAPH_MESSAGES_PER_LOOKUP = 25
+const MANUAL_PERSONAL_MAILBOX_RESERVATION_TTL_MS = 60 * 1000
 
 function normalizeOptionalString(value: string | null | undefined) {
   const normalized = value?.trim()
@@ -519,9 +548,20 @@ async function syncOutlookGraphVerificationEmail(params: {
   return emailRecord || null
 }
 
-async function acquireOutlookGraphAccessToken(
+function readTokenExpiresIn(value: unknown): number | null {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseInt(value, 10)
+        : Number.NaN
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+async function refreshOutlookGraphAccessToken(
   credential: PersonalMailboxCredentialRow,
-): Promise<string> {
+): Promise<OutlookGraphTokenResult> {
   const refreshToken = decryptSecret(
     credential.graphRefreshTokenCiphertext,
     'decrypt an Outlook Graph refresh token',
@@ -547,6 +587,9 @@ async function acquireOutlookGraphAccessToken(
   const token = (await response.json()) as {
     access_token?: string
     refresh_token?: string
+    token_type?: string
+    expires_in?: number | string
+    scope?: string
     error?: string
     error_description?: string
   }
@@ -571,7 +614,21 @@ async function acquireOutlookGraphAccessToken(
       .where(eq(personalMailboxCredentials.id, credential.id))
   }
 
-  return token.access_token
+  const expiresIn = readTokenExpiresIn(token.expires_in)
+
+  return {
+    accessToken: token.access_token,
+    tokenType: token.token_type?.trim() || 'Bearer',
+    expiresIn,
+    expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000) : null,
+    scope: token.scope?.trim() || credential.graphScopes || null,
+  }
+}
+
+async function acquireOutlookGraphAccessToken(
+  credential: PersonalMailboxCredentialRow,
+): Promise<string> {
+  return (await refreshOutlookGraphAccessToken(credential)).accessToken
 }
 
 async function fetchOutlookInboxMessages(
@@ -838,6 +895,116 @@ export async function importPersonalMailboxesFromCsv(
   }
 
   return { imported, failed }
+}
+
+export async function exportPersonalMailboxAccessToken(
+  mailboxId: string,
+): Promise<OutlookGraphAccessTokenExport | null> {
+  const normalizedMailboxId = normalizeOptionalString(mailboxId)
+  if (!normalizedMailboxId) {
+    return null
+  }
+
+  const domain = await getDb().query.verificationDomains.findFirst({
+    where: eq(verificationDomains.id, normalizedMailboxId),
+  })
+  if (!domain || domain.mailboxType !== 'outlook') {
+    return null
+  }
+
+  const credential = await getDb().query.personalMailboxCredentials.findFirst({
+    where: eq(personalMailboxCredentials.verificationDomainId, domain.id),
+  })
+  if (!credential) {
+    throw new Error('Personal mailbox credentials are missing.')
+  }
+
+  try {
+    const token = await refreshOutlookGraphAccessToken(credential)
+    return {
+      mailboxId: domain.id,
+      email: domain.domain,
+      provider: 'outlook',
+      accessToken: token.accessToken,
+      tokenType: token.tokenType,
+      expiresIn: token.expiresIn,
+      expiresAt: token.expiresAt?.toISOString() || null,
+      scope: token.scope,
+    }
+  } catch (error) {
+    await getDb()
+      .update(personalMailboxCredentials)
+      .set({
+        lastGraphError:
+          error instanceof Error
+            ? error.message.slice(0, 500)
+            : 'Microsoft Graph token export failed.',
+        updatedAt: new Date(),
+      })
+      .where(eq(personalMailboxCredentials.id, credential.id))
+    throw error
+  }
+}
+
+export async function createManualPersonalMailboxReservation(
+  mailboxId: string,
+): Promise<PersonalMailboxManualReservation | null> {
+  const normalizedMailboxId = normalizeOptionalString(mailboxId)
+  if (!normalizedMailboxId) {
+    return null
+  }
+
+  const domain = await getDb().query.verificationDomains.findFirst({
+    where: eq(verificationDomains.id, normalizedMailboxId),
+  })
+  if (!domain || domain.mailboxType !== 'outlook') {
+    return null
+  }
+
+  const credential = await getDb().query.personalMailboxCredentials.findFirst({
+    where: eq(personalMailboxCredentials.verificationDomainId, domain.id),
+  })
+  if (!credential) {
+    throw new Error('Personal mailbox credentials are missing.')
+  }
+
+  const now = new Date()
+  const expiresAt = new Date(
+    now.getTime() + MANUAL_PERSONAL_MAILBOX_RESERVATION_TTL_MS,
+  )
+  const [reservation] = await getDb()
+    .insert(verificationEmailReservations)
+    .values({
+      id: createId(),
+      email: domain.domain,
+      prefix: undefined,
+      mailbox: domain.domain,
+      identityId: null,
+      expiresAt,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: verificationEmailReservations.email,
+      set: {
+        prefix: null,
+        mailbox: domain.domain,
+        expiresAt,
+        updatedAt: now,
+      },
+    })
+    .returning()
+
+  if (!reservation) {
+    throw new Error('Unable to create personal mailbox reservation.')
+  }
+
+  return {
+    reservationId: reservation.id,
+    mailboxId: domain.id,
+    email: reservation.email,
+    mailbox: reservation.mailbox || domain.domain,
+    expiresAt: reservation.expiresAt.toISOString(),
+  }
 }
 
 export async function findOutlookGraphVerificationCode(params: {

@@ -1,7 +1,7 @@
 import '@tanstack/react-start/server-only'
 
 import crypto from 'node:crypto'
-import { asc, eq, inArray, or } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, or } from 'drizzle-orm'
 import { getDb } from './db/client'
 import {
   verificationEmailReservations,
@@ -375,14 +375,17 @@ export async function resolveReservationVerificationDomain(options?: {
     const activeReservations =
       await getDb().query.verificationEmailReservations.findMany({
         columns: { email: true, mailbox: true },
-        where: or(
-          inArray(
-            verificationEmailReservations.email,
-            personalMailboxDomains.map((domain) => domain.domain),
-          ),
-          inArray(
-            verificationEmailReservations.mailbox,
-            personalMailboxDomains.map((domain) => domain.domain),
+        where: and(
+          gt(verificationEmailReservations.expiresAt, new Date()),
+          or(
+            inArray(
+              verificationEmailReservations.email,
+              personalMailboxDomains.map((domain) => domain.domain),
+            ),
+            inArray(
+              verificationEmailReservations.mailbox,
+              personalMailboxDomains.map((domain) => domain.domain),
+            ),
           ),
         ),
       })

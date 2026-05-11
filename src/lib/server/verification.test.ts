@@ -376,6 +376,60 @@ describe('verification email reservations', () => {
       }),
     )
   })
+
+  it('allows personal mailboxes whose previous reservation expired', async () => {
+    const reservation = {
+      id: 'reservation-id',
+      email: 'used@outlook.example.com',
+      prefix: null,
+      mailbox: 'used@outlook.example.com',
+      expiresAt: new Date('2026-05-03T00:15:00.000Z'),
+    }
+    const reservationInsert = createReservationInsertChain([reservation])
+    const reservationFindMany = vi.fn().mockResolvedValue([])
+
+    mocks.getDb.mockReturnValue({
+      query: {
+        verificationDomains: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: 'mailbox-used',
+              domain: 'used@outlook.example.com',
+              mailboxType: 'outlook',
+              mailboxPrefix: null,
+              registrationEnabled: true,
+              isDefault: false,
+              createdAt: new Date('2026-05-03T00:00:00.000Z'),
+            },
+          ]),
+        },
+        verificationEmailReservations: {
+          findMany: reservationFindMany,
+        },
+      },
+      insert: vi.fn(() => ({
+        values: reservationInsert.values,
+      })),
+    })
+
+    await expect(reserveVerificationEmailTarget()).resolves.toMatchObject({
+      email: 'used@outlook.example.com',
+      mailbox: 'used@outlook.example.com',
+    })
+
+    expect(reservationFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.anything(),
+      }),
+    )
+    expect(reservationInsert.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'used@outlook.example.com',
+        mailbox: 'used@outlook.example.com',
+      }),
+    )
+  })
 })
 
 describe('ChatGPT Business trial-ended email handling', () => {
