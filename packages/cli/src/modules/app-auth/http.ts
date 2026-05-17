@@ -1,4 +1,5 @@
 import { getRuntimeConfig } from '../../config'
+import { sanitizeText, sanitizeUrlString } from '../../utils/redaction'
 
 export const DEFAULT_CODEY_APP_BASE_URL = 'http://localhost:3000'
 
@@ -27,7 +28,13 @@ export function resolveAppWebSocketUrl(pathname: string): string {
 export async function ensureJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.text().catch(() => '')
-    throw new Error(body || `Request failed with ${response.status}`)
+    const responseUrl = response.url ? ` ${sanitizeUrlString(response.url)}` : ''
+    const message = body.trim()
+      ? sanitizeText(body.trim())
+      : response.statusText.trim() || 'Request failed'
+    throw new Error(
+      `Request${responseUrl} failed with ${response.status}: ${message}`,
+    )
   }
   return response.json() as Promise<T>
 }

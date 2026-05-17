@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { json } from '../../../lib/server/http'
+import { json, text } from '../../../lib/server/http'
 import { VERIFICATION_RESERVE_SCOPE } from '../../../lib/server/oauth-scopes'
 import { authorizeVerificationAccess } from '../../../lib/server/request'
 import { reserveVerificationEmailTarget } from '../../../lib/server/verification'
@@ -13,8 +13,17 @@ export const Route = createFileRoute('/api/verification/email-reservations')({
         ])
         if (authResult instanceof Response) return authResult
 
-        const reservation = await reserveVerificationEmailTarget()
-        return json(reservation, 201)
+        try {
+          const reservation = await reserveVerificationEmailTarget()
+          return json(reservation, 201)
+        } catch (error) {
+          return text(
+            error instanceof Error
+              ? error.message
+              : 'Unable to reserve verification email target',
+            500,
+          )
+        }
       },
     },
   },

@@ -19,7 +19,7 @@ import {
   setRuntimeConfig,
   type CliRuntimeConfig,
 } from '../src/config'
-import { resolveAppBaseUrl } from '../src/modules/app-auth/http'
+import { ensureJson, resolveAppBaseUrl } from '../src/modules/app-auth/http'
 
 const tempRoot = path.join(os.tmpdir(), `codey-cli-test-${process.pid}`)
 
@@ -101,6 +101,27 @@ describe('app auth OIDC helpers', () => {
         oidcBasePath: '/oidc',
       }),
     ).toBe('http://localhost:3000/oidc/.well-known/openid-configuration')
+  })
+
+  it('includes request context when JSON responses fail', async () => {
+    const response = new Response(
+      JSON.stringify({
+        status: 500,
+        unhandled: true,
+        message: 'HTTPError',
+      }),
+      {
+        status: 500,
+      },
+    )
+    Object.defineProperty(response, 'url', {
+      value:
+        'https://codey.example.com/api/verification/email-reservations?token=secret-token',
+    })
+
+    await expect(ensureJson(response)).rejects.toThrow(
+      'Request https://codey.example.com/api/verification/email-reservations failed with 500: {"status":500,"unhandled":true,"message":"HTTPError"}',
+    )
   })
 
   it('applies oidcBasePath to a root issuer override', () => {
